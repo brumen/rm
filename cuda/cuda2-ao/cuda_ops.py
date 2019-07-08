@@ -2,7 +2,9 @@
 # GPUArrayAO - an extension of the GPUArray class for AirOptions.
 import numpy as np
 import os.path
+import functools
 
+# CUDA related imports
 import pycuda.autoinit  # IMPORTANT: DO NOT REMOVE, this has to be here.
 import pycuda.driver as drv
 import pycuda.gpuarray as gpa
@@ -13,13 +15,10 @@ from pycuda.elementwise import ElementwiseKernel
 import skcuda.cublas as cublas  # skcuda bindings to cublas
 # import cublas
 
-import config
-
 
 class GPUArrayAO(GPUArray):
     """ Subclass of GPU array used for air-options.
     """
-
 
     gpu_set_const_float_k = ElementwiseKernel('float *m_new, float a',
                                               'm_new[i] = a;',
@@ -59,85 +58,94 @@ class GPUArrayAO(GPUArray):
 
         return m_new
 
+    # Next block if for vector */+ vetctor to generate a matrix.
+    @property
+    @functools.lru_cache(maxsize=2)
+    def __vtvpm_code(self):
+        """ Reading the code of the vtvpm file and caching it.
+        """
 
+        with open(os.path.join('vtvpm.c'), 'r') as vtvpm_file:
+            return SourceModule(vtvpm_file.read())
 
-# vector times vector - constructing a matrix, first vec is column, second is row
+    @property
+    @functools.lru_cache(maxsize=4)
+    def __vtpv_f(self, tm_ind='p'):
+        return self.__vtvpm_code.get_function('vpv' if tm_ind == 'p' else 'vtv')
 
-vtvpm_code = open(os.path.join(config.work_dir, 'cuda', 'vtvpm.c'), 'r').read()
-# vector + vector function on rows
-vtvpm_module = SourceModule(vtvpm_code)
-vpv_f = vtvpm_module.get_function("vpv")
-vtv_f = vtvpm_module.get_function("vtv")
-vpv_double_f = vtvpm_module.get_function("vpv_double")
-vtv_double_f = vtvpm_module.get_function("vtv_double")
-vpv_double_f_slow = vtvpm_module.get_function("vpv_double_slow")
-vtv_double_f_slow = vtvpm_module.get_function("vtv_double_slow")
+    @property
+    @functools.lru_cache(maxsize=4)
+    def __vtpv_double_f(self, tm_ind='p'):
+        return self.__vtvpm_code.get_function('vpv_double' if tm_ind == 'p' else 'vtv_double')
 
+    @property
+    @functools.lru_cache(maxsize=4)
+    def __vtpv_double_f_slow(self, tm_ind='p'):
+        return self.__vtvpm_code.get_function('vpv_double_slow' if tm_ind == 'p' else 'vtv_double_slow')
 
-def vtpv_old(v1, v2, tm_ind='p', transpose_ind=False):
-    """
-    WORSE VERSION OF THE FUNCTION BELOW
-    vector times/plus vector - constructs a matrix
-    :param v1, v2: 2 vectors, first serves as column vector, second as row vector
-    :param tm_ind: 'p' for summation (plus), 't' for multiplication
-    RESTRICTION: size of v2, the number of columns, _has_ to be smaller than 64
-    """
-    m_rows = len(v1)
-    m_cols = len(v2)
-    type_used = v1.dtype  # v1 and v2 are of the same type
-    # if not transpose_ind:
-    m_new = gpa.empty((m_rows, m_cols), dtype=type_used)
+    def vtpv(self, v2, tm_ind='p', transpose_ind=False):
+        """ vector times/plus vector - constructs a matrix
+        TODO: AT SOME POINT REWRITE THIS AS __add__ METHOD!!!
 
-    if type_used == np.float32:
-        vtpv_f = {'t': vtv_f, 'p': vpv_f}
-    else:
-        vtpv_f = {'t': vtv_double_f, 'p': vpv_double_f}
+        :param v1, v2: 2 vectors, first serves as column vector, second as row vector
+        :param tm_ind: 'p' for summation (plus), 't' for multiplication
+        RESTRICTION: size of v2, the number of columns, _has_ to be smaller than 64
+        """
 
-    rows_to_do = m_rows/1024 + 1  # 1024 ... nb_rows/1024 threads
-    block_dims = (1024, 1, 1)
-    grid_dims = (65535, 1)
-    vtpv_f[tm_ind](v1, v2, m_new, np.int32(m_cols), np.int32(m_rows),
-                   np.int32(rows_to_do),
-                   block=block_dims, grid=grid_dims)
-    return m_new
+        # v1 = self
+        m_rows = len(self)
+        assert self.shape == (len(self), )  # self has to be a vector
 
+        m_cols = len(v2)
+        type_used = self.dtype
+        assert type_used == v2.dtype  # v1 and v2 are of the same type
 
-def vtpv(v1, v2, tm_ind='p', transpose_ind=False):
-    """
-    vector times/plus vector - constructs a matrix
-    :param v1, v2: 2 vectors, first serves as column vector, second as row vector
-    :param tm_ind: 'p' for summation (plus), 't' for multiplication
-    RESTRICTION: size of v2, the number of columns, _has_ to be smaller than 64
-    """
-    m_rows = len(v1)
-    m_cols = len(v2)
-    type_used = v1.dtype  # v1 and v2 are of the same type
-    # if not transpose_ind:
-    m_new = gpa.empty((m_rows, m_cols), dtype=type_used)
-    # else:
-    #    m_new = gpa.empty((m_cols, m_rows), dtype=np.float32)
+        # if not transpose_ind:
+        m_new = GPUArrayAO.empty((m_rows, m_cols), dtype=self.dtype)
 
-    block_dims = (m_cols, 1, 1)  # THIS HAS TO BE m_cols, 1, 1 & m_cols < 64
-    if type_used == np.float32:
-        vtpv_f = {'t': vtv_f, 'p': vpv_f}
-    else:
-        if m_cols < 64:
-            vtpv_f = {'t': vtv_double_f, 'p': vpv_double_f}
+        block_dims = (m_cols, 1, 1)  # THIS HAS TO BE m_cols, 1, 1 & m_cols < 64
+        if type_used == np.float32:
+            vtpv_f = self.__vtpv_f(tm_ind)
         else:
-            vtpv_f = {'t': vtv_double_f_slow, 'p': vpv_double_f_slow}
+            vtpv_f = self.__vtpv_double_f(tm_ind) if m_cols < 64 else self.__vtpv_double_f_slow(tm_ind)
 
-    if m_rows / 65535 > 0:
-        nb_launches = m_rows / 65535 + 1  # this is an integer
-        grid_dims = (65535, 1)
-        vtpv_f[tm_ind](v1, v2, m_new, np.int32(m_cols), np.int32(m_rows),
-                       np.int32(nb_launches),
-                       block=block_dims, grid=grid_dims)
-    else:
-        grid_dims = (m_rows, 1)
-        vtpv_f[tm_ind](v1, v2, m_new, np.int32(m_cols), np.int32(m_rows),
-                       np.int32(1),
-                       block=block_dims, grid=grid_dims)
-    return m_new
+        if m_rows / 65535 > 0:
+            nb_launches = m_rows / 65535 + 1  # this is an integer
+            grid_dims = (65535, 1)
+            vtpv_f[tm_ind](self, v2, m_new, np.int32(m_cols), np.int32(m_rows),
+                           np.int32(nb_launches),
+                           block=block_dims, grid=grid_dims)
+        else:
+            grid_dims = (m_rows, 1)
+            vtpv_f[tm_ind](self, v2, m_new, np.int32(m_cols), np.int32(m_rows),
+                           np.int32(1),
+                           block=block_dims, grid=grid_dims)
+        return m_new
+
+    # the following 3 functions are
+    @property
+    @functools.lru_cache(maxsize=2)
+    def __gpu_set_const_float_k(self):
+        return ElementwiseKernel('float *m_new, float a',
+                                 'm_new[i] = a;',
+                                 'gpu_set_const_float_k')
+
+    @property
+    @functools.lru_cache(maxsize=2)
+    def __gpu_set_const_double_k(self):
+        return ElementwiseKernel('double *m_new, double a',
+                                 'm_new[i] = a;',
+                                 'gpu_set_const_double_k')
+
+    def set_constant(self, a : float):
+        """ Sets the current gpuarray w/ a constant. a
+
+        :param a: constant to set the gpuarray w/
+        :returns: None
+        """
+
+        self.__gpu_set_const_float_k(self, a) if self.dtype == np.float32 else self.__gpu_set_const_double_k(self, a)
+
 
 
 def vtpv_new(v1, v2, tm_ind='p'):
@@ -188,9 +196,9 @@ def amax_gpu_0(m):
 # vector + matrix slicing kernel - vpm
 # vector * matrix slicing kernel - vtm
 # TO CORRECT: N_STEP IS FIXED. 
-vtpm_code = open(os.path.join(config.work_dir, 'cuda', 'vtpm.c'), 'r').read()
+vtpm_code = open(os.path.join('vtpm.c'), 'r').read()
 # same as above, except that the multiplication is on cols
-vtpm_cols_code = open(os.path.join(config.work_dir, 'cuda', 'vtpm_cols.c'), 'r').read()
+vtpm_cols_code = open(os.path.join('vtpm_cols.c'), 'r').read()
 # vector + matrix function on rows 
 vtpm_module = SourceModule(vtpm_code)
 vpm_f = vtpm_module.get_function("vpm")
@@ -371,7 +379,7 @@ def vtpm_cols_new_hd_ao(v_plus, v_mult, m):
 # vpow_module = SourceModule(vpow_code)
 # vpow_f = vpow_module.get_function ("vpow") # vector + matrix function
 # vpow = lambda a,v: vpow_f(a,v, block=(1,1,1), grid=(len(v),1))
-cumsum_cuda_code = open(os.path.join(config.work_dir, 'cuda', 'cumsum_cuda.c'), 'r').read()
+cumsum_cuda_code = open(os.path.join('cumsum_cuda.c'), 'r').read()
 cumsum_module = SourceModule(cumsum_cuda_code)
 cumsum_cuda_f = cumsum_module.get_function("cumsum_cuda")
 
@@ -400,12 +408,12 @@ def cumsum_cuda(m_d):
 
 
 
-with open(os.path.join(config.work_dir, 'cuda', 'rowsum_cuda.c'), 'r') as rowsum_cuda:
+with open(os.path.join('rowsum_cuda.c'), 'r') as rowsum_cuda:
     rs_module = SourceModule(rowsum_cuda.read())
     rs_cuda_f = rs_module.get_function("rowsum_cuda")
     rs_cuda_d = rs_module.get_function("rowsum_cuda_double")
 
-with open(os.path.join(config.work_dir, 'cuda', 'colsum_cuda.c'), 'r') as colsum_cuda:
+with open(os.path.join('colsum_cuda.c'), 'r') as colsum_cuda:
     cs_module = SourceModule(colsum_cuda.read())
     cs_cuda_f = cs_module.get_function("colsum_cuda")
     cs_cuda_last_f = cs_module.get_function("colsum_cuda_last")
@@ -527,7 +535,7 @@ def rowsum_cuda_notransfer_backup(m_d, rs_res_d):
 # writes the vector v in col n of matrix m 
 # nb_sims is the number of rows (simulations in rows)
 # nb_cols ... number of columns 
-write_vec_in_mat_col_code = open(os.path.join(config.work_dir, 'cuda', 'write_vec_in_mat.c'), 'r').read()
+write_vec_in_mat_col_code = open(os.path.join('write_vec_in_mat.c'), 'r').read()
 wohdd_module = SourceModule(write_vec_in_mat_col_code)
 wohdd_f = wohdd_module.get_function("write_vec_in_mat_col")
 
@@ -543,17 +551,17 @@ def write_vec_in_mat_col(rowsum_vec_d, hdd_sim_d, n):
 
 
 # matrix multiplication
-matmul_code = open(os.path.join(config.work_dir, 'cuda', 'matmul.c'), 'r').read()
+matmul_code = open(os.path.join('matmul.c'), 'r').read()
 matmul_mod = SourceModule(matmul_code)
 matmul_cuda = matmul_mod.get_function("matrixMultiply")
 matmul_double_cuda = matmul_mod.get_function("matrixMultiply_double")
 
 
-def matmul(a_gpu, b_gpu, c_gpu,
-           block_size=16):
+def matmul(a_gpu, b_gpu, c_gpu, block_size=16):
     """
     computes C_d = A_d(nxm) * B_d(mxk) (for matrix multiplication)
     """
+
     # set grid size
     type_used = a_gpu.dtype
     m, n = a_gpu.shape
@@ -561,15 +569,10 @@ def matmul(a_gpu, b_gpu, c_gpu,
     mi, ni, ki = np.int32(m), np.int32(n), np.int32(k)
     grid = ((k-1)/block_size+1, (m-1)/block_size+1, 1)
     # call gpu function
-    if type_used == np.float32:
-        mm_f = matmul_cuda
-    else:
-        mm_f = matmul_double_cuda
-
-    mm_f(a_gpu, b_gpu, c_gpu,
+    (matmul_cuda if type_used == np.float32 else matmul_double_cuda)(a_gpu, b_gpu, c_gpu,
          mi, ni, ni, ki, mi, ki,
          block=(block_size, block_size, 1),
-         grid=grid)
+         grid=grid )
 
 
 def matmul_new(a_gpu, b_gpu,
@@ -583,24 +586,6 @@ def matmul_new(a_gpu, b_gpu,
     return c_gpu
 
 
-gpu_set_const_float_k = ElementwiseKernel('float *m_new, float a',
-                                          'm_new[i] = a;',
-                                          'gpu_set_const_float_k')
-
-
-gpu_set_const_double_k = ElementwiseKernel('double *m_new, double a',
-                                           'm_new[i] = a;',
-                                           'gpu_set_const_double_k')
-
-
-def gpu_set_constant(m_size, a, dtype=np.double):
-    m_new = gpa.empty(m_size, dtype=dtype)
-    if dtype == np.float32:
-        gpu_set_const_float_k(m_new, a)
-    else:
-        gpu_set_const_double_k(m_new, a)
-
-    return m_new
 
 
 def gpu_set_constant_integer(m_d, a):
@@ -761,7 +746,7 @@ def mult_vec(a, b):
 
 # broadcasting a short vector (sv) onto long vector (lv), 
 # used for matrix multiplication 
-bdcast_code = open(os.path.join(config.work_dir, 'cuda', 'bdcast.c'), 'r').read()
+bdcast_code = open(os.path.join('bdcast.c'), 'r').read()
 bdcast_mod = SourceModule(bdcast_code)
 bdcast_f = bdcast_mod.get_function('bdcast')
 
@@ -814,16 +799,13 @@ cdf_k_d = ElementwiseKernel("double *x, double *res",
                             """, name='cdf_k_d')
 
 
-def cdf_vec_gpu(x):
+def cdf_vec_gpu(x : GPUArray) -> GPUArray:
+    """ Gives the cdf of x.
+
+    :param x: vector of which cdf should be generated.
+    :returns: cdf (x)
+    """
+
     res = gpa.empty(x.shape, dtype=x.dtype)
-    if x.dtype == np.float32:
-        cdf_k_f(x, res)
-    else:  # double
-        cdf_k_d(x, res)
+    cdf_k_f(x, res) if x.dtype == np.float32 else cdf_k_d(x, res)  # double
     return res
-
-
-# multiply vector with float 
-linear_fct_vec = ElementwiseKernel("float s, float d, float *vec",
-                                   "vec[i] = s * vec[i] + d;",
-                                   name='linear_fct_vec')
