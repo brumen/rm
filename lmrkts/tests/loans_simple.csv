@@ -1,0 +1,7 @@
+Lender,Borrower,Loan
+A,B,60
+A,D,30
+B,C,50
+C,A,40
+D,B,20
+D,C,30
