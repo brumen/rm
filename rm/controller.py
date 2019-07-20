@@ -4,6 +4,7 @@ import time
 import datetime
 import zmq
 import sys
+import json
 sys.path.append('/home/brumen/work/rm/ao/')
 
 from typing import Dict, List
@@ -21,7 +22,7 @@ class Controller:
                 , mkt_date = None
                 , port     = 5556 ):
 
-        self._mkt_date = mkt_date if mkt_date else datetime.date.today()  # market date is today or provided date
+        self.mkt_date = mkt_date if mkt_date else datetime.date.today()  # market date is today or provided date
 
         # zmq section of the controller
         self.port      = port
@@ -31,7 +32,7 @@ class Controller:
 
         # signal handlers
         self.__is_revaluing_portfolio = False
-        self.__curr_delta = None
+        self.__curr_delta = {}
 
         self.__portfolio = []  # no portfolio
 
@@ -60,7 +61,26 @@ class Controller:
         while True:
             msg_received = self.__socket.recv()
             print(msg_received)
+            self._handle_msg(json.loads(msg_received.decode('utf-8') ))
             time.sleep(sleep_time)  # sleep .1 seconds
+
+    def _handle_msg(self, msg_received : Dict):
+        """ Handle the message received.
+
+        :param msg_received: dictionary containing the message received.
+        :returns:
+        """
+
+        trade_event_type = msg_received['event_type']
+
+        if trade_event_type == 'new_trade':  # new trade
+            trade_nb = msg_received['trade_nb']
+            with MysqlConnectorEnv(host='localhost') as db_conn:  # TODO FIX HERE
+                cursor = db_conn.cursor()
+                cursor.execute('SELECT * FROM option_positions WHERE position_id = {0}'.format(trade_nb))
+                option_data = cursor.fetchall()
+
+            self._new_position_event(option_data)
 
     def _read_portfolio(self, db_host='localhost'):
         """ Reads the entire portfolio from the database.
@@ -69,9 +89,7 @@ class Controller:
         """
 
         with MysqlConnectorEnv(host=db_host) as db_conn:
-            self.curr_portfolio = db_conn.cursor().execute('SELECT * FROM options_positions').fetchall()
-
-        return self.curr_portfolio
+            return db_conn.cursor().execute('SELECT * FROM options_positions').fetchall()
 
     def _new_market_event(self):
         """ What to do when a new market event occurs.
@@ -80,8 +98,8 @@ class Controller:
         """
 
         self.__is_revaluing_portfolio = True
-        self.curr_delta = Controller.__revalue_portfolio( self.curr_portfolio
-                                                        , self._mkt_date)
+        self.curr_delta = Controller.__revalue_portfolio(self.curr_portfolio
+                                                         , self.mkt_date)
         self.__is_revaluing_portfolio = False
 
     def _new_position_event(self, new_position_l : List) -> None:
@@ -93,8 +111,8 @@ class Controller:
         self.__portfolio.extend(new_position_l)
 
         self.curr_delta = Controller.__merge_deltas( self.curr_delta
-                                                   , Controller.__revalue_portfolio( new_position_l
-                                                                                   , self._mkt_date)
+                                                   , Controller.__revalue_portfolio(new_position_l
+                                                                                    , self.mkt_date)
                                                    )
 
     def _revalue_current_portfolio(self):
@@ -104,7 +122,7 @@ class Controller:
         """
 
         self.__is_revaluing_portfolio = True
-        self.curr_delta = Controller.__revalue_portfolio(self.curr_portfolio, self._mkt_date)
+        self.curr_delta = Controller.__revalue_portfolio(self.curr_portfolio, self.mkt_date)
         self.__is_revaluing_portfolio = False
 
     @staticmethod
@@ -172,3 +190,6 @@ class Controller:
             result_delta[delta_2_flight_nb] = delta_2[delta_2_flight_nb]
 
         return result_delta
+
+c1 = Controller()
+c1.start()

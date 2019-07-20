@@ -20,5 +20,7 @@ def send_message( position
     socket.send_json(position)
 
 
+send_message({'event_type': 'new_trade', 'trade_nb': 2})
+
 # action to execute as a script
-send_message(str(sys.argv[1]))
+# send_message(str(sys.argv[1]))
