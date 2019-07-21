@@ -5,14 +5,20 @@ import datetime
 import zmq
 import sys
 import json
+import logging
+import threading
 sys.path.append('/home/brumen/work/rm/ao/')
 
 from typing import Dict, List, Tuple
 
-from delta_dict import DeltaDict
+from queue import Queue
+
+from delta_dict              import DeltaDict
 
 from ao.mysql_connector_env import MysqlConnectorEnv
 from ao.air_option          import AirOptionMock
+
+# logger = logging.getLogger(__name__)
 
 
 class Controller:
@@ -22,21 +28,23 @@ class Controller:
 
     def __init__(self
                 , mkt_date = None
-                , port     = 5556 ):
+                , port     = 5556
+                , queue_size = 1000):
 
         self.mkt_date = mkt_date if mkt_date else datetime.date.today()  # market date is today or provided date
+
+        self.__msg_queue = Queue(maxsize=queue_size)
 
         # zmq section of the controller
         self.port      = port
         self.__context = zmq.Context()
-        self.__socket  = self.__context.socket(zmq.PAIR)
+        self.__socket  = self.__context.socket(zmq.REP)  # zmq.PAIR
         self.__socket.bind("tcp://*:{0}".format(self.port))  # server ip
 
         # signal handlers
         self.__is_revaluing_portfolio = False
         self.__curr_delta = DeltaDict({})
-
-        self.__portfolio = []  # no portfolio
+        self.__portfolio  = []  # initially empty portfolio
 
     @property
     def curr_delta(self) -> DeltaDict:
@@ -54,7 +62,7 @@ class Controller:
     def curr_portfolio(self, new_portfolio):
         self.__portfolio = new_portfolio
 
-    def run(self, sleep_time = .1 ):
+    def _fill_queue(self, sleep_time = .1 ):
         """ Starts the controller.
 
         """
@@ -62,8 +70,29 @@ class Controller:
         while True:
             msg_received = self.__socket.recv()
             print(msg_received)
-            self._handle_msg(json.loads(msg_received.decode('utf-8') ))
-            time.sleep(sleep_time)  # sleep .1 seconds
+            logging.info('Handling message 1')
+            self.__msg_queue.put(json.loads(msg_received.decode('utf-8')))
+            time.sleep(sleep_time)
+
+    def _process_queue(self, sleep_time = .1):
+        """ Handles the queue - if not empty, process messages, else
+
+        :return:
+        """
+
+        while True:
+            if not self.__msg_queue.empty():  # work to be done
+                msg_to_process = self.__msg_queue.get()
+                self._handle_msg(msg_to_process)
+            time.sleep(sleep_time)
+
+    def start(self):
+
+        fill_queue_thread    = threading.Thread(target=self._fill_queue)
+        process_queue_thread = threading.Thread(target=self._process_queue)
+
+        fill_queue_thread.start()
+        process_queue_thread.start()
 
     def __get_trade_params(self, position_id : int) -> List[Tuple]:
         """ Get trade params for trade under position_id in the db.
@@ -77,15 +106,15 @@ class Controller:
             cursor.execute('SELECT * FROM option_positions WHERE position_id = {0}'.format(position_id))
             return cursor.fetchall()
 
-    def _handle_msg(self, msg_received : Dict) -> None:
+    def _handle_msg(self, msg : Dict) -> None:
         """ Handle the message received.
 
-        :param msg_received: dictionary containing the message received.
+        :param msg: dictionary containing the message received.
         :returns: updates trade positions &
         """
 
-        self._new_position_event( self.__get_trade_params(msg_received['trade_nb'])
-                                , msg_received['event_type'])
+        self._new_position_event( self.__get_trade_params(msg['trade_nb'])
+                                , msg['event_type'])
 
     def _read_portfolio(self, db_host='localhost'):
         """ Reads the entire portfolio from the database.
@@ -176,6 +205,4 @@ class Controller:
 
 
 c1 = Controller()
-c1.run()
-
-
+c1.start()

@@ -5,6 +5,7 @@
 
 import sys
 import zmq
+import time
 
 
 def send_message( position
@@ -15,12 +16,14 @@ def send_message( position
     :param port: port on which to send
     """
 
-    socket  = zmq.Context().socket(zmq.PAIR)
+    socket  = zmq.Context().socket(zmq.REQ)
     socket.connect('tcp://localhost:{0}'.format(port))
     socket.send_json(position)
 
 
-send_message({'event_type': 'new_trade', 'trade_nb': 2})
+send_message({'event_type': 'delete_trade', 'trade_nb': 2})
+# time.sleep(2)
+#send_message({'event_type': 'new_trade', 'trade_nb': 1})
 
 # action to execute as a script
 # send_message(str(sys.argv[1]))

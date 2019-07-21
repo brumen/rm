@@ -11,8 +11,8 @@ class DeltaDict(dict):
         :returns: resulting delta dictionary {'UA71': -1,...}
         """
 
-        return {delta_flight_nb: - delta_flight_value
-                for delta_flight_nb, delta_flight_value in self.items() }
+        return DeltaDict({ delta_flight_nb: - delta_flight_value
+                           for delta_flight_nb, delta_flight_value in self.items() })
 
     def __add__(self, other):
         """ Merge the two delta dicts.
@@ -22,7 +22,7 @@ class DeltaDict(dict):
         :returns: resulting delta dictionary {'UA71': 3, 'UA72': 1.,...}
         """
 
-        result_delta = {}
+        result_delta = DeltaDict({})
 
         for delta_1_flight_nb, delta_1_flight_value in self.items():
             if delta_1_flight_nb in other.keys():
@@ -44,3 +44,4 @@ class DeltaDict(dict):
 #d2 = DeltaDict({'a': 3, 'c':4})
 #print (d1+d2)
 #print (-d1)
+#print(d1-d2)
