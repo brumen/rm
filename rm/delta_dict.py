@@ -34,3 +34,13 @@ class DeltaDict(dict):
             result_delta[delta_2_flight_nb] = other[delta_2_flight_nb]
 
         return result_delta
+
+    def __sub__(self, other):
+        return self.__add__(other.__neg__())
+
+
+# Sample case:
+#d1 = DeltaDict({'a': 1, 'b':2})
+#d2 = DeltaDict({'a': 3, 'c':4})
+#print (d1+d2)
+#print (-d1)
