@@ -38,7 +38,8 @@ class Controller:
         # zmq section of the controller
         self.port      = port
         self.__context = zmq.Context()
-        self.__socket  = self.__context.socket(zmq.REP)  # zmq.PAIR
+        self.__socket  = self.__context.socket(zmq.SUB)
+        self.__socket.setsockopt_string(zmq.SUBSCRIBE, '')
         self.__socket.bind("tcp://*:{0}".format(self.port))  # server ip
 
         # signal handlers
@@ -69,8 +70,6 @@ class Controller:
 
         while True:
             msg_received = self.__socket.recv()
-            print(msg_received)
-            logging.info('Handling message 1')
             self.__msg_queue.put(json.loads(msg_received.decode('utf-8')))
             time.sleep(sleep_time)
 
@@ -84,7 +83,7 @@ class Controller:
             if not self.__msg_queue.empty():  # work to be done
                 msg_to_process = self.__msg_queue.get()
                 self._handle_msg(msg_to_process)
-            time.sleep(sleep_time)
+                time.sleep(sleep_time)
 
     def start(self):
 
