@@ -18,7 +18,9 @@ from delta_dict              import DeltaDict
 from ao.mysql_connector_env import MysqlConnectorEnv
 from ao.air_option          import AirOptionMock
 
-# logger = logging.getLogger(__name__)
+logging.basicConfig()
+logger = logging.getLogger(__name__)
+logger.setLevel('INFO')
 
 
 class Controller:
@@ -64,7 +66,7 @@ class Controller:
         self.__portfolio = new_portfolio
 
     def _fill_queue(self, sleep_time = .1 ):
-        """ Starts the controller.
+        """ function to fill the queue w/ messages.
 
         """
 
@@ -74,7 +76,7 @@ class Controller:
             time.sleep(sleep_time)
 
     def _process_queue(self, sleep_time = .1):
-        """ Handles the queue - if not empty, process messages, else
+        """ Handles the self.__msg_queue queue processing - if not empty, process messages, else
 
         :return:
         """
@@ -86,7 +88,11 @@ class Controller:
                 time.sleep(sleep_time)
 
     def start(self):
+        """ Starts all the threads of the controller.
 
+        """
+
+        logger.info('Starting controller.')
         fill_queue_thread    = threading.Thread(target=self._fill_queue)
         process_queue_thread = threading.Thread(target=self._process_queue)
 
@@ -167,6 +173,7 @@ class Controller:
         :return:
         """
 
+        logger.info('Computing portfolio {0}'.format(str(portfolio)))
         portfolio_delta = DeltaDict({})
 
         for _, orig, dest\
@@ -203,5 +210,6 @@ class Controller:
         return portfolio_delta
 
 
-c1 = Controller()
-c1.start()
+if __name__ == '__main__':
+    c1 = Controller()
+    c1.start()
