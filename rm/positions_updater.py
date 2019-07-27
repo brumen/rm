@@ -1,8 +1,9 @@
-import zmq
 import time
 
+from socket import SocketMixin
 
-class PositionUpdater:
+
+class PositionUpdater(SocketMixin):
     """ Handles positions updating.
 
     """
@@ -21,10 +22,7 @@ class PositionUpdater:
         self.__db_host = db_host
         self.__db_name = db_name
         self.__port    = port
-
-        # sockets
-        self.__socket  = zmq.Context().socket(zmq.PUB)
-        self.__socket.connect('tcp://localhost:{0}'.format(port))
+        self.__context, self.__socket = self._create_socket(port, pub_sub='pub')
 
     def start( self
              , sleep_time = .3  ) -> None:

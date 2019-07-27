@@ -2,7 +2,6 @@
 
 import time
 import datetime
-import zmq
 import sys
 import json
 import logging
@@ -14,6 +13,7 @@ from typing import Dict, List, Tuple
 from queue import Queue
 
 from delta_dict              import DeltaDict
+from socket                 import SocketMixin
 
 from ao.mysql_connector_env import MysqlConnectorEnv
 from ao.air_option          import AirOptionMock
@@ -23,19 +23,10 @@ logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
 
 
-class Controller:
+class Controller(SocketMixin):
     """ Main controlling logic.
 
     """
-
-    def _create_socket(self):
-        """ Create socket part.
-        """
-
-        self.__context = zmq.Context()
-        self.__socket  = self.__context.socket(zmq.SUB)
-        self.__socket.setsockopt_string(zmq.SUBSCRIBE, '')
-        self.__socket.bind("tcp://*:{0}".format(self.port))  # server ip
 
     def __init__(self
                 , mkt_date = None
@@ -47,8 +38,8 @@ class Controller:
         self.__msg_queue = Queue(maxsize=queue_size)
 
         # zmq section of the controller
-        self.port      = port
-        self._create_socket()
+        self.port = port
+        self__context, self.__socket = self._create_socket(port, pub_sub='sub')
 
         # signal handlers
         self.__is_revaluing_portfolio = False
@@ -171,7 +162,7 @@ class Controller:
         self.__is_revaluing_portfolio = False
 
     @staticmethod
-    def __revalue_portfolio(portfolio, mkt_date : datetime.date) -> Dict:
+    def __revalue_portfolio(portfolio, mkt_date : datetime.date) -> DeltaDict:
         """ Revalues the portfolio given.
 
         :param portfolio: trade portfolio to use.
