@@ -3,16 +3,17 @@
 import numpy as np
 
 from keras.models import Sequential
-from keras.layers import Dense, Activation
+from keras.layers import Dense, Activation, RNN, Layer, LSTM, TimeDistributed
+from keras.preprocessing.sequence import TimeseriesGenerator
 
 
-def trading_model():
-    '''
-    Model for stock trading.
+def simple_dense_trading_model():
+    '''Simple dense trading model. A few dense NN layers.
 
     '''
 
     model =  Sequential([Dense(128, activation='relu', input_shape=(2,))
+                         , Dense(64, activation='relu')
                          , Dense(2, activation='softmax' ) ])
 
     model.compile(optimizer = 'rmsprop'
@@ -22,51 +23,90 @@ def trading_model():
     return model
 
 
-def get_input_data():
+def simple_lstm_model():
+    '''Define simple lstm model.
+
     '''
-    Prepares the data for the model.
+
+    n_feat = 2
+    # input_shape = (time_history, number of time series) - 12 historical data points, 2 data series
+    model =  Sequential([ LSTM(100, activation='relu', input_shape=(12,n_feat))
+                        , TimeDistributed(Dense(10), input_shape=(None, 12, n_feat)) ])
+
+    model.compile(optimizer = 'rmsprop'
+                  , loss    = 'sparse_categorical_crossentropy'
+                  , metrics = ['accuracy'] )
+
+    return model
+
+
+def reorder_stock_data(input_prices):
+    '''
+    Constructs the input for the trading model.
+
+    :returns: trading direction
     '''
 
-    stock_price_increments   = np.random.normal(size=1000)
-    # stock_price_increments = - np.ones(1000)
+    trading_increments = np.diff(input_prices)/input_prices[:-1]
+    trading_direction  = trading_increments > 0
 
-    stock_price_history      = np.cumsum(stock_price_increments)
-
-    # stocks level, stock increment
-    input_stocks = np.vstack( (stock_price_increments[1:]
-                               , stock_price_history[1:]) ).transpose()
-    trading_direction = stock_price_increments[1:] > 0
-
-    return input_stocks, trading_direction
+    return np.vstack((trading_increments[:-1]
+                      , np.diff(trading_increments))).transpose()\
+            , trading_direction[:-1]
 
 
-def get_predict_data():
+def reorder_stock_data2(input_prices):
+    '''
+    Constructs the input for the trading model.
 
-    stock_price_increments   = np.random.normal(size=1000)
-    # stock_price_increments = - np.ones(1000)
+    :returns: trading direction
+    '''
 
-    stock_price_history      = np.cumsum(stock_price_increments)
+    trading_increments = np.diff(input_prices)/input_prices[:-1]
+    trading_direction  = trading_increments > 0
 
-    # stocks level, stock increment
-    input_stocks = np.vstack( (stock_price_increments[1:]
-                               , stock_price_history[1:]) ).transpose()
-    trading_direction = stock_price_increments[1:] > 0
-
-    return input_stocks, trading_direction
-
+    return np.vstack((trading_increments[:-1]
+                      , np.diff(trading_increments)
+                      , trading_direction[:-1])).transpose()\
+           , trading_direction
 
 
-model = trading_model()
-print(model.summary())
+def fit_dense_model(input_prices):
 
-# Train the model, iterating on the data in batches of 32 samples
-input_stocks, trading_direction = get_input_data()
-model.fit(input_stocks, trading_direction, epochs=10, verbose=0)
+    stock_inputs, stock_direction = reorder_stock_data(input_prices)
+    model = simple_dense_trading_model()
+
+    model.fit(stock_inputs, stock_direction, epochs=10, verbose=1)
+    #predict = model.predict(predict_stocks)
+    #predict_score = model.evaluate(predict_stocks, predict_direction)
+
+    return None
+
+
+def fit_lstm_model(input_prices):
+    ''' Fitting a basic long-short term model.
+
+    '''
+    model = simple_lstm_model()
+    from get_stocks import prices
+    stocks, direction = reorder_stock_data(prices)
+    generator = TimeseriesGenerator(stocks, direction, length=12)
+
+    model.fit_generator(generator, epochs=10, verbose=1)
+    predict_direction = model.predict(stocks)
+    predict_score = model.evaluate(stocks, predict_direction)
+    return predict_score
+
 
 # prediction part
-predict_stocks, predict_direction = get_predict_data()
-predict = model.predict(predict_stocks)
-predict_score = model.evaluate(predict_stocks, predict_direction)
+# predict_stocks, predict_direction = get_predict_data()
+# 10 is the length of the output sequence
+# sample_data = TimeseriesGenerator(predict_stocks, predict_direction, 10)
+from get_stocks import prices
+#stocks, direction = reorder_stock_data(prices)
+#generator = TimeseriesGenetor(stocks, direction, length=2)
 
-print(predict_score)
-# print(predict)
+
+#fit_dense_model(prices)
+# def __main__():
+fit_lstm_model(prices)
