@@ -14,7 +14,7 @@ class DeltaDict(dict):
         return DeltaDict({ delta_flight_nb: - delta_flight_value
                            for delta_flight_nb, delta_flight_value in self.items() })
 
-    def __add__(self, other):
+    def __add__(self, other : DeltaDict) -> DeltaDict:
         """ Merge the two delta dicts.
 
         :param other: other delta dictionary, {'UA71': 1.,...}
@@ -35,7 +35,7 @@ class DeltaDict(dict):
 
         return result_delta
 
-    def __sub__(self, other):
+    def __sub__(self, other : DeltaDict) -> DeltaDict:
         return self.__add__(other.__neg__())
 
 

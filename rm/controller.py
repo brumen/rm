@@ -28,6 +28,15 @@ class Controller:
 
     """
 
+    def _create_socket(self):
+        """ Create socket part.
+        """
+
+        self.__context = zmq.Context()
+        self.__socket  = self.__context.socket(zmq.SUB)
+        self.__socket.setsockopt_string(zmq.SUBSCRIBE, '')
+        self.__socket.bind("tcp://*:{0}".format(self.port))  # server ip
+
     def __init__(self
                 , mkt_date = None
                 , port     = 5556
@@ -39,10 +48,7 @@ class Controller:
 
         # zmq section of the controller
         self.port      = port
-        self.__context = zmq.Context()
-        self.__socket  = self.__context.socket(zmq.SUB)
-        self.__socket.setsockopt_string(zmq.SUBSCRIBE, '')
-        self.__socket.bind("tcp://*:{0}".format(self.port))  # server ip
+        self._create_socket()
 
         # signal handlers
         self.__is_revaluing_portfolio = False
