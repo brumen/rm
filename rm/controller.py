@@ -12,8 +12,8 @@ from typing import Dict, List, Tuple
 
 from queue import Queue
 
-from delta_dict              import DeltaDict
-from socket                 import SocketMixin
+from delta_dict             import DeltaDict
+from socket_msg             import ZMQSocketMixin, NanoSocketMixin
 
 from ao.mysql_connector_env import MysqlConnectorEnv
 from ao.air_option          import AirOptionMock
@@ -23,23 +23,27 @@ logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
 
 
-class Controller(SocketMixin):
+class Controller: # (ZMQSocketMixin):
     """ Main controlling logic.
 
     """
 
     def __init__(self
+                , socket
+                , context = None
                 , mkt_date = None
                 , port     = 5556
-                , queue_size = 1000):
+                , queue_size = 1000
+                ):
 
+        self.__socket  = socket
+        self.__context = context
         self.mkt_date = mkt_date if mkt_date else datetime.date.today()  # market date is today or provided date
 
         self.__msg_queue = Queue(maxsize=queue_size)
 
         # zmq section of the controller
         self.port = port
-        self__context, self.__socket = self._create_socket(port, pub_sub='sub')
 
         # signal handlers
         self.__is_revaluing_portfolio = False
@@ -208,5 +212,7 @@ class Controller(SocketMixin):
 
 
 if __name__ == '__main__':
-    c1 = Controller()
-    c1.start()
+    # zmq_controller = Controller(ZMQSocketMixin._create_socket(port=5555))
+    # zmq_controller.start()
+    nano_controller = Controller(NanoSocketMixin._create_socket(port=5555)[1])
+    nano_controller.start()
