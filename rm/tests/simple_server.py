@@ -20,7 +20,7 @@ class Server1:
         while True:
             msg = self.__socket.recv()
             print(msg)
-            time.sleep(0.3)
+            # time.sleep(0.3)
 
 
 if __name__ == '__main__':

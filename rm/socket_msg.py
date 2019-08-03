@@ -2,9 +2,6 @@
 
 import logging
 
-from zmq     import Context as ZMQContext, PUB as ZMQ_PUB, SUB as ZMQ_SUB, SUBSCRIBE as ZMQ_SUBSCRIBE
-from nanomsg import PUB as NANO_PUB, Socket as NanoSocket, SUB as NANO_SUB, PUB as NANO_PUB, SUB_SUBSCRIBE as NANO_SUB_SUBSCRIBE
-
 logging.basicConfig()
 logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
@@ -14,25 +11,28 @@ class ZMQSocketMixin:
     """ Socket Mixin.
     """
 
+    from zmq import (Context, PUB, SUB, SUBSCRIBE)
+
     @staticmethod
     def _create_socket(port, pub_sub='sub'):
         """ Create socket part.
-
         """
 
-        context = ZMQContext()
+        context = ZMQSocketMixin.Context()
         if pub_sub == 'sub':
-            socket  = context.socket(ZMQ_SUB)
-            socket.setsockopt_string(ZMQ_SUBSCRIBE, '')
+            socket = context.socket(ZMQSocketMixin.SUB)
+            socket.setsockopt_string(ZMQSocketMixin.SUBSCRIBE, '')
             socket.bind("tcp://*:{0}".format(port))  # server ip
         else:
-            socket = context.socket(ZMQ_PUB)
+            socket = context.socket(ZMQSocketMixin.PUB)
             socket.connect('tcp://localhost:{0}'.format(port))
 
         return context, socket
 
 
 class NanoSocketMixin:
+
+    from nanomsg import (PUB, Socket, SUB, PUB, SUB_SUBSCRIBE)
 
     @staticmethod
     def _create_socket( port
@@ -42,11 +42,11 @@ class NanoSocketMixin:
         """
 
         if pub_sub == 'sub':
-            socket = NanoSocket(NANO_SUB)
+            socket = NanoSocketMixin.Socket(NanoSocketMixin.SUB)
             socket.connect("tcp://{0}:{1}".format(host, port))
-            socket.set_string_option(NANO_SUB, NANO_SUB_SUBSCRIBE, '')
+            socket.set_string_option(NanoSocketMixin.SUB, NanoSocketMixin.SUB_SUBSCRIBE, '')
         else:
-            socket = NanoSocket(NANO_PUB)
+            socket = NanoSocketMixin.Socket(NanoSocketMixin.PUB)
             socket.bind('tcp://{0}:{1}'.format(host, port))
 
         return None, socket

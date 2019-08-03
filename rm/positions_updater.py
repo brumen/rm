@@ -1,17 +1,15 @@
 import time
 
-from socket import SocketMixin
+from socket_msg import NanoSocketMixin
 
 
-class PositionUpdater(SocketMixin):
+class PositionUpdater:
     """ Handles positions updating.
 
     """
 
     def __init__( self
-                , db_name = 'ao'
-                , db_host ='localhost'
-                , port    = 5556 ):
+                , socket ):
         """ Init position updater.
 
         :param db_name: database name, e.g. 'ao'
@@ -19,10 +17,14 @@ class PositionUpdater(SocketMixin):
         :param port: port for reporting updates.
         """
 
-        self.__db_host = db_host
-        self.__db_name = db_name
-        self.__port    = port
-        self.__context, self.__socket = self._create_socket(port, pub_sub='pub')
+        self.__socket  = socket
+
+    @classmethod
+    def from_host(cls, db_host = '127.0.0.1', port = 5556):
+        """ Constructs the class from host & port where to update positions.
+        """
+
+        return cls(NanoSocketMixin._create_socket(port, pub_sub='pub', host=db_host))
 
     def start( self
              , sleep_time = .3  ) -> None:
