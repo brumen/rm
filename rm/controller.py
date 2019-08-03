@@ -23,9 +23,8 @@ logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
 
 
-class Controller: # (ZMQSocketMixin):
+class Controller:
     """ Main controlling logic.
-
     """
 
     def __init__(self
