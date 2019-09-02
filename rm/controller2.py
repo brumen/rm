@@ -1,0 +1,263 @@
+# main controlling logic for the risk management
+
+import time
+import datetime
+import sys
+import json
+import logging
+import threading
+sys.path.append('/home/brumen/work/rm/ao/')
+
+from typing import Dict, List, Tuple
+from queue  import Queue
+
+from delta_dict             import DeltaDict
+from socket_msg             import NanoSocketMixin
+
+from ao.mysql_connector_env import MysqlConnectorEnv
+from portfolio_worker       import PortfolioAirWorker
+
+logging.basicConfig()
+logger = logging.getLogger(__name__)
+logger.setLevel('INFO')
+
+
+class Controller:
+    """ Main controlling logic.
+    """
+
+    def __init__(self
+                 , recv_socket
+                 , db_host = '127.0.0.1'
+                 , mkt_date = None
+                 , queue_size = 100000
+                 , revalue_portfolio = PortfolioAirWorker.revalue_portfolio
+                 , worker_sockets = None
+                 ):
+        """ Controller class, keeps track of the system and distributes work.
+
+        :param recv_socket: nanomsg recv_socket over which to communicate.
+        :param db_host: database host, for potential later use.
+        :param mkt_date: market date (datetime.date)
+        :param queue_size: maximum size of the queue.
+        :param revalue_portfolio: function computing the portfolio given.
+        :param worker_sockets: sockets to the workers to distribute work.
+                               {'worker_name': worker_socket}
+        """
+
+        self.__recv_socket  = recv_socket
+        self.db_host = db_host
+        self.mkt_date = mkt_date if mkt_date else datetime.date.today()  # market date is today or provided date
+
+        self.__msg_queue = Queue(maxsize=queue_size)
+
+        # signal handlers
+        self.__is_revaluing_portfolio = False
+        self.__curr_delta = DeltaDict({})
+        self.__portfolio  = []  # initially empty portfolio
+        self.__revalue_portfolio = revalue_portfolio
+        self.__worker_sockets = worker_sockets
+
+        # states of this state machine:
+        self.__nb_workers = len(self.__worker_sockets)
+        self.__worker_available = [True] * self.__nb_workers if self.__worker_sockets else None  # all workers are available
+        self.__worker_queues    = [Queue(maxsize=5)] * self.__nb_workers
+
+    def __worker_name(self, worker_idx):
+        return 'Worker{0}'.format(worker_idx)
+
+    @property
+    def curr_delta(self) -> DeltaDict:
+        return self.__curr_delta
+
+    @curr_delta.setter
+    def curr_delta(self, new_delta : DeltaDict):
+        self.__curr_delta = new_delta
+
+    @property
+    def curr_portfolio(self) -> List[Tuple]:
+        return self.__portfolio
+
+    @curr_portfolio.setter
+    def curr_portfolio(self, new_portfolio):
+        self.__portfolio = new_portfolio
+
+    def _decode_message(self, msg_from_worker):
+        """ Decodes the message from the worker.
+
+        :param msg_from_worker: message from worker.
+        :returns:
+        """
+
+        return json.loads(msg_from_worker.decode('utf-8'))
+
+    def _datetime_converter(self, date_obj):
+        """ Converter of datetime.date objects for json.
+
+        :param date_obj:
+        :return:
+        """
+
+        if isinstance(date_obj, datetime.date):
+            return date_obj.__str__()
+
+    def _encode_msg(self, msg):
+        """ Encoding of messages
+
+        :param msg: message to be json encoded.
+        :returns:
+        """
+
+        return json.dumps(msg, default=self._datetime_converter)  # to convert datetime objects
+
+    def __get_trade_params(self, position_id : int) -> List[Tuple]:
+        """ Get trade params for trade under position_id in the db.
+
+        :param position_id: position id of the trade considered.
+        :returns: list of tuples for position_id
+        """
+
+        with MysqlConnectorEnv(host=self.db_host) as db_conn:
+            cursor = db_conn.cursor()
+            cursor.execute('SELECT * FROM option_positions WHERE position_id = {0}'.format(position_id))
+            return cursor.fetchall()
+
+    def _read_portfolio(self, db_host='localhost'):
+        """ Reads the entire portfolio from the database.
+
+        :returns:
+        """
+
+        with MysqlConnectorEnv(host=db_host) as db_conn:
+            return db_conn.cursor().execute('SELECT * FROM options_positions').fetchall()
+
+    def _new_market_event(self):
+        """ What to do when a new market event occurs.
+
+        :return:
+        """
+
+        self.__is_revaluing_portfolio = True
+        self.curr_delta = self.__revalue_portfolio(self.curr_portfolio, self.mkt_date)
+        self.__is_revaluing_portfolio = False
+
+    def _new_position_event(self, new_position_l : List, trade_type='new_trade') -> None:
+        """ Update the state 'What to do when a new position comes in'.
+
+        :param new_position_l: position list of new trades.
+        :param trade_type: type of trade amendment ('new_trade', 'delete_trade')
+        :returns: None, performs the trade augmentation & delta recomputation.
+        """
+
+        self.__portfolio.extend(new_position_l)
+        delta_difference = self.__revalue_portfolio(new_position_l, self.mkt_date)
+        self.curr_delta = self.curr_delta + delta_difference if trade_type == 'new_trade' else self.curr_delta - delta_difference
+
+    def _fill_queue(self, sleep_time = .01 ):
+        """ function to fill the message queue w/ messages.
+        """
+
+        logger.debug('Starting the fill thread.')
+        while True:
+            msg_received = self.__recv_socket.recv()
+            logger.info('Controller queue size: {0}.'.format(self.__msg_queue.qsize()))
+            self.__msg_queue.put(msg_received)
+            time.sleep(sleep_time)
+
+    def _fill_worker_queue(self, worker_idx, sleep_time=.01):
+        """ Fills the worker queue with the results of worker computation.
+
+        :param worker_idx: index of the worker
+        :param sleep_time:
+        :return:
+        """
+
+        while True:
+            msg_received = self.__worker_sockets[worker_idx].recv()
+            self.__worker_queues[worker_idx].put(msg_received)
+            time.sleep(sleep_time)
+
+    def _check_replies_from_workers(self):
+        """ Checks the replies from workers, and potentially update curr_delta.
+        """
+
+        while True:
+            for worker_idx, worker_socket in enumerate(self.__worker_sockets):  # check sockets
+                worker_queue_curr = self.__worker_queues[worker_idx]
+                if not worker_queue_curr.empty():
+                    msg_from_worker = worker_queue_curr.get()
+                    delta_difference = self._decode_message(msg_from_worker)
+                    self.curr_delta += delta_difference  # TODO: if trade_type == 'new_trade' else self.curr_delta - delta_difference
+                    self.__worker_available[worker_idx] = True
+
+    def _distribute_workload(self, sleep_time=0.01) -> None:
+        """ Distributes the workload to workers.
+        """
+
+        while True:
+            if not self.__msg_queue.empty():  # work to be done
+                q_size = self.__msg_queue.qsize()
+                logger.debug('Queue length: {0}'.format(q_size))
+                workers_available = [ worker_idx for worker_idx, worker_available in enumerate(self.__worker_available)
+                                      if worker_available ]
+                logger.debug('Workers avail: {0}'.format(workers_available))
+                if workers_available:  # we have any workers
+                    for msg_idx in range(q_size):
+                        msg = self._decode_message(self.__msg_queue.get())
+                        worker_idx = msg_idx % len(workers_available)
+                        worker_chosen = workers_available[worker_idx]
+                        self.__worker_sockets[worker_chosen].send(self._encode_msg(self.__get_trade_params(msg['trade_nb'])))
+                        self.__worker_available[worker_chosen] = False
+            time.sleep(sleep_time)
+
+    def __report_current_delta(self, sleep_time=.5):
+        """ Reporting thread.
+        """
+
+        while True:
+            logger.info('Current delta: {0}'.format(str(self.curr_delta)))
+            time.sleep(sleep_time)
+
+    def start(self):
+        """ Starts all the threads of the controller.
+        """
+
+        logger.info('Starting controller.')
+
+        # threads that are started
+        threading.Thread(target=self._fill_queue).start()
+        for worker_idx in range(self.__nb_workers):  # fill worker threads
+            threading.Thread(target=lambda : self._fill_worker_queue(worker_idx)).start()
+        threading.Thread(target=self._check_replies_from_workers).start()
+        threading.Thread(target=self._distribute_workload).start()
+        threading.Thread(target=self.__report_current_delta).start()
+
+
+def set_worker_configuration( mkt_date : datetime.date, worker_ports : List[int] ) -> List[PortfolioAirWorker] :
+    """ Function to start the workers.
+
+    :param mkt_date: market date
+    :param worker_ports: number of workers to start
+    """
+
+    workers = []
+    for worker_idx, worker_port in enumerate(worker_ports):
+        curr_worker = PortfolioAirWorker(NanoSocketMixin._create_socket(port=worker_port, pub_sub='pair,recv')
+                                         , mkt_date=mkt_date
+                                         , worker_name='Worker{0}'.format(worker_idx))
+        curr_worker.start()
+        workers.append(curr_worker)
+
+    return workers
+
+
+if __name__ == '__main__':
+    # nano_controller = Controller(NanoSocketMixin._create_socket(port=5556))  # to run as single server configuration
+
+    # multiple workers configuration
+    ports = [5667,5668,5669]
+    workers = set_worker_configuration(datetime.date(2019, 9, 1), ports )  # on separate threads
+    nano_controller = Controller( NanoSocketMixin._create_socket(port=5556)
+                                , worker_sockets= [NanoSocketMixin._create_socket(port=port, pub_sub='pair,send') for port in ports] )
+
+    nano_controller.start()

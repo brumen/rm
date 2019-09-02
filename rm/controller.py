@@ -9,11 +9,10 @@ import threading
 sys.path.append('/home/brumen/work/rm/ao/')
 
 from typing import Dict, List, Tuple
-
-from queue import Queue
+from queue  import Queue
 
 from delta_dict             import DeltaDict
-from socket_msg             import ZMQSocketMixin, NanoSocketMixin
+from socket_msg             import NanoSocketMixin
 
 from ao.mysql_connector_env import MysqlConnectorEnv
 from ao.air_option          import AirOptionMock
@@ -29,20 +28,16 @@ class Controller:
 
     def __init__(self
                 , socket
-                , context = None
+                , db_host = '127.0.0.1'
                 , mkt_date = None
-                , port     = 5556
-                , queue_size = 1000
+                , queue_size = 100000
                 ):
 
         self.__socket  = socket
-        self.__context = context
+        self.db_host = db_host
         self.mkt_date = mkt_date if mkt_date else datetime.date.today()  # market date is today or provided date
 
         self.__msg_queue = Queue(maxsize=queue_size)
-
-        # zmq section of the controller
-        self.port = port
 
         # signal handlers
         self.__is_revaluing_portfolio = False
@@ -70,6 +65,8 @@ class Controller:
 
         """
 
+        logger.debug('Starting the fill thread.')
+
         while True:
             msg_received = self.__socket.recv()
             self.__msg_queue.put(json.loads(msg_received.decode('utf-8')))
@@ -81,8 +78,11 @@ class Controller:
         :return:
         """
 
+        logger.debug('Starting the process thread.')
+
         while True:
             if not self.__msg_queue.empty():  # work to be done
+                logger.info('Queue length: {0}'.format(self.__msg_queue.qsize()))
                 msg_to_process = self.__msg_queue.get()
                 self._handle_msg(msg_to_process)
                 time.sleep(sleep_time)
@@ -93,9 +93,12 @@ class Controller:
         """
 
         logger.info('Starting controller.')
+
         fill_queue_thread    = threading.Thread(target=self._fill_queue)
         process_queue_thread = threading.Thread(target=self._process_queue)
+        report_thread        = threading.Thread(target=self.__report_current_delta)
 
+        report_thread.start()
         fill_queue_thread.start()
         process_queue_thread.start()
 
@@ -106,7 +109,7 @@ class Controller:
         :returns: list of tuples for position_id
         """
 
-        with MysqlConnectorEnv(host='localhost') as db_conn:  # TODO FIX HERE
+        with MysqlConnectorEnv(host=self.db_host) as db_conn:
             cursor = db_conn.cursor()
             cursor.execute('SELECT * FROM option_positions WHERE position_id = {0}'.format(position_id))
             return cursor.fetchall()
@@ -118,8 +121,14 @@ class Controller:
         :returns: updates trade positions &
         """
 
-        self._new_position_event( self.__get_trade_params(msg['trade_nb'])
-                                , msg['event_type'])
+        event_type = msg['event_type']
+        trade_nb   = msg['trade_nb']
+
+        #if event_type == 'new_trade':
+        self._new_position_event( self.__get_trade_params(trade_nb), trade_type = event_type)
+
+        #if event_type == 'delete_trade':
+        #    self.__delete_position_event(self.__get_trade_params(trade_nb))
 
     def _read_portfolio(self, db_host='localhost'):
         """ Reads the entire portfolio from the database.
@@ -137,12 +146,11 @@ class Controller:
         """
 
         self.__is_revaluing_portfolio = True
-        self.curr_delta = Controller.__revalue_portfolio(self.curr_portfolio
-                                                         , self.mkt_date)
+        self.curr_delta = self.__class__.__revalue_portfolio(self.curr_portfolio, self.mkt_date)
         self.__is_revaluing_portfolio = False
 
     def _new_position_event(self, new_position_l : List, trade_type='new_trade') -> None:
-        """ Update the state What to do when a new position comes in.
+        """ Update the state 'What to do when a new position comes in'.
 
         :param new_position_l: position list of new trades.
         :param trade_type: type of trade amendment ('new_trade', 'delete_trade')
@@ -150,18 +158,25 @@ class Controller:
         """
 
         self.__portfolio.extend(new_position_l)
-        delta_difference = Controller.__revalue_portfolio(new_position_l, self.mkt_date)
+        delta_difference = self.__class__.__revalue_portfolio(new_position_l, self.mkt_date)
 
         self.curr_delta = self.curr_delta + delta_difference if trade_type == 'new_trade' else self.curr_delta - delta_difference
 
-    def _revalue_current_portfolio(self):
-        """ Revalue the entire portfolio.
+    def __report_current_delta(self, sleep_time=.5):
+        """ Reports current delta.
+        """
 
-        :return:
+        while True:
+            logger.info('Current delta: {0}'.format(str(self.curr_delta)))
+            time.sleep(sleep_time)
+
+    def _revalue_current_portfolio(self) -> None:
+        """ Revalue the entire portfolio.
         """
 
         self.__is_revaluing_portfolio = True
-        self.curr_delta = Controller.__revalue_portfolio(self.curr_portfolio, self.mkt_date)
+        logger.info('Current portfolio {0}'.format(str(self.curr_portfolio)))
+        self.curr_delta = self.__class__.__revalue_portfolio(self.curr_portfolio, self.mkt_date)
         self.__is_revaluing_portfolio = False
 
     @staticmethod
@@ -176,7 +191,8 @@ class Controller:
         logger.info('Computing portfolio {0}'.format(str(portfolio)))
         portfolio_delta = DeltaDict({})
 
-        for _, orig, dest\
+        for _, orig\
+             , dest\
              , option_start_date\
              , option_end_date\
              , option_ret_start_date\
@@ -213,5 +229,5 @@ class Controller:
 if __name__ == '__main__':
     # zmq_controller = Controller(ZMQSocketMixin._create_socket(port=5555))
     # zmq_controller.start()
-    nano_controller = Controller(NanoSocketMixin._create_socket(port=5555)[1])
+    nano_controller = Controller(NanoSocketMixin._create_socket(port=5556)[1])
     nano_controller.start()
