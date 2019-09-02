@@ -15,7 +15,7 @@ class ZMQSocketMixin:
 
     @staticmethod
     def _create_socket(port, pub_sub='sub'):
-        """ Create socket part.
+        """ Create recv_socket part.
         """
 
         context = ZMQSocketMixin.Context()
@@ -32,21 +32,41 @@ class ZMQSocketMixin:
 
 class NanoSocketMixin:
 
-    from nanomsg import (PUB, Socket, SUB, PUB, SUB_SUBSCRIBE)
+    from nanomsg import (PUB, Socket, SUB, PUB, SUB_SUBSCRIBE, PAIR)
+
+    NANOMSG_TYPES = ['sub', 'pub', 'pair,send', 'pair,recv']  # allowed types for NanoSockets
+
+    _TCP_STYLE = "tcp://{0}:{1}"
 
     @staticmethod
     def _create_socket( port
-                      , pub_sub='sub'
-                      , host = '127.0.0.1'):
-        """ Create socket part.
+                      , pub_sub = 'sub'
+                      , host    = '127.0.0.1') -> Socket:
+        """ Create recv_socket part.
+
+        :returns: nanomsg recv_socket
         """
+
+        assert pub_sub in NanoSocketMixin.NANOMSG_TYPES,\
+            'pub_sub parameter {0} not one of {1}'.format(pub_sub, NanoSocketMixin.NANOMSG_TYPES)
 
         if pub_sub == 'sub':
             socket = NanoSocketMixin.Socket(NanoSocketMixin.SUB)
-            socket.connect("tcp://{0}:{1}".format(host, port))
+            socket.connect(NanoSocketMixin._TCP_STYLE.format(host, port))
             socket.set_string_option(NanoSocketMixin.SUB, NanoSocketMixin.SUB_SUBSCRIBE, '')
-        else:
-            socket = NanoSocketMixin.Socket(NanoSocketMixin.PUB)
-            socket.bind('tcp://{0}:{1}'.format(host, port))
+            return socket
 
-        return None, socket
+        if pub_sub == 'pub':
+            socket = NanoSocketMixin.Socket(NanoSocketMixin.PUB)
+            socket.bind(NanoSocketMixin._TCP_STYLE.format(host, port))
+            return socket
+
+        if pub_sub == 'pair,send':  # send part of part
+            socket = NanoSocketMixin.Socket(NanoSocketMixin.PAIR)
+            socket.bind(NanoSocketMixin._TCP_STYLE.format(host, port))
+            return socket
+
+        if pub_sub == 'pair,recv':  # receiver part of pair
+            socket = NanoSocketMixin.Socket(NanoSocketMixin.PAIR)
+            socket.connect(NanoSocketMixin._TCP_STYLE.format(host, port))
+            return socket
