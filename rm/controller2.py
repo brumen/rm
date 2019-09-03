@@ -91,6 +91,7 @@ class Controller(EncodeDecodeMixin):
 
         with MysqlConnectorEnv(host=self.__position_db_address) as db_conn:
             cursor = db_conn.cursor()
+            # TODO: THIS CAN BE OPTIMIZED TO ACCEPT position_id lists
             cursor.execute('SELECT * FROM option_positions WHERE position_id = {0}'.format(position_id))
             return cursor.fetchall()
 
@@ -106,7 +107,7 @@ class Controller(EncodeDecodeMixin):
         delta_difference = self.__revalue_portfolio(new_position_l, self.mkt_date)
         self.curr_delta += delta_difference if trade_type == 'new_trade' else self.curr_delta - delta_difference
 
-    def _fill_event_queue(self, sleep_time = .01):
+    def _fill_event_queue(self, sleep_time = .0001):
         """ Fills the self.__new_position_queue with events coming from the position updater.
         """
 
@@ -120,13 +121,15 @@ class Controller(EncodeDecodeMixin):
             self.__new_position_queue.put(self.__position_socket.recv())
             time.sleep(sleep_time)
 
-    def _fill_worker_queue(self, worker_idx, sleep_time=.01):
+    def _fill_worker_queue(self, worker_idx, sleep_time=.0001):
         """ Fills the worker queue with the results of worker computation.
 
         :param worker_idx: index of the worker
         :param sleep_time:
         :return:
         """
+
+        logger.info('Starting fill worker queue thread.')
 
         while True:
             self.__worker_queues[worker_idx].put(self.__worker_sockets[worker_idx].recv())
@@ -136,6 +139,8 @@ class Controller(EncodeDecodeMixin):
         """ Checks the replies from workers, and potentially update self.curr_delta.
         """
 
+        logger.info('Starting check_replies_from_workers thread.')
+
         while True:
             for worker_idx, worker_socket in enumerate(self.__worker_sockets):  # check sockets
                 worker_queue_curr = self.__worker_queues[worker_idx]
@@ -143,9 +148,11 @@ class Controller(EncodeDecodeMixin):
                     self.curr_delta += self._decode_message(worker_queue_curr.get())
                     self.__worker_available[worker_idx] = True
 
-    def _distribute_workload(self, sleep_time=0.01) -> None:
+    def _distribute_workload(self, sleep_time=0.0001) -> None:
         """ Distributes the workload to workers, looks into self.__new_position_queue and distributes this to the workers.
         """
+
+        logger.info('Starting distribute_workload thread.')
 
         while True:
             if not self.__new_position_queue.empty():  # work to be done
@@ -155,13 +162,47 @@ class Controller(EncodeDecodeMixin):
                                       if worker_available ]
                 logger.debug('Workers avail: {0}'.format(workers_available))
                 if workers_available:  # we have any workers
-                    for msg_idx in range(q_size):
-                        msg = self._decode_message(self.__new_position_queue.get())
-                        worker_idx = msg_idx % len(workers_available)
-                        worker_chosen = workers_available[worker_idx]
-                        self.__worker_sockets[worker_chosen].send(self._encode_msg(self.__get_trade_params(msg['trade_nb'])))
-                        self.__worker_available[worker_chosen] = False
+                    self.__schedule_work_to_workers_2(workers_available, q_size)
             time.sleep(sleep_time)
+
+    def __schedule_work_to_workers_2(self, workers_available, q_size):
+        """ Improved version w/ workers. Above version SUCKS.
+
+        :param workers_available: list of workers available for work.
+        :param q_size:
+        :return:
+        """
+        nb_workers_available = len(workers_available)
+        logger.info('NB workers avail: {0}'.format(nb_workers_available))
+        for msg_idx in range(q_size):
+            worker_to_select = workers_available[msg_idx % nb_workers_available]
+            self.__worker_sockets[worker_to_select].send(self._encode_msg(self.__get_trade_params(self._decode_message(self.__new_position_queue.get())['trade_nb'])))
+            self.__worker_available[worker_to_select] = False
+
+    def __schedule_work_to_workers(self, workers_available, q_size):
+        """ Another scheduling mechanism.
+
+        :param workers_available:
+        :param q_size:
+        :return:
+        """
+
+        nb_workers_available = len(workers_available)
+        logger.info('NB workers avail: {0}'.format(nb_workers_available))
+        for worker_idx in workers_available:
+            self.__worker_sockets[worker_idx].send(self._encode_msg(self.__get_positions_from_queue(q_size // nb_workers_available)))
+            self.__worker_available[worker_idx] = False
+
+    def __get_positions_from_queue(self, nb_messages : int) -> List:
+        """ Takes a number of messages from the queue and prepares them to be sent to the workers.
+
+        :param nb_messages: number of messages to take from the queue.
+        :returns: TODO
+        """
+
+        logger.info('NB MSG: {0}'.format(nb_messages))
+        return [ self.__get_trade_params(self._decode_message(self.__new_position_queue.get())['trade_nb'])[0]
+                 for _ in range(nb_messages) ]
 
     def __report_current_delta(self, sleep_time=.5):
         """ Reporting thread.
@@ -175,7 +216,7 @@ class Controller(EncodeDecodeMixin):
         """ Starts all the threads of the controller.
         """
 
-        logger.info('Starting controller.')
+        logger.info('Starting controller threads.')
 
         # threads that are started
         threading.Thread(target=self._fill_event_queue).start()
@@ -186,8 +227,8 @@ class Controller(EncodeDecodeMixin):
         threading.Thread(target=self.__report_current_delta).start()
 
 
-def set_worker_configuration( mkt_date : datetime.date, worker_ports : List[int] ) -> List[PortfolioAirWorker] :
-    """ Function to start the workers.
+def start_workers(mkt_date : datetime.date, worker_ports : List[int]) -> List[PortfolioAirWorker] :
+    """ Sets the workers and starts their .start function.
 
     :param mkt_date: market date
     :param worker_ports: number of workers to start
@@ -207,9 +248,9 @@ def set_worker_configuration( mkt_date : datetime.date, worker_ports : List[int]
 if __name__ == '__main__':
     # nano_controller = Controller(NanoSocketMixin._create_socket(port=5556))  # to run as single server configuration
 
-    # multiple workers configuration
-    ports = [5667,5668,5669]
-    workers = set_worker_configuration(datetime.date(2019, 9, 1), ports )  # on separate threads
+    # 3 workers configuration
+    ports = [5667, 5668, 5669]
+    workers = start_workers(datetime.date(2019, 9, 1), ports)  # on separate threads
     nano_controller = Controller( NanoSocketMixin._create_socket(port=5556)
                                 , worker_sockets= [NanoSocketMixin._create_socket(port=port, pub_sub='pair,send') for port in ports] )
 
