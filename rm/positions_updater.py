@@ -7,7 +7,7 @@ from socket_msg import NanoSocketMixin
 
 
 class PositionUpdater:
-    """ Handles positions updating - publishes on recv_socket.
+    """ Handles positions updating - publishes on position_socket.
 
     """
 
@@ -16,7 +16,7 @@ class PositionUpdater:
                 , ):
         """ Position updater is a publisher of new/deleted/changed positions from the database.
 
-        :param pub_socket: recv_socket to publish the positions.
+        :param pub_socket: position_socket to publish the positions.
         """
 
         self.__pub_socket  = pub_socket

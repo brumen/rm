@@ -15,7 +15,7 @@ class ZMQSocketMixin:
 
     @staticmethod
     def _create_socket(port, pub_sub='sub'):
-        """ Create recv_socket part.
+        """ Create position_socket part.
         """
 
         context = ZMQSocketMixin.Context()
@@ -42,9 +42,9 @@ class NanoSocketMixin:
     def _create_socket( port
                       , pub_sub = 'sub'
                       , host    = '127.0.0.1') -> Socket:
-        """ Create recv_socket part.
+        """ Create position_socket part.
 
-        :returns: nanomsg recv_socket
+        :returns: nanomsg position_socket
         """
 
         assert pub_sub in NanoSocketMixin.NANOMSG_TYPES,\

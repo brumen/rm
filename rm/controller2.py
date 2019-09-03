@@ -3,7 +3,6 @@
 import time
 import datetime
 import sys
-import json
 import logging
 import threading
 sys.path.append('/home/brumen/work/rm/ao/')
@@ -13,6 +12,7 @@ from queue  import Queue
 
 from delta_dict             import DeltaDict
 from socket_msg             import NanoSocketMixin
+from encode_decode          import EncodeDecodeMixin
 
 from ao.mysql_connector_env import MysqlConnectorEnv
 from portfolio_worker       import PortfolioAirWorker
@@ -22,13 +22,13 @@ logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
 
 
-class Controller:
+class Controller(EncodeDecodeMixin):
     """ Main controlling logic.
     """
 
     def __init__(self
-                 , recv_socket
-                 , db_host = '127.0.0.1'
+                 , position_socket
+                 , position_db_address ='127.0.0.1'
                  , mkt_date = None
                  , queue_size = 100000
                  , revalue_portfolio = PortfolioAirWorker.revalue_portfolio
@@ -36,20 +36,20 @@ class Controller:
                  ):
         """ Controller class, keeps track of the system and distributes work.
 
-        :param recv_socket: nanomsg recv_socket over which to communicate.
-        :param db_host: database host, for potential later use.
-        :param mkt_date: market date (datetime.date)
+        :param position_socket: socket over which new positions are obtained.
+        :param position_db_address: database host where the position are read from
+        :param mkt_date: market date (datetime.date), if None, revert to today
         :param queue_size: maximum size of the queue.
         :param revalue_portfolio: function computing the portfolio given.
         :param worker_sockets: sockets to the workers to distribute work.
                                {'worker_name': worker_socket}
         """
 
-        self.__recv_socket  = recv_socket
-        self.db_host = db_host
+        self.__position_socket  = position_socket
+        self.__position_db_address = position_db_address
         self.mkt_date = mkt_date if mkt_date else datetime.date.today()  # market date is today or provided date
 
-        self.__msg_queue = Queue(maxsize=queue_size)
+        self.__new_position_queue = Queue(maxsize=queue_size)
 
         # signal handlers
         self.__is_revaluing_portfolio = False
@@ -82,64 +82,17 @@ class Controller:
     def curr_portfolio(self, new_portfolio):
         self.__portfolio = new_portfolio
 
-    def _decode_message(self, msg_from_worker):
-        """ Decodes the message from the worker.
-
-        :param msg_from_worker: message from worker.
-        :returns:
-        """
-
-        return json.loads(msg_from_worker.decode('utf-8'))
-
-    def _datetime_converter(self, date_obj):
-        """ Converter of datetime.date objects for json.
-
-        :param date_obj:
-        :return:
-        """
-
-        if isinstance(date_obj, datetime.date):
-            return date_obj.__str__()
-
-    def _encode_msg(self, msg):
-        """ Encoding of messages
-
-        :param msg: message to be json encoded.
-        :returns:
-        """
-
-        return json.dumps(msg, default=self._datetime_converter)  # to convert datetime objects
-
     def __get_trade_params(self, position_id : int) -> List[Tuple]:
-        """ Get trade params for trade under position_id in the db.
+        """ Get trade params for trade under position_id in the self.__position_db_address mysql db.
 
         :param position_id: position id of the trade considered.
         :returns: list of tuples for position_id
         """
 
-        with MysqlConnectorEnv(host=self.db_host) as db_conn:
+        with MysqlConnectorEnv(host=self.__position_db_address) as db_conn:
             cursor = db_conn.cursor()
             cursor.execute('SELECT * FROM option_positions WHERE position_id = {0}'.format(position_id))
             return cursor.fetchall()
-
-    def _read_portfolio(self, db_host='localhost'):
-        """ Reads the entire portfolio from the database.
-
-        :returns:
-        """
-
-        with MysqlConnectorEnv(host=db_host) as db_conn:
-            return db_conn.cursor().execute('SELECT * FROM options_positions').fetchall()
-
-    def _new_market_event(self):
-        """ What to do when a new market event occurs.
-
-        :return:
-        """
-
-        self.__is_revaluing_portfolio = True
-        self.curr_delta = self.__revalue_portfolio(self.curr_portfolio, self.mkt_date)
-        self.__is_revaluing_portfolio = False
 
     def _new_position_event(self, new_position_l : List, trade_type='new_trade') -> None:
         """ Update the state 'What to do when a new position comes in'.
@@ -151,17 +104,16 @@ class Controller:
 
         self.__portfolio.extend(new_position_l)
         delta_difference = self.__revalue_portfolio(new_position_l, self.mkt_date)
-        self.curr_delta = self.curr_delta + delta_difference if trade_type == 'new_trade' else self.curr_delta - delta_difference
+        self.curr_delta += delta_difference if trade_type == 'new_trade' else self.curr_delta - delta_difference
 
-    def _fill_queue(self, sleep_time = .01 ):
-        """ function to fill the message queue w/ messages.
+    def _fill_event_queue(self, sleep_time = .01):
+        """ Fills the self.__new_position_queue with events coming from the position updater.
         """
 
-        logger.debug('Starting the fill thread.')
+        logger.debug('Starting the event queue thread.')
         while True:
-            msg_received = self.__recv_socket.recv()
-            logger.info('Controller queue size: {0}.'.format(self.__msg_queue.qsize()))
-            self.__msg_queue.put(msg_received)
+            logger.info('Controller queue size: {0}.'.format(self.__new_position_queue.qsize()))
+            self.__new_position_queue.put(self.__position_socket.recv())
             time.sleep(sleep_time)
 
     def _fill_worker_queue(self, worker_idx, sleep_time=.01):
@@ -173,37 +125,34 @@ class Controller:
         """
 
         while True:
-            msg_received = self.__worker_sockets[worker_idx].recv()
-            self.__worker_queues[worker_idx].put(msg_received)
+            self.__worker_queues[worker_idx].put(self.__worker_sockets[worker_idx].recv())
             time.sleep(sleep_time)
 
     def _check_replies_from_workers(self):
-        """ Checks the replies from workers, and potentially update curr_delta.
+        """ Checks the replies from workers, and potentially update self.curr_delta.
         """
 
         while True:
             for worker_idx, worker_socket in enumerate(self.__worker_sockets):  # check sockets
                 worker_queue_curr = self.__worker_queues[worker_idx]
                 if not worker_queue_curr.empty():
-                    msg_from_worker = worker_queue_curr.get()
-                    delta_difference = self._decode_message(msg_from_worker)
-                    self.curr_delta += delta_difference  # TODO: if trade_type == 'new_trade' else self.curr_delta - delta_difference
+                    self.curr_delta += self._decode_message(worker_queue_curr.get())
                     self.__worker_available[worker_idx] = True
 
     def _distribute_workload(self, sleep_time=0.01) -> None:
-        """ Distributes the workload to workers.
+        """ Distributes the workload to workers, looks into self.__new_position_queue and distributes this to the workers.
         """
 
         while True:
-            if not self.__msg_queue.empty():  # work to be done
-                q_size = self.__msg_queue.qsize()
+            if not self.__new_position_queue.empty():  # work to be done
+                q_size = self.__new_position_queue.qsize()
                 logger.debug('Queue length: {0}'.format(q_size))
                 workers_available = [ worker_idx for worker_idx, worker_available in enumerate(self.__worker_available)
                                       if worker_available ]
                 logger.debug('Workers avail: {0}'.format(workers_available))
                 if workers_available:  # we have any workers
                     for msg_idx in range(q_size):
-                        msg = self._decode_message(self.__msg_queue.get())
+                        msg = self._decode_message(self.__new_position_queue.get())
                         worker_idx = msg_idx % len(workers_available)
                         worker_chosen = workers_available[worker_idx]
                         self.__worker_sockets[worker_chosen].send(self._encode_msg(self.__get_trade_params(msg['trade_nb'])))
@@ -225,7 +174,7 @@ class Controller:
         logger.info('Starting controller.')
 
         # threads that are started
-        threading.Thread(target=self._fill_queue).start()
+        threading.Thread(target=self._fill_event_queue).start()
         for worker_idx in range(self.__nb_workers):  # fill worker threads
             threading.Thread(target=lambda : self._fill_worker_queue(worker_idx)).start()
         threading.Thread(target=self._check_replies_from_workers).start()

@@ -73,7 +73,7 @@ class Controller:
             time.sleep(sleep_time)
 
     def _process_queue(self, sleep_time = .1):
-        """ Handles the self.__msg_queue queue processing - if not empty, process messages, else
+        """ Handles the self.__new_position_queue queue processing - if not empty, process messages, else
 
         :return:
         """
