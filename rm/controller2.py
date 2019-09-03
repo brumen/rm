@@ -23,7 +23,7 @@ logger.setLevel('INFO')
 
 
 class Controller(EncodeDecodeMixin):
-    """ Main controlling logic.
+    """ Controlling logic of the position updater.
     """
 
     def __init__(self
@@ -111,8 +111,12 @@ class Controller(EncodeDecodeMixin):
         """
 
         logger.debug('Starting the event queue thread.')
+        queue_size = 0
         while True:
-            logger.info('Controller queue size: {0}.'.format(self.__new_position_queue.qsize()))
+            new_queue_size = self.__new_position_queue.qsize()
+            if abs(new_queue_size - queue_size) > 50:
+                logger.info('Controller queue size: {0}.'.format(new_queue_size))
+                queue_size = new_queue_size
             self.__new_position_queue.put(self.__position_socket.recv())
             time.sleep(sleep_time)
 
