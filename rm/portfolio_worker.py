@@ -1,12 +1,12 @@
-# a worker class that receives the portfolio and computes it, returns the delta back.
+#
+# a worker class that receives the portfolio and computes delta from it, returns the delta back to the controller.
+#
 
 import datetime
 import logging
 import time
 import json
 import threading
-
-from queue  import Queue
 
 from delta_dict             import DeltaDict
 from socket_msg             import NanoSocketMixin
@@ -73,9 +73,7 @@ class PortfolioAirWorker:
         threading.Thread(target=self.do_work).start()
 
     def do_work(self) -> None:
-        """ Worker's working function.
-
-        :returns:
+        """ Computes the incremental delta of the portfolio and sends it over the socket back to controller.
         """
 
         while True:
