@@ -249,7 +249,7 @@ if __name__ == '__main__':
     # nano_controller = Controller(NanoSocketMixin._create_socket(port=5556))  # to run as single server configuration
 
     # 3 workers configuration
-    ports = [5667, 5668, 5669]
+    ports = list(range(5700, 5700+10))  # [5667, 5668, 5669, 5670, 5671, 5672]
     workers = start_workers(datetime.date(2019, 9, 1), ports)  # on separate threads
     nano_controller = Controller( NanoSocketMixin._create_socket(port=5556)
                                 , worker_sockets= [NanoSocketMixin._create_socket(port=port, pub_sub='pair,send') for port in ports] )

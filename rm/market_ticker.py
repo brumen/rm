@@ -14,5 +14,3 @@ class MarketTicker:
 
         :return:
         """
-
-
