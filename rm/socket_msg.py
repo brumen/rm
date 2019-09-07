@@ -7,32 +7,9 @@ logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
 
 
-class ZMQSocketMixin:
-    """ Socket Mixin.
-    """
-
-    from zmq import (Context, PUB, SUB, SUBSCRIBE)
-
-    @staticmethod
-    def _create_socket(port, pub_sub='sub'):
-        """ Create position_socket part.
-        """
-
-        context = ZMQSocketMixin.Context()
-        if pub_sub == 'sub':
-            socket = context.socket(ZMQSocketMixin.SUB)
-            socket.setsockopt_string(ZMQSocketMixin.SUBSCRIBE, '')
-            socket.bind("tcp://*:{0}".format(port))  # server ip
-        else:
-            socket = context.socket(ZMQSocketMixin.PUB)
-            socket.connect('tcp://localhost:{0}'.format(port))
-
-        return context, socket
-
-
 class NanoSocketMixin:
 
-    from nanomsg import (PUB, Socket, SUB, PUB, SUB_SUBSCRIBE, PAIR)
+    from nanomsg import (PUB, Socket, SUB, SUB_SUBSCRIBE, PAIR)
 
     NANOMSG_TYPES = ['sub', 'pub', 'pair,send', 'pair,recv']  # allowed types for NanoSockets
 
@@ -47,26 +24,67 @@ class NanoSocketMixin:
         :returns: nanomsg position_socket
         """
 
+        address = NanoSocketMixin._TCP_STYLE.format(host, port)
+
         assert pub_sub in NanoSocketMixin.NANOMSG_TYPES,\
             'pub_sub parameter {0} not one of {1}'.format(pub_sub, NanoSocketMixin.NANOMSG_TYPES)
 
         if pub_sub == 'sub':
             socket = NanoSocketMixin.Socket(NanoSocketMixin.SUB)
-            socket.connect(NanoSocketMixin._TCP_STYLE.format(host, port))
+            socket.connect(address)
             socket.set_string_option(NanoSocketMixin.SUB, NanoSocketMixin.SUB_SUBSCRIBE, '')
             return socket
 
         if pub_sub == 'pub':
             socket = NanoSocketMixin.Socket(NanoSocketMixin.PUB)
-            socket.bind(NanoSocketMixin._TCP_STYLE.format(host, port))
+            socket.bind(address)
             return socket
 
         if pub_sub == 'pair,send':  # send part of part
             socket = NanoSocketMixin.Socket(NanoSocketMixin.PAIR)
-            socket.bind(NanoSocketMixin._TCP_STYLE.format(host, port))
+            socket.bind(address)
             return socket
 
         if pub_sub == 'pair,recv':  # receiver part of pair
             socket = NanoSocketMixin.Socket(NanoSocketMixin.PAIR)
-            socket.connect(NanoSocketMixin._TCP_STYLE.format(host, port))
+            socket.connect(address)
             return socket
+
+
+# TODO: THIS NEEDS SOME WORK - SUBSCRIBERS HAVE TOPICS ETC
+class NNGSocketMixin:
+    """ Nano sockets next generation, an improvement for Nano messages.
+    """
+
+    from pynng import (Pub0, Socket, Sub0, SUB_SUBSCRIBE, Pair0)
+
+    NANOMSG_TYPES = NanoSocketMixin.NANOMSG_TYPES
+
+    _TCP_STYLE = NanoSocketMixin._TCP_STYLE
+
+    @staticmethod
+    def _create_socket( port
+                      , pub_sub = 'sub'
+                      , host    = '127.0.0.1') -> Socket:
+        """ Create position_socket part.
+
+        :returns: nanomsg position_socket
+        """
+
+        address = NNGSocketMixin._TCP_STYLE.format(host, port)
+
+        assert pub_sub in NNGSocketMixin.NANOMSG_TYPES,\
+            'pub_sub parameter {0} not one of {1}'.format(pub_sub, NNGSocketMixin.NANOMSG_TYPES)
+
+        if pub_sub == 'sub':
+            return NNGSocketMixin.Sub0(dial=address)
+            # socket.set_string_option(NanoSocketMixin.SUB, NanoSocketMixin.SUB_SUBSCRIBE, '')
+
+        if pub_sub == 'pub':
+            return NNGSocketMixin.Pub0(listen=address)
+
+        if pub_sub == 'pair,send':  # send part of part
+            return NNGSocketMixin.Pair0(dial=address)
+
+        if pub_sub == 'pair,recv':  # receiver part of pair
+            return NNGSocketMixin.Pair0(listen=address)
