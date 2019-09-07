@@ -7,7 +7,7 @@ import logging
 import threading
 sys.path.append('/home/brumen/work/rm/ao/')
 
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 from queue  import Queue
 
 from delta_dict             import DeltaDict
@@ -121,12 +121,11 @@ class Controller(EncodeDecodeMixin):
             self.__new_position_queue.put(self.__position_socket.recv())
             time.sleep(sleep_time)
 
-    def _fill_worker_queue(self, worker_idx, sleep_time=.0001):
+    def _fill_worker_queue(self, worker_idx : int, sleep_time=.0001):
         """ Fills the worker queue with the results of worker computation.
 
         :param worker_idx: index of the worker
-        :param sleep_time:
-        :return:
+        :param sleep_time: sleep time for the thread.
         """
 
         logger.info('Starting fill worker queue thread.')
