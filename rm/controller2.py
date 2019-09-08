@@ -4,7 +4,7 @@ import time
 import datetime
 import sys
 import logging
-import threading
+from threading import Thread
 sys.path.append('/home/brumen/work/rm/ao/')
 
 from typing import List, Tuple
@@ -16,6 +16,7 @@ from encode_decode          import EncodeDecodeMixin
 
 from ao.mysql_connector_env import MysqlConnectorEnv
 from portfolio_worker       import PortfolioAirWorker
+from listener               import DeltaListener
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class Controller(EncodeDecodeMixin):
                  , queue_size = 100000
                  , revalue_portfolio = PortfolioAirWorker.revalue_portfolio
                  , worker_sockets = None
+                 , query_socket  = None
                  ):
         """ Controller class, keeps track of the system and distributes work.
 
@@ -43,11 +45,12 @@ class Controller(EncodeDecodeMixin):
         :param revalue_portfolio: function computing the portfolio given.
         :param worker_sockets: sockets to the workers to distribute work.
                                {'worker_name': worker_socket}
+        :param query_socket: sockets where one can subscribe to and query for results.
         """
 
+        self.mkt_date = mkt_date if mkt_date else datetime.date.today()  # market date is today or provided date
         self.__position_socket  = position_socket
         self.__position_db_address = position_db_address
-        self.mkt_date = mkt_date if mkt_date else datetime.date.today()  # market date is today or provided date
 
         self.__new_position_queue = Queue(maxsize=queue_size)
 
@@ -57,6 +60,7 @@ class Controller(EncodeDecodeMixin):
         self.__portfolio  = []  # initially empty portfolio
         self.__revalue_portfolio = revalue_portfolio
         self.__worker_sockets = worker_sockets
+        self.__query_socket = query_socket
 
         # states of this state machine:
         self.__nb_workers = len(self.__worker_sockets)
@@ -187,7 +191,7 @@ class Controller(EncodeDecodeMixin):
         """
 
         nb_workers_available = len(workers_available)
-        logger.info('NB workers avail: {0}'.format(nb_workers_available))
+        logger.info('Nb workers avail: {0}'.format(nb_workers_available))
         for worker_idx in workers_available:
             self.__worker_sockets[worker_idx].send(self._encode_msg(self.__get_positions_from_queue(q_size // nb_workers_available)))
             self.__worker_available[worker_idx] = False
@@ -199,7 +203,7 @@ class Controller(EncodeDecodeMixin):
         :returns: TODO
         """
 
-        logger.info('NB MSG: {0}'.format(nb_messages))
+        logger.info('Nb. new positions: {0}'.format(nb_messages))
         return [ self.__get_trade_params(self._decode_message(self.__new_position_queue.get())['trade_nb'])[0]
                  for _ in range(nb_messages) ]
 
@@ -209,6 +213,8 @@ class Controller(EncodeDecodeMixin):
 
         while True:
             logger.info('Current delta: {0}'.format(str(self.curr_delta)))
+            if self.__query_socket:  # publish if provided.
+                self.__query_socket.send(self._encode_msg(self.curr_delta))
             time.sleep(sleep_time)
 
     def start(self):
@@ -218,12 +224,12 @@ class Controller(EncodeDecodeMixin):
         logger.info('Starting controller threads.')
 
         # threads that are started
-        threading.Thread(target=self._fill_event_queue).start()
+        Thread(target=self._fill_event_queue).start()
         for worker_idx in range(self.__nb_workers):  # fill worker threads
-            threading.Thread(target=lambda : self._fill_worker_queue(worker_idx)).start()
-        threading.Thread(target=self._check_replies_from_workers).start()
-        threading.Thread(target=self._distribute_workload).start()
-        threading.Thread(target=self.__report_current_delta).start()
+            Thread(target=lambda : self._fill_worker_queue(worker_idx)).start()
+        Thread(target=self._check_replies_from_workers).start()
+        Thread(target=self._distribute_workload).start()
+        Thread(target=self.__report_current_delta).start()
 
 
 def start_workers(mkt_date : datetime.date, worker_ports : List[int]) -> List[PortfolioAirWorker] :
@@ -250,7 +256,14 @@ if __name__ == '__main__':
     # 3 workers configuration
     ports = list(range(5700, 5700+10))  # [5667, 5668, 5669, 5670, 5671, 5672]
     workers = start_workers(datetime.date(2019, 9, 1), ports)  # on separate threads
-    nano_controller = Controller( NanoSocketMixin._create_socket(port=5556)
-                                , worker_sockets= [NanoSocketMixin._create_socket(port=port, pub_sub='pair,send') for port in ports] )
+    #nano_controller = Controller( NanoSocketMixin._create_socket(port=5556)
+    #                            , worker_sockets= [NanoSocketMixin._create_socket(port=port, pub_sub='pair,send') for port in ports] )
 
+    # Nano controller w/ query
+    nano_controller = Controller(NanoSocketMixin._create_socket(port=5556)
+                                , worker_sockets= [NanoSocketMixin._create_socket(port=port, pub_sub='pair,send') for port in ports]
+                                , query_socket = NanoSocketMixin._create_socket(port=5720, pub_sub='pub') )
     nano_controller.start()
+
+    delta_listener = DeltaListener.from_host()
+    delta_listener.start()

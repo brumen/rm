@@ -56,7 +56,7 @@ class NNGSocketMixin:
     """ Nano sockets next generation, an improvement for Nano messages.
     """
 
-    from pynng import (Pub0, Socket, Sub0, SUB_SUBSCRIBE, Pair0)
+    from pynng import (Pub0, Socket, Sub0, Pair0)
 
     NANOMSG_TYPES = NanoSocketMixin.NANOMSG_TYPES
 
