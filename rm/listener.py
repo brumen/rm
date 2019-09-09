@@ -25,6 +25,7 @@ class DeltaListener(EncodeDecodeMixin):
         """
 
         self._sub_socket  = sub_socket
+        self.__current_delta = None
 
     @classmethod
     def from_host(cls, db_host = '127.0.0.1', sub_port = 5720):
@@ -39,7 +40,9 @@ class DeltaListener(EncodeDecodeMixin):
 
         while True:
             delta = self._decode_message(self._sub_socket.recv())
-            logger.info('Delta received = {0}'.format(delta))
+            if delta != self.__current_delta:
+                logger.info('Delta received = {0}'.format(delta))
+                self.__current_delta = delta
 
     def start( self
              , sleep_time = .3  ) -> None:

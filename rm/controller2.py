@@ -116,12 +116,7 @@ class Controller(EncodeDecodeMixin):
         """
 
         logger.debug('Starting the event queue thread.')
-        queue_size = 0
         while True:
-            new_queue_size = self.__new_position_queue.qsize()
-            if abs(new_queue_size - queue_size) > 50:
-                logger.info('Controller queue size: {0}.'.format(new_queue_size))
-                queue_size = new_queue_size
             self.__new_position_queue.put(self.__position_socket.recv())
             time.sleep(sleep_time)
 
@@ -217,6 +212,21 @@ class Controller(EncodeDecodeMixin):
                 self.__query_socket.send(self._encode_msg(self.curr_delta))
             time.sleep(sleep_time)
 
+    def __report_queue_length(self, sleep_time=.5):
+        """ Only reports the length of positions to process.
+
+        :param sleep_time:
+        :return:
+        """
+
+        queue_size = 0
+        while True:
+            new_queue_size = self.__new_position_queue.qsize()
+            if abs(new_queue_size - queue_size) > 50:
+                queue_size = new_queue_size
+                logger.info('Current positions queue length: {0}'.format(new_queue_size))
+            time.sleep(sleep_time)
+
     def start(self):
         """ Starts all the threads of the controller.
         """
@@ -230,6 +240,7 @@ class Controller(EncodeDecodeMixin):
         Thread(target=self._check_replies_from_workers).start()
         Thread(target=self._distribute_workload).start()
         Thread(target=self.__report_current_delta).start()
+        Thread(target=self.__report_queue_length).start()
 
 
 def start_workers(mkt_date : datetime.date, worker_ports : List[int]) -> List[PortfolioAirWorker] :

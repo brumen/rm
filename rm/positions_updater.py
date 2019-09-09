@@ -44,4 +44,4 @@ class PositionUpdater:
 
 if __name__ == '__main__':
     pu = PositionUpdater.from_host()
-    pu.start(.0002)
+    pu.start(.02)
