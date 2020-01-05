@@ -95,10 +95,6 @@ class PortfolioAirWorker(EncodeDecodeMixin):
             portfolio_delta += AirOptionMock( mkt_date
                                     , orig
                                     , dest
-                                    , option_start_date = option_start_date
-                                    , option_end_date   = option_end_date
-                                    , option_ret_start_date = option_ret_start_date
-                                    , option_ret_end_date   = option_ret_end_date
                                     , outbound_date_start   = outbound_date_start
                                     , outbound_date_end     = outbound_date_end
                                     , inbound_date_start    = inbound_date_start
