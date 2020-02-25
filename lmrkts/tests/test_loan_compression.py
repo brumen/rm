@@ -5,7 +5,7 @@ from unittest import TestCase
 from loan_compression import LoanBook
 
 
-class TestAirOptionFlights(TestCase):
+class TestLoanBook(TestCase):
 
     def test_net(self):
         """ Tests whether the net before and after the compression is the same by party.
