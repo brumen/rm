@@ -7,18 +7,20 @@ import logging
 import time
 import threading
 
-from delta_dict     import DeltaDict
 from socket_msg     import NanoSocketMixin
 from encode_decode  import EncodeDecodeMixin
 
-from ao.air_option          import AirOptionMock
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
 
 
-class PortfolioAirWorker(EncodeDecodeMixin):
+class PortfolioWorkerException(Exception):
+    pass
+
+
+class PortfolioWorker(EncodeDecodeMixin):
 
     def __init__(self
                  , socket  : NanoSocketMixin.Socket  # PAIR recv, send_socket
@@ -65,43 +67,12 @@ class PortfolioAirWorker(EncodeDecodeMixin):
             time.sleep(self.__sleep_time)
 
     @staticmethod
-    def revalue_portfolio(portfolio, mkt_date : datetime.date) -> DeltaDict:
+    def revalue_portfolio(portfolio, mkt_date : datetime.date):
         """ Revalues the portfolio given.
 
         :param portfolio: trade portfolio to use.
         :param mkt_date: market date
-        :return:
+        :returns: value of the portfolio being processed.
         """
 
-        logger.debug('Computing portfolio {0}'.format(str(portfolio)))
-        portfolio_delta = DeltaDict({})
-
-        for _, orig\
-             , dest\
-             , option_start_date\
-             , option_end_date\
-             , option_ret_start_date\
-             , option_ret_end_date\
-             , outbound_date_start\
-             , outbound_date_end\
-             , inbound_date_start\
-             , inbound_date_end\
-             , K\
-             , carrier\
-             , adults\
-             , cabinclass in portfolio:
-
-            # computing pv01 - delta
-            portfolio_delta += AirOptionMock( mkt_date
-                                    , orig
-                                    , dest
-                                    , outbound_date_start   = outbound_date_start
-                                    , outbound_date_end     = outbound_date_end
-                                    , inbound_date_start    = inbound_date_start
-                                    , inbound_date_end      = inbound_date_end
-                                    , K                     = K
-                                    , carrier               = carrier
-                                    , adults                = adults
-                                    , cabinclass            = cabinclass ).PV01()
-
-        return portfolio_delta
+        raise PortfolioWorkerException('revalue_portfolio method not defined in the class')

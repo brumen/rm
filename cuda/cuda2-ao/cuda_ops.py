@@ -9,7 +9,6 @@ import pycuda.autoinit  # IMPORTANT: DO NOT REMOVE, this has to be here.
 import pycuda.driver as drv
 import pycuda.gpuarray as gpa
 from pycuda.gpuarray import GPUArray
-import pycuda.reduction
 from pycuda.compiler import SourceModule
 from pycuda.elementwise import ElementwiseKernel
 import skcuda.cublas as cublas  # skcuda bindings to cublas
@@ -145,7 +144,6 @@ class GPUArrayAO(GPUArray):
         """
 
         self.__gpu_set_const_float_k(self, a) if self.dtype == np.float32 else self.__gpu_set_const_double_k(self, a)
-
 
 
 def vtpv_new(v1, v2, tm_ind='p'):
@@ -730,18 +728,6 @@ def comp_two_arrays_and(a1, a2, b1, b2):
 take_part_array_k = ElementwiseKernel("float *b, float *a, int st_idx",
                                       "b[i] = a[i+st_idx];",
                                       name="take_part_array_k")
-
-
-# multiply vector with float 
-mv = ElementwiseKernel("float *a, float *b, float c",
-                       "b[i] = c * a[i];",
-                       name='multiply_vec')
-
-
-def mult_vec(a, b):
-    c = gpa.empty(a.size, dtype=np.float32)
-    mv(a, c, b)
-    return c
 
 
 # broadcasting a short vector (sv) onto long vector (lv), 
