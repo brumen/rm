@@ -1,0 +1,7 @@
+all:
+	gcc -fPIC -shared mysql-publisher.c /usr/local/lib/libzmq.so -o mysql-publisher.so
+#	gcc -shared mysql-publisher.o  -o mysql-publisher.so
+
+# MYSQL commands:
+#  drop function zmq_client;
+#  create function zmq_client returns string soname 'libzeromq.so';

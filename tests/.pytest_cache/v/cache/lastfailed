@@ -1,0 +1,4 @@
+{
+  "test_worker.py": true,
+  "test_worker.py::PortfolioWorkerTest::test_worker1": true
+}
