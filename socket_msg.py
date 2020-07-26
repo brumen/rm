@@ -16,11 +16,14 @@ class NanoSocketMixin:
     _TCP_STYLE = "tcp://{0}:{1}"
 
     @staticmethod
-    def _create_socket( port
-                      , pub_sub = 'sub'
-                      , host    = '127.0.0.1') -> Socket:
+    def create_socket( port    : int
+                     , pub_sub : str = 'sub'
+                     , host    : str  = '127.0.0.1' ) -> Socket:
         """ Create position_socket part.
 
+        :param port: which port to use for the socket.
+        :param pub_sub: type of subscription to use, default subscription.
+        :param host: host where the socket should look at, default localhost
         :returns: nanomsg position_socket
         """
 

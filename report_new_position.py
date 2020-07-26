@@ -3,8 +3,9 @@
 # reports new position when it is inserted into a database
 #
 
-from socket_msg import NanoSocketMixin
 import time
+
+from socket_msg import NanoSocketMixin
 
 
 def send_message( position : str

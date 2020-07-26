@@ -2,7 +2,6 @@
 
 import datetime
 import json
-import threading
 
 from unittest import TestCase
 
@@ -10,7 +9,7 @@ from rm.socket_msg       import NanoSocketMixin
 from rm.portfolio_worker import PortfolioAirWorker
 
 
-class AOWorkerTest(TestCase):
+class InOutClassTest(TestCase):
     """ Tests for the AirOptions worker.
     """
 

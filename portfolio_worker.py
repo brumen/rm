@@ -22,12 +22,12 @@ class PortfolioWorkerException(Exception):
 
 class PortfolioWorker(EncodeDecodeMixin):
 
-    def __init__(self
-                 , socket  : NanoSocketMixin.Socket  # PAIR recv, send_socket
-                 , mkt_date  = None
-                 , worker_name ='Gorazd'
-                 , sleep_time  = 0.0001
-                 , ):
+    def __init__( self
+                , socket  : NanoSocketMixin.Socket  # PAIR recv, send_socket
+                , mkt_date  = None
+                , worker_name ='Gorazd'
+                , sleep_time  = 0.0001
+                , ):
         """ Worker process class.
 
         :param socket: PAIR nanomsg worker position_socket
@@ -36,10 +36,10 @@ class PortfolioWorker(EncodeDecodeMixin):
         :param sleep_time: sleep time between iteration on the working thread.
         """
 
-        self.socket      = socket
+        self.socket        = socket
         self.mkt_date      = mkt_date
         self.__worker_name = worker_name
-        self.__sleep_time = sleep_time
+        self.__sleep_time  = sleep_time
 
         # signal handlers
         self.__is_revaluing_portfolio = False
@@ -52,6 +52,7 @@ class PortfolioWorker(EncodeDecodeMixin):
         """
 
         logger.info('Starting worker {0}'.format(self.__worker_name))
+
         threading.Thread(target=self.do_work).start()
 
     def do_work(self) -> None:
@@ -59,11 +60,13 @@ class PortfolioWorker(EncodeDecodeMixin):
         """
 
         while True:
+
             msg_received = self.socket.recv()
             self.__is_revaluing_portfolio = True
             revalued_portfolio = self.__class__.revalue_portfolio(self._decode_message(msg_received), self.mkt_date)  # DeltaDict
             self.socket.send(self._encode_msg(revalued_portfolio))
             self.__is_revaluing_portfolio = False
+
             time.sleep(self.__sleep_time)
 
     @staticmethod

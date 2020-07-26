@@ -1,5 +1,6 @@
 import time
-from socket_msg import NanoSocketMixin
+
+from rm.socket_msg import NanoSocketMixin
 
 
 class Server1:

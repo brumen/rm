@@ -1,11 +1,13 @@
 # listens to the queries from the controller.
 
 import logging
-from threading import Thread
-from nanomsg import Socket
 
-from socket_msg import NanoSocketMixin
-from encode_decode import EncodeDecodeMixin
+from threading import Thread
+from nanomsg   import Socket
+
+from rm.socket_msg    import NanoSocketMixin
+from rm.encode_decode import EncodeDecodeMixin
+
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ class DeltaListener(EncodeDecodeMixin):
              , sleep_time = .3  ) -> None:
         """ listens to the controller's results.
         """
+
         Thread(target=self._report_delta).start()
 
 
