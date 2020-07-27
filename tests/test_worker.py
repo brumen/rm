@@ -16,9 +16,9 @@ class AOWorkerTest(TestCase):
 
     def test_worker1(self):
 
-        sender = NanoSocketMixin._create_socket(5667, pub_sub='pair,recv')  # IMPORTANT: !!! this has to come first.
+        sender = NanoSocketMixin.create_socket(5667, pub_sub='pair,recv')  # IMPORTANT: !!! this has to come first.
 
-        worker = PortfolioAirWorker( NanoSocketMixin._create_socket(5667, pub_sub='pair,send')
+        worker = PortfolioAirWorker( NanoSocketMixin.create_socket(5667, pub_sub='pair,send')
                                    , datetime.date(2019, 9, 2)
                                    , 'Worker1' )
         worker_thread = threading.Thread(target=worker.start)

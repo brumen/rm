@@ -7,8 +7,8 @@ import logging
 import time
 import threading
 
-from socket_msg     import NanoSocketMixin
-from encode_decode  import EncodeDecodeMixin
+from rm.socket_msg    import NanoSocketMixin
+from rm.encode_decode import EncodeDecodeMixin
 
 
 logging.basicConfig()

@@ -18,9 +18,7 @@ class DeltaListener(EncodeDecodeMixin):
     """ Subscribes to a port & reports the results.
     """
 
-    def __init__( self
-                , sub_socket    : Socket
-                , ):
+    def __init__( self, sub_socket    : Socket ):
         """ Position updater is a publisher of new/deleted/changed positions from the database.
 
         :param sub_socket: subscribe socket to listen to delta.
@@ -34,7 +32,7 @@ class DeltaListener(EncodeDecodeMixin):
         """ Constructs the class from host & port where to update positions.
         """
 
-        return cls( NanoSocketMixin._create_socket(port=sub_port, pub_sub='sub', host=db_host) )
+        return cls( NanoSocketMixin.create_socket(port=sub_port, pub_sub='sub', host=db_host) )
 
     def _report_delta(self):
         """ Reports the delta received.
