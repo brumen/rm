@@ -1,8 +1,9 @@
 # class implements the in-out updater
 
 from threading import Thread
-from time   import sleep
-from uuid   import uuid4
+from time      import sleep
+from uuid      import uuid4
+from queue     import Queue
 
 from rm.socket_msg    import NanoSocketMixin
 from rm.encode_decode import EncodeDecodeMixin
@@ -22,10 +23,10 @@ class InputClass(EncodeDecodeMixin):
         :param sleep_time: amount of sleep the process does between looking for new values.
         """
 
-        self.__name         = name
+        self.__name        = name
         self._queue_length = queue_length
         self._sleep_time   = sleep_time
-        self.__value = None
+        self.__value       = None
 
         # internal variables
         self.__value_has_changed = True
@@ -36,8 +37,14 @@ class InputClass(EncodeDecodeMixin):
 
     @value.setter
     def value(self, new_value):
-        self.has_changed = True
-        self.__value = new_value
+        if not self._queue_length:
+            self.has_changed = True
+            self.__value = new_value
+        else:
+            if not self.__value:  # queue is not initiated
+                self.__value = Queue(maxsize=self._queue_length)
+
+            self.__value.put(new_value)  # add new value to the queue
 
     @property
     def has_changed(self):
@@ -48,10 +55,7 @@ class InputClass(EncodeDecodeMixin):
         self.__value_has_changed = new_value
 
     def __call__(self):
-        if not self._queue_length:
-            return self.value
-
-        # TODO: ADD THE QUEUE FUNCTIONALITY
+        return self.value
 
     def _update_value(self):
         raise NotImplementedError('method _update_value not implemented.')
@@ -116,6 +120,8 @@ class SocketInputSource(InputClass):
 
 
 class InputFactory:
+    """ Factory method for the input sources.
+    """
 
     @staticmethod
     def input(input_type, *args, **kwargs):

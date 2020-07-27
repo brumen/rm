@@ -22,7 +22,7 @@ class InOutUpdater:
 
             new_input = InputFactory.input( input_type, uuid4(), queue_length = queue_length )
             self.__class__.INPUTS.append(new_input)
-            new_input.run()  # TODO: CHECK THIS HERE!!!
+            new_input.run()
 
             return new_input
 
