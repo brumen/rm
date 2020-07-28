@@ -261,17 +261,17 @@ class Controller(EncodeDecodeMixin):
     def __report_queue_length(self, sleep_time=.5):
         """ Only reports the length of positions to process.
 
-        :param sleep_time:
-        :return:
+        :param sleep_time: time to sleep between successive updated.
+        :returns: logs the length of the queue if queue length > 50.
         """
 
-        queue_size = 0
+        old_queue_size = 0
 
         while True:
             new_queue_size = self.__new_position_queue.qsize()
 
-            if abs(new_queue_size - queue_size) > 50:
-                queue_size = new_queue_size
+            if abs(new_queue_size - old_queue_size) > 50:
+                old_queue_size = new_queue_size
                 logger.info('Current positions queue length: {0}'.format(new_queue_size))
 
             logger.info('Queue length < 50')

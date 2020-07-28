@@ -7,7 +7,8 @@ from typing import List
 
 from rm.delta_dict       import DeltaDict
 from ao.air_option       import AirOptionMock
-
+from rm.portfolio_worker import PortfolioWorker
+from rm.socket_msg       import NanoSocketMixin
 
 logger = logging.getLogger(__name__)
 logger.setLevel('INFO')  # log at info level
@@ -55,18 +56,19 @@ def revalue_ao_portfolio(portfolio, mkt_date : datetime.date) -> DeltaDict:
     return portfolio_delta
 
 
-def start_workers(mkt_date : datetime.date, worker_ports : List[int]) -> List[PortfolioAirWorker] :
+def start_workers(mkt_date : datetime.date, worker_ports : List[int]) -> List[PortfolioWorker] :
     """ Sets the workers and starts their .start function.
 
     :param mkt_date: market date
-    :param worker_ports: number of workers to start
+    :param worker_ports: number of ports where these workers are listening to.
+    :returns: workers listening to required ports.
     """
 
     workers = []
     for worker_idx, worker_port in enumerate(worker_ports):
-        curr_worker = PortfolioAirWorker(NanoSocketMixin._create_socket(port=worker_port, pub_sub='pair,recv')
-                                         , mkt_date=mkt_date
-                                         , worker_name='Worker{0}'.format(worker_idx))
+        curr_worker = PortfolioWorker( NanoSocketMixin.create_socket(port=worker_port, pub_sub='pair,recv')  # TODO: CHECK HERE, THIS IS PROBABLY WRONG.
+                                     , revalue_portfolio = lambda portfolio : revalue_ao_portfolio(portfolio, mkt_date = mkt_date)
+                                     , worker_name       = 'Worker{0}'.format(worker_idx) )
         curr_worker.start()
         workers.append(curr_worker)
 
