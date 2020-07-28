@@ -1,16 +1,25 @@
 # specialization of the controller to the airoptions example
 
-from rm.controller2 import Controller
+import logging
+import time
+
+from typing import List, Tuple
+
+from rm.controller2          import Controller
+from rm.portfolio_air_worker import revalue_ao_portfolio
+from ao.mysql_connector_env  import MysqlConnectorEnv
+
+logger = logging.getLevelName(__name__)
 
 
 class ControllerAO(Controller):
 
-    def __init__( self,
+    def __init__( self
                 , position_socket
                 , position_db_address ='127.0.0.1'
                 , mkt_date            = None
                 , queue_size          = 100000
-                , revalue_portfolio   = PortfolioAirWorker.revalue_portfolio
+                , value_portfolio_fct = revalue_ao_portfolio
                 , worker_sockets      = None
                 , query_socket        = None
                 , ):
@@ -20,19 +29,19 @@ class ControllerAO(Controller):
         :param position_db_address: database host where the position are read from
         :param mkt_date: market date (datetime.date), if None, revert to today
         :param queue_size: maximum size of the queue.
-        :param revalue_portfolio: function computing the portfolio given.
+        :param value_portfolio_fct: function computing the given portfolio.
         :param worker_sockets: sockets to the workers to distribute work.
                                {'worker_name': worker_socket}
         :param query_socket: sockets where one can subscribe to and query for results.
         """
 
         super().__init__( position_socket
-                        , mkt_date            = mkt_date
                         , queue_size          = queue_size
-                        , revalue_portfolio   = revalue_portfolio
+                        , value_portfolio_fct = value_portfolio_fct
                         , worker_sockets      = worker_sockets
                         , query_socket        = query_socket )
 
+        self.mkt_date = mkt_date
         self._position_db_address = position_db_address
 
     def _get_trade_params(self, position_id : int) -> List[Tuple]:
@@ -48,7 +57,7 @@ class ControllerAO(Controller):
             cursor.execute('SELECT * FROM option_positions WHERE position_id = {0}'.format(position_id))
             return cursor.fetchall()
 
-    def __report_results(self, sleep_time=.5):
+    def _report_results(self, sleep_time=.5):
         """ Reporting thread.
         """
 

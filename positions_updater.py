@@ -3,7 +3,7 @@ import time
 from json    import dumps
 from nanomsg import Socket
 
-from rm.socket_msg import NanoSocketMixin
+from rm.socket_msg import NanoSocketMixin, NNGSocketMixin
 
 
 class PositionUpdater:
@@ -23,7 +23,7 @@ class PositionUpdater:
         """ Constructs the class from host & port where to update positions.
         """
 
-        return cls( NanoSocketMixin._create_socket(pub_port, pub_sub='pub', host=db_host) )
+        return cls( NNGSocketMixin.create_socket(pub_port, pub_sub='pub', host=db_host) )
 
     def start(self, sleep_time = .3) -> None:
         """ Sends the position to the controller, acts as a publisher.

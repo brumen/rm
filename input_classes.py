@@ -5,7 +5,7 @@ from time      import sleep
 from uuid      import uuid4
 from queue     import Queue
 
-from rm.socket_msg    import NanoSocketMixin
+from rm.socket_msg    import NanoSocketMixin, NNGSocketMixin
 from rm.encode_decode import EncodeDecodeMixin
 
 
@@ -111,7 +111,8 @@ class SocketInputSource(InputClass):
         """
 
         return cls( str(uuid4())
-                  , NanoSocketMixin.create_socket(port, pub_sub='pub', host=host)
+                  # , NanoSocketMixin.create_socket(port, pub_sub='pub', host=host)
+                  , NNGSocketMixin.create_socket(port, pub_sub = 'pub', host = host)
                   , queue_length = queue_length
                   , sleep_time   =sleep_time )
 

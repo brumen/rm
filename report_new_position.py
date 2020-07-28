@@ -5,7 +5,7 @@
 
 import time
 
-from socket_msg import NanoSocketMixin
+from rm.socket_msg import NanoSocketMixin
 
 
 def send_message( position : str
@@ -18,8 +18,8 @@ def send_message( position : str
     :param port: port on which to send
     """
 
-    _, socket = NanoSocketMixin._create_socket(5556, pub_sub='pub')
-    time.sleep(.09)  # this has to be here!!!
+    _, socket = NanoSocketMixin.create_socket(port, pub_sub='pub')
+    time.sleep(sleep_time)  # this has to be here!!!
     socket.send(position)
     socket.close()
 

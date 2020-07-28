@@ -1,7 +1,7 @@
-
+# output classes for communication.
 from uuid      import uuid4
 
-from rm.socket_msg    import NanoSocketMixin
+from rm.socket_msg    import NanoSocketMixin, NNGSocketMixin
 from rm.encode_decode import EncodeDecodeMixin
 
 
@@ -88,7 +88,8 @@ class SocketOutputSource(OutputClass):
         """
 
         return cls( str(uuid4())
-                  , NanoSocketMixin.create_socket(port, pub_sub='sub', host=host)
+                  #, NanoSocketMixin.create_socket(port, pub_sub='sub', host=host)
+                  , NNGSocketMixin.create_socket(port, pub_sub='pub', host=host)
                   , sleep_time   =sleep_time )
 
     def _update_value(self):

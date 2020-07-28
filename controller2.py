@@ -2,7 +2,6 @@
 
 import time
 import datetime
-import sys
 import logging
 
 from threading import Thread
@@ -11,10 +10,10 @@ from queue     import Queue
 
 from ao.mysql_connector_env import MysqlConnectorEnv
 
+from rm.portfolio_air_worker import start_workers
 from rm.delta_dict          import DeltaDict
 from rm.socket_msg          import NanoSocketMixin
 from rm.encode_decode       import EncodeDecodeMixin
-from rm.portfolio_worker    import PortfolioAirWorker
 from rm.listener            import DeltaListener
 
 logging.basicConfig()
@@ -29,9 +28,8 @@ class Controller(EncodeDecodeMixin):
     def __init__(self
                  , position_socket
                  , market_socket       = None
-                 , mkt_date            = None
                  , queue_size          = 100000
-                 , value_portfolio_fct = PortfolioAirWorker.revalue_portfolio
+                 , value_portfolio_fct = None  # PortfolioAirWorker.revalue_portfolio
                  , worker_sockets      = None
                  , query_socket        = None
                  , ):
@@ -39,16 +37,13 @@ class Controller(EncodeDecodeMixin):
 
         :param position_socket: socket over which new positions are obtained.
         :param market_socket: socket over which market updates are received.
-        :param position_db_address: database host where the position are read from
-        :param mkt_date: market date (datetime.date), if None, revert to today
         :param queue_size: maximum size of the queue.
-        :param revalue_portfolio: function computing the portfolio given.
+        :param value_portfolio_fct: function computing the given portfolio.
         :param worker_sockets: sockets to the workers to distribute work.
                                {'worker_name': worker_socket}
         :param query_socket: sockets where one can subscribe to and query for results.
         """
 
-        self.mkt_date = mkt_date if mkt_date else datetime.date.today()  # market date is today or provided date
         self.__position_socket     = position_socket
         self.__market_socket       = market_socket
         self.__new_position_queue  = Queue(maxsize=queue_size)
@@ -70,15 +65,15 @@ class Controller(EncodeDecodeMixin):
         self.__latest_market_update = None
 
         # results variable
-        self.__curr_result      = DeltaDict({})
-
-
-
-    def __worker_name(self, worker_idx):
-        return 'Worker{0}'.format(worker_idx)
+        self.__curr_result = DeltaDict({})
 
     @property
     def curr_portfolio(self) -> List[Tuple]:
+        """ Returns the current portfolio under consideration.
+
+        :returns: list of individual trades.
+        """
+
         return self._portfolio
 
     @curr_portfolio.setter
@@ -92,7 +87,7 @@ class Controller(EncodeDecodeMixin):
 
         return self.__curr_result
 
-    @curr_delta.setter
+    @curr_result.setter
     def curr_result(self, new_result : DeltaDict):
         self.__curr_result = new_result
 
@@ -109,8 +104,7 @@ class Controller(EncodeDecodeMixin):
     def _trades_on_most_recent_market(self):
         """ Display the trade portfolio on the most recent market.
         """
-
-
+        pass
 
     def _get_trade_params(self, position_id : int) -> List[Tuple]:
         """ Gets the trade parameters to dispatch to the workers.
@@ -130,11 +124,10 @@ class Controller(EncodeDecodeMixin):
         :returns: None, performs the trade augmentation & delta recomputation.
         """
 
-        self.__portfolio.extend(new_position_l)
-        delta_difference = self.__value_portfolio(new_position_l)
+        self.curr_portfolio.extend(new_position_l)
+        delta_difference = self.__value_portfolio_fct(new_position_l)
 
         self.curr_result += delta_difference if trade_type == 'new_trade' else self.curr_result - delta_difference
-
 
     def _fill_event_queue(self, sleep_time = .0001):
         """ Fills the self.__new_position_queue with events coming from the position updater.
@@ -185,6 +178,14 @@ class Controller(EncodeDecodeMixin):
 
         else:
             logger.info('Obtained market event {0}, dropping, previous market event not yet processed.')
+
+    def __revalue_portfolio(self):
+        """ Revalues the entire portfolio.
+
+        :return: The revaluation of the entire portfolio.
+        """
+
+        return self.__value_portfolio_fct(self.curr_portfolio)
 
     def _distribute_workload(self, sleep_time = 0.0001) -> None:
         """ Distributes the workload to workers, looks into self.__new_position_queue and distributes this to the workers.
@@ -290,40 +291,3 @@ class Controller(EncodeDecodeMixin):
         Thread(target=self._distribute_workload).start()
         Thread(target=self.__report_results).start()
         Thread(target=self.__report_queue_length).start()
-
-
-def start_workers(mkt_date : datetime.date, worker_ports : List[int]) -> List[PortfolioAirWorker] :
-    """ Sets the workers and starts their .start function.
-
-    :param mkt_date: market date
-    :param worker_ports: number of workers to start
-    """
-
-    workers = []
-    for worker_idx, worker_port in enumerate(worker_ports):
-        curr_worker = PortfolioAirWorker(NanoSocketMixin._create_socket(port=worker_port, pub_sub='pair,recv')
-                                         , mkt_date=mkt_date
-                                         , worker_name='Worker{0}'.format(worker_idx))
-        curr_worker.start()
-        workers.append(curr_worker)
-
-    return workers
-
-
-if __name__ == '__main__':
-    # nano_controller = Controller(NanoSocketMixin._create_socket(port=5556))  # to run as single server configuration
-
-    # 3 workers configuration
-    ports = list(range(5700, 5700+10))  # [5667, 5668, 5669, 5670, 5671, 5672]
-    workers = start_workers(datetime.date(2019, 9, 1), ports)  # on separate threads
-    #nano_controller = Controller( NanoSocketMixin._create_socket(port=5556)
-    #                            , worker_sockets= [NanoSocketMixin._create_socket(port=port, pub_sub='pair,send') for port in ports] )
-
-    # Nano controller w/ query
-    nano_controller = Controller(NanoSocketMixin._create_socket(port=5556)
-                                , worker_sockets= [NanoSocketMixin._create_socket(port=port, pub_sub='pair,send') for port in ports]
-                                , query_socket = NanoSocketMixin._create_socket(port=5720, pub_sub='pub') )
-    nano_controller.start()
-
-    delta_listener = DeltaListener.from_host()
-    delta_listener.start()

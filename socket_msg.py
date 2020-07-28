@@ -54,7 +54,6 @@ class NanoSocketMixin:
             return socket
 
 
-# TODO: THIS NEEDS SOME WORK - SUBSCRIBERS HAVE TOPICS ETC
 class NNGSocketMixin:
     """ Nano sockets next generation, an improvement for Nano messages.
     """
@@ -66,12 +65,15 @@ class NNGSocketMixin:
     _TCP_STYLE = NanoSocketMixin._TCP_STYLE
 
     @staticmethod
-    def _create_socket( port
-                      , pub_sub = 'sub'
-                      , host    = '127.0.0.1') -> Socket:
-        """ Create position_socket part.
+    def create_socket( port    : int
+                     , pub_sub : str = 'sub'
+                     , host    : str = '127.0.0.1') -> Socket:
+        """ Create socket for communication. position_socket part.
 
-        :returns: nanomsg position_socket
+        :param port: port parameter for the socket.
+        :param pub_sub: publisher/subscriber keyword on what kind of socket to use.
+        :param host: host name, default localhost
+        :returns: socket to use for communication.
         """
 
         address = NNGSocketMixin._TCP_STYLE.format(host, port)
