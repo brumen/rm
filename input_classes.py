@@ -120,6 +120,19 @@ class SocketInputSource(InputClass):
         return self._source.recv()
 
 
+class OtherOutputInputSource(SocketInputSource):
+    """ Source is some other OutputClass.
+
+    self._source is another output class
+    """
+
+    def __update_value(self):
+        """ listen on the other input """
+
+        if self._source.has_changed:
+            return self._source.value
+
+
 class InputFactory:
     """ Factory method for the input sources.
     """
@@ -139,3 +152,6 @@ class InputFactory:
 
         if input_type == 'SocketInput':
             return SocketInputSource(*args, **kwargs)
+
+        if input_type == 'OtherOutput':  # same inputs as SocketInput, except that source is an Input class.
+            return OtherOutputInputSource(*args, **kwargs)

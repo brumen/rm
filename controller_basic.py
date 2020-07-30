@@ -9,6 +9,8 @@ from queue     import Queue
 
 from rm.encode_decode    import EncodeDecodeMixin
 from rm.portfolio_worker import PortfolioWorker
+from rm.delta_dict       import DeltaDict
+
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
@@ -36,7 +38,6 @@ class ControllerBase(EncodeDecodeMixin):
         self.__work_queue = Queue(maxsize=queue_size)
 
         # signal handlers
-        self.__is_revaluing_portfolio = False
         self.__value_portfolio_fct    = value_portfolio_fct
         self.__workers                = workers
 
@@ -132,3 +133,77 @@ class ControllerBase(EncodeDecodeMixin):
         Thread(target=self._distribute_workload).start()
         logger.info('Starting controller log queue thread.')
         Thread(target=self.__log_queue_length).start()  # logs the length of the portfolio queue still to process
+
+
+class Controller2(ControllerBase):
+    """ Controlling logic with sockets.
+    """
+
+    def __init__(self
+                 , work_socket   = None
+                 , result_socket = None
+                 , queue_size          : int = 100000
+                 , value_portfolio_fct : Callable = None
+                 , workers             : Union[List[PortfolioWorker], None] = None
+                 , ):
+        """ Controller class, keeps track of the system and distributes work.
+
+        :param work_socket: socket over which work is given.
+        :param queue_size: maximum size of the queue.
+        :param value_portfolio_fct: function computing the given portfolio.
+        :param workers: workers associated w/ the controller.
+        """
+
+        super().__init__(queue_size = queue_size, value_portfolio_fct=value_portfolio_fct, workers=workers)
+
+        self._work_socket   = work_socket
+        self._result_socket = result_socket
+
+        # results variable
+        self.__is_working  = False
+        self.__curr_result = None
+
+    @property
+    def is_working(self) -> bool:
+        return self.__is_working
+
+    @is_working.setter
+    def is_working(self, new_is_revaluing : bool):
+        self.__is_working = new_is_revaluing
+
+    @property
+    def curr_result(self) -> DeltaDict:
+        """ Returns the current delta of the portfolio.
+        """
+        return self.__curr_result
+
+    @curr_result.setter
+    def curr_result(self, new_result : DeltaDict):
+        self.__curr_result = new_result
+
+    def _fill_work_queue(self):
+        """ Looks on the worker socket and distributes the work.
+
+        :return:
+        """
+
+        while True:
+            self.add_to_queue(self._work_socket.recv())
+
+    def _report_results(self, sleep_time = .5):
+        """ Method should report the results.
+        """
+
+        # collect results from workers.
+
+
+    def start(self):
+        """ Starts all the threads of the controller.
+        """
+
+        super().start()  # start threads in the base class.
+
+        Thread(target=self._fill_work_queue).start()
+        Thread(target=self._check_replies_from_workers).start()
+        Thread(target=self._report_results).start()
+        Thread(target=self._handle_market_event).start()  # thread for handling market events.

@@ -75,6 +75,20 @@ class DoSomething(InOutUpdater):
         self.output_1 << self.input_1() + self.input_2()**2
 
 
+class DoSomething2(InOutUpdater):
+
+    def __init__(self, input_from_other):
+        self.input_1 = self.input('RandomInput3', 'in_3')
+        self.input_2 = self.input('RandomInput4', 'in_4')
+        self.input_3 = input_from_other
+        self.output_1 = self.output('BaseOutput')
+
+    def transform(self):
+        self.output_1 << self.input_1() + self.input_2()**2 + self.input_3()
+
+
 if __name__ == '__main__':
     g = DoSomething()
     g()
+
+    # h = DoSomething2(g.output_1)
