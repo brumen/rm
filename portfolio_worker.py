@@ -7,7 +7,8 @@ import logging
 import time
 import threading
 
-from typing import Callable
+from typing import Callable, List
+from queue  import Queue
 
 from rm.socket_msg    import NanoSocketMixin, NNGSocketMixin
 from rm.encode_decode import EncodeDecodeMixin
@@ -25,10 +26,11 @@ class PortfolioWorkerException(Exception):
 class PortfolioWorker(EncodeDecodeMixin):
 
     def __init__( self
-                , socket            : NNGSocketMixin.Socket  # subtype of this actually.
-                , revalue_portfolio : Callable
-                , worker_name       : str           = 'Worker_1'
-                , sleep_time        : float         = .0001
+                , socket              : NNGSocketMixin.Socket  # subtype of this actually.
+                , value_portfolio_fct : Callable
+                , worker_name         : str           = 'Worker_1'
+                , sleep_time          : float         = .0001
+                , max_queue_size      : int           = 5000
                 , ):
         """ Worker process class.
 
@@ -38,15 +40,30 @@ class PortfolioWorker(EncodeDecodeMixin):
         """
 
         self.socket             = socket
-        self._revalue_portfolio = revalue_portfolio
+        self._value_portfolio_fct = value_portfolio_fct
         self.__worker_name      = worker_name
         self.__sleep_time       = sleep_time
+        self.__max_queue_size   = max_queue_size
 
         # signal handlers
         self.__is_revaluing_portfolio = False
+        self.__worker_queue = Queue(maxsize = max_queue_size)
 
+    @property
     def is_working(self):
         return self.__is_revaluing_portfolio
+
+    @is_working.setter
+    def is_working(self, new_is_working):
+        self.__is_revaluing_portfolio = new_is_working
+
+    @property
+    def is_available(self):
+        return not self.is_working
+
+    @property
+    def worker_name(self):
+        return self.__worker_name
 
     def start(self):
         """ Starts the worker, does the computation.
@@ -56,15 +73,40 @@ class PortfolioWorker(EncodeDecodeMixin):
 
         threading.Thread(target=self.do_work).start()
 
+    def add_in_queue(self, values : List) -> None:
+        """ Adds the values in the queue for the worker to process.
+
+        :return:
+        """
+
+        for value in values:
+            self.__worker_queue.put(value)
+
+    def _publish_results(self, result):
+        raise NotImplementedError('TODO: FINISH THIS HERE')
+
+    def _revalue_portfolio(self, work : List) -> List:
+        """ Returns the reavalued portfolio.
+
+        :param work:
+        :return:
+        """
+
+        return self._value_portfolio_fct(work)
+
     def do_work(self) -> None:
         """ Computes the incremental delta of the portfolio and sends it over the socket back to controller.
         """
 
-        while True:
-            msg_received = self.socket.recv()
-            self.__is_revaluing_portfolio = True
-            revalued_portfolio = self.__class__.revalue_portfolio(self._decode_message(msg_received))  # DeltaDict
-            self.socket.send(self._encode_msg(revalued_portfolio))
-            self.__is_revaluing_portfolio = False
+        worker_name = self.worker_name
 
-            time.sleep(self.__sleep_time)
+        while True:
+            if not self.__worker_queue.empty():  # there is work to be done.
+                self.is_working = True
+                logger.info('Worker {0} works on the portfolio.'.format(worker_name))
+                revalued_portfolio = self._revalue_portfolio(self._decode_message(msg_received))  # DeltaDict
+                logger.info('Worker {0} finished portfolio computations.'.format(worker_name))
+                self.socket.send(self._encode_msg(revalued_portfolio))
+                self.is_working = False
+            else:
+                time.sleep(self.__sleep_time)
