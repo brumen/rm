@@ -10,13 +10,14 @@ from queue     import Queue
 from rm.delta_dict       import DeltaDict
 from rm.encode_decode    import EncodeDecodeMixin
 from rm.portfolio_worker import PortfolioWorker
+from rm.controller_basic import ControllerBase
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
 
 
-class Controller(EncodeDecodeMixin):
+class Controller(ControllerBase):
     """ Controlling logic of the position updater.
     """
 
@@ -40,6 +41,8 @@ class Controller(EncodeDecodeMixin):
         :param query_socket: sockets where one can subscribe to and query for results.
         """
 
+        super().__init__(queue_size = queue_size, value_portfolio_fct=value_portfolio_fct, workers=workers)
+
         self.__position_socket     = position_socket
         self.__market_socket       = market_socket
         self.__new_position_queue  = Queue(maxsize=queue_size)
@@ -49,35 +52,16 @@ class Controller(EncodeDecodeMixin):
         self._portfolio               = []  # initially empty portfolio
         self.__value_portfolio_fct    = value_portfolio_fct
         # self.__worker_sockets         = worker_sockets
-        self.__workers                = workers
         self.__query_socket           = query_socket
 
         # states of this state machine:
         # worker_available is a list of True/False depending if these workers are available or not. List[bool]
-        nb_workers = len(workers)
-        self.__worker_available = [True] * nb_workers if workers else None  # all workers are available
-        self.__worker_queues    = [Queue(maxsize=5)] * self.__nb_workers
         self.__trades_on_most_recent_market = []  # no trades processed yet.
         self.__revaluing_market_event = False
         self.__latest_market_update = None
 
         # results variable
         self.__curr_result = DeltaDict({})
-
-    @property
-    def workers(self):
-        return self.__workers
-
-    def nb_workers(self) -> int:
-        """ Returns the number of workers associated w/ the controller.
-        """
-        return len(self.workers)
-
-    def available_workers(self) -> List[PortfolioWorker]:
-        """ Returns the workers which are available for work.
-        """
-
-        return [worker for worker in self.workers if not worker.is_working() ]
 
     def _market_event(self):
         """ Returns the market event from the market socket.
@@ -197,46 +181,6 @@ class Controller(EncodeDecodeMixin):
         else:
             logger.info('Obtained market event {0}, dropping, previous market event not yet processed.')
 
-    def _distribute_workload(self, sleep_time = 0.0001) -> None:
-        """ Distributes the workload to workers, looks into self.__work_queue and distributes this to the workers.
-        """
-
-        logger.info('Starting distribute_workload thread.')
-
-        while True:
-            if not self.__new_position_queue.empty():  # work to be done
-                q_size = self.__new_position_queue.qsize()
-                logger.debug('Distribute queue length: {0}'.format(q_size))
-
-                workers_available = self.available_workers()
-                logger.debug('Workers available: {0}'.format(workers_available))
-
-                if workers_available:  # we have any workers
-                    self.__schedule_work_to_workers(q_size)
-                else:
-                    logger.info('No workers available, queue size is {0}'.format(q_size))
-
-            time.sleep(sleep_time)
-
-    def __schedule_work_to_workers( self
-                                  , work_to_distribute : List ):
-        """ Scheduling the work to workers. This is load-balancing part.
-
-        :param work_to_distribute: list of work to be processed by the workers.
-        :return:
-        """
-
-        workers_available = self.available_workers()
-        nb_workers_available = len(workers_available)
-        nb_work              = len(work_to_distribute)
-        # work_per_worker      = nb_work // nb_workers_available
-        logger.info('Number of workers available: {0}'.format(nb_workers_available))
-
-        for work_idx in range(nb_work):
-            workers_available[work_idx % nb_workers_available].add_in_queue(work_to_distribute[work_idx])
-            # self.__worker_sockets[worker_to_select].send(self._encode_msg(self._get_trade_params(self._decode_message(self.__work_queue.get())['trade_nb'])))
-            # self.__worker_available[worker_to_select] = False
-
     def __get_positions_from_queue(self, nb_messages : int) -> List:
         """ Takes a number of messages from the queue and prepares them to be sent to the workers.
 
@@ -255,37 +199,16 @@ class Controller(EncodeDecodeMixin):
 
         raise NotImplementedError('Not implemented method _report_results')
 
-    def __log_queue_length(self, sleep_time=.5):
-        """ Only logs the length of positions still to process, for informative purposes.
-
-        :param sleep_time: time to sleep between successive updated.
-        :returns: logs the length of the queue if queue length > 50.
-        """
-
-        old_queue_size = 0
-
-        while True:
-            new_queue_size = self.__new_position_queue.qsize()
-
-            if abs(new_queue_size - old_queue_size) > 50:
-                old_queue_size = new_queue_size
-                logger.info('Current positions queue length: {0}'.format(new_queue_size))
-
-            logger.info('Queue length < 50')
-            time.sleep(sleep_time)
-
     def start(self):
         """ Starts all the threads of the controller.
         """
 
-        logger.info('Starting controller threads.')
+        super().start()  # start threads in the base class.
 
         # threads that are started
         Thread(target=self._fill_event_queue).start()
         for worker_idx in range(self.nb_workers()):  # fill worker threads
             Thread(target=lambda : self._fill_worker_queue(worker_idx)).start()
         Thread(target=self._check_replies_from_workers).start()
-        Thread(target=self._distribute_workload).start()
         Thread(target=self._report_results).start()
-        Thread(target=self.__log_queue_length).start()  # logs the length of the portfolio queue still to process
         Thread(target=self._handle_market_event).start()  # thread for handling market events.

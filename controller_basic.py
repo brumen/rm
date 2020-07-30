@@ -85,7 +85,8 @@ class ControllerBase(EncodeDecodeMixin):
                 else:
                     logger.info('No workers available, queue size is {0}'.format(q_size))
 
-            time.sleep(sleep_time)
+            else:
+                time.sleep(sleep_time)
 
     def __schedule_work_to_workers(self):
         """ Scheduling the work to workers. This is load-balancing part.
