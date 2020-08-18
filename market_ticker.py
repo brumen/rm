@@ -3,28 +3,21 @@
 from rm.in_out_updater import InOutUpdater
 from rm.input_classes  import SocketInputSource
 
-
-class MarketTicker(SocketInputSource):
-
-    def _update_value(self):
-        receive_from_source = super()._update_value()
-        return receive_from_source  # TODO: MAYBE THIS IS NOT NECESSARY
-        # while True:
-        #     self._pub_socket.send(dumps({'timestamp': datetime.datetime.now(), 'UA-176': 100.}))
-        #     time.sleep(sleep_time)
+from time  import sleep
+from kafka import KafkaProducer
 
 
-class MarketToPositions2(InOutUpdater):
+class MarketUpdater:
 
-    def __init__(self, mkt_socket, position_socket):  # TODO: THIS IS WRONG.
+    def __init__(self, server_name : str = 'localhost', port : int = 9092):
+        self._producer = KafkaProducer(bootstrap_servers='{0}:{1}'.format(server_name, str(port)))
 
-        self.mkt_input       = self.input(mkt_socket)
-        self.position_output = self.output(position_socket)
+    def start(self):
+        """ Fictional producer
 
-    def transform(self):
-        """ Transforms the inputs -> outputs.
+        :return:
         """
 
-        # TODO: DO SOMETHING USEFUL HERE
-        # fictious transformation
-        self.position_output << ('trade1', 'trade2')
+        while True:
+            self._producer.send('quickstart-events', value=b'MARKET_EVENT')
+            sleep(1)

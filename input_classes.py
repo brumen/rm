@@ -83,7 +83,7 @@ class RandomInputSource(InputClass):
 # TODO: REMOVE THIS, JUST FOR TESTING
 class RandomInputSource2(RandomInputSource):
 
-    VALUES = (3, 4)
+    VALUES = (0.02, 0.04)
 
 
 class SocketInputSource(InputClass):

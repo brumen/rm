@@ -5,6 +5,25 @@ from nanomsg import Socket
 
 from rm.socket_msg import NanoSocketMixin, NNGSocketMixin
 
+from kafka import KafkaProducer
+from time  import sleep
+
+
+class PositionUpdaterKafka:
+
+    def __init__(self, server_name : str = 'localhost', port : int = 9092):
+        self._producer = KafkaProducer(bootstrap_servers='{0}:{1}'.format(server_name, str(port)))
+
+    def start(self):
+        """ Fictional producer
+
+        :return:
+        """
+
+        while True:
+            self._producer.send('quickstart-events', value=b'TERRIBLE')
+            sleep(1)
+
 
 class PositionUpdater:
     """ Handles positions updating - publishes on position_socket.

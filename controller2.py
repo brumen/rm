@@ -1,214 +1,261 @@
 # main controlling logic for the risk management
 
-import time
 import logging
 
-from threading import Thread
-from typing    import List, Tuple, Callable, Union
+from typing    import List, Tuple, Callable
 from queue     import Queue
+from enum      import Enum
+from time      import sleep
+from threading import Thread
 
-from rm.delta_dict       import DeltaDict
-from rm.encode_decode    import EncodeDecodeMixin
-from rm.portfolio_worker import PortfolioWorker
-from rm.controller_basic import ControllerBase
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
 
 
-class Controller(ControllerBase):
+class ControllerState(Enum):
+    """ State of the controller.
+
+    IDLE = No work.
+    TRADE_REVAL = revaluing some trades
+    MARKET_REVAL = revaluing market
+    """
+
+    IDLE         = 1
+    TRADE_REVAL  = 2
+    MARKET_REVAL = 3
+
+
+class Controller:
     """ Controlling logic of the position updater.
     """
 
-    def __init__(self
-                 , position_socket
-                 , market_socket       = None
-                 , queue_size          : int = 100000
-                 , value_portfolio_fct : Callable = None
-                 , workers             : Union[List[PortfolioWorker], None] = None
-                 , query_socket        = None
-                 , ):
+    QUEUE_SIZE = 1000
+
+    def __init__(self, value_portfolio_fct : Callable ):
         """ Controller class, keeps track of the system and distributes work.
 
-        :param position_socket: socket over which new positions are obtained.
-        :param market_socket: socket over which market updates are received.
-        :param queue_size: maximum size of the queue.
         :param value_portfolio_fct: function computing the given portfolio.
-        :param workers: workers associated w/ the controller.
-        #:param worker_sockets: sockets to the workers to distribute work.
-        #                       {'worker_name': worker_socket}
-        :param query_socket: sockets where one can subscribe to and query for results.
         """
 
-        super().__init__(queue_size = queue_size, value_portfolio_fct=value_portfolio_fct, workers=workers)
-
-        self.__position_socket     = position_socket
-        self.__market_socket       = market_socket
-        self.__new_position_queue  = Queue(maxsize=queue_size)
+        self.__position_queue     = Queue(maxsize=self.QUEUE_SIZE)
+        self.__market_queue       = Queue(maxsize=self.QUEUE_SIZE)
 
         # signal handlers
-        self.__is_revaluing_portfolio = False
         self._portfolio               = []  # initially empty portfolio
-        self.__value_portfolio_fct    = value_portfolio_fct
-        # self.__worker_sockets         = worker_sockets
-        self.__query_socket           = query_socket
+        self.__value_portfolio_fct    = value_portfolio_fct  # this function has to be non-blocking
 
-        # states of this state machine:
-        # worker_available is a list of True/False depending if these workers are available or not. List[bool]
-        self.__trades_on_most_recent_market = []  # no trades processed yet.
-        self.__revaluing_market_event = False
-        self.__latest_market_update = None
+        # variables for new market and trade events.
+        self.__new_market_event = False  # we get an update for the new market.
+        self.__new_trade_event  = False  # we get an update that a new trade arrived.
 
-        # results variable
-        self.__curr_result = DeltaDict({})
+        # trade queues
+        self.__trade_queue_curr_market = Queue()
+        self.__trade_queue_new_market  = Queue()
 
-    def _market_event(self):
-        """ Returns the market event from the market socket.
+        # processing threads
+        self.__processing_curr_queue_thread = None
+        self.__processing_new_queue_thread  = None
 
-        :returns: market message
+        # current and new value of the portfolio on the market.
+        self.__market_curr = None
+        self.__market_new  = None
+
+    def add_position(self, new_positions : List) -> None:
+        """ Adding positions to the queue.
+
+        :param new_positions: new positions to be added to the process queue.
+        :returns: adds positions to the position queue and sets the new_trade_event to true
         """
 
-        return self.__market_socket.recv()
+        for new_position in new_positions:
+            self.__position_queue.put(new_position)
+        self.__new_trade_event = True
+
+    def add_market(self, new_market):
+        """ Adds the new market event to the queue, this shouldnt be that fast.
+
+        :param new_market: market event to be added.
+        :returns: nothing, just adds the market to the market process queue and sets the __new_market_event.
+        """
+
+        self.__market_queue.put(new_market)
+        self.__new_market_event = True
+
+    def _controller_state(self):
+        """ Returns the state of the controller.
+
+        :returns: current state of the controller.
+        """
+
+        if self.__processing_queue('new'):
+            return ControllerState.MARKET_REVAL  # market revaluation state.
+
+        if self.__processing_queue('curr'):
+            return ControllerState.TRADE_REVAL  # trade revaluation
+
+        return ControllerState.IDLE
 
     @property
-    def is_revaluing_portfolio(self) -> bool:
-        return self.__is_revaluing_portfolio
+    def curr_market(self):
+        """ Returns the results on the current market.
 
-    @is_revaluing_portfolio.setter
-    def is_revaluing_portfolio(self, new_is_revaluing : bool):
-        self.__is_revaluing_portfolio = new_is_revaluing
+        :returns: computation results on the current market.
+        """
+
+        return self.__market_curr
 
     @property
-    def curr_portfolio(self) -> List[Tuple]:
-        """ Returns the current portfolio under consideration.
+    def new_market(self):
+        """ Returns the results on the new market.
 
-        :returns: list of individual trades.
+        :returns: computation results on the new market.
         """
 
-        return self._portfolio
+        return self.__market_new
 
-    @curr_portfolio.setter
-    def curr_portfolio(self, new_portfolio):
-        self._portfolio = new_portfolio
+    def _get_total_current_portfolio(self) -> List:
+        """ Get the current portfolio to be used with market event.
 
-    @property
-    def curr_result(self) -> DeltaDict:
-        """ Returns the current delta of the portfolio.
+        :return:
         """
 
-        return self.__curr_result
+        # return the current portfolio
+        raise NotImplementedError('You have to implement _get_total_current_portfolio.')
 
-    @curr_result.setter
-    def curr_result(self, new_result : DeltaDict):
-        self.__curr_result = new_result
+    def _get_new_trades(self) -> List:
+        """ Take the trades from the trade events queue and put them in the portfolio.
 
-    def _trades_on_most_recent_market(self):
-        """ Display the trade portfolio on the most recent market.
-        """
-        pass
-
-    def _get_trade_params(self, position_id : int) -> List[Tuple]:
-        """ Gets the trade parameters to dispatch to the workers.
-
-        :param position_id: trade id position that we want to fetch.
-        :returns: list of parameters for the position_id.
+        :returns: list of new trades in the position queue.
         """
 
-        raise NotImplementedError('Class should implement _get_trade_params.')
+        new_trades = []
+        while not self.__position_queue.empty():
+            new_trades.append(self.__position_queue.get())
 
-    # TODO: CHECK IF THIS IS NECESSARY!!!
-    def _new_position_event(self, new_position_l : List, trade_type='new_trade') -> None:
-        """ Update the state 'What to do when a new position comes in'.
+        return new_trades
 
-        :param new_position_l: position list of new trades.
-        :param trade_type: type of trade amendment ('new_trade', 'delete_trade')
-        :returns: None, performs the trade augmentation & delta recomputation.
+    def _revalue_new_trades(self, new_trades : List):
+        """ Do something with new trades. This function is a GENERATOR.
+
+        :param new_trades: new trades to be processed.
+        :returns: trades
         """
 
-        self.curr_portfolio.extend(new_position_l)
-        delta_difference = self.__value_portfolio_fct(new_position_l)
+        # TODO: CHECK - THIS MIGHT BE WRONG HERE
+        new_trade_result = self.__value_portfolio_fct(new_trades)
+        self.__new_trade_event = False  # new trade events are processed
 
-        self.curr_result += delta_difference if trade_type == 'new_trade' else self.curr_result - delta_difference
+        return new_trade_result
 
-    def _fill_event_queue(self, sleep_time = .0001):
-        """ Fills the self.__work_queue with events coming from the position updater.
+    def combine_results(self, new_results, old_results):
+        raise NotImplementedError('You should overwrite this function.')
+
+    def __processing_queue(self, curr_new_indic : str = 'curr') -> bool:
+        """ Answers the question if the current/new queue is being processed.
+
+        :param curr_new_indic: indicator which thread to question, possibilities: 'curr', 'new'
+        :returns: True/False whether the thread is working or not.
         """
 
-        logger.debug('Starting the event queue thread.')
+        chosen_thread = self.__processing_curr_queue_thread if curr_new_indic == 'curr' else self.__processing_new_queue_thread
 
-        while True:
-            self.__new_position_queue.put(self.__position_socket.recv())
-            time.sleep(sleep_time)
+        return False if not chosen_thread else chosen_thread.isAlive()
 
-    def _fill_worker_queue(self, worker : PortfolioWorker, sleep_time=.0001):
-        """ Fills the worker queue with the results of worker computation.
+    def _state_machine(self):
+        """ Manipulation of the state machine.
 
-        :param worker: worker whose work needs to be added.
-        :param sleep_time: sleep time for the thread.
+        :return:
         """
 
-        logger.info('Starting fill worker queue thread.')
+        if self._controller_state() == ControllerState.IDLE:
+            if self.__new_trade_event:  # we have a new trade event
+                if not self.__processing_queue('curr'):
+                    self.__processing_curr_queue_thread = Thread(target = lambda : self.__process_curr_new_market_queue('curr'), daemon=True)
+                    self.__processing_curr_queue_thread.start()
+                    self.__new_trade_event = False
+                else:
+                    # we know that the new trade event is already in the queue, so we can reset it.
+                    self.__new_trade_event = False
 
-        while True:
-            worker.add_in_queue(TODO)  # TODO: WHAT TO PUT THERE .put(self.__worker_sockets[worker_idx].recv())
-            time.sleep(sleep_time)
+            if self.__new_market_event:
+                if not self.__processing_queue('new'):
+                    self.__processing_new_queue_thread = Thread(target = lambda : self.__process_curr_new_market_queue('new'), daemon=True)
+                    self.__processing_new_queue_thread.start()
+                    self.__new_market_event = False
+                else:
+                    self.__new_market_event = False  # TODO: THIS SHOULDNT BE REACHED - PROGRAM BETTER
 
-    def _check_replies_from_workers(self):
-        """ Checks the replies from workers, and potentially update self.curr_delta.
+        if self._controller_state() == ControllerState.TRADE_REVAL:  # revaluing some trades, but not the whole market.
+
+            if self.__new_trade_event:  # trade event is added to the queue, just leave it running
+                self.__new_trade_event = False  # already processing, let it finish, event already added to the queue
+
+            elif self.__new_market_event:
+                # new market event
+                if not self.__processing_queue('new'):
+                    self.__processing_new_queue_thread = Thread(target=lambda : self.__process_curr_new_market_queue('new'), daemon=True)
+                    self.__processing_new_queue_thread.start()
+                    self.__new_market_event = False
+                else:
+                    self.__new_market_event = False
+
+        if self._controller_state() == ControllerState.MARKET_REVAL:  # already revaluing whole market
+
+            # market event still processing
+            if self.__new_market_event:  # we got a new market event in between processing
+                self.__new_market_event = False
+
+            elif self.__new_trade_event:
+                new_trades_to_price = self._get_new_trades()
+                self.__trade_queue_curr_market.put(new_trades_to_price)
+                self.__trade_queue_new_market.put(new_trades_to_price)
+                self.__new_trade_event = False
+
+    def __process_curr_new_market_queue(self, curr_new_indic : str = 'curr') -> None:
+        """ Processes current or new market queue, adds to current or new market result.
+
+        :param curr_new_indic: 'curr' if working on current queue/current market, otherwise 'new' market, or 'total' for total portfolio
+                               'new'
+                               'total'
+        :returns: updates the market_curr, market_new
         """
 
-        logger.info('Starting check_replies_from_workers thread.')
+        if curr_new_indic == 'curr':
+            trade_queue = self.__trade_queue_curr_market
+            market      = self.__market_curr
 
-        while True:
-            for worker_idx, worker_socket in enumerate(self.__worker_sockets):  # check sockets
-                worker_queue_curr = self.__worker_queues[worker_idx]
-                if not worker_queue_curr.empty():
-                    self.curr_result += self._decode_message(worker_queue_curr.get())
-                    self.__worker_available[worker_idx] = True
+        else:  #  curr_new_indic == 'new':
+            trade_queue = self.__trade_queue_new_market
+            market      = self.__market_new
 
-    def _handle_market_event(self):
-        """ Handles the market events
-
-        """
-
-        # if the portfolio is revaluing, ignore the market event
-        if not self.is_revaluing_portfolio and self._market_event():
-            self.is_revaluing_portfolio = True
-            self.curr_result = self.__value_portfolio_fct(self.curr_portfolio)  # produce the result
-            self.is_revaluing_portfolio = False  # finished revaluing
+        # depending on the trade queue
+        if curr_new_indic == 'new':  # switch the market
+            if trade_queue.empty():
+                self.__market_curr = self.__market_new  # TODO: CHECK IF THIS IS TRUE
 
         else:
-            logger.info('Obtained market event {0}, dropping, previous market event not yet processed.')
+            new_trade = trade_queue.get()  # scheduling mechanism # TODO: THIS SHOULD BE BETTER.
+            market = self.combine_results(market, self._revalue_new_trades(new_trade))  # updating the market
 
-    def __get_positions_from_queue(self, nb_messages : int) -> List:
-        """ Takes a number of messages from the queue and prepares them to be sent to the workers.
+        trade_queue.task_done()  # TODO: CHECK HERE
 
-        :param nb_messages: number of messages to take from the queue.
-        :returns: TODO
+    def __run_function(self, idle_delay = 0.1):
+        """ Run the state machine
+
+        :param idle_delay:
+        :return:
         """
 
-        logger.info('Nb. new positions: {0}'.format(nb_messages))
+        while True:
+            self._state_machine()
+            if self._controller_state() == ControllerState.IDLE:
+                # wait some time
+                sleep(idle_delay)
 
-        return [ self._get_trade_params(self._decode_message(self.__new_position_queue.get())['trade_nb'])[0]
-                 for _ in range(nb_messages) ]
+    def run(self, idle_delay = 0.1) -> Thread:
+        run_thread = Thread(target = self.__run_function, kwargs={'idle_delay': 0.1} )
+        run_thread.start()
 
-    def _report_results(self, sleep_time = .5):
-        """ Method should report the results
-        """
-
-        raise NotImplementedError('Not implemented method _report_results')
-
-    def start(self):
-        """ Starts all the threads of the controller.
-        """
-
-        super().start()  # start threads in the base class.
-
-        # threads that are started
-        Thread(target=self._fill_event_queue).start()
-        for worker_idx in range(self.nb_workers()):  # fill worker threads
-            Thread(target=lambda : self._fill_worker_queue(worker_idx)).start()
-        Thread(target=self._check_replies_from_workers).start()
-        Thread(target=self._report_results).start()
-        Thread(target=self._handle_market_event).start()  # thread for handling market events.
+        return run_thread
