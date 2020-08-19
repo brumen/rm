@@ -1,4 +1,4 @@
-# main controlling logic for the risk management
+# main controlling logic for the real time risk management
 
 import logging
 

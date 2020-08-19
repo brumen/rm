@@ -2,6 +2,7 @@ import time
 
 from json    import dumps
 from nanomsg import Socket
+from threading import Thread
 
 from rm.socket_msg import NanoSocketMixin, NNGSocketMixin
 
@@ -11,18 +12,40 @@ from time  import sleep
 
 class PositionUpdaterKafka:
 
-    def __init__(self, server_name : str = 'localhost', port : int = 9092):
+    def __init__( self
+                , server_name : str = 'localhost'
+                , port : int        = 9092
+                , topic : str       = 'quickstart-events' ):
+
         self._producer = KafkaProducer(bootstrap_servers='{0}:{1}'.format(server_name, str(port)))
+        self._topic    = topic
 
-    def start(self):
-        """ Fictional producer
+    def _message(self):
+        # return b'TERRIBLE'
+        raise NotImplementedError('Implement the _message method.')
 
+    def _run_fct(self, sleep_delay : float = 0.1):
+        """ Producer
+
+        :param sleep_delay: sleep delay for the producer
         :return:
         """
 
         while True:
-            self._producer.send('quickstart-events', value=b'TERRIBLE')
-            sleep(1)
+            self._producer.send(self._topic, value=self._message)
+            sleep(sleep_delay)
+
+    def start(self, idle_delay : float = 0.1) -> Thread:
+        """ Run the controller.
+
+        :param idle_delay: delay of the IDLE state of the controller.
+        :returns: run the controller.
+        """
+
+        run_thread = Thread(target = self._run_fct, kwargs={'idle_delay': idle_delay} )
+        run_thread.start()
+
+        return run_thread
 
 
 class PositionUpdater:
