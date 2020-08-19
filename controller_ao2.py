@@ -1,7 +1,7 @@
 # concrete implementation of the controller.
 
 from typing  import List
-from pyspark import SparkConf, SparkContext
+from pyspark import SparkContext
 
 from rm.controller2 import Controller
 
@@ -25,10 +25,8 @@ class ControllerAO2(Controller):
         :return:
         """
 
+        print("HHH {0}".format(len(new_trades)))
         return len(new_trades)
-
-    def combine_results(self, new_results, old_results):  # TODO: THIS IS BS, but it may work for now.
-        return new_results + old_results
 
 
 class ControllerAO(ControllerAO2):
