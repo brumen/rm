@@ -71,7 +71,8 @@ class Controller:
         for new_position in new_positions:
             self.__trade_queue_curr_market.put(new_position)
             self.__trade_queue_new_market.put(new_position)  # TODO: DOES THIS MAKE SENSE THIS IS WRONG WRONG
-        logger.info('')
+
+        logger.info('Adding positions: {0}'.format(new_positions))
         self.__new_trade_event = True
 
     def add_market(self, new_market):
@@ -140,16 +141,14 @@ class Controller:
     def _combine_results(self, new_results, old_results):
         """ Combine the new and old results.
 
-        :param new_results: new results.
-        :param old_results: old results.
+        :param new_results: new results to be added to the results.
+        :param old_results: old saved results.
         :returns: joins the two results.
         """
 
         if not old_results:  # old results are None at the start
-            print("SSS {0}".format(new_results))
             return new_results
 
-        print('SSS {0}'.format(new_results + old_results))
         return new_results + old_results
 
     def __processing_queue(self, curr_new_indic : str = 'curr') -> bool:
@@ -222,10 +221,6 @@ class Controller:
 
             elif self.__new_trade_event:  # market revaluation is working.
                 logger.debug('Adding new trades to the current/new processing queue.')
-
-                # new_trades_to_price = self._get_new_trades()
-                # self.__trade_queue_curr_market.put(new_trades_to_price)
-                # self.__trade_queue_new_market.put(new_trades_to_price)
                 self.__new_trade_event = False
 
     def __process_curr_new_market_queue(self, curr_new_indic : str = 'curr') -> None:
@@ -242,20 +237,15 @@ class Controller:
         trade_queue = self.__trade_queue_curr_market if curr_new_indic == 'curr' else self.__trade_queue_new_market
 
         if curr_new_indic == 'new':  # new market
-            print('here4')
             if trade_queue.empty():  # switch the market, otherwise continue the calculations
-                print('here5')
                 self.__market_curr = self.__market_new
             else:
-                print('here2')
-                self.__market_new = self._combine_results(self.__value_portfolio_fct(trade_queue.get()), self.__market_new )  # updating the market
+                self.__market_new = self._combine_results(self.__value_portfolio_fct(trade_queue.get()), self.__market_new )
                 trade_queue.task_done()
 
         else:  # 'curr' market
-            print('here6', '{0}'.format(trade_queue.qsize()))
             if not trade_queue.empty():
-                print('here3')
-                self.__market_curr = self._combine_results(self.__value_portfolio_fct(trade_queue.get()), self.__market_curr)  # updating the market
+                self.__market_curr = self._combine_results(self.__value_portfolio_fct(trade_queue.get()), self.__market_curr)
                 trade_queue.task_done()
 
     def __run_function(self, idle_delay : float = 0.1):

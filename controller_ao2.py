@@ -1,6 +1,7 @@
 # concrete implementation of the controller.
 
 import datetime
+import logging
 
 from typing    import List, Tuple
 from pyspark   import SparkContext
@@ -8,10 +9,15 @@ from threading import Thread
 from kafka     import KafkaConsumer
 
 from rm.controller2       import Controller
-from rm.positions_updater import PositionUpdaterKafka
+from rm.positions_updater import PositionUpdater
 from rm.market_ticker     import MarketUpdater
 
 from ao.air_option  import AirOptionMock
+
+
+logging.basicConfig(filename='/tmp/controller.log')
+logger = logging.getLogger(__name__)
+logger.setLevel('DEBUG')
 
 
 class ControllerJoke(Controller):
@@ -33,7 +39,6 @@ class ControllerJoke(Controller):
         :returns: results of computation of the portfolio_function of these new trades.
         """
 
-        print("HHH {0}".format(len(new_trades)))
         return len(new_trades)
 
 
@@ -42,18 +47,37 @@ class ControllerAO(Controller):
     """
 
     def __init__(self
-                , trade_producer  : PositionUpdaterKafka
+                , trade_producer  : PositionUpdater
                 , market_producer : MarketUpdater
-                , topic_to_read_from : str = 'quickstarter-events' ):
+                , topic_to_read_from : str = 'quickstart-events' ):
         """ Initiates the Controller for computing the AirOptions portfolio.
+
+        :param trade_producer: trade producer, publishes to Kafka.
+        :param market_producer: produces market events, also publishes to Kafka.
+        :param topic_to_read_from: topic on Kafka to read from.
         """
 
         self.__trade_producer  = trade_producer
         self.__market_producer = market_producer
         self.__listener = KafkaConsumer(topic_to_read_from)
 
-        self.sc = SparkContext()  # TODO: THIS SHOULD BE PROPERLY DEFINED
         super().__init__(self._value_portfolio_fct)
+
+        # cached values
+        self.__sc = None  # spark context
+
+    @property
+    def sc(self) -> SparkContext:
+        """ Spark context definition.
+
+        :return:
+        """
+
+        if self.__sc:
+            return self.__sc
+
+        self.__sc = SparkContext()
+        return self.__sc
 
     def _value_trade(self, trade):
         """ Returns the value of the Mock Air Option trade.
@@ -65,9 +89,10 @@ class ControllerAO(Controller):
         air_option = AirOptionMock( datetime.date(2019, 7, 2)
                                   , origin = 'SFO'
                                   , dest = 'EWR'
-                                  , K = 1600.)
+                                  , K = 1600.).PV()
 
-        return air_option.PV()
+        logger.debug('Value trade: {0}'.format(air_option))
+        return air_option
 
     def _value_portfolio_fct(self, new_trades):
         """ Defines the portfolio_function from trades -> results.
@@ -75,14 +100,19 @@ class ControllerAO(Controller):
         :return:
         """
 
-        return self.sc.range(new_trades).filter(self._value_trade)  # TODO: THIS IS BULLSHIT, BUT AT LEAST SOMETHING
+        # TODO: this is useless, but it produces something.
+        return self._value_trade(1.)
+        #return self.sc.range(1)\
+        #              .map(self._value_trade)\
+        #              .aggregate(0., lambda x, y: x+y, lambda x, y: x+y )
 
     def _read_from_topic(self):
 
         for msg in self.__listener:
-            if msg == 'position':
+            logger.debug('Message received: {0}'.format(msg.value))
+            if msg.value == b'POSITION_1':
                 self.add_position(msg)
-            elif msg == 'market':
+            elif msg.value == b'MARKET_EVENT_1':
                 self.add_market(msg)
 
     def start(self, idle_delay : float = 0.1) -> Tuple[Thread, Thread, Thread, Thread]:
@@ -100,17 +130,3 @@ class ControllerAO(Controller):
         listener_thread.start()
 
         return controller_thread, position_producer_thread, market_producer_thread, listener_thread
-
-
-# from rm.market_ticker import MarketUpdater
-# from rm.positions_updater import PositionUpdaterKafka
-
-
-# class ControllerWithInputs(Controller):
-#
-#     def __init__(self, server : str, port : int = '9092'):
-#         self.position_updater = PositionUpdaterKafka(server, port)
-#         self.market_updater   = MarketUpdater(server, port)
-#
-#         super().__init__(VALUE_PORTFOLIO_FCT)
-#         # TODO:
