@@ -3,21 +3,20 @@
 import datetime
 import logging
 
+from time      import sleep
 from typing    import List, Tuple
 from pyspark   import SparkContext
 from threading import Thread
-from kafka     import KafkaConsumer
+from kafka     import KafkaConsumer, KafkaProducer
 
 from rm.controller2       import Controller
-from rm.positions_updater import PositionUpdater
-from rm.market_ticker     import MarketUpdater
 
 from ao.air_option  import AirOptionMock
 
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
-logger.setLevel('DEBUG')
+logger.setLevel('INFO')
 
 
 class ControllerJoke(Controller):
@@ -31,7 +30,7 @@ class ControllerJoke(Controller):
         super().__init__(self._value_portfolio_fct)
 
     def _get_total_current_portfolio(self) -> List:
-        return ['TRADE1'] * 100
+        return ['POSITION1'] * 100
 
     def _value_portfolio_fct(self, new_trades : List):
         """ Defines the portfolio_function from trades -> results.
@@ -46,20 +45,24 @@ class ControllerAO(Controller):
     """ Controller for AirOptions.
     """
 
-    def __init__(self
-                , trade_producer  : PositionUpdater
-                , market_producer : MarketUpdater
-                , topic_to_read_from : str = 'quickstart-events' ):
+    def __init__( self
+                , server_name         : str = 'localhost'
+                , port                : int = 9092
+                , topic_to_read_from  : str = 'quickstart-events'
+                , topic_to_publish_to : str = 'quickstart-events' ):
         """ Initiates the Controller for computing the AirOptions portfolio.
 
-        :param trade_producer: trade producer, publishes to Kafka.
-        :param market_producer: produces market events, also publishes to Kafka.
-        :param topic_to_read_from: topic on Kafka to read from.
+        :param server_name: kafka server name.
+        :param port: port for the kafka server.
+        :param topic_to_read_from: topic on Kafka to read from market/trade events.
+        :param topic_to_publish_to: topic on kafka server to publish market results to.
         """
 
-        self.__trade_producer  = trade_producer
-        self.__market_producer = market_producer
-        self.__listener = KafkaConsumer(topic_to_read_from)
+        self._topic_to_read_from  = topic_to_read_from
+        self._topic_to_publish_to = topic_to_publish_to
+
+        self.__listener = KafkaConsumer(topic_to_read_from, bootstrap_servers = '{0}:{1}'.format(server_name, port))
+        self.__reporter = KafkaProducer(bootstrap_servers = '{0}:{1}'.format(server_name, port))  # reports the market to.
 
         super().__init__(self._value_portfolio_fct)
 
@@ -70,7 +73,7 @@ class ControllerAO(Controller):
     def sc(self) -> SparkContext:
         """ Spark context definition.
 
-        :return:
+        :returns: appropriate spark context.
         """
 
         if self.__sc:
@@ -79,11 +82,15 @@ class ControllerAO(Controller):
         self.__sc = SparkContext()
         return self.__sc
 
-    def _value_trade(self, trade):
+    def _get_total_current_portfolio(self) -> List:
+        return ['POSITION1'] * 100
+
+    @staticmethod
+    def _value_trade(trade):
         """ Returns the value of the Mock Air Option trade.
 
         :param trade: trade identifier.
-        :returns:
+        :returns: value of the trade considered.
         """
 
         air_option = AirOptionMock( datetime.date(2019, 7, 2)
@@ -91,42 +98,61 @@ class ControllerAO(Controller):
                                   , dest = 'EWR'
                                   , K = 1600.).PV()
 
-        logger.debug('Value trade: {0}'.format(air_option))
         return air_option
 
     def _value_portfolio_fct(self, new_trades):
+        return self._value_portfolio_fct_local(new_trades)
+
+    def _value_portfolio_fct_local(self, new_trades):
         """ Defines the portfolio_function from trades -> results.
 
         :return:
         """
 
-        # TODO: this is useless, but it produces something.
-        return self._value_trade(1.)
-        #return self.sc.range(1)\
-        #              .map(self._value_trade)\
-        #              .aggregate(0., lambda x, y: x+y, lambda x, y: x+y )
+        return sum([self.__class__._value_trade(trade) for trade in new_trades])
+
+    def _value_portfolio_fct_spark(self, new_trades):
+        """ Defines the portfolio_function from trades -> results.
+
+        :return:
+        """
+
+        return self.sc.parallelize(new_trades)\
+                      .map(self.__class__._value_trade)\
+                      .aggregate(0., lambda x, y: x+y, lambda x, y: x+y)
 
     def _read_from_topic(self):
 
         for msg in self.__listener:
-            logger.debug('Message received: {0}'.format(msg.value))
             if msg.value == b'POSITION_1':
                 self.add_position(msg)
             elif msg.value == b'MARKET_EVENT_1':
                 self.add_market(msg)
 
-    def start(self, idle_delay : float = 0.1) -> Tuple[Thread, Thread, Thread, Thread]:
+    def _report_results(self, sleep_delay : float = 0.1):
+        """ Function that publishes the current market results to Kafka broker.
+
+        :param sleep_delay: delay between individual reportings of the current market results.
+        :returns: none, reports to Kafka.
+        """
+
+        while True:
+            curr_market = str.encode(str(self.curr_market))
+            logger.info('Publishing curr_market: {0}'.format(self.curr_market))
+            self.__reporter.send(topic=self._topic_to_publish_to, value=curr_market)  # TODO: THIS IS TO BE WORKED UPON.
+            sleep(sleep_delay)
+
+    def start(self, idle_delay : float = 0.1) -> Tuple[Thread, Thread, Thread]:
         """ Run the controller.
 
         :param idle_delay: delay of the IDLE state of the controller.
         :returns: runs all the threads of the controller and returns the thread handles.
         """
 
-        controller_thread = super().start(idle_delay)
-        market_producer_thread = self.__market_producer.start(idle_delay=idle_delay)
-        position_producer_thread = self.__trade_producer.start(idle_delay=idle_delay)
-        # listener thread.
-        listener_thread = Thread(target=self._read_from_topic, daemon=True)
+        listener_thread = Thread(target=self._read_from_topic, daemon=True)  # listener thread.
         listener_thread.start()
+        reporter_thread = Thread(target=self._report_results, daemon=True)  # publisher thread.
+        reporter_thread.start()
+        controller_thread = super().start(idle_delay)  # start main controller thread.
 
-        return controller_thread, position_producer_thread, market_producer_thread, listener_thread
+        return controller_thread, reporter_thread, listener_thread

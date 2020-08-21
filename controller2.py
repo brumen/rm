@@ -2,7 +2,7 @@
 
 import logging
 
-from typing    import List, Callable
+from typing    import List, Callable, Tuple
 from queue     import Queue
 from enum      import Enum
 from time      import sleep
@@ -11,20 +11,7 @@ from threading import Thread
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
-logger.setLevel('DEBUG')
-
-
-class ControllerState(Enum):
-    """ State of the controller.
-
-    IDLE = No work.
-    TRADE_REVAL = revaluing some trades
-    MARKET_REVAL = revaluing market
-    """
-
-    IDLE         = 1
-    TRADE_REVAL  = 2
-    MARKET_REVAL = 3
+logger.setLevel('INFO')
 
 
 class Controller:
@@ -32,6 +19,7 @@ class Controller:
     """
 
     QUEUE_SIZE = 1000
+    DISPATCH_SIZE = 100
 
     def __init__(self, value_portfolio_fct : Callable ):
         """ Controller class, keeps track of the system and distributes work.
@@ -39,11 +27,10 @@ class Controller:
         :param value_portfolio_fct: function computing the given portfolio.
         """
 
-        self.__position_queue = Queue(maxsize=self.QUEUE_SIZE)
-        self.__market_queue   = Queue(maxsize=self.QUEUE_SIZE)
+        self.__market_queue = Queue(maxsize=self.QUEUE_SIZE)
 
         # signal handlers
-        self.__value_portfolio_fct    = value_portfolio_fct  # this function has to be non-blocking
+        self.__value_portfolio_fct = value_portfolio_fct  # this function has to be non-blocking
 
         # variables for new market and trade events.
         self.__new_market_event = False  # we get an update for the new market.
@@ -53,13 +40,12 @@ class Controller:
         self.__trade_queue_curr_market = Queue()
         self.__trade_queue_new_market  = Queue()
 
-        # processing threads
-        self.__processing_curr_queue_thread = None
-        self.__processing_new_queue_thread  = None
-
         # current and new value of the portfolio on the market.
         self.__market_curr = None
         self.__market_new  = None
+
+        self.__new_market_curr_working = False  # indicator whether the new market has finished.
+        self.__new_market_prev_working = False
 
     def add_position(self, new_positions : List) -> None:
         """ Adding positions to the queue.
@@ -68,11 +54,21 @@ class Controller:
         :returns: adds positions to the position queue and sets the new_trade_event to true
         """
 
-        for new_position in new_positions:
-            self.__trade_queue_curr_market.put(new_position)
-            self.__trade_queue_new_market.put(new_position)  # TODO: DOES THIS MAKE SENSE THIS IS WRONG WRONG
+        new_market_running = self.__new_market_curr_working
 
-        logger.info('Adding positions: {0}'.format(new_positions))
+        if new_market_running:  # add positions to both queues.
+            for new_position in new_positions:
+                self.__trade_queue_curr_market.put(new_position)
+                self.__trade_queue_new_market.put(new_position)
+        else:  # add position only to current market, new market is idle.
+            for new_position in new_positions:
+                self.__trade_queue_curr_market.put(new_position)
+
+        if new_market_running:
+            logger.debug('Adding positions to CURR & NEW markets: {0}'.format(new_positions))
+        else:
+            logger.debug('Adding positions to CURR market: {0}'.format(new_positions))
+
         self.__new_trade_event = True
 
     def add_market(self, new_market):
@@ -84,20 +80,6 @@ class Controller:
 
         self.__market_queue.put(new_market)
         self.__new_market_event = True
-
-    def _controller_state(self):
-        """ Returns the state of the controller.
-
-        :returns: current state of the controller.
-        """
-
-        if self.__processing_queue('new'):
-            return ControllerState.MARKET_REVAL  # market revaluation state.
-
-        if self.__processing_queue('curr'):
-            return ControllerState.TRADE_REVAL  # trade revaluation
-
-        return ControllerState.IDLE
 
     @property
     def curr_market(self):
@@ -126,15 +108,17 @@ class Controller:
         # return the current portfolio
         raise NotImplementedError('You have to implement _get_total_current_portfolio.')
 
-    def _get_new_trades(self) -> List:
+    def _get_trades_from_queue(self, curr_new_indic = 'curr') -> List:
         """ Take the trades from the trade events queue and put them in the portfolio.
 
         :returns: list of new trades in the position queue.
         """
 
+        trade_queue = self.__trade_queue_curr_market if curr_new_indic == 'curr' else self.__trade_queue_new_market
+
         new_trades = []
-        while not self.__position_queue.empty():
-            new_trades.append(self.__position_queue.get())
+        while not trade_queue.empty():
+            new_trades.append(trade_queue.get())
 
         return new_trades
 
@@ -151,123 +135,72 @@ class Controller:
 
         return new_results + old_results
 
-    def __processing_queue(self, curr_new_indic : str = 'curr') -> bool:
-        """ Answers the question if the current/new queue is being processed.
+    def __trade_processor_curr(self, sleep_delay : float = 0.1):
+        """ Runs the thread processor for the current market.
 
-        :param curr_new_indic: indicator which thread to question, possibilities: 'curr', 'new'
-        :returns: True/False whether the thread is working or not.
-        """
-
-        chosen_thread = self.__processing_curr_queue_thread if curr_new_indic == 'curr' else self.__processing_new_queue_thread
-
-        return False if not chosen_thread else chosen_thread.isAlive()
-
-    def __start_thread(self, curr_new_indic):
-        """ Starting the queue depending on the 'new', 'curr' market.
-
-        :param str curr_new_indic: current, new indicator
-        :returns: none, just starts the relevant thread.
-        """
-
-        queue_thread = Thread(target=lambda: self.__process_curr_new_market_queue(curr_new_indic), daemon=True)
-        queue_thread.start()
-
-    def _state_machine(self):
-        """ Function of the state machine.
-
-        :returns: nothing, runs the state machine.
-        """
-
-        controller_state = self._controller_state()
-
-        logger.debug('Controller in state {0}'.format(controller_state))
-
-        if controller_state == ControllerState.IDLE:
-
-            if self.__new_trade_event:  # we have a new trade event
-                logger.debug('New trade event detected.')
-
-                if not self.__processing_queue('curr'):
-                    logger.debug('Starting current trade processing thread.')
-                    self.__start_thread('curr')
-
-                self.__new_trade_event = False
-
-            if self.__new_market_event:
-                logger.debug('New market event detected.')
-
-                if not self.__processing_queue('new'):
-                    logger.debug('Starting the new market processing threads.')
-                    self.__start_thread('new')
-
-                self.__new_market_event = False
-
-        if controller_state == ControllerState.TRADE_REVAL:  # revaluing some trades, but not the whole market.
-
-            if self.__new_trade_event:  # trade event is added to the queue, just leave it running
-                self.__new_trade_event = False  # already processing, let it finish, event already added to the queue
-
-            elif self.__new_market_event:
-                if not self.__processing_queue('new'):
-                    logger.debug('Starting new market processing thread.')
-                    self.__start_thread('new')
-                self.__new_market_event = False
-
-        if controller_state == ControllerState.MARKET_REVAL:  # already revaluing whole market
-
-            # market event still processing
-            if self.__new_market_event:  # we got a new market event in between processing
-                self.__new_market_event = False
-
-            elif self.__new_trade_event:  # market revaluation is working.
-                logger.debug('Adding new trades to the current/new processing queue.')
-                self.__new_trade_event = False
-
-    def __process_curr_new_market_queue(self, curr_new_indic : str = 'curr') -> None:
-        """ Processes current or new market queue, adds to current or new market result.
-
-        :param curr_new_indic: 'curr' if working on current queue/current market, otherwise 'new' market, or 'total' for total portfolio
-                               'new'
-                               'total'
-        :returns: updates the market_curr, market_new
-        """
-
-        logger.debug('Thread processor; Market selection: {0}'.format(curr_new_indic))
-
-        trade_queue = self.__trade_queue_curr_market if curr_new_indic == 'curr' else self.__trade_queue_new_market
-
-        if curr_new_indic == 'new':  # new market
-            if trade_queue.empty():  # switch the market, otherwise continue the calculations
-                self.__market_curr = self.__market_new
-            else:
-                self.__market_new = self._combine_results(self.__value_portfolio_fct(trade_queue.get()), self.__market_new )
-                trade_queue.task_done()
-
-        else:  # 'curr' market
-            if not trade_queue.empty():
-                self.__market_curr = self._combine_results(self.__value_portfolio_fct(trade_queue.get()), self.__market_curr)
-                trade_queue.task_done()
-
-    def __run_function(self, idle_delay : float = 0.1):
-        """ Run the state machine function.
-
-        :param idle_delay: delay for the IDLE state of the controller.
-        :returns: nothing, runs the controller logic.
+        :param sleep_delay: sleep delay in case of IDLE market.
+        :returns: nothing, runs the thread for the current market.
         """
 
         while True:
-            self._state_machine()
-            if self._controller_state() == ControllerState.IDLE:  # idle state is slowed down.
-                sleep(idle_delay)
+            # TODO: BETTER SCHEDULING LATER.
+            if not self.__trade_queue_curr_market.empty():
+                trades_to_process = self._get_trades_from_queue('curr')
+                self.__market_curr = self._combine_results(self.__value_portfolio_fct(trades_to_process), self.__market_curr)
+            else:
+                sleep(sleep_delay)
 
-    def start(self, idle_delay : float = 0.1) -> Thread:
+    def __trade_processor_new(self, sleep_delay : float = 0.1):
+        """ Runs the thread processor for the new market.
+
+        :return:
+        """
+
+        # TODO: LATER BETTER SCHEDULING
+        while True:
+            self.__new_market_prev_working = self.__new_market_curr_working  # prev <- curr
+
+            if not self.__trade_queue_new_market.empty():  # work to do.
+                self.__new_market_curr_working = True
+                self.__new_market_event = False  # ignoring all the further market events.
+
+                trades_to_process = self._get_trades_from_queue('new')  # get the whole portfolio
+                self.__market_new = self._combine_results(self.__value_portfolio_fct(trades_to_process), self.__market_new)
+
+            else:  # queue is empty. either we just finished working or we didnt work at all
+
+                if not self.__new_market_event:  # no new market event, not much to do.
+                    self.__new_market_curr_working = False
+                    sleep(sleep_delay)
+
+                else:  # new market event, start working
+                    self.add_position(self._get_total_current_portfolio())
+                    self.__new_market_event = False
+                    self.__new_market_curr_working = True
+                    # TODO: THESE 2 lines not really necessary
+                    trades_to_process = self._get_trades_from_queue('new')  # get the whole portfolio
+                    self.__market_new = self._combine_results(self.__value_portfolio_fct(trades_to_process), self.__market_new)
+
+            # check if there is a need to switch the markets, and switch it if yes.
+            if self.__new_market_prev_working and (not self.__new_market_curr_working):  # we finished work, switch markets
+                self.__market_curr = self.__market_new  # IMPORTANT: switch markets
+                self.__market_new = None  # reset of the new market.
+
+    def start(self, idle_delay : float = 0.1) -> Tuple[Thread, Thread, Thread]:
         """ Run the controller.
 
         :param idle_delay: delay of the IDLE state of the controller.
         :returns: run the controller.
         """
 
-        run_thread = Thread(target = self.__run_function, kwargs={'idle_delay': idle_delay} )
-        run_thread.start()
+        # state machine
+        #state_machine_thread = Thread(target = self.__state_machine_run, kwargs={'idle_delay': idle_delay} )
+        #state_machine_thread.start()
 
-        return run_thread
+        # new market thread, curr_mkt_thread
+        curr_mkt_thread = Thread(target = lambda : self.__trade_processor_curr(sleep_delay=idle_delay) )
+        curr_mkt_thread.start()
+        new_mkt_thread = Thread(target = lambda : self.__trade_processor_new(sleep_delay=idle_delay) )
+        new_mkt_thread.start()
+
+        return curr_mkt_thread, new_mkt_thread

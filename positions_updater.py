@@ -8,7 +8,7 @@ from threading import Thread
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
-logger.setLevel('DEBUG')
+logger.setLevel('INFO')
 
 
 class PositionUpdater:
