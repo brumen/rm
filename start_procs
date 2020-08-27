@@ -1,5 +1,8 @@
 #! /bin/bash
 
 # python3 controller.py &
-python3 controller2.py &
-python3 positions_updater.py &
+#python3 controller2.py &
+#python3 positions_updater.py &
+
+# FOR KAFKA system:
+# first you have the kafka system & zookeeper up and running

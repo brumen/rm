@@ -1,7 +1,6 @@
-#
+# class for encoding and decoding messages.
 
 import datetime
-import sys
 import json
 import logging
 

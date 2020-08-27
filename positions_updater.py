@@ -1,4 +1,4 @@
-# Position updater
+# Kafka Position updater
 
 import logging
 

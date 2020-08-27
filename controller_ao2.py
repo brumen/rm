@@ -1,4 +1,4 @@
-# concrete implementation of the controller.
+# concrete implementation of the controller, used
 
 import datetime
 import logging

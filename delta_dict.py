@@ -1,5 +1,5 @@
 #
-# Delta dictionary
+# Delta dictionary for use in AirOption
 
 
 class DeltaDict(dict):

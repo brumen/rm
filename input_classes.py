@@ -4,6 +4,7 @@ from threading import Thread
 from time      import sleep
 from uuid      import uuid4
 from queue     import Queue
+from typing    import Union
 
 from rm.socket_msg    import NanoSocketMixin, NNGSocketMixin
 from rm.encode_decode import EncodeDecodeMixin
@@ -15,7 +16,7 @@ class InOutUpdaterException(Exception):
 
 class InputClass(EncodeDecodeMixin):
 
-    def __init__(self, name : str, queue_length = None, sleep_time = .0001 ):
+    def __init__(self, name : str, queue_length : Union[None, int] = None, sleep_time : float = .0001 ):
         """ Initiates the input class.
 
         :param name: name of the class, this is usually internally set.

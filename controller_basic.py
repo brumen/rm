@@ -4,7 +4,7 @@ import time
 import logging
 
 from threading import Thread
-from typing    import List, Tuple, Callable, Union
+from typing    import List, Callable, Union
 from queue     import Queue
 
 from rm.encode_decode    import EncodeDecodeMixin
