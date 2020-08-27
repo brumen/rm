@@ -1,10 +1,9 @@
-# main controlling logic for the real time risk management
+# main controlling logic for the real time risk management system
 
 import logging
 
 from typing    import List, Callable, Tuple
 from queue     import Queue
-from enum      import Enum
 from time      import sleep
 from threading import Thread
 
@@ -186,20 +185,17 @@ class Controller:
                 self.__market_curr = self.__market_new  # IMPORTANT: switch markets
                 self.__market_new = None  # reset of the new market.
 
-    def start(self, idle_delay : float = 0.1) -> Tuple[Thread, Thread, Thread]:
-        """ Run the controller.
+    def start(self, idle_delay : float = 0.1) -> Tuple[Thread, Thread]:
+        """ Run the controller, start threads.
 
         :param idle_delay: delay of the IDLE state of the controller.
-        :returns: run the controller.
+        :returns: runs the controller and activates the current and new market threads.
         """
-
-        # state machine
-        #state_machine_thread = Thread(target = self.__state_machine_run, kwargs={'idle_delay': idle_delay} )
-        #state_machine_thread.start()
 
         # new market thread, curr_mkt_thread
         curr_mkt_thread = Thread(target = lambda : self.__trade_processor_curr(sleep_delay=idle_delay) )
         curr_mkt_thread.start()
+
         new_mkt_thread = Thread(target = lambda : self.__trade_processor_new(sleep_delay=idle_delay) )
         new_mkt_thread.start()
 
