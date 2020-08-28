@@ -114,9 +114,10 @@ class Controller:
         # return the current portfolio
         raise NotImplementedError('You have to implement _get_total_current_portfolio.')
 
-    def _get_trades_from_queue(self, curr_new_indic = 'curr') -> List:
+    def _get_trades_from_queue(self, curr_new_indic : str = 'curr') -> List:
         """ Take the trades from the trade events queue and put them in the portfolio.
 
+        :param curr_new_indic: indicator whether new or current queue is considered.
         :returns: list of new trades in the position queue.
         """
 

@@ -88,7 +88,7 @@ class ControllerAO(Controller):
         return ['POSITION1'] * 500
 
     @staticmethod
-    def _value_trade(trade):
+    def _value_trade(trade) -> float:
         """ Returns the value of the Mock Air Option trade.
 
         :param trade: trade identifier.
@@ -102,21 +102,29 @@ class ControllerAO(Controller):
 
         return air_option + np.random.random() * 10.
 
-    def _value_portfolio_fct(self, new_trades):
+    def _value_portfolio_fct(self, new_trades : List) -> float:
+        """ Switches between local and spark version of the value function.
+
+        :param new_trades: trades to evaluate.
+        :returns: value of the total new_trades portfolio.
+        """
+
         return self._value_portfolio_fct_spark(new_trades)
 
-    def _value_portfolio_fct_local(self, new_trades):
+    def _value_portfolio_fct_local(self, new_trades : List) -> float:
         """ Defines the portfolio_function from trades -> results.
 
-        :return:
+        :param new_trades: trades to evaluate.
+        :returns: value of the new_trades.
         """
 
         return sum([self.__class__._value_trade(trade) for trade in new_trades])
 
-    def _value_portfolio_fct_spark(self, new_trades):
+    def _value_portfolio_fct_spark(self, new_trades : List) -> float:
         """ Defines the portfolio_function from trades -> results.
 
-        :return:
+        :param new_trades: trades to evaluate.
+        :returns: value of new_trades.
         """
 
         return self.sc.parallelize(new_trades)\
@@ -135,7 +143,7 @@ class ControllerAO(Controller):
         """ Function that publishes the current market results to Kafka broker.
 
         :param sleep_delay: delay between individual reportings of the current market results.
-        :returns: none, reports to Kafka.
+        :returns: None, reports to Kafka.
         """
 
         while True:
