@@ -18,18 +18,25 @@ class Controller:
     """
 
     QUEUE_SIZE = 1000
-    DISPATCH_SIZE = 100
+    LOCAL_WORK_LIMIT = 700
 
-    def __init__(self, value_portfolio_fct : Callable ):
+    def __init__( self
+                , value_portfolio_fct       : Callable
+                , value_portfolio_fct_local : Callable
+                , value_portfolio_fct_remote: Callable ):
         """ Controller class, keeps track of the system and distributes work.
 
         :param value_portfolio_fct: function computing the given portfolio.
+        :param value_portfolio_fct_local: function computing the portfolio locally, by the controller process itself.
+        :param value_portfolio_fct_remote: function computing the portfolio on spark.
         """
 
         self.__market_queue = Queue(maxsize=self.QUEUE_SIZE)
 
         # signal handlers
         self.__value_portfolio_fct = value_portfolio_fct  # this function has to be non-blocking
+        self.__value_portfolio_fct_local = value_portfolio_fct_local
+        self.__value_portfolio_fct_remote = value_portfolio_fct_remote
 
         # variables for new market and trade events.
         self.__new_market_event = False  # we get an update for the new market.
@@ -142,20 +149,29 @@ class Controller:
         """
 
         while True:
-            # TODO: BETTER SCHEDULING LATER.
             if not self.__trade_queue_curr_market.empty():
                 trades_to_process = self._get_trades_from_queue('curr')
-                self.__market_curr = self._combine_results(self.__value_portfolio_fct(trades_to_process), self.__market_curr)
+                self.__market_curr = self._combine_results( self.__worker_fct(len(trades_to_process))(trades_to_process)
+                                                          , self.__market_curr)
+
             else:
                 sleep(sleep_delay)
+
+    def __worker_fct(self, nb_trades_to_process : int ) -> Callable:
+        """ Worker function, depending on how many trades are still to process.
+
+        :param nb_trades_to_process: number of trades to process
+        :returns: a function that processes the trades.
+        """
+
+        return self.__value_portfolio_fct_local if nb_trades_to_process < self.LOCAL_WORK_LIMIT else self.__value_portfolio_fct_remote
 
     def __trade_processor_new(self, sleep_delay : float = 0.1):
         """ Runs the thread processor for the new market.
 
-        :return:
+        :returns None: schedules the new market computations, works on queues, etc.
         """
 
-        # TODO: LATER BETTER SCHEDULING
         while True:
             self.__new_market_prev_working = self.__new_market_curr_working  # prev <- curr
 
@@ -164,7 +180,8 @@ class Controller:
                 self.__new_market_event = False  # ignoring all the further market events.
 
                 trades_to_process = self._get_trades_from_queue('new')  # get the whole portfolio
-                self.__market_new = self._combine_results(self.__value_portfolio_fct(trades_to_process), self.__market_new)
+                self.__market_new = self._combine_results( self.__worker_fct(len(trades_to_process))(trades_to_process)
+                                                         , self.__market_new)
 
             else:  # queue is empty. either we just finished working or we didnt work at all
 
@@ -178,7 +195,8 @@ class Controller:
                     self.__new_market_curr_working = True
                     # TODO: THESE 2 lines not really necessary
                     trades_to_process = self._get_trades_from_queue('new')  # get the whole portfolio
-                    self.__market_new = self._combine_results(self.__value_portfolio_fct(trades_to_process), self.__market_new)
+                    self.__market_new = self._combine_results( self.__worker_fct(len(trades_to_process))(trades_to_process)
+                                                             , self.__market_new)
 
             # check if there is a need to switch the markets, and switch it if yes.
             if self.__new_market_prev_working and (not self.__new_market_curr_working):  # we finished work, switch markets

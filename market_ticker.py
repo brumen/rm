@@ -53,3 +53,7 @@ class MarketUpdaterJoke(MarketUpdater):
 
     def _message(self):
         return b'MARKET_EVENT_1'
+
+
+# mu = MarketUpdaterJoke()
+# mu.start(idle_delay=5)

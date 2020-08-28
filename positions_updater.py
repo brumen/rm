@@ -56,3 +56,7 @@ class PositionUpdaterJoke(PositionUpdater):
 
     def _message(self):
         return b'POSITION_1'
+
+
+# pu = PositionUpdaterJoke()
+# pu.start(idle_delay=0.1)

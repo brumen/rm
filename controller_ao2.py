@@ -3,16 +3,16 @@
 import datetime
 import logging
 
+import numpy as np
+
 from time      import sleep
 from typing    import List, Tuple
-from pyspark   import SparkContext
+from pyspark   import SparkContext, SparkConf
 from threading import Thread
 from kafka     import KafkaConsumer, KafkaProducer
 
-from rm.controller2       import Controller
-
+from rm.controller2 import Controller
 from ao.air_option  import AirOptionMock
-
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ class ControllerAO(Controller):
         self.__listener = KafkaConsumer(topic_to_read_from, bootstrap_servers = '{0}:{1}'.format(server_name, port))
         self.__reporter = KafkaProducer(bootstrap_servers = '{0}:{1}'.format(server_name, port))  # reports the market to.
 
-        super().__init__(self._value_portfolio_fct)
+        super().__init__(self._value_portfolio_fct, self._value_portfolio_fct_local, self._value_portfolio_fct_spark)
 
         # cached values
         self.__sc = None  # spark context
@@ -79,11 +79,13 @@ class ControllerAO(Controller):
         if self.__sc:
             return self.__sc
 
-        self.__sc = SparkContext()
+        spark_conf = SparkConf()
+        self.__sc = SparkContext.getOrCreate(spark_conf)
+        self.__sc.addPyFile(r'/home/brumen/work/work_ao.zip')  # files to be added which contain relevant code.
         return self.__sc
 
     def _get_total_current_portfolio(self) -> List:
-        return ['POSITION1'] * 100
+        return ['POSITION1'] * 500
 
     @staticmethod
     def _value_trade(trade):
@@ -98,10 +100,10 @@ class ControllerAO(Controller):
                                   , dest = 'EWR'
                                   , K = 1600.).PV()
 
-        return air_option
+        return air_option + np.random.random() * 10.
 
     def _value_portfolio_fct(self, new_trades):
-        return self._value_portfolio_fct_local(new_trades)
+        return self._value_portfolio_fct_spark(new_trades)
 
     def _value_portfolio_fct_local(self, new_trades):
         """ Defines the portfolio_function from trades -> results.
@@ -139,6 +141,7 @@ class ControllerAO(Controller):
         while True:
             curr_market = str.encode(str(self.curr_market))
             logger.info('Publishing curr_market: {0}'.format(self.curr_market))
+            logger.info('Publishing NEW_market: {0}'.format(self.new_market))
             self.__reporter.send(topic=self._topic_to_publish_to, value=curr_market)  # TODO: THIS IS TO BE WORKED UPON.
             sleep(sleep_delay)
 
