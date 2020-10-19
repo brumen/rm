@@ -58,6 +58,9 @@ class ControllerAO(Controller):
         :param topic_to_publish_to: topic on kafka server to publish market results to.
         """
 
+        self.server_name = server_name
+        self.port        = port
+
         self._topic_to_read_from  = topic_to_read_from
         self._topic_to_publish_to = topic_to_publish_to
 
@@ -84,8 +87,22 @@ class ControllerAO(Controller):
         self.__sc.addPyFile(r'/home/brumen/work/work_ao.zip')  # files to be added which contain relevant code.
         return self.__sc
 
-    def _get_total_current_portfolio(self) -> List:
+    # TODO: TO REMOVE LATER THIS METHOD
+    def _get_total_current_portfolio_old_working(self) -> List:
         return ['POSITION1'] * 500
+
+    def _get_total_current_portfolio(self) -> List:
+        """ Gets all the positions which are in the Kafka queue in self.__listener.
+        Kafka has to be set so that the positions are
+
+        :returns: list of current total positions.
+        """
+
+        new_listener = KafkaConsumer(self._topic_to_read_from, bootstrap_servers = '{0}:{1}'.format(self.server_name, self.port))
+
+        return [msg
+                for msg in new_listener
+                if msg.value == b'POSITION_1']
 
     @staticmethod
     def _value_trade(trade) -> float:
@@ -132,6 +149,11 @@ class ControllerAO(Controller):
                       .aggregate(0., lambda x, y: x+y, lambda x, y: x+y)
 
     def _read_from_topic(self):
+        """ Reading from listener about market and positions messages and adding them to processing queues.
+            Positions are identified as POSITION_1 (TO BE CHANGED)
+            Market is identified as MARKET_EVENT_1 (TO BE CHANGED
+        :returns: None
+        """
 
         for msg in self.__listener:
             if msg.value == b'POSITION_1':
@@ -153,7 +175,7 @@ class ControllerAO(Controller):
             self.__reporter.send(topic=self._topic_to_publish_to, value=curr_market)  # TODO: THIS IS TO BE WORKED UPON.
             sleep(sleep_delay)
 
-    def start(self, idle_delay : float = 0.1) -> Tuple[Thread, Thread, Thread]:
+    def start(self, idle_delay : float = 0.1) -> Tuple[Tuple[Thread, Thread], Thread, Thread]:
         """ Run the controller.
 
         :param idle_delay: delay of the IDLE state of the controller.

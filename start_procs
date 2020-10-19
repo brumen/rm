@@ -1,8 +1,16 @@
 #! /bin/bash
 
-# python3 controller.py &
-#python3 controller2.py &
-#python3 positions_updater.py &
-
-# FOR KAFKA system:
+# KAFKA system part:
 # first you have the kafka system & zookeeper up and running
+#    go to folder: ~/archive/software/kafka...
+#    start ./bin/zookeeper-server-start.sh config/zooker-properties
+#    start ./bin/kafka-server-start.sh config/server-properties
+
+# PYTHON PART:
+#    start market updater in python:
+#           from rm.market_ticker import MarketUpdaterJoke; mu = MarketUpdaterJoke(); mu.start(idle_delay=5)
+#    start position updater in python:
+#           from rm.positions_updater import PositionUpdaterJoke; pu = PositionUpdaterJoke(); pu.start(idle_delay=0.1)
+#    start controller:
+#           from rm.controller_ao2 import ControllerAO; ao = ControllerAO()
+#           ao.start()
