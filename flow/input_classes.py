@@ -6,8 +6,8 @@ from uuid      import uuid4
 from queue     import Queue
 from typing    import Union
 
-from rm.socket_msg    import NanoSocketMixin, NNGSocketMixin
-from rm.encode_decode import EncodeDecodeMixin
+from rm.sockets.socket_msg import NNGSocketMixin
+from rm.sockets.encode_decode import EncodeDecodeMixin
 
 
 class InOutUpdaterException(Exception):
