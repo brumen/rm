@@ -5,10 +5,10 @@ import logging
 
 from typing import List
 
-from rm.delta_dict       import DeltaDict
+from rm.sockets.delta_dict import DeltaDict
 from ao.air_option       import AirOptionMock
-from rm.portfolio_worker import PortfolioWorker
-from rm.socket_msg       import NanoSocketMixin
+from rm.old.portfolio_worker import PortfolioWorker
+from rm.sockets.socket_msg import NanoSocketMixin
 
 logger = logging.getLogger(__name__)
 logger.setLevel('INFO')  # log at info level

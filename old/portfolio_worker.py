@@ -6,8 +6,8 @@ import logging
 
 from typing import Callable
 
-from rm.encode_decode import EncodeDecodeMixin
-from rm.in_out_updater import InOutUpdater
+from rm.sockets.encode_decode import EncodeDecodeMixin
+from rm.flow.in_out_updater import InOutUpdater
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)

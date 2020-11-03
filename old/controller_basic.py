@@ -7,9 +7,9 @@ from threading import Thread
 from typing    import List, Callable, Union
 from queue     import Queue
 
-from rm.encode_decode    import EncodeDecodeMixin
-from rm.portfolio_worker import PortfolioWorker
-from rm.delta_dict       import DeltaDict
+from rm.sockets.encode_decode import EncodeDecodeMixin
+from rm.old.portfolio_worker import PortfolioWorker
+from rm.sockets.delta_dict import DeltaDict
 
 
 logging.basicConfig()
