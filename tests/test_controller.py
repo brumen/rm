@@ -2,8 +2,8 @@ import datetime
 import unittest
 
 from rm.controller2 import Controller
-from rm.socket_msg import NanoSocketMixin, NNGSocketMixin
-from rm.portfolio_air_worker import start_workers
+from rm.sockets.socket_msg import NanoSocketMixin
+from rm.old.portfolio_air_worker import start_workers
 
 
 class ControllerTest(unittest.TestCase):

@@ -1,6 +1,6 @@
 import unittest
 
-from rm.delta_dict import DeltaDict
+from rm.sockets.delta_dict import DeltaDict
 
 
 class DeltaDictTest(unittest.TestCase):

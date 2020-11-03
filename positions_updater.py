@@ -2,13 +2,9 @@
 
 import logging
 
-from time      import sleep
-from kafka     import KafkaProducer
-from threading import Thread
-
 from rm.producer_base import ProducerBase
 
-logging.basicConfig(filename='/tmp/controller.log')
+logging.basicConfig(filename='/tmp/position_updater.log')
 logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
 

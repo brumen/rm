@@ -5,7 +5,7 @@ import logging
 from rm.producer_base import ProducerBase
 
 
-logging.basicConfig(filename='/tmp/controller.log')
+logging.basicConfig(filename='/tmp/market_updater.log')
 logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
 

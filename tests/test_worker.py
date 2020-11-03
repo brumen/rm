@@ -6,8 +6,8 @@ import threading
 
 from unittest import TestCase
 
-from rm.socket_msg       import NanoSocketMixin
-from rm.portfolio_worker import PortfolioAirWorker
+from rm.sockets.socket_msg import NanoSocketMixin
+from rm.old.portfolio_worker import PortfolioAirWorker
 
 
 class AOWorkerTest(TestCase):

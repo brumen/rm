@@ -1,12 +1,8 @@
 # tests for worker classes
 
-import datetime
-import json
-
 from unittest import TestCase
 
-from rm.socket_msg     import NanoSocketMixin
-from rm.in_out_updater import InputClass, OutputClass
+from rm.flow.in_out_updater import InputClass, OutputClass
 
 
 class InOutClassTest(TestCase):

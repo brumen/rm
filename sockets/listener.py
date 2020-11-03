@@ -5,8 +5,8 @@ import logging
 from threading import Thread
 from nanomsg   import Socket
 
-from rm.socket_msg    import NanoSocketMixin
-from rm.encode_decode import EncodeDecodeMixin
+from rm.sockets.socket_msg import NanoSocketMixin
+from rm.sockets.encode_decode import EncodeDecodeMixin
 
 
 logging.basicConfig()
