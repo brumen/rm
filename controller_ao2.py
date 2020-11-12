@@ -49,7 +49,7 @@ class ControllerAO(Controller):
                 , server_name         : str = 'localhost'
                 , port                : int = 9092
                 , topic_to_read_from  : str = 'quickstart-events'
-                , topic_to_publish_to : str = 'quickstart-events' ):
+                , topic_to_publish_to : str = 'ao_results' ):
         """ Initiates the Controller for computing the AirOptions portfolio.
 
         :param server_name: kafka server name.

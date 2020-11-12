@@ -12,5 +12,6 @@
 #    start position updater in python:
 #           from rm.positions_updater import PositionUpdaterJoke; pu = PositionUpdaterJoke(); pu.start(idle_delay=0.1)
 #    start controller:
-#           from rm.controller_ao2 import ControllerAO; ao = ControllerAO()
-#           ao.start()
+#           from rm.controller_ao2 import ControllerAO; ao = ControllerAO(); ao.start()
+
+#    start result publisher:
