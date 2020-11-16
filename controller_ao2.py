@@ -12,7 +12,8 @@ from threading import Thread
 from kafka     import KafkaConsumer, KafkaProducer
 
 from rm.controller2 import Controller
-from ao.air_option  import AirOptionMock
+from ao.air_option  import AirOptionMock, AirOptionFlightsFromDB
+from ao.flight      import AOTrade, DEFAULT_SESSION
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
@@ -46,18 +47,23 @@ class ControllerAO(Controller):
     """
 
     def __init__( self
+                , mkt_date            : datetime.date = datetime.date(2016, 1, 1)
                 , server_name         : str = 'localhost'
                 , port                : int = 9092
                 , topic_to_read_from  : str = 'quickstart-events'
                 , topic_to_publish_to : str = 'ao_results' ):
         """ Initiates the Controller for computing the AirOptions portfolio.
 
+        :param mkt_date: market date.
         :param server_name: kafka server name.
         :param port: port for the kafka server.
         :param topic_to_read_from: topic on Kafka to read from market/trade events.
         :param topic_to_publish_to: topic on kafka server to publish market results to.
         """
 
+        super().__init__(self._value_portfolio_fct, self._value_portfolio_fct_local, self._value_portfolio_fct_spark)
+
+        self.mkt_date    = mkt_date
         self.server_name = server_name
         self.port        = port
 
@@ -66,8 +72,6 @@ class ControllerAO(Controller):
 
         self.__listener = KafkaConsumer(topic_to_read_from, bootstrap_servers = '{0}:{1}'.format(server_name, port))
         self.__reporter = KafkaProducer(bootstrap_servers = '{0}:{1}'.format(server_name, port))  # reports the market to.
-
-        super().__init__(self._value_portfolio_fct, self._value_portfolio_fct_local, self._value_portfolio_fct_spark)
 
         # cached values
         self.__sc = None  # spark context
@@ -87,7 +91,22 @@ class ControllerAO(Controller):
         self.__sc.addPyFile(r'/home/brumen/work/work_ao.zip')  # files to be added which contain relevant code.
         return self.__sc
 
-    # TODO: TO REMOVE LATER THIS METHOD
+    def __db_session(self):
+        """ Returns the default sqlalchemy session.
+
+        :returns: sqlalchemy session to use.
+        """
+
+        return DEFAULT_SESSION
+
+    def _total_portfolio(self) -> List[AOTrade]:
+        """ Returns the total portfolio of trades in the air option database.
+
+        :returns: list of trades TODO: DESCRIBE BETTER HERE.
+        """
+
+        return self.__db_session.query(AOTrade).all()
+
     def _get_total_current_portfolio_old_working(self) -> List:
         return ['POSITION1'] * 500
 
@@ -105,7 +124,7 @@ class ControllerAO(Controller):
                 if msg.value == b'POSITION_1']
 
     @staticmethod
-    def _value_trade(trade) -> float:
+    def _value_trade_old(trade) -> float:
         """ Returns the value of the Mock Air Option trade.
 
         :param trade: trade identifier.
@@ -116,6 +135,19 @@ class ControllerAO(Controller):
                                   , origin = 'SFO'
                                   , dest = 'EWR'
                                   , K = 1600.).PV()
+
+        return air_option + np.random.random() * 10.
+
+    @staticmethod
+    def _value_trade(trade : AOTrade) -> float:
+        """ Returns the value of the Mock Air Option trade.
+
+        :param trade: trade to be priced
+        :returns: value of the trade considered.
+        """
+
+        # TODO: MARKET DATE HAS TO BE FLEXIBLE, NOT HARDCODED.
+        air_option = AirOptionFlightsFromDB( datetime.date(2016, 1, 1), trade.position_id).PV()
 
         return air_option + np.random.random() * 10.
 
@@ -164,15 +196,14 @@ class ControllerAO(Controller):
     def _report_results(self, sleep_delay : float = 0.1):
         """ Function that publishes the current market results to Kafka broker.
 
-        :param sleep_delay: delay between individual reportings of the current market results.
+        :param sleep_delay: delay between individual reporting of the current market results.
         :returns: None, reports to Kafka.
         """
 
         while True:
-            curr_market = str.encode(str(self.curr_market))
             logger.info('Publishing curr_market: {0}'.format(self.curr_market))
-            logger.info('Publishing NEW_market: {0}'.format(self.new_market))
-            self.__reporter.send(topic=self._topic_to_publish_to, value=curr_market)  # TODO: THIS IS TO BE WORKED UPON.
+            logger.info('Publishing new_market: {0}'.format(self.new_market))
+            self.__reporter.send(topic=self._topic_to_publish_to, value=str.encode(str(self.curr_market)))
             sleep(sleep_delay)
 
     def start(self, idle_delay : float = 0.1) -> Tuple[Tuple[Thread, Thread], Thread, Thread]:

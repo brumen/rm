@@ -15,3 +15,7 @@
 #           from rm.controller_ao2 import ControllerAO; ao = ControllerAO(); ao.start()
 
 #    start result publisher:
+#        python result_publisher.py
+
+#    react code in:
+#       ~/learn/counter-app/app.js
