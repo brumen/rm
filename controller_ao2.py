@@ -5,41 +5,43 @@ import logging
 
 import numpy as np
 
+from json      import loads
+from uuid      import uuid4
 from time      import sleep
 from typing    import List, Tuple
 from pyspark   import SparkContext, SparkConf
 from threading import Thread
-from kafka     import KafkaConsumer, KafkaProducer
+from kafka     import KafkaConsumer, KafkaProducer, TopicPartition
 
 from rm.controller2 import Controller
-from ao.air_option  import AirOptionMock, AirOptionFlightsFromDB
-from ao.flight      import AOTrade, DEFAULT_SESSION
+from ao.air_option  import AirOptionMock, AirOptionFlightsFromDB, AirOptionFlightsExplicit
+from ao.flight      import AOTrade, DEFAULT_SESSION, Flight, create_session
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
 
 
-class ControllerJoke(Controller):
-    """ Specification for the workers.
-    """
-
-    def __init__(self):
-        """
-        """
-
-        super().__init__(self._value_portfolio_fct)
-
-    def _get_total_current_portfolio(self) -> List:
-        return ['POSITION1'] * 100
-
-    def _value_portfolio_fct(self, new_trades : List):
-        """ Defines the portfolio_function from trades -> results.
-
-        :returns: results of computation of the portfolio_function of these new trades.
-        """
-
-        return len(new_trades)
+# class ControllerJoke(Controller):
+#     """ Specification for the workers.
+#     """
+#
+#     def __init__(self):
+#         """
+#         """
+#
+#         super().__init__(self._value_portfolio_fct)
+#
+#     def _get_total_current_portfolio(self) -> List:
+#         return ['POSITION1'] * 100
+#
+#     def _value_portfolio_fct(self, new_trades : List):
+#         """ Defines the portfolio_function from trades -> results.
+#
+#         :returns: results of computation of the portfolio_function of these new trades.
+#         """
+#
+#         return len(new_trades)
 
 
 class ControllerAO(Controller):
@@ -73,13 +75,17 @@ class ControllerAO(Controller):
         self.__positions_topic    = positions_topic
         self._topic_to_publish_to = topic_to_publish_to
 
-        self.__pos_listener = KafkaConsumer(positions_topic, bootstrap_servers = '{0}:{1}'.format(server_name, port))  # position listener
+        # position listener seeks to beginning
+        self.__pos_listener = KafkaConsumer( bootstrap_servers = '{0}:{1}'.format(server_name, port) )  # position listener
+        self.__pos_listener.assign([TopicPartition(topic=self.__positions_topic, partition=0)])
+        self.__pos_listener.seek_to_beginning()
+
         self.__mkt_listener = KafkaConsumer(topic_to_read_from, bootstrap_servers = '{0}:{1}'.format(server_name, port))  # market listener TODO: FIX THESE NAMING STUFF
         self.__reporter = KafkaProducer(bootstrap_servers = '{0}:{1}'.format(server_name, port))  # reports the market to.
 
         # cached values
         self.__sc = None  # spark context
-        self.__portfolio = []  # empty portfolio so far
+        self.__portfolio = []  # empty portfolio so far, type = List[int]
 
     @property
     def sc(self) -> SparkContext:
@@ -96,6 +102,7 @@ class ControllerAO(Controller):
         self.__sc.addPyFile(r'/home/brumen/work/work_ao.zip')  # files to be added which contain relevant code.
         return self.__sc
 
+    @property
     def __db_session(self):
         """ Returns the default sqlalchemy session.
 
@@ -131,10 +138,11 @@ class ControllerAO(Controller):
         :returns: list of current total positions.
         """
 
-        # TODO: HERE PROCESS THE PORTFOLIO
-        all_msg = [msg for msg in self.__pos_listener]  # messages, some may be to remove trades.
-        new_portfolio = all_msg  # TODO: THIS IS TO BE FIXED HERE
-        self.__portfolio.extend(new_portfolio)
+        new_positions = []
+        for msg in self.__pos_listener:
+            msg_decoded = loads(msg.value.decode())
+            # TODO: MISSING WHAT IF IT'S A REMOVAL ???
+            self.__portfolio.append(msg_decoded['payload']['after']['position_id'])
 
     @staticmethod
     def _value_trade_old(trade) -> float:
@@ -152,7 +160,7 @@ class ControllerAO(Controller):
         return air_option + np.random.random() * 10.
 
     @staticmethod
-    def _value_trade(trade : AOTrade) -> float:
+    def _value_trade(trade_nb : int) -> float:
         """ Returns the value of the Mock Air Option trade.
 
         :param trade: trade to be priced
@@ -160,7 +168,8 @@ class ControllerAO(Controller):
         """
 
         # TODO: MARKET DATE HAS TO BE FLEXIBLE, NOT HARDCODED.
-        air_option = AirOptionFlightsFromDB( datetime.date(2016, 1, 1), trade.position_id).PV()
+        # TODO: ALSO SESSION SHOULD POSSIBLY BE passed
+        air_option = AirOptionFlightsFromDB( datetime.date(2016, 1, 1), trade_nb).PV()
 
         return air_option + np.random.random() * 10.
 
@@ -173,7 +182,7 @@ class ControllerAO(Controller):
 
         return self._value_portfolio_fct_spark(new_trades)
 
-    def _value_portfolio_fct_local(self, new_trades : List) -> float:
+    def _value_portfolio_fct_local_naive(self, new_trades : List) -> float:
         """ Defines the portfolio_function from trades -> results.
 
         :param new_trades: trades to evaluate.
@@ -181,6 +190,34 @@ class ControllerAO(Controller):
         """
 
         return sum([self.__class__._value_trade(trade) for trade in new_trades])
+
+    def _value_portfolio_fct_local3(self, new_trades : List[int]) -> float:
+        """ Defines the portfolio_function from trades -> results.
+
+        :param new_trades: trades to evaluate, given as a list of position numbers.
+        :returns: value of the new_trades.
+        """
+
+        trades_to_evaluate = self.__db_session.query(AOTrade).filter(AOTrade.position_id.in_(new_trades))
+
+        trade_results = []
+        for trade in trades_to_evaluate:
+            trade_results.append(AirOptionFlightsExplicit(datetime.date(2016, 1, 1), trade.flights, 200.).PV())
+
+        return sum(trade_results)
+        # return sum([self.__class__._value_trade(trade) for trade in new_trades])
+
+    def _value_portfolio_fct_local(self, new_trades : List[int]) -> float:
+        """ Defines the portfolio_function from trades -> results.
+
+        :param new_trades: trades to evaluate, given as a list of position numbers.
+        :returns: value of the new_trades.
+        """
+
+        new_session = create_session()  # use a new session, default session might be in usage.
+
+        return sum([AirOptionFlightsFromDB(datetime.date(2016, 1, 1), trade_nb, session=new_session).PV()
+                   for trade_nb in new_trades])
 
     def _value_portfolio_fct_spark(self, new_trades : List) -> float:
         """ Defines the portfolio_function from trades -> results.
@@ -215,6 +252,7 @@ class ControllerAO(Controller):
         while True:
             logger.info('Publishing curr_market: {0}'.format(self.curr_market))
             logger.info('Publishing new_market: {0}'.format(self.new_market))
+            logger.info('Current portfolio size: {0}'.format(len(self.__portfolio)))
             self.__reporter.send(topic=self._topic_to_publish_to, value=str.encode(str(self.curr_market)))
             sleep(sleep_delay)
 
@@ -234,3 +272,8 @@ class ControllerAO(Controller):
         controller_thread = super().start(idle_delay)  # start main controller thread.
 
         return controller_thread, reporter_thread, market_thread, position_thread
+
+
+# sample start of the controller
+#controller = ControllerAO()
+#controller.start()
