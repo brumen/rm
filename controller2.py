@@ -21,12 +21,10 @@ class Controller:
     LOCAL_WORK_LIMIT = 700
 
     def __init__( self
-                , value_portfolio_fct       : Callable
                 , value_portfolio_fct_local : Callable
                 , value_portfolio_fct_remote: Callable ):
         """ Controller class, keeps track of the system and distributes work.
 
-        :param value_portfolio_fct: function computing the given portfolio.
         :param value_portfolio_fct_local: function computing the portfolio locally, by the controller process itself.
         :param value_portfolio_fct_remote: function computing the portfolio on spark.
         """
@@ -34,7 +32,6 @@ class Controller:
         self.__market_queue = Queue(maxsize=self.QUEUE_SIZE)
 
         # signal handlers
-        self.__value_portfolio_fct = value_portfolio_fct  # this function has to be non-blocking
         self.__value_portfolio_fct_local = value_portfolio_fct_local
         self.__value_portfolio_fct_remote = value_portfolio_fct_remote
 

@@ -22,28 +22,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
 
 
-# class ControllerJoke(Controller):
-#     """ Specification for the workers.
-#     """
-#
-#     def __init__(self):
-#         """
-#         """
-#
-#         super().__init__(self._value_portfolio_fct)
-#
-#     def _get_total_current_portfolio(self) -> List:
-#         return ['POSITION1'] * 100
-#
-#     def _value_portfolio_fct(self, new_trades : List):
-#         """ Defines the portfolio_function from trades -> results.
-#
-#         :returns: results of computation of the portfolio_function of these new trades.
-#         """
-#
-#         return len(new_trades)
-
-
 class ControllerAO(Controller):
     """ Controller for AirOptions.
     """
@@ -65,7 +43,7 @@ class ControllerAO(Controller):
         :param topic_to_publish_to: topic on kafka server to publish market results to.
         """
 
-        super().__init__(self._value_portfolio_fct, self._value_portfolio_fct_local, self._value_portfolio_fct_spark)
+        super().__init__(self._value_portfolio_fct_local, self._value_portfolio_fct_spark)
 
         self.mkt_date    = mkt_date
         self.server_name = server_name
@@ -128,9 +106,6 @@ class ControllerAO(Controller):
 
         return self.__db_session.query(AOTrade).all()
 
-    def _get_total_current_portfolio_old_working(self) -> List:
-        return ['POSITION1'] * 500
-
     def _portfolio_worker_function(self) -> None:
         """ Gets all the positions which are in the Kafka queue in self.__listener.
         Kafka has to be set so that the positions are
@@ -138,74 +113,10 @@ class ControllerAO(Controller):
         :returns: list of current total positions.
         """
 
-        new_positions = []
         for msg in self.__pos_listener:
             msg_decoded = loads(msg.value.decode())
             # TODO: MISSING WHAT IF IT'S A REMOVAL ???
             self.__portfolio.append(msg_decoded['payload']['after']['position_id'])
-
-    @staticmethod
-    def _value_trade_old(trade) -> float:
-        """ Returns the value of the Mock Air Option trade.
-
-        :param trade: trade identifier.
-        :returns: value of the trade considered.
-        """
-
-        air_option = AirOptionMock( datetime.date(2019, 7, 2)
-                                  , origin = 'SFO'
-                                  , dest = 'EWR'
-                                  , K = 1600.).PV()
-
-        return air_option + np.random.random() * 10.
-
-    @staticmethod
-    def _value_trade(trade_nb : int) -> float:
-        """ Returns the value of the Mock Air Option trade.
-
-        :param trade: trade to be priced
-        :returns: value of the trade considered.
-        """
-
-        # TODO: MARKET DATE HAS TO BE FLEXIBLE, NOT HARDCODED.
-        # TODO: ALSO SESSION SHOULD POSSIBLY BE passed
-        air_option = AirOptionFlightsFromDB( datetime.date(2016, 1, 1), trade_nb).PV()
-
-        return air_option + np.random.random() * 10.
-
-    def _value_portfolio_fct(self, new_trades : List) -> float:
-        """ Switches between local and spark version of the value function.
-
-        :param new_trades: trades to evaluate.
-        :returns: value of the total new_trades portfolio.
-        """
-
-        return self._value_portfolio_fct_spark(new_trades)
-
-    def _value_portfolio_fct_local_naive(self, new_trades : List) -> float:
-        """ Defines the portfolio_function from trades -> results.
-
-        :param new_trades: trades to evaluate.
-        :returns: value of the new_trades.
-        """
-
-        return sum([self.__class__._value_trade(trade) for trade in new_trades])
-
-    def _value_portfolio_fct_local3(self, new_trades : List[int]) -> float:
-        """ Defines the portfolio_function from trades -> results.
-
-        :param new_trades: trades to evaluate, given as a list of position numbers.
-        :returns: value of the new_trades.
-        """
-
-        trades_to_evaluate = self.__db_session.query(AOTrade).filter(AOTrade.position_id.in_(new_trades))
-
-        trade_results = []
-        for trade in trades_to_evaluate:
-            trade_results.append(AirOptionFlightsExplicit(datetime.date(2016, 1, 1), trade.flights, 200.).PV())
-
-        return sum(trade_results)
-        # return sum([self.__class__._value_trade(trade) for trade in new_trades])
 
     def _value_portfolio_fct_local(self, new_trades : List[int]) -> float:
         """ Defines the portfolio_function from trades -> results.
@@ -218,6 +129,20 @@ class ControllerAO(Controller):
 
         return sum([AirOptionFlightsFromDB(datetime.date(2016, 1, 1), trade_nb, session=new_session).PV()
                    for trade_nb in new_trades])
+
+    @staticmethod
+    def _value_trade(trade_nb : int) -> float:
+        """ Returns the value of the Mock Air Option trade.
+
+        :param trade_nb: trade number to be priced
+        :returns: value of the trade considered.
+        """
+
+        # TODO: MARKET DATE HAS TO BE FLEXIBLE, NOT HARDCODED.
+        # TODO: ALSO SESSION SHOULD POSSIBLY BE passed
+        air_option = AirOptionFlightsFromDB( datetime.date(2016, 1, 1), trade_nb).PV()
+
+        return air_option # + np.random.random() * 10.
 
     def _value_portfolio_fct_spark(self, new_trades : List) -> float:
         """ Defines the portfolio_function from trades -> results.
