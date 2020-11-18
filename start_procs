@@ -5,6 +5,9 @@
 #    go to folder: ~/archive/software/kafka...
 #    start ./bin/zookeeper-server-start.sh config/zooker-properties
 #    start ./bin/kafka-server-start.sh config/server-properties
+# kafka connect:
+#     start ./start_kafka_connect
+#     this writes on the topic demo.ao.option_positions and reports the option_positions
 
 # PYTHON PART:
 #    start market updater in python:

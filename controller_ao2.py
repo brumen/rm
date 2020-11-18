@@ -51,6 +51,7 @@ class ControllerAO(Controller):
                 , server_name         : str = 'localhost'
                 , port                : int = 9092
                 , topic_to_read_from  : str = 'quickstart-events'
+                , positions_topic     : str = 'demo.ao.option_positions'
                 , topic_to_publish_to : str = 'ao_results' ):
         """ Initiates the Controller for computing the AirOptions portfolio.
 
@@ -58,6 +59,7 @@ class ControllerAO(Controller):
         :param server_name: kafka server name.
         :param port: port for the kafka server.
         :param topic_to_read_from: topic on Kafka to read from market/trade events.
+        :param positions_topic: topic to read from positions
         :param topic_to_publish_to: topic on kafka server to publish market results to.
         """
 
@@ -68,13 +70,16 @@ class ControllerAO(Controller):
         self.port        = port
 
         self._topic_to_read_from  = topic_to_read_from
+        self.__positions_topic    = positions_topic
         self._topic_to_publish_to = topic_to_publish_to
 
-        self.__listener = KafkaConsumer(topic_to_read_from, bootstrap_servers = '{0}:{1}'.format(server_name, port))
+        self.__pos_listener = KafkaConsumer(positions_topic, bootstrap_servers = '{0}:{1}'.format(server_name, port))  # position listener
+        self.__mkt_listener = KafkaConsumer(topic_to_read_from, bootstrap_servers = '{0}:{1}'.format(server_name, port))  # market listener TODO: FIX THESE NAMING STUFF
         self.__reporter = KafkaProducer(bootstrap_servers = '{0}:{1}'.format(server_name, port))  # reports the market to.
 
         # cached values
         self.__sc = None  # spark context
+        self.__portfolio = []  # empty portfolio so far
 
     @property
     def sc(self) -> SparkContext:
@@ -99,7 +104,16 @@ class ControllerAO(Controller):
 
         return DEFAULT_SESSION
 
-    def _total_portfolio(self) -> List[AOTrade]:
+    def _get_total_current_portfolio(self) -> List:
+        """ Returns the total portfolio of trades in the air option database.
+
+        :returns: list of trades TODO: DESCRIBE BETTER HERE.
+        """
+
+        return self.__portfolio
+        # return self.__db_session.query(AOTrade).all()
+
+    def _get_total_current_portfolio_2(self) -> List[AOTrade]:
         """ Returns the total portfolio of trades in the air option database.
 
         :returns: list of trades TODO: DESCRIBE BETTER HERE.
@@ -110,18 +124,17 @@ class ControllerAO(Controller):
     def _get_total_current_portfolio_old_working(self) -> List:
         return ['POSITION1'] * 500
 
-    def _get_total_current_portfolio(self) -> List:
+    def _portfolio_worker_function(self) -> None:
         """ Gets all the positions which are in the Kafka queue in self.__listener.
         Kafka has to be set so that the positions are
 
         :returns: list of current total positions.
         """
 
-        new_listener = KafkaConsumer(self._topic_to_read_from, bootstrap_servers = '{0}:{1}'.format(self.server_name, self.port))
-
-        return [msg
-                for msg in new_listener
-                if msg.value == b'POSITION_1']
+        # TODO: HERE PROCESS THE PORTFOLIO
+        all_msg = [msg for msg in self.__pos_listener]  # messages, some may be to remove trades.
+        new_portfolio = all_msg  # TODO: THIS IS TO BE FIXED HERE
+        self.__portfolio.extend(new_portfolio)
 
     @staticmethod
     def _value_trade_old(trade) -> float:
@@ -180,17 +193,16 @@ class ControllerAO(Controller):
                       .map(self.__class__._value_trade)\
                       .aggregate(0., lambda x, y: x+y, lambda x, y: x+y)
 
-    def _read_from_topic(self):
+    def _read_mkt_events(self):
         """ Reading from listener about market and positions messages and adding them to processing queues.
             Positions are identified as POSITION_1 (TO BE CHANGED)
             Market is identified as MARKET_EVENT_1 (TO BE CHANGED
         :returns: None
         """
 
-        for msg in self.__listener:
-            if msg.value == b'POSITION_1':
-                self.add_position(msg)
-            elif msg.value == b'MARKET_EVENT_1':
+        # TODO: Read Market events.
+        for msg in self.__mkt_listener:
+            if msg.value == b'MARKET_EVENT_1':
                 self.add_market(msg)
 
     def _report_results(self, sleep_delay : float = 0.1):
@@ -206,17 +218,19 @@ class ControllerAO(Controller):
             self.__reporter.send(topic=self._topic_to_publish_to, value=str.encode(str(self.curr_market)))
             sleep(sleep_delay)
 
-    def start(self, idle_delay : float = 0.1) -> Tuple[Tuple[Thread, Thread], Thread, Thread]:
+    def start(self, idle_delay : float = 0.1) -> Tuple[Tuple[Thread, Thread], Thread, Thread, Thread]:
         """ Run the controller.
 
         :param idle_delay: delay of the IDLE state of the controller.
         :returns: runs all the threads of the controller and returns the thread handles.
         """
 
-        listener_thread = Thread(target=self._read_from_topic, daemon=True)  # listener thread.
-        listener_thread.start()
+        market_thread = Thread(target=self._read_mkt_events, daemon=True)  # market event topic reading thread
+        market_thread.start()
+        position_thread = Thread(target=self._portfolio_worker_function, daemon=True)  # market event topic reading thread
+        position_thread.start()
         reporter_thread = Thread(target=self._report_results, daemon=True)  # publisher thread.
         reporter_thread.start()
         controller_thread = super().start(idle_delay)  # start main controller thread.
 
-        return controller_thread, reporter_thread, listener_thread
+        return controller_thread, reporter_thread, market_thread, position_thread
