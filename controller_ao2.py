@@ -106,7 +106,7 @@ class ControllerAO(Controller):
 
         return self.__db_session.query(AOTrade).all()
 
-    def _portfolio_worker_function(self) -> None:
+    def __construct_portfolio(self) -> None:
         """ Gets all the positions which are in the Kafka queue in self.__listener.
         Kafka has to be set so that the positions are
 
@@ -192,15 +192,22 @@ class ControllerAO(Controller):
         :returns: runs all the threads of the controller and returns the thread handles.
         """
 
-        market_thread = Thread(target=self._read_mkt_events, daemon=True)  # market event topic reading thread
-        market_thread.start()
-        position_thread = Thread(target=self._portfolio_worker_function, daemon=True)  # market event topic reading thread
+        # gets market events from kafka
+        market_events_thread = Thread(target=self._read_mkt_events, daemon=True)  # market event topic reading thread
+        market_events_thread.start()
+
+        # gets the positions from kafka
+        position_thread = Thread(target=self.__construct_portfolio, daemon=True)  # positions reading thread
         position_thread.start()
+
+        # reports results
         reporter_thread = Thread(target= lambda : self._report_results(sleep_delay=report_delay), daemon=True)  # publisher thread.
         reporter_thread.start()
+
+        # curr_mkt_thread computes current market, new_mkt_thread is computing new market
         curr_mkt_thread, new_mkt_thread = super().start(controller_delay)  # start main controller thread.
 
-        return curr_mkt_thread, new_mkt_thread, reporter_thread, market_thread, position_thread
+        return curr_mkt_thread, new_mkt_thread, reporter_thread, market_events_thread, position_thread
 
 
 # sample start of the controller
