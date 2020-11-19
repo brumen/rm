@@ -19,7 +19,7 @@ from ao.flight      import AOTrade, DEFAULT_SESSION, Flight, create_session
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
-logger.setLevel('INFO')
+logger.setLevel('DEBUG')
 
 
 class ControllerAO(Controller):
@@ -128,7 +128,7 @@ class ControllerAO(Controller):
         new_session = create_session()  # use a new session, default session might be in usage.
 
         return sum([AirOptionFlightsFromDB(datetime.date(2016, 1, 1), trade_nb, session=new_session).PV()
-                   for trade_nb in new_trades])
+                    for trade_nb in new_trades])
 
     @staticmethod
     def _value_trade(trade_nb : int) -> float:
@@ -165,6 +165,7 @@ class ControllerAO(Controller):
         # TODO: Read Market events.
         for msg in self.__mkt_listener:
             if msg.value == b'MARKET_EVENT_1':
+                logger.debug('New market event')
                 self.add_market(msg)
 
     def _report_results(self, sleep_delay : float = 0.1):
@@ -181,10 +182,13 @@ class ControllerAO(Controller):
             self.__reporter.send(topic=self._topic_to_publish_to, value=str.encode(str(self.curr_market)))
             sleep(sleep_delay)
 
-    def start(self, idle_delay : float = 0.1) -> Tuple[Tuple[Thread, Thread], Thread, Thread, Thread]:
+    def start( self
+             , controller_delay : float = 0.1
+             , report_delay     : float = 0.5 ) -> Tuple[Thread, Thread, Thread, Thread, Thread]:
         """ Run the controller.
 
-        :param idle_delay: delay of the IDLE state of the controller.
+        :param controller_delay: delay of the IDLE state of the controller.
+        :param report_delay: delay for the reporting
         :returns: runs all the threads of the controller and returns the thread handles.
         """
 
@@ -192,13 +196,13 @@ class ControllerAO(Controller):
         market_thread.start()
         position_thread = Thread(target=self._portfolio_worker_function, daemon=True)  # market event topic reading thread
         position_thread.start()
-        reporter_thread = Thread(target=self._report_results, daemon=True)  # publisher thread.
+        reporter_thread = Thread(target= lambda : self._report_results(sleep_delay=report_delay), daemon=True)  # publisher thread.
         reporter_thread.start()
-        controller_thread = super().start(idle_delay)  # start main controller thread.
+        curr_mkt_thread, new_mkt_thread = super().start(controller_delay)  # start main controller thread.
 
-        return controller_thread, reporter_thread, market_thread, position_thread
+        return curr_mkt_thread, new_mkt_thread, reporter_thread, market_thread, position_thread
 
 
 # sample start of the controller
-#controller = ControllerAO()
-#controller.start()
+# controller = ControllerAO()
+# controller.start()

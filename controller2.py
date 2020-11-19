@@ -10,11 +10,13 @@ from threading import Thread
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
-logger.setLevel('INFO')
+logger.setLevel('DEBUG')
 
 
 class Controller:
     """ Controlling logic of the position updater.
+
+    LOCAL_WORK_LIMIT: switch between local and distributed processing occurs at this point.
     """
 
     QUEUE_SIZE = 1000
@@ -51,7 +53,8 @@ class Controller:
         self.__new_market_prev_working = False
 
     def add_position(self, new_positions : List) -> None:
-        """ Adding positions to the queue.
+        """ Adding positions to the queue: to curr_market queue only if the new market is idle, otherwise to both
+            markets.
 
         :param new_positions: new positions to be added to the process queue.
         :returns: adds positions to the position queue and sets the new_trade_event to true
@@ -59,13 +62,13 @@ class Controller:
 
         new_market_running = self.__new_market_curr_working
 
-        if new_market_running:  # add positions to both queues.
+        if new_market_running:  # add positions to both NEW & CURR queues.
             for new_position in new_positions:
                 self.__trade_queue_curr_market.put(new_position)
                 self.__trade_queue_new_market.put(new_position)
-        else:  # add position only to current market, new market is idle.
+        else:  # add position only to NEW market, new market is idle.
             for new_position in new_positions:
-                self.__trade_queue_curr_market.put(new_position)
+                self.__trade_queue_new_market.put(new_position)
 
         if new_market_running:
             logger.debug('Adding positions to CURR & NEW markets: {0}'.format(new_positions))
@@ -126,7 +129,8 @@ class Controller:
 
         return new_trades
 
-    def _combine_results(self, new_results, old_results):
+    @staticmethod
+    def _combine_results(new_results, old_results):
         """ Combine the new and old results.
 
         :param new_results: new results to be added to the results.
@@ -173,6 +177,7 @@ class Controller:
         while True:
             self.__new_market_prev_working = self.__new_market_curr_working  # prev <- curr
 
+            # new market processing is not yet completed, still trades to process
             if not self.__trade_queue_new_market.empty():  # work to do.
                 self.__new_market_curr_working = True
                 self.__new_market_event = False  # ignoring all the further market events.
@@ -183,7 +188,7 @@ class Controller:
 
             else:  # queue is empty. either we just finished working or we didnt work at all
 
-                if not self.__new_market_event:  # no new market event, not much to do.
+                if not self.__new_market_event:  # no new market event, nothing to do.
                     self.__new_market_curr_working = False
                     sleep(sleep_delay)
 
@@ -191,10 +196,6 @@ class Controller:
                     self.add_position(self._get_total_current_portfolio())
                     self.__new_market_event = False
                     self.__new_market_curr_working = True
-                    # TODO: THESE 2 lines not really necessary
-                    trades_to_process = self._get_trades_from_queue('new')  # get the whole portfolio
-                    self.__market_new = self._combine_results( self.__worker_fct(len(trades_to_process))(trades_to_process)
-                                                             , self.__market_new)
 
             # check if there is a need to switch the markets, and switch it if yes.
             if self.__new_market_prev_working and (not self.__new_market_curr_working):  # we finished work, switch markets
@@ -202,9 +203,9 @@ class Controller:
                 self.__market_new = None  # reset of the new market.
 
     def start(self, idle_delay : float = 0.1) -> Tuple[Thread, Thread]:
-        """ Run the controller, start threads.
+        """ Run the controller, start current and new market processing threads.
 
-        :param idle_delay: delay of the IDLE state of the controller.
+        :param idle_delay: delay of the IDLE state of the controller threads.
         :returns: runs the controller and activates the current and new market threads.
         """
 
