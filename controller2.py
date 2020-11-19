@@ -71,9 +71,9 @@ class Controller:
                 self.__trade_queue_new_market.put(new_position)
 
         if new_market_running:
-            logger.debug('Adding positions to CURR & NEW markets: {0}'.format(new_positions))
+            logger.debug(f'Adding positions to CURR & NEW markets: {len(new_positions)}')
         else:
-            logger.debug('Adding positions to CURR market: {0}'.format(new_positions))
+            logger.debug(f'Adding positions to CURR market: {len(new_positions)}')
 
         self.__new_trade_event = True
 
