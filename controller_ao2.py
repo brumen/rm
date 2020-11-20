@@ -6,7 +6,6 @@ import logging
 import numpy as np
 
 from json      import loads
-from uuid      import uuid4
 from time      import sleep
 from typing    import List, Tuple
 from pyspark   import SparkContext, SparkConf
@@ -75,7 +74,9 @@ class ControllerAO(Controller):
         if self.__sc:
             return self.__sc
 
-        spark_conf = SparkConf()
+        # spark configuration
+        spark_conf = SparkConf().setMaster('local[2]')
+
         self.__sc = SparkContext.getOrCreate(spark_conf)
         self.__sc.addPyFile(r'/home/brumen/work/work_ao.zip')  # files to be added which contain relevant code.
         return self.__sc
@@ -139,7 +140,6 @@ class ControllerAO(Controller):
         """
 
         # TODO: MARKET DATE HAS TO BE FLEXIBLE, NOT HARDCODED.
-        # TODO: ALSO SESSION SHOULD POSSIBLY BE passed
         air_option = AirOptionFlightsFromDB( datetime.date(2016, 1, 1), trade_nb).PV()
 
         return air_option # + np.random.random() * 10.
