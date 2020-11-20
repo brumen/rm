@@ -2,6 +2,7 @@
 
 import datetime
 import logging
+import dill
 
 from json      import loads
 from time      import sleep
@@ -11,7 +12,7 @@ from threading import Thread
 from kafka     import KafkaConsumer, KafkaProducer, TopicPartition
 
 from rm.controller2 import Controller
-from ao.air_option  import AirOptionFlightsFromDB, AOTradeException
+from ao.air_option  import AirOptionFlightsFromDB, AOTradeException, AirOptionFlightsExplicit
 from ao.flight      import AOTrade, DEFAULT_SESSION, create_session
 
 logging.basicConfig(filename='/tmp/controller.log')
@@ -51,9 +52,9 @@ class ControllerAO(Controller):
         self._topic_to_publish_to = topic_to_publish_to
 
         # position listener seeks to beginning
-        self.__pos_listener = KafkaConsumer( bootstrap_servers = '{0}:{1}'.format(server_name, port) )  # position listener
+        self.__pos_listener = KafkaConsumer( bootstrap_servers = '{0}:{1}'.format(server_name, port) )
         self.__pos_listener.assign([TopicPartition(topic=self.__positions_topic, partition=0)])
-        self.__pos_listener.seek_to_beginning()
+        self.__pos_listener.seek_to_beginning()  # start reading positions from beginning
 
         self.__mkt_listener = KafkaConsumer(topic_to_read_from, bootstrap_servers = '{0}:{1}'.format(server_name, port))  # market listener TODO: FIX THESE NAMING STUFF
         self.__reporter = KafkaProducer(bootstrap_servers = '{0}:{1}'.format(server_name, port))  # reports the market to.
@@ -61,6 +62,7 @@ class ControllerAO(Controller):
         # cached values
         self.__sc = None  # spark context
         self.__portfolio = []  # empty portfolio so far, type = List[int]
+        self.__current_sqlalchemy_session = DEFAULT_SESSION
 
     @property
     def sc(self) -> SparkContext:
@@ -86,16 +88,29 @@ class ControllerAO(Controller):
         :returns: sqlalchemy session to use.
         """
 
-        return DEFAULT_SESSION
+        if self._new_trade_event:
+            self.__current_sqlalchemy_session = create_session()
+            self._new_trade_event = False  # setting the trade event back to False
 
-    def _get_total_current_portfolio(self) -> List:
+        return self.__current_sqlalchemy_session
+
+    def _get_total_current_portfolio(self) -> List[AOTrade]:
         """ Returns the total portfolio of trades in the air option database.
 
         :returns: list of trades that the current controller is handling.
         """
 
-        return self.__portfolio
-        # return self.__db_session.query(AOTrade).all()
+        # return self.__portfolio
+        ao_trades = self.__db_session.query(AOTrade).all()
+
+        # TODO: THIS IS REALLY INEFFICIENT
+        # touch so that the stuff reloads
+        for ao_trade in ao_trades:
+            x = ao_trade.position_id
+            x = ao_trade.flights
+            x = ao_trade.strike
+
+        return ao_trades
 
     def _get_total_current_portfolio_2(self) -> List[AOTrade]:
         """ Returns the total portfolio of trades in the air option database.
@@ -124,26 +139,25 @@ class ControllerAO(Controller):
         :returns: value of the new_trades.
         """
 
-        new_session = create_session()  # use a new session, default session might be in usage.
-
         # trade results - either float or None
-        trade_results = [self.__class__._value_trade(trade_nb, session=new_session) for trade_nb in new_trades]
+        trade_results = [self.__class__._value_trade((self.mkt_date, trade_nb))
+                         for trade_nb in new_trades]
 
         # TODO: IGNORE None - CHECK IF THIS IS THE DESIRED BEHAVIOR
         return sum([trade_value for trade_value in trade_results if trade_value is not None])
 
     @staticmethod
-    def _value_trade(trade_nb : int, session = None) -> Optional[float]:
+    def _value_trade2(mkt_date: datetime.date, trade_nb : int) -> Optional[float]:
         """ Returns the value of the Mock Air Option trade.
 
+        :param mkt_date: market date for the pricing.
         :param trade_nb: trade number to be priced
-        :param session: SQLAlchemy session to be provided for database access
         :returns: value of the trade considered.
         """
 
         # TODO: MARKET DATE HAS TO BE FLEXIBLE, NOT HARDCODED.
         try:
-            return AirOptionFlightsFromDB( datetime.date(2016, 1, 1), trade_nb, session=session).PV()
+            return AirOptionFlightsFromDB( mkt_date, trade_nb).PV()
 
         except AOTradeException:  # fails in AOTrade
             logger.error(f'Trade {trade_nb} could not be found in the database.')
@@ -151,6 +165,30 @@ class ControllerAO(Controller):
 
         except Exception as e:
             logger.error(f'Trade {trade_nb} could not be priced. Reason: {str(e)}')
+            return None
+
+    @staticmethod
+    def _value_trade(mkt_date_trade: Tuple[datetime.date, AOTrade]) -> Optional[float]:
+        """ Returns the value of the Mock Air Option trade.
+
+        :param mkt_date_trade: tuple of market date and AOTrade.
+        :returns: value of the trade considered.
+        """
+
+        mkt_date, ao_trade = mkt_date_trade
+
+        # session_used = None if pickled_session is None else dill.loads(pickled_session)
+
+        # TODO: MARKET DATE HAS TO BE FLEXIBLE, NOT HARDCODED.
+        try:
+            return AirOptionFlightsExplicit( mkt_date, ao_trade.flights, ao_trade.strike).PV()
+
+        except AOTradeException:  # fails in AOTrade
+            logger.error(f'Trade {ao_trade.position_id} could not be found in the database.')
+            return None
+
+        except Exception as e:
+            logger.error(f'Trade {ao_trade.position_id} could not be priced. Reason: {str(e)}')
             return None
 
     @staticmethod
@@ -180,7 +218,11 @@ class ControllerAO(Controller):
         :returns: value of new_trades.
         """
 
-        return self.sc.parallelize(new_trades)\
+        nb_new_trades = len(new_trades)
+
+        trades_session = list(zip( [self.mkt_date] * nb_new_trades, new_trades ))
+
+        return self.sc.parallelize(trades_session)\
                       .map(self.__class__._value_trade) \
                       .aggregate(0., self.__class__._trade_result_agg, self.__class__._trade_result_agg)
                       # .aggregate(0., lambda x, y: x+y, lambda x, y: x+y)

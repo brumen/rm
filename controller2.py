@@ -39,7 +39,7 @@ class Controller:
 
         # variables for new market and trade events.
         self.__new_market_event = False  # we get an update for the new market.
-        self.__new_trade_event  = False  # we get an update that a new trade arrived.
+        self._new_trade_event   = False  # we get an update that a new trade arrived.
 
         # trade queues
         self.__trade_queue_curr_market = Queue()
@@ -75,7 +75,7 @@ class Controller:
         else:
             logger.debug(f'Adding positions to CURR market: {len(new_positions)}')
 
-        self.__new_trade_event = True
+        self._new_trade_event = True
 
     def add_market(self, new_market):
         """ Adds the new market event to the queue, this shouldnt be that fast.
