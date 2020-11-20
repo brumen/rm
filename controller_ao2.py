@@ -3,18 +3,16 @@
 import datetime
 import logging
 
-import numpy as np
-
 from json      import loads
 from time      import sleep
-from typing    import List, Tuple
+from typing    import List, Tuple, Optional
 from pyspark   import SparkContext, SparkConf
 from threading import Thread
 from kafka     import KafkaConsumer, KafkaProducer, TopicPartition
 
 from rm.controller2 import Controller
-from ao.air_option  import AirOptionMock, AirOptionFlightsFromDB, AirOptionFlightsExplicit
-from ao.flight      import AOTrade, DEFAULT_SESSION, Flight, create_session
+from ao.air_option  import AirOptionFlightsFromDB, AOTradeException
+from ao.flight      import AOTrade, DEFAULT_SESSION, create_session
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
@@ -75,7 +73,7 @@ class ControllerAO(Controller):
             return self.__sc
 
         # spark configuration
-        spark_conf = SparkConf().setMaster('local[2]')
+        spark_conf = SparkConf().setMaster('local[8]')
 
         self.__sc = SparkContext.getOrCreate(spark_conf)
         self.__sc.addPyFile(r'/home/brumen/work/work_ao.zip')  # files to be added which contain relevant code.
@@ -93,7 +91,7 @@ class ControllerAO(Controller):
     def _get_total_current_portfolio(self) -> List:
         """ Returns the total portfolio of trades in the air option database.
 
-        :returns: list of trades TODO: DESCRIBE BETTER HERE.
+        :returns: list of trades that the current controller is handling.
         """
 
         return self.__portfolio
@@ -102,7 +100,7 @@ class ControllerAO(Controller):
     def _get_total_current_portfolio_2(self) -> List[AOTrade]:
         """ Returns the total portfolio of trades in the air option database.
 
-        :returns: list of trades TODO: DESCRIBE BETTER HERE.
+        :returns: list of trades that the current controller is handling
         """
 
         return self.__db_session.query(AOTrade).all()
@@ -116,7 +114,7 @@ class ControllerAO(Controller):
 
         for msg in self.__pos_listener:
             msg_decoded = loads(msg.value.decode())
-            # TODO: MISSING WHAT IF IT'S A REMOVAL ???
+            # TODO: MISSING A CASE WHEN IT'S A REMOVAL ???
             self.__portfolio.append(msg_decoded['payload']['after']['position_id'])
 
     def _value_portfolio_fct_local(self, new_trades : List[int]) -> float:
@@ -128,21 +126,52 @@ class ControllerAO(Controller):
 
         new_session = create_session()  # use a new session, default session might be in usage.
 
-        return sum([AirOptionFlightsFromDB(datetime.date(2016, 1, 1), trade_nb, session=new_session).PV()
-                    for trade_nb in new_trades])
+        # trade results - either float or None
+        trade_results = [self.__class__._value_trade(trade_nb, session=new_session) for trade_nb in new_trades]
+
+        # TODO: IGNORE None - CHECK IF THIS IS THE DESIRED BEHAVIOR
+        return sum([trade_value for trade_value in trade_results if trade_value is not None])
 
     @staticmethod
-    def _value_trade(trade_nb : int) -> float:
+    def _value_trade(trade_nb : int, session = None) -> Optional[float]:
         """ Returns the value of the Mock Air Option trade.
 
         :param trade_nb: trade number to be priced
+        :param session: SQLAlchemy session to be provided for database access
         :returns: value of the trade considered.
         """
 
         # TODO: MARKET DATE HAS TO BE FLEXIBLE, NOT HARDCODED.
-        air_option = AirOptionFlightsFromDB( datetime.date(2016, 1, 1), trade_nb).PV()
+        try:
+            return AirOptionFlightsFromDB( datetime.date(2016, 1, 1), trade_nb, session=session).PV()
 
-        return air_option # + np.random.random() * 10.
+        except AOTradeException:  # fails in AOTrade
+            logger.error(f'Trade {trade_nb} could not be found in the database.')
+            return None
+
+        except Exception as e:
+            logger.error(f'Trade {trade_nb} could not be priced. Reason: {str(e)}')
+            return None
+
+    @staticmethod
+    def _trade_result_agg(trade_pv_1, trade_pv_2):
+        """ Aggregation function for trade_1 and trade_2.
+
+        :param trade_pv_1: pv of the first trade
+        :param trade_pv_2: pv of the second trade
+        :returns:
+        """
+
+        if trade_pv_1 is None:
+            if trade_pv_2 is None:
+                return 0.
+
+            return trade_pv_2
+
+        if trade_pv_2 is None:  # trade_pv_1 is not None
+            return trade_pv_1
+
+        return trade_pv_1 + trade_pv_2  # neither is None
 
     def _value_portfolio_fct_spark(self, new_trades : List) -> float:
         """ Defines the portfolio_function from trades -> results.
@@ -152,8 +181,9 @@ class ControllerAO(Controller):
         """
 
         return self.sc.parallelize(new_trades)\
-                      .map(self.__class__._value_trade)\
-                      .aggregate(0., lambda x, y: x+y, lambda x, y: x+y)
+                      .map(self.__class__._value_trade) \
+                      .aggregate(0., self.__class__._trade_result_agg, self.__class__._trade_result_agg)
+                      # .aggregate(0., lambda x, y: x+y, lambda x, y: x+y)
 
     def _read_mkt_events(self):
         """ Reading from listener about market and positions messages and adding them to processing queues.

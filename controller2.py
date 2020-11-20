@@ -193,7 +193,8 @@ class Controller:
                     sleep(sleep_delay)
 
                 else:  # new market event, start working
-                    self.add_position(self._get_total_current_portfolio())
+                    if not self.__new_market_curr_working:  # only do this if market is not working
+                        self.add_position(self._get_total_current_portfolio())
                     self.__new_market_event = False
                     self.__new_market_curr_working = True
 
