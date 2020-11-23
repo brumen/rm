@@ -2,7 +2,6 @@
 
 import datetime
 import logging
-import dill
 
 from json      import loads
 from time      import sleep
@@ -26,11 +25,12 @@ class ControllerAO(Controller):
 
     def __init__( self
                 , mkt_date            : datetime.date = datetime.date(2016, 1, 1)
-                , server_name         : str = 'localhost'
-                , port                : int = 9092
-                , topic_to_read_from  : str = 'quickstart-events'
-                , positions_topic     : str = 'demo.ao.option_positions'
-                , topic_to_publish_to : str = 'ao_results' ):
+                , server_name         : str  = 'localhost'
+                , port                : int  = 9092
+                , topic_to_read_from  : str  = 'quickstart-events'
+                , positions_topic     : str  = 'demo.ao.option_positions'
+                , topic_to_publish_to : str  = 'ao_results'
+                , spark_ctx           : dict = {'pyfile': r'/home/brumen/work/work_ao.zip' } ):
         """ Initiates the Controller for computing the AirOptions portfolio.
 
         :param mkt_date: market date.
@@ -39,6 +39,7 @@ class ControllerAO(Controller):
         :param topic_to_read_from: topic on Kafka to read from market/trade events.
         :param positions_topic: topic to read from positions
         :param topic_to_publish_to: topic on kafka server to publish market results to.
+        :param spark_ctx: configuration of spark context.
         """
 
         super().__init__(self._value_portfolio_fct_local, self._value_portfolio_fct_spark)
@@ -59,9 +60,12 @@ class ControllerAO(Controller):
         self.__mkt_listener = KafkaConsumer(topic_to_read_from, bootstrap_servers = '{0}:{1}'.format(server_name, port))  # market listener TODO: FIX THESE NAMING STUFF
         self.__reporter = KafkaProducer(bootstrap_servers = '{0}:{1}'.format(server_name, port))  # reports the market to.
 
+        self.__spark_ctx = spark_ctx  # spark context config
+
         # cached values
         self.__sc = None  # spark context
-        self.__portfolio = []  # empty portfolio so far, type = List[int]
+        self.__portfolio_trade_ids = []  # empty portfolio so far, type = List[int]
+        self.__portfolio_tradeAo   = []  # empty portfolio of List[AOTrade]
         self.__current_sqlalchemy_session = DEFAULT_SESSION
 
     @property
@@ -78,7 +82,8 @@ class ControllerAO(Controller):
         spark_conf = SparkConf().setMaster('local[8]')
 
         self.__sc = SparkContext.getOrCreate(spark_conf)
-        self.__sc.addPyFile(r'/home/brumen/work/work_ao.zip')  # files to be added which contain relevant code.
+        self.__sc.addPyFile(self.__spark_ctx['pyfile'])  # files to be added which contain relevant code.
+
         return self.__sc
 
     @property
@@ -95,42 +100,45 @@ class ControllerAO(Controller):
         return self.__current_sqlalchemy_session
 
     def _get_total_current_portfolio(self) -> List[AOTrade]:
-        """ Returns the total portfolio of trades in the air option database.
+        """ Stored portfolio of all trades, for faster access.
 
-        :returns: list of trades that the current controller is handling.
+        :returns: list of current portfolio of realized AOTrade trades.
         """
 
-        # return self.__portfolio
-        ao_trades = self.__db_session.query(AOTrade).all()
+        return self.__portfolio_tradeAo
 
-        # TODO: THIS IS REALLY INEFFICIENT
-        # touch so that the stuff reloads
-        for ao_trade in ao_trades:
-            x = ao_trade.position_id
-            x = ao_trade.flights
-            x = ao_trade.strike
+    def __retrieve_tradeao(self, trade_id : int) -> AOTrade:
+        """ Returns the trade corresponding to this trade_id in the air option database.
 
-        return ao_trades
-
-    def _get_total_current_portfolio_2(self) -> List[AOTrade]:
-        """ Returns the total portfolio of trades in the air option database.
-
-        :returns: list of trades that the current controller is handling
+        :returns: trade requested.
         """
 
-        return self.__db_session.query(AOTrade).all()
+        ao_trade = self.__db_session.query(AOTrade).filter_by(position_id=trade_id).first()
+
+        if ao_trade is None:
+            raise RuntimeError(f'Could not find trade id {trade_id} in the database.')
+
+        # touch so that the stuff reloads  (possibly can be made better)
+        x = ao_trade.position_id
+        x = ao_trade.flights
+        x = ao_trade.strike
+
+        return ao_trade
 
     def __construct_portfolio(self) -> None:
-        """ Gets all the positions which are in the Kafka queue in self.__listener.
-        Kafka has to be set so that the positions are
+        """ Gets all the positions which are in the Kafka queue in self.__listener
+               and saves them to self.__portfolio.
 
-        :returns: list of current total positions.
+        :returns: None, only the
         """
 
         for msg in self.__pos_listener:
             msg_decoded = loads(msg.value.decode())
+
             # TODO: MISSING A CASE WHEN IT'S A REMOVAL ???
-            self.__portfolio.append(msg_decoded['payload']['after']['position_id'])
+            trade_id = msg_decoded['payload']['after']['position_id']
+            self.__portfolio_trade_ids.append(trade_id)
+            self.__portfolio_tradeAo.append(self.__retrieve_tradeao(trade_id))
 
     def _value_portfolio_fct_local(self, new_trades : List[int]) -> float:
         """ Defines the portfolio_function from trades -> results.
@@ -225,7 +233,6 @@ class ControllerAO(Controller):
         return self.sc.parallelize(trades_session)\
                       .map(self.__class__._value_trade) \
                       .aggregate(0., self.__class__._trade_result_agg, self.__class__._trade_result_agg)
-                      # .aggregate(0., lambda x, y: x+y, lambda x, y: x+y)
 
     def _read_mkt_events(self):
         """ Reading from listener about market and positions messages and adding them to processing queues.
@@ -250,7 +257,7 @@ class ControllerAO(Controller):
         while True:
             logger.info('Publishing curr_market: {0}'.format(self.curr_market))
             logger.info('Publishing new_market: {0}'.format(self.new_market))
-            logger.info('Current portfolio size: {0}'.format(len(self.__portfolio)))
+            logger.info('Current portfolio size: {0}'.format(len(self.__portfolio_trade_ids)))
             self.__reporter.send(topic=self._topic_to_publish_to, value=str.encode(str(self.curr_market)))
             sleep(sleep_delay)
 
