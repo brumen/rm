@@ -82,7 +82,8 @@ class ControllerAO(Controller):
         spark_conf = SparkConf().setMaster('local[8]')
 
         self.__sc = SparkContext.getOrCreate(spark_conf)
-        self.__sc.addPyFile(self.__spark_ctx['pyfile'])  # files to be added which contain relevant code.
+        if 'pyfile' in self.__spark_ctx:  # files to be added which contain relevant code
+            self.__sc.addPyFile(self.__spark_ctx['pyfile'])
 
         return self.__sc
 
