@@ -192,7 +192,7 @@ class Controller:
         return trade_pv_1 + trade_pv_2  # neither is None
 
     def __trade_processor(self, curr_new_mkt : str, sleep_delay : float = 0.1):
-        """ Runs the thread processor for the current market.
+        """ Runs the thread processor for the current (or new) market.
 
         :param curr_new_mkt: choice between the current and new markets ('curr', 'new')
         :param sleep_delay: sleep delay in case of IDLE market.
@@ -215,21 +215,19 @@ class Controller:
                 logger.info(f'Processing trades on the {curr_new_mkt} market: {trade_queue.qsize()}.')
                 # start by processing them 1 by one
                 if trade_queue.qsize() < self.LOCAL_WORK_LIMIT:
-                    trade_to_process = trade_queue.get()
-                    curr_agg = self._trade_result_agg( self.__value_portfolio_fct_local([trade_to_process])[0], self.__market_curr if curr_new_mkt == 'curr' else self.__market_new)
-
+                    trade_value = self.__value_portfolio_fct_local([trade_queue.get()])[0]
                     if curr_new_mkt == 'curr':
-                        self.__market_curr = curr_agg
+                        self.__market_curr = self._trade_result_agg( trade_value, self.__market_curr)
                     else:
-                        self.__market_new = curr_agg
+                        self.__market_new = self._trade_result_agg( trade_value, self.__market_new)
 
                 else:
                     # lots of trades, take PRESCRIBED number of trades
-                    for trade_res in self.__value_portfolio_fct_remote(self._get_trades_from_queue(curr_new_mkt, self._NB_THREADS)).collect():
-                        if curr_new_mkt == 'curr':
-                            self.__market_curr = self._trade_result_agg(trade_res, self.__market_curr)
-                        else:
-                            self.__market_new = self._trade_result_agg(trade_res, self.__market_new)
+                    trade_values = sum(self.__value_portfolio_fct_remote(self._get_trades_from_queue(curr_new_mkt, self._NB_THREADS)))
+                    if curr_new_mkt == 'curr':
+                        self.__market_curr = self._trade_result_agg(trade_values, self.__market_curr)
+                    else:
+                        self.__market_new = self._trade_result_agg(trade_values, self.__market_new)
 
             else:
                 sleep(sleep_delay)
@@ -250,10 +248,10 @@ class Controller:
         """
 
         # new market thread, curr_mkt_thread
-        curr_mkt_thread = Thread(target = lambda : self.__trade_processor('curr', sleep_delay=idle_delay) )
+        curr_mkt_thread = Thread(target = lambda : self.__trade_processor('curr', sleep_delay=0.) )  # idle_delay
         curr_mkt_thread.start()
 
-        new_mkt_thread = Thread(target = lambda : self.__trade_processor('new', sleep_delay=idle_delay) )
+        new_mkt_thread = Thread(target = lambda : self.__trade_processor('new', sleep_delay=0.) )
         new_mkt_thread.start()
 
         switch_market_thread = Thread(target = self.__switch_markets() )

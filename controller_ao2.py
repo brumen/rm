@@ -5,14 +5,14 @@ import logging
 
 from json      import loads
 from time      import sleep
-from typing    import List, Tuple, Optional, Iterator
+from typing    import List, Tuple, Optional
 from pyspark   import SparkContext, SparkConf
 from threading import Thread
 from kafka     import KafkaConsumer, KafkaProducer, TopicPartition
 
 from rm.controller2 import Controller
 from ao.air_option  import AirOptionFlightsFromDB, AOTradeException, AirOptionFlightsExplicit
-from ao.flight      import AOTrade, DEFAULT_SESSION, create_session
+from ao.flight      import AOTrade, create_session
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
@@ -65,13 +65,7 @@ class ControllerAO(Controller):
 
         # cached values
         self.__sc = None  # spark context
-        self.__current_sqlalchemy_session = DEFAULT_SESSION
-
-    def portfolio_trade_ids(self) -> List[int]:
-        return [trade_id for trade_id, _ in self.all_trades]
-
-    def portfolio_tradeAO(self) -> List[AOTrade]:
-        return [trade for _, trade in self.all_trades]
+        self.__current_sqlalchemy_session = None
 
     @property
     def sc(self) -> SparkContext:
@@ -92,26 +86,15 @@ class ControllerAO(Controller):
 
         return self.__sc
 
-    @property
-    def __db_session(self):
-        """ Returns the default sqlalchemy session.
-
-        :returns: sqlalchemy session to use.
-        """
-
-        if self._new_trade_event:
-            self.__current_sqlalchemy_session = create_session()
-            self._new_trade_event = False  # setting the trade event back to False
-
-        return self.__current_sqlalchemy_session
-
-    def __retrieve_tradeao(self, trade_id : int) -> AOTrade:
+    @staticmethod
+    def __retrieve_tradeao(trade_id : int) -> AOTrade:
         """ Returns the trade corresponding to this trade_id in the air option database.
 
         :returns: trade requested.
         """
 
-        ao_trade = self.__db_session.query(AOTrade).filter_by(position_id=trade_id).first()
+        db_session = create_session()
+        ao_trade = db_session.query(AOTrade).filter_by(position_id=trade_id).first()
 
         if ao_trade is None:
             raise RuntimeError(f'Could not find trade id {trade_id} in the database.')
@@ -135,27 +118,7 @@ class ControllerAO(Controller):
 
             # TODO: MISSING A CASE WHEN IT'S A REMOVAL ???
             trade_id = msg_decoded['payload']['after']['position_id']
-            self.add_position((trade_id, self.__retrieve_tradeao(trade_id)))
-
-    # @staticmethod
-    # def _value_trade2(mkt_date: datetime.date, trade_nb : int) -> Optional[float]:
-    #     """ Returns the value of the Mock Air Option trade.
-    #
-    #     :param mkt_date: market date for the pricing.
-    #     :param trade_nb: trade number to be priced
-    #     :returns: value of the trade considered.
-    #     """
-    #
-    #     try:
-    #         return AirOptionFlightsFromDB( mkt_date, trade_nb).PV()
-    #
-    #     except AOTradeException:  # fails in AOTrade
-    #         logger.error(f'Trade {trade_nb} could not be found in the database.')
-    #         return None
-    #
-    #     except Exception as e:
-    #         logger.error(f'Trade {trade_nb} could not be priced. Reason: {str(e)}')
-    #         return None
+            self.add_position([trade_id])
 
     @staticmethod
     def _value_trade(mkt_date_trade: Tuple[datetime.date, AOTrade]) -> Optional[float]:
@@ -167,12 +130,9 @@ class ControllerAO(Controller):
 
         mkt_date, ao_trade = mkt_date_trade
 
-        # session_used = None if pickled_session is None else dill.loads(pickled_session)
-
         try:
-            sleep(3)  # TODO: REMOVE THIS HERE, THIS IS FOR ILLUSTRATION ONLY
-            return 1.
-            #return AirOptionFlightsExplicit( mkt_date, ao_trade.flights, ao_trade.strike).PV()
+            return AirOptionFlightsExplicit( mkt_date, ao_trade.flights, ao_trade.strike).PV()
+            # return AirOptionFlightsFromDB(mkt_date, trade_nb).PV()
 
         except AOTradeException:  # fails in AOTrade
             logger.error(f'Trade {ao_trade.position_id} could not be found in the database.')
@@ -182,45 +142,43 @@ class ControllerAO(Controller):
             logger.error(f'Trade {ao_trade.position_id} could not be priced. Reason: {str(e)}')
             return None
 
-    def _value_portfolio_fct_local_old(self, new_trades : List[int]) -> float:
+    @staticmethod
+    def _value_trade_id(mkt_date : datetime.date, trade_id : int) -> float:
+        """ Returns the PV of the trade with trade_id.
+
+        :param mkt_date: market date
+        :param trade_id: trade id for the trade to value.
+        :returnss: PV of the referenced trade.
+        """
+
+        return ControllerAO._value_trade(mkt_date, ControllerAO.__retrieve_tradeao(trade_id))
+
+    def _value_portfolio_fct_local(self, trade_ids : List[int]) -> List[float]:
         """ Defines the portfolio_function from trades -> results.
 
-        :param new_trades: trades to evaluate, given as a list of position numbers.
+        :param trade_ids: trade ids to evaluate, given as a list of position numbers.
         :returns: value of the new_trades.
         """
 
         # trade results - either float or None
-        trade_results = [self.__class__._value_trade((self.mkt_date, trade_nb))
-                         for trade_nb in new_trades]
+        return [ self.__class__._value_trade_id((self.mkt_date, trade_id))
+                 for trade_id in trade_ids]
 
-        # TODO: IGNORE None - CHECK IF THIS IS THE DESIRED BEHAVIOR
-        return sum([trade_value for trade_value in trade_results if trade_value is not None])
-
-    def _value_portfolio_fct_local(self, new_trades : List[int]) -> List[float]:
+    def _value_portfolio_fct_spark(self, trade_ids : List[int]) -> List[float]:
         """ Defines the portfolio_function from trades -> results.
 
-        :param new_trades: trades to evaluate, given as a list of position numbers.
-        :returns: value of the new_trades.
-        """
-
-        # trade results - either float or None
-        return [ self.__class__._value_trade((self.mkt_date, trade))
-                 for trade in new_trades]
-
-    def _value_portfolio_fct_spark(self, new_trades : List) -> float:
-        """ Defines the portfolio_function from trades -> results.
-
-        :param new_trades: trades to evaluate.
+        :param trade_ids: trades to evaluate.
         :returns: value of new_trades.
         """
 
-        nb_new_trades = len(new_trades)
+        nb_new_trades = len(trade_ids)
 
-        trades_session = list(zip( [self.mkt_date] * nb_new_trades, new_trades ))
+        trades = list(zip( [self.mkt_date] * nb_new_trades, trade_ids ))  # zip makes a generator, it has to be evaluated, BUMMER
 
-        return self.sc.parallelize(trades_session)\
-                      .map(self.__class__._value_trade) \
-                      .aggregate(0., self.__class__._trade_result_agg, self.__class__._trade_result_agg)
+        return self.sc.parallelize(trades)\
+                      .map(self.__class__._value_trade_id)\
+                      .collect()
+                      # .aggregate(0., self.__class__._trade_result_agg, self.__class__._trade_result_agg)
 
     def _read_mkt_events(self):
         """ Reading from listener about market and positions messages and adding them to processing queues.
