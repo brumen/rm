@@ -10,7 +10,7 @@ from threading import Thread
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
-logger.setLevel('DEBUG')
+logger.setLevel(logging.INFO)
 
 
 class Controller:
@@ -54,6 +54,12 @@ class Controller:
         self.__curr_market_prev_working = False
 
         self.__all_trades = []
+
+    def curr_mkt_queue_size(self):
+        return self.__trade_queue_curr_market.qsize()
+
+    def new_mkt_queue_size(self):
+        return self.__trade_queue_new_market.qsize()
 
     @property
     def all_trades(self):
@@ -103,8 +109,8 @@ class Controller:
             for new_position in new_positions:
                 self.__trade_queue_new_market.put(new_position)
 
-        logger.info(f'Positions in CURR market queue: {self.__trade_queue_curr_market.qsize()}')
-        logger.info(f'Positions in NEW  market queue: {self.__trade_queue_new_market.qsize()}')
+        logger.debug(f'Positions in CURR market queue: {self.__trade_queue_curr_market.qsize()}')
+        logger.debug(f'Positions in NEW  market queue: {self.__trade_queue_new_market.qsize()}')
 
     def add_market(self, new_market):
         """ Adds the new market event to the queue, this shouldnt be that fast.
@@ -113,7 +119,7 @@ class Controller:
         :returns: nothing, just adds the market to the market process queue and sets the __new_market_event.
         """
 
-        logger.info('New market event occurred.')
+        logger.debug('New market event occurred.')
         self.__market_queue.put(new_market)
 
         if (not self.__market_working('curr')) and (not self.__market_working('new')):
@@ -209,10 +215,10 @@ class Controller:
             else:
                 self.__new_market_prev_working = self.__market_working('new')
 
-            # logger.info(f'Trades in {curr_new_mkt} queue: {trade_queue.qsize()}')
+            logger.debug(f'Trades in {curr_new_mkt} queue: {trade_queue.qsize()}')
             if not trade_queue.empty():
 
-                logger.info(f'Processing trades on the {curr_new_mkt} market: {trade_queue.qsize()}.')
+                logger.debug(f'Processing trades on the {curr_new_mkt} market: {trade_queue.qsize()}.')
                 # start by processing them 1 by one
                 if trade_queue.qsize() < self.LOCAL_WORK_LIMIT:
                     trade_value = self.__value_portfolio_fct_local([trade_queue.get()])[0]

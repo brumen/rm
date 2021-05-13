@@ -3,7 +3,7 @@
 import datetime
 import logging
 
-from json      import loads
+from json      import loads, dumps
 from time      import sleep
 from typing    import List, Tuple, Optional
 from pyspark   import SparkContext, SparkConf
@@ -16,7 +16,7 @@ from ao.flight      import AOTrade, create_session
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
-logger.setLevel('DEBUG')
+logger.setLevel(logging.INFO)
 
 
 class ControllerAO(Controller):
@@ -202,10 +202,17 @@ class ControllerAO(Controller):
         """
 
         while True:
-            logger.info(f'Value of curr_market: {self.curr_market}')
-            logger.info(f'Value of new_market: {self.new_market}')
-            # logger.info(f'Current portfolio size: {len(self.all_trades)}')
-            self.__reporter.send(topic=self._topic_to_publish_to, value=str.encode(str(self.curr_market)))
+            logger.debug(f'Value of curr_market: {self.curr_market}')
+            logger.debug(f'Value of new_market: {self.new_market}')
+            logger.debug(f'Current portfolio size: {len(self.all_trades)}')
+
+            for field_value in [ ('curr_market', self.curr_market)
+                               , ('new_market', self.new_market)
+                               , ('curr_trades', self.curr_mkt_queue_size())
+                               , ('new_trades', self.new_mkt_queue_size())
+                               , ]:
+                self.__reporter.send(topic=self._topic_to_publish_to, value=str.encode(dumps(field_value)))
+
             sleep(sleep_delay)
 
     def start( self
