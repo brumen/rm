@@ -143,15 +143,16 @@ class ControllerAO(Controller):
             return None
 
     @staticmethod
-    def _value_trade_id(mkt_date : datetime.date, trade_id : int) -> float:
+    def _value_trade_id(mkt_date_trade_id : Tuple[datetime.date, int]) -> float:
         """ Returns the PV of the trade with trade_id.
 
         :param mkt_date: market date
         :param trade_id: trade id for the trade to value.
         :returnss: PV of the referenced trade.
         """
+        mkt_date, trade_id = mkt_date_trade_id
 
-        return ControllerAO._value_trade(mkt_date, ControllerAO.__retrieve_tradeao(trade_id))
+        return ControllerAO._value_trade((mkt_date, ControllerAO.__retrieve_tradeao(trade_id)))
 
     def _value_portfolio_fct_local(self, trade_ids : List[int]) -> List[float]:
         """ Defines the portfolio_function from trades -> results.
