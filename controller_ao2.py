@@ -216,8 +216,8 @@ class ControllerAO(Controller):
             sleep(sleep_delay)
 
     def start( self
-             , controller_delay : float = 0.1
-             , report_delay     : float = 0.5 ) -> Tuple[Thread, Thread, Thread, Thread, Thread, Thread]:
+             , controller_delay : float = 0.3
+             , report_delay     : float = 0.5 ) -> Tuple[Thread, Thread, Thread, Thread, Thread]:
         """ Run the controller.
 
         :param controller_delay: delay of the IDLE state of the controller.
@@ -238,9 +238,9 @@ class ControllerAO(Controller):
         reporter_thread.start()
 
         # curr_mkt_thread computes current market, new_mkt_thread is computing new market
-        curr_mkt_thread, new_mkt_thread, switch_thread = super().start(controller_delay)  # start main controller thread.
+        curr_mkt_thread, new_mkt_thread = super().start(controller_delay)  # start main controller thread.
 
-        return curr_mkt_thread, new_mkt_thread, switch_thread, reporter_thread, market_events_thread, position_thread
+        return curr_mkt_thread, new_mkt_thread, reporter_thread, market_events_thread, position_thread
 
 
 # sample start of the controller

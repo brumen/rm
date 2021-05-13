@@ -209,14 +209,13 @@ class Controller:
 
         while True:
 
-            # updating the prev working state
-            if curr_new_mkt == 'curr':
-                self.__curr_market_prev_working = self.__market_working('curr')
-            else:
-                self.__new_market_prev_working = self.__market_working('new')
-
             logger.debug(f'Trades in {curr_new_mkt} queue: {trade_queue.qsize()}')
             if not trade_queue.empty():
+
+                if curr_new_mkt == 'curr':
+                    self.__curr_market_prev_working = True
+                else:
+                    self.__new_market_prev_working = True
 
                 logger.debug(f'Processing trades on the {curr_new_mkt} market: {trade_queue.qsize()}.')
                 # start by processing them 1 by one
@@ -236,17 +235,19 @@ class Controller:
                         self.__market_new = self._trade_result_agg(trade_values, self.__market_new)
 
             else:
+                if curr_new_mkt == 'new':  # only for the new market
+                    if self.__new_market_prev_working:
+                        self.__market_curr = self.__market_new
+
+                # update the prev working section to set the prev working to False
+                if curr_new_mkt == 'curr':
+                    self.__curr_market_prev_working = False
+                else:
+                    self.__new_market_prev_working = False
+
                 sleep(sleep_delay)
 
-    def __switch_markets(self):
-        """ Switching the markets under the right conditions.
-        """
-
-        while True:
-            if self.__market_finished('new'):
-                self.__market_curr = self.__market_new
-
-    def start(self, idle_delay : float = 0.1) -> Tuple[Thread, Thread, Thread]:
+    def start(self, idle_delay : float = 0.1) -> Tuple[Thread, Thread]:
         """ Run the controller, start current and new market processing threads.
 
         :param idle_delay: delay of the IDLE state of the controller threads.
@@ -254,13 +255,10 @@ class Controller:
         """
 
         # new market thread, curr_mkt_thread
-        curr_mkt_thread = Thread(target = lambda : self.__trade_processor('curr', sleep_delay=0.) )  # idle_delay
+        curr_mkt_thread = Thread(target = lambda : self.__trade_processor('curr', sleep_delay=idle_delay) )
         curr_mkt_thread.start()
 
-        new_mkt_thread = Thread(target = lambda : self.__trade_processor('new', sleep_delay=0.) )
+        new_mkt_thread = Thread(target = lambda : self.__trade_processor('new', sleep_delay=idle_delay) )
         new_mkt_thread.start()
 
-        switch_market_thread = Thread(target = self.__switch_markets() )
-        switch_market_thread.start()
-
-        return curr_mkt_thread, new_mkt_thread, switch_market_thread
+        return curr_mkt_thread, new_mkt_thread
