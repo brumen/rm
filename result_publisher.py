@@ -31,10 +31,6 @@ def get_results():
     :returns: results the json version of the portfolio encapsulated object
     """
 
-    # topic = request.args.get('topic')
-    # if not topic:
-    #    return jsonify({'valid': False})
-
     for msg in subscriber:
         return jsonify({'valid': True, 'msg': msg})  # returns the first message
 

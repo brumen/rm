@@ -20,7 +20,7 @@ class ProducerBase:
         self._producer = KafkaProducer(bootstrap_servers='{0}:{1}'.format(server_name, str(port)))
 
     def _message(self):
-        raise NotImplementedError('Implement _message.')
+        raise NotImplementedError('Implement _message method.')
 
     def _run_fct(self, sleep_delay : float = 0.1):
         """ Market producer function that is ran as a thread.
@@ -30,8 +30,9 @@ class ProducerBase:
 
         while True:
             message = self._message()
-            logger.debug('Sending new market: {0}'.format(message))
+            logger.info('Sending new market: {0}'.format(message))
             self._producer.send(self._topic, value=message)
+
             sleep(sleep_delay)
 
     def start(self, idle_delay : float = 0.1) -> Thread:
