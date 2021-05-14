@@ -6,7 +6,7 @@ from typing    import List, Callable, Tuple, Optional
 from queue     import Queue
 from time      import sleep
 from threading import Thread
-
+from functools import reduce
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
@@ -55,6 +55,24 @@ class Controller:
 
         self.__all_trades = []
 
+    @property
+    def curr_market(self):
+        """ Returns the results on the current market.
+
+        :returns: computation results on the current market.
+        """
+
+        return self.__market_curr
+
+    @property
+    def new_market(self):
+        """ Returns the results on the new market.
+
+        :returns: computation results on the new market.
+        """
+
+        return self.__market_new
+
     def curr_mkt_queue_size(self):
         return self.__trade_queue_curr_market.qsize()
 
@@ -76,18 +94,6 @@ class Controller:
             return not self.__trade_queue_curr_market.empty()
 
         return not self.__trade_queue_new_market.empty()
-
-    def __market_finished(self, curr_new : str = 'curr') -> bool:
-        """ Indicator whether the current/new market has finished.
-
-        :param curr_new:
-        :return:
-        """
-
-        if curr_new == 'curr':
-            return (not self.__market_working('curr')) and self.__curr_market_prev_working
-
-        return (not self.__market_working('new')) and self.__new_market_prev_working
 
     def add_position(self, new_positions : List) -> None:
         """ Adding positions to the queue: to curr_market queue only if the new market is idle, otherwise to both
@@ -141,33 +147,13 @@ class Controller:
         if self.__market_working('curr') and self.__market_working('new'):
             pass
 
-    @property
-    def curr_market(self):
-        """ Returns the results on the current market.
-
-        :returns: computation results on the current market.
-        """
-
-        return self.__market_curr
-
-    @property
-    def new_market(self):
-        """ Returns the results on the new market.
-
-        :returns: computation results on the new market.
-        """
-
-        return self.__market_new
-
-    def _get_trades_from_queue(self, curr_new_indic : str = 'curr', nb_elts : int = 1) -> List:
+    def _get_trades_from_queue(self, trade_queue : Queue, nb_elts : int = 1) -> List:
         """ Take the trades from the trade events queue and put them in the portfolio.
 
-        :param curr_new_indic: indicator whether new or current queue is considered.
+        :param trade_queue: the queue from which the elts are taken.
         :param nb_elts: number of elements to take from the queue
         :returns: list of new trades in the position queue.
         """
-
-        trade_queue = self.__trade_queue_curr_market if curr_new_indic == 'curr' else self.__trade_queue_new_market
 
         new_trades = []
         curr_elt = 0
@@ -178,7 +164,7 @@ class Controller:
         return new_trades
 
     @staticmethod
-    def _trade_result_agg(trade_pv_1 : Optional[float], trade_pv_2 : Optional[float]) -> float:
+    def _trade_result_agg_single(trade_pv_1 : Optional[float], trade_pv_2 : Optional[float]) -> float:
         """ Aggregation function for trade_1 and trade_2.
 
         :param trade_pv_1: pv of the first trade
@@ -196,6 +182,16 @@ class Controller:
             return trade_pv_1
 
         return trade_pv_1 + trade_pv_2  # neither is None
+
+    def _trade_result_agg(self, trades_pv_1 : List[Optional[float]], trade_pv_2 : Optional[float]) -> float:
+        """ Aggregation function for trade_1 and trade_2.
+
+        :param trades_pv_1: list of trades pv.
+        :param trade_pv_2: pv of the second trade
+        :returns:
+        """
+
+        return reduce(self._trade_result_agg_single, trades_pv_1, trade_pv_2 )
 
     def __trade_processor(self, curr_new_mkt : str, sleep_delay : float = 0.1):
         """ Runs the thread processor for the current (or new) market.
@@ -219,8 +215,9 @@ class Controller:
 
                 logger.debug(f'Processing trades on the {curr_new_mkt} market: {trade_queue.qsize()}.')
                 # start by processing them 1 by one
-                if trade_queue.qsize() < self.LOCAL_WORK_LIMIT:
-                    trade_value = self.__value_portfolio_fct_local([trade_queue.get()])[0]
+                queue_size = trade_queue.qsize()
+                if queue_size < self.LOCAL_WORK_LIMIT:
+                    trade_value = self.__value_portfolio_fct_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size))
                     if curr_new_mkt == 'curr':
                         self.__market_curr = self._trade_result_agg( trade_value, self.__market_curr)
                     else:
@@ -228,7 +225,7 @@ class Controller:
 
                 else:
                     # lots of trades, take PRESCRIBED number of trades
-                    trade_values = sum(self.__value_portfolio_fct_remote(self._get_trades_from_queue(curr_new_mkt, self._NB_THREADS)))
+                    trade_values = self.__value_portfolio_fct_remote(self._get_trades_from_queue(trade_queue, nb_elts = queue_size // self._NB_THREADS ))
                     if curr_new_mkt == 'curr':
                         self.__market_curr = self._trade_result_agg(trade_values, self.__market_curr)
                     else:

@@ -87,14 +87,14 @@ class ControllerAO(Controller):
         return self.__sc
 
     @staticmethod
-    def __retrieve_tradeao(trade_id : int) -> AOTrade:
+    def __retrieve_tradeao(trade_id : int, db_session = None) -> AOTrade:
         """ Returns the trade corresponding to this trade_id in the air option database.
 
         :returns: trade requested.
         """
 
-        db_session = create_session()
-        ao_trade = db_session.query(AOTrade).filter_by(position_id=trade_id).first()
+        db_sess_used = db_session if db_session is not None else create_session()
+        ao_trade = db_sess_used.query(AOTrade).filter_by(position_id=trade_id).first()
 
         if ao_trade is None:
             raise RuntimeError(f'Could not find trade id {trade_id} in the database.')
@@ -143,16 +143,16 @@ class ControllerAO(Controller):
             return None
 
     @staticmethod
-    def _value_trade_id(mkt_date_trade_id : Tuple[datetime.date, int]) -> float:
+    def _value_trade_id(mkt_date_trade_id : Tuple[datetime.date, int], db_session = None) -> float:
         """ Returns the PV of the trade with trade_id.
 
-        :param mkt_date: market date
-        :param trade_id: trade id for the trade to value.
-        :returnss: PV of the referenced trade.
+        :param mkt_date_trade_id: market date and trade id as a tuple (useful for spark calculations)
+        :param db_session: sql alchemy session.
+        :returns: PV of the referenced trade.
         """
         mkt_date, trade_id = mkt_date_trade_id
 
-        return ControllerAO._value_trade((mkt_date, ControllerAO.__retrieve_tradeao(trade_id)))
+        return ControllerAO._value_trade((mkt_date, ControllerAO.__retrieve_tradeao(trade_id, db_session)))
 
     def _value_portfolio_fct_local(self, trade_ids : List[int]) -> List[float]:
         """ Defines the portfolio_function from trades -> results.
@@ -162,7 +162,9 @@ class ControllerAO(Controller):
         """
 
         # trade results - either float or None
-        return [ self.__class__._value_trade_id((self.mkt_date, trade_id))
+        db_sess = create_session()
+
+        return [ self.__class__._value_trade_id((self.mkt_date, trade_id), db_session=db_sess)
                  for trade_id in trade_ids]
 
     def _value_portfolio_fct_spark(self, trade_ids : List[int]) -> List[float]:
