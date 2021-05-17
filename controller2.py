@@ -244,7 +244,17 @@ class Controller:
 
                 sleep(sleep_delay)
 
-    def start(self, idle_delay : float = 0.1) -> Tuple[Thread, Thread]:
+    def _event_reaction(self, sleep_delay : float = 0.1):
+        """ Reacts to certain things.
+
+        :param sleep_delay: sleep delay in case of IDLE market.
+        :returns: nothing, runs the thread for the current market.
+        """
+
+        while True:
+            sleep(sleep_delay)
+
+    def start(self, idle_delay : float = 0.1) -> List[Thread]:
         """ Run the controller, start current and new market processing threads.
 
         :param idle_delay: delay of the IDLE state of the controller threads.
@@ -258,4 +268,7 @@ class Controller:
         new_mkt_thread = Thread(target = lambda : self.__trade_processor('new', sleep_delay=idle_delay) )
         new_mkt_thread.start()
 
-        return curr_mkt_thread, new_mkt_thread
+        reaction_thread = Thread(target = lambda : self._event_reaction(sleep_delay=idle_delay))
+        reaction_thread.start()
+
+        return [curr_mkt_thread, new_mkt_thread, reaction_thread]
