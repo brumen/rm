@@ -14,7 +14,7 @@ class ProducerBase:
     def __init__( self
                 , server_name : str = 'localhost'
                 , port        : int = 9092
-                , topic       : str = 'quickstart-events' ):
+                , topic       : str = 'market.events' ):
 
         self._topic    = topic
         self._producer = KafkaProducer(bootstrap_servers='{0}:{1}'.format(server_name, str(port)))

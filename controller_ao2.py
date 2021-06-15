@@ -11,8 +11,11 @@ from threading import Thread
 from kafka     import KafkaConsumer, KafkaProducer, TopicPartition
 
 from rm.controller2 import Controller
-from ao.air_option  import AirOptionFlightsFromDB, AOTradeException, AirOptionFlightsExplicit
-from ao.flight      import AOTrade, create_session
+from ao.air_option_derive  import ( AirOptionFlightsFromDB
+                                  , AOTradeException
+                                  , AirOptionFlightsExplicit
+                                  , )
+from ao.flight import AOTrade, create_session
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
@@ -27,8 +30,8 @@ class ControllerAO(Controller):
                 , mkt_date            : datetime.date = datetime.date(2016, 1, 1)
                 , server_name         : str  = 'localhost'
                 , port                : int  = 9092
-                , topic_to_read_from  : str  = 'quickstart-events'
-                , positions_topic     : str  = 'demo.ao.option_positions'
+                , mkt_topic           : str  = 'market.events'
+                , positions_topic     : str  = 'air_options.ao.option_positions'
                 , topic_to_publish_to : str  = 'ao_results'
                 , spark_ctx           : dict = {'pyfile': r'/home/brumen/work/work_ao.zip' } ):
         """ Initiates the Controller for computing the AirOptions portfolio.
@@ -36,7 +39,7 @@ class ControllerAO(Controller):
         :param mkt_date: market date.
         :param server_name: kafka server name.
         :param port: port for the kafka server.
-        :param topic_to_read_from: topic on Kafka to read from market/trade events.
+        :param mkt_topic: topic on Kafka to read from market/trade events.
         :param positions_topic: topic to read from positions
         :param topic_to_publish_to: topic on kafka server to publish market results to.
         :param spark_ctx: configuration of spark context.
@@ -48,7 +51,7 @@ class ControllerAO(Controller):
         self.server_name = server_name
         self.port        = port
 
-        self._topic_to_read_from  = topic_to_read_from
+        self._mkt_topic           = mkt_topic
         self.__positions_topic    = positions_topic
         self._topic_to_publish_to = topic_to_publish_to
 
@@ -58,7 +61,7 @@ class ControllerAO(Controller):
         self.__pos_listener.assign([TopicPartition(topic=self.__positions_topic, partition=0)])
         self.__pos_listener.seek_to_beginning()  # start reading positions from beginning
 
-        self.__mkt_listener = KafkaConsumer(topic_to_read_from, bootstrap_servers = bootstrap_servers)
+        self.__mkt_listener = KafkaConsumer(mkt_topic, bootstrap_servers = bootstrap_servers)
         self.__reporter = KafkaProducer(bootstrap_servers = bootstrap_servers)  # reports the market to.
 
         self.__spark_ctx = spark_ctx  # spark context config
@@ -87,7 +90,7 @@ class ControllerAO(Controller):
         return self.__sc
 
     @staticmethod
-    def __retrieve_tradeao(trade_id : int, db_session = None) -> AOTrade:
+    def __retrieve_tradeao(trade_id : int, db_session = None) -> Optional[AOTrade]:
         """ Returns the trade corresponding to this trade_id in the air option database.
 
         :returns: trade requested.
@@ -96,8 +99,9 @@ class ControllerAO(Controller):
         db_sess_used = db_session if db_session is not None else create_session()
         ao_trade = db_sess_used.query(AOTrade).filter_by(position_id=trade_id).first()
 
-        if ao_trade is None:
-            raise RuntimeError(f'Could not find trade id {trade_id} in the database.')
+        if ao_trade is None:  # trade was deleted, assign 0 to that trade.
+            logger.info(f'Trade {trade_id} was attempted to retrieve, unable. Returning 0.')
+            return None
 
         # touch so that the stuff reloads  (possibly can be made better)
         x = ao_trade.position_id
@@ -114,14 +118,34 @@ class ControllerAO(Controller):
         """
 
         for msg in self.__pos_listener:
-            msg_decoded = loads(msg.value.decode())
+            if msg.value is None:  # TODO: CHECK THIS HERE!!!
+                continue
 
-            # TODO: MISSING A CASE WHEN IT'S A REMOVAL ???
-            trade_id = msg_decoded['payload']['after']['position_id']
-            self.add_position([trade_id])
+            msg_decoded = loads(msg.value.decode())
+            msg_payload = msg_decoded['payload']
+
+            # create events
+            event_type = msg_payload['op']  # either c - create, d - delete, u - update
+            if event_type == 'c':  # create event
+                trade_id = msg_payload['after']['position_id']  # adding this position id
+                self.add_position([(trade_id, 'c')])  # 'c' for create, 'd' for delete
+
+            elif event_type == 'd':  # deleting the trade
+                trade_id = msg_payload['before']['position_id']
+                self.add_position([(trade_id, 'd')])
+
+            elif event_type == 'u':  # updating the trade
+                raise NotImplementedError('Updating of trades not yet implemented.')
+                # trade_id_before = msg_payload['before']['position_id']
+                # trade_id_after  = msg_payload['after']['position_id']
+                # assert trade_id_before == trade_id_after, f'Updated position nbs differ: {trade_id_before}, {trade_id_after}.'
+                # pass
+
+            else:  # unknown type of event, raise RuntTimeError
+                raise RuntimeError(f'Unknown event type: {event_type}')
 
     @staticmethod
-    def _value_trade(mkt_date_trade: Tuple[datetime.date, AOTrade]) -> Optional[float]:
+    def _value_trade(mkt_date_trade: Tuple[datetime.date, Optional[AOTrade]]) -> Optional[float]:
         """ Returns the value of the Mock Air Option trade.
 
         :param mkt_date_trade: tuple of market date and AOTrade.
@@ -130,6 +154,10 @@ class ControllerAO(Controller):
 
         mkt_date, ao_trade = mkt_date_trade
 
+        if ao_trade is None:
+            return 0.
+
+        # ao_trade is not None, price.
         try:
             return AirOptionFlightsExplicit( mkt_date, ao_trade.flights, ao_trade.strike).PV()
             # return AirOptionFlightsFromDB(mkt_date, trade_nb).PV()
@@ -143,21 +171,23 @@ class ControllerAO(Controller):
             return None
 
     @staticmethod
-    def _value_trade_id(mkt_date_trade_id : Tuple[datetime.date, int], db_session = None) -> float:
+    def _value_trade_id(mkt_date_trade_id : Tuple[datetime.date, Tuple[int, str]], db_session = None) -> float:
         """ Returns the PV of the trade with trade_id.
 
         :param mkt_date_trade_id: market date and trade id as a tuple (useful for spark calculations)
         :param db_session: sql alchemy session.
         :returns: PV of the referenced trade.
         """
-        mkt_date, trade_id = mkt_date_trade_id
+        mkt_date, (trade_id, trade_direction) = mkt_date_trade_id
 
-        return ControllerAO._value_trade((mkt_date, ControllerAO.__retrieve_tradeao(trade_id, db_session)))
+        return (-1)**(trade_direction == 'd') * ControllerAO._value_trade((mkt_date, ControllerAO.__retrieve_tradeao(trade_id, db_session)))
 
-    def _value_portfolio_fct_local(self, trade_ids : List[int]) -> List[float]:
+    def _value_portfolio_fct_local(self, trade_ids : List[Tuple[int, str]]) -> List[float]:
         """ Defines the portfolio_function from trades -> results.
 
         :param trade_ids: trade ids to evaluate, given as a list of position numbers.
+                       (tuple of (trade_id, 'c') or (trade_id, 'd')
+                       'c' means creating trade, 'd' means deleting trade
         :returns: value of the new_trades.
         """
 
@@ -167,7 +197,7 @@ class ControllerAO(Controller):
         return [ self.__class__._value_trade_id((self.mkt_date, trade_id), db_session=db_sess)
                  for trade_id in trade_ids]
 
-    def _value_portfolio_fct_spark(self, trade_ids : List[int]) -> List[float]:
+    def _value_portfolio_fct_spark(self, trade_ids : List[Tuple[int, str]]) -> List[float]:
         """ Defines the portfolio_function from trades -> results.
 
         :param trade_ids: trades to evaluate.

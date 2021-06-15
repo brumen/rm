@@ -12,8 +12,6 @@
 # PYTHON PART:
 #    start market updater in python:
 #           from rm.market_ticker import MarketUpdaterJoke; mu = MarketUpdaterJoke(); mu.start(idle_delay=5)
-#    start position updater in python:
-#           from rm.positions_updater import PositionUpdaterJoke; pu = PositionUpdaterJoke(); pu.start(idle_delay=0.1)
 #    start controller:
 #           from rm.controller_ao2 import ControllerAO; ao = ControllerAO(); ao.start()
 
@@ -22,3 +20,8 @@
 
 #    react code in:
 #       ~/learn/counter-app/app.js
+
+
+# POSITION UPDATER IS NOT NEEDED ANYMORE:
+#    start position updater in python:
+#           from rm.positions_updater import PositionUpdaterJoke; pu = PositionUpdaterJoke(); pu.start(idle_delay=0.1)
