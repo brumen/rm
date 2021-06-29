@@ -90,7 +90,7 @@ class ControllerAO(Controller):
         return self.__sc
 
     @staticmethod
-    def __retrieve_tradeao(trade_id : int, db_session = None) -> Optional[AOTrade]:
+    def _retrieve_tradeao(trade_id : int, db_session = None) -> Optional[AOTrade]:
         """ Returns the trade corresponding to this trade_id in the air option database.
 
         :returns: trade requested.
@@ -180,7 +180,13 @@ class ControllerAO(Controller):
         """
         mkt_date, (trade_id, trade_direction) = mkt_date_trade_id
 
-        return (-1)**(trade_direction == 'd') * ControllerAO._value_trade((mkt_date, ControllerAO.__retrieve_tradeao(trade_id, db_session)))
+        trade_value = ControllerAO._value_trade((mkt_date, ControllerAO._retrieve_tradeao(trade_id, db_session)))
+
+        return trade_value if trade_direction == 'c' else - trade_value
+
+        # if trade_direction == 'd':  # deleted trade
+        #    return - trade_value
+        # raise RuntimeError(f'Unable to handle trade {trade_id} for valuation')
 
     def _value_portfolio_fct_local(self, trade_ids : List[Tuple[int, str]]) -> List[float]:
         """ Defines the portfolio_function from trades -> results.

@@ -86,8 +86,8 @@ class Controller:
     def __market_working(self, curr_new : str = 'curr') -> bool:
         """ Indicator whether the current/new market is working.
 
-        :param curr_new:
-        :return:
+        :param curr_new: indicator whether this is current or new market.
+        :returns: true/false depending on whether the desired market processor is working.
         """
 
         if curr_new == 'curr':
@@ -134,18 +134,19 @@ class Controller:
             for new_position in self.__all_trades:
                 self.__trade_queue_new_market.put(new_position)
 
-        if (not self.__market_working('curr')) and self.__market_working('new'):
-            # ignore the market just being updated
-            pass
-
         if self.__market_working('curr') and (not self.__market_working('new')):
             # add ALL positions to the new market, and start pricing it.
             self.__market_new = None
             for new_position in self.__all_trades:
                 self.__trade_queue_new_market.put(new_position)
 
-        if self.__market_working('curr') and self.__market_working('new'):
-            pass
+        # BOTTOM TWO ARE NOT NEEDED, I LEFT THEM IN TO ILLUSTRATE THAT THEY ARE NOT NEEDED.
+        # if (not self.__market_working('curr')) and self.__market_working('new'):
+        #     # ignore the market just being updated
+        #     pass
+        #
+        # if self.__market_working('curr') and self.__market_working('new'):
+        #     pass
 
     def _get_trades_from_queue(self, trade_queue : Queue, nb_elts : int = 1) -> List:
         """ Take the trades from the trade events queue and put them in the portfolio.
@@ -169,7 +170,7 @@ class Controller:
 
         :param trade_pv_1: pv of the first trade
         :param trade_pv_2: pv of the second trade
-        :returns:
+        :returns: aggregated value of the two trade positions.
         """
 
         if trade_pv_1 is None:
@@ -188,7 +189,7 @@ class Controller:
 
         :param trades_pv_1: list of trades pv.
         :param trade_pv_2: pv of the second trade
-        :returns:
+        :returns: aggregated value of the two trade positions.
         """
 
         return reduce(self._trade_result_agg_single, trades_pv_1, trade_pv_2 )
