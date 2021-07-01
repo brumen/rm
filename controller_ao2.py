@@ -283,5 +283,8 @@ class ControllerAO(Controller):
 
 
 # sample start of the controller
-controller = ControllerAO()
-controller.start()
+def main():
+    controller = ControllerAO()
+    controller.start()
+
+# main()

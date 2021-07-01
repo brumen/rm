@@ -27,10 +27,10 @@ class ControllerAOByTradeDelta(ControllerAOByTrade):
     """
 
     @staticmethod
-    def _trade_result_agg_single(trade_pv_1 : Optional[DeltaDict[int, float]], trade_pv_2 : Optional[DeltaDict[int, float]]) -> Union[DeltaDict[int, float], None]:
+    def _trade_result_agg_single(trade_pv_1 : Optional[DeltaDict], trade_pv_2 : Optional[DeltaDict]) -> Union[DeltaDict, None]:
         """ Aggregation function for trade_1 and trade_2, where trade_pv_1 and trade_pv_2 are dictionaries
 
-        Merging of the dicts.
+        Merging of the dicts, DeltaDicts are of type [int, float]
 
         :param trade_pv_1: dictionary of position aggregates for the existing trades.
         :param trade_pv_2: dictionary of position for the second trade, like {trade_2: PV(trade_2)}
@@ -41,13 +41,15 @@ class ControllerAOByTradeDelta(ControllerAOByTrade):
             if trade_pv_2 is None:
                 return DeltaDict({})  # empty dict
 
-            return trade_pv_2
+            _, trade_2_delta = trade_pv_2  # ignoring the trade_id_2
+            return trade_2_delta
 
         if trade_pv_2 is None:  # trade_pv_1 is not None
             return trade_pv_1
 
         # merge two dicts
-        return trade_pv_1 + trade_pv_2
+        _, trade_2_delta = trade_pv_2  # ignoring the trade_id_2
+        return trade_pv_1 + trade_2_delta
 
     @staticmethod
     def _value_trade_id(mkt_date_trade_id : Tuple[datetime.date, Tuple[int, str]], db_session = None) -> Tuple[int, Dict[int, float]]:
@@ -65,7 +67,7 @@ class ControllerAOByTradeDelta(ControllerAOByTrade):
         return trade_id, trade_value if trade_direction == 'c' else - trade_value
 
     @staticmethod
-    def _value_trade(mkt_date_trade: Tuple[datetime.date, Optional[AOTrade]]) -> Optional[DeltaDict[str, float]]:
+    def _value_trade(mkt_date_trade: Tuple[datetime.date, Optional[AOTrade]]) -> Optional[DeltaDict]:
         """ Returns the PV01 of a air option trade with specific trade id.
 
         :param mkt_date_trade: tuple of market date and AOTrade.
