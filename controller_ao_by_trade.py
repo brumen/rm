@@ -1,8 +1,6 @@
 """ AO controller by keeping the trade information in a dictionary.
 """
 
-# concrete implementation of the controller, used
-
 import datetime
 import logging
 
@@ -23,8 +21,7 @@ class ControllerAOByTrade(ControllerAO):
 
     @staticmethod
     def _trade_result_agg_single(trade_pv_1 : Optional[Dict[int, float]], trade_pv_2 : Optional[Tuple[int, float]]) -> Union[Dict[int, float], None]:
-        """ Aggregation function for trade_1 and trade_2, where trade_pv_1 and trade_pv_2 are dictionaries
-
+        """ Aggregate trade_1 and trade_2, where trade_pv_1 and trade_pv_2 are dictionaries.
         Merging of the dicts.
 
         :param trade_pv_1: dictionary of position aggregates for the existing trades.

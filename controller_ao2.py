@@ -11,11 +11,8 @@ from threading import Thread
 from kafka     import KafkaConsumer, KafkaProducer, TopicPartition
 
 from rm.controller2 import Controller
-from ao.air_option_derive  import ( AirOptionFlightsFromDB
-                                  , AOTradeException
-                                  , AirOptionFlightsExplicit
-                                  , )
-from ao.flight import AOTrade, create_session
+from ao.air_option  import AirOptionFlights
+from ao.trade       import AOTrade, create_session, AOTradeException
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
@@ -159,7 +156,7 @@ class ControllerAO(Controller):
 
         # ao_trade is not None, price.
         try:
-            return AirOptionFlightsExplicit( mkt_date, ao_trade.flights, ao_trade.strike).PV()
+            return AirOptionFlights.from_flights( mkt_date, ao_trade.flights, ao_trade.strike).PV()
             # return AirOptionFlightsFromDB(mkt_date, trade_nb).PV()
 
         except AOTradeException:  # fails in AOTrade
