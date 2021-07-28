@@ -128,6 +128,56 @@ class Controller:
         logger.debug('New market event occurred.')
         self.__market_queue.put(new_market)
 
+        if not self.__market_working('new'):
+            # both markets are idle (add all trades to the new market, leave the curr one alone)
+            self.__market_new = None  # reset the new market
+            for new_position in self.__prune_offsetting_trades(self.__all_trades):
+                self.__trade_queue_new_market.put(new_position)
+
+        # BOTTOM TWO ARE NOT NEEDED, I LEFT THEM IN TO ILLUSTRATE THAT THEY ARE NOT NEEDED.
+        # if (not self.__market_working('curr')) and self.__market_working('new'):
+        #     # ignore the market just being updated
+        #     pass
+        #
+        # if self.__market_working('curr') and self.__market_working('new'):
+        #     pass
+
+    @staticmethod
+    def __prune_offsetting_trades(trades : List[Tuple[int, str]]) -> List[Tuple[int, str]]:
+        """ Prunes the offsetting trades
+
+        :param trades: list of trades to be pruned
+        :returns: similar list, but without off-setting trades.
+        """
+
+        prunned_positions = []
+
+        for pos_id, pos_direct in trades:
+            if pos_direct == 'c':
+                prunned_positions.append((pos_id, pos_direct))
+
+            elif pos_direct == 'd':
+                equiv_create_pos = (pos_id, 'c')
+                if equiv_create_pos in prunned_positions:
+                    equiv_pos_idx = prunned_positions.index(equiv_create_pos)
+                    prunned_positions.pop(equiv_pos_idx)
+            else:
+                prunned_positions.append((pos_id, pos_direct))
+
+        return prunned_positions
+
+    def add_market_working(self, new_market):
+        """ Adds the new market event to the queue, this shouldnt be that fast.
+
+        PREVIOUS IMPLEMENTATION OF add_market; REMOVE SOMETIME.
+
+        :param new_market: market event to be added.
+        :returns: nothing, just adds the market to the market process queue and sets the __new_market_event.
+        """
+
+        logger.debug('New market event occurred.')
+        self.__market_queue.put(new_market)
+
         if (not self.__market_working('curr')) and (not self.__market_working('new')):
             # both markets are idle (add all trades to the new market, leave the curr one alone)
             self.__market_new = None  # reset the new market
