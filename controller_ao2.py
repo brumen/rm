@@ -141,8 +141,8 @@ class ControllerAO(Controller):
             else:  # unknown type of event, raise RuntTimeError
                 raise RuntimeError(f'Unknown event type: {event_type}')
 
-    @staticmethod
-    def _value_trade(mkt_date_trade: Tuple[datetime.date, Optional[AOTrade]]) -> Optional[float]:
+    @classmethod
+    def _value_trade(cls, mkt_date_trade: Tuple[datetime.date, Optional[AOTrade]]) -> Optional[float]:
         """ Returns the value of the Mock Air Option trade.
 
         :param mkt_date_trade: tuple of market date and AOTrade.
@@ -156,8 +156,7 @@ class ControllerAO(Controller):
 
         # ao_trade is not None, price.
         try:
-            return AirOptionFlights.from_flights( mkt_date, ao_trade.flights, ao_trade.strike).PV()
-            # return AirOptionFlightsFromDB(mkt_date, trade_nb).PV()
+            return cls._compute_trade(mkt_date, ao_trade)
 
         except AOTradeException:  # fails in AOTrade
             logger.error(f'Trade {ao_trade.position_id} could not be found in the database.')
@@ -167,8 +166,19 @@ class ControllerAO(Controller):
             logger.error(f'Trade {ao_trade.position_id} could not be priced. Reason: {str(e)}')
             return None
 
-    @staticmethod
-    def _value_trade_id(mkt_date_trade_id : Tuple[datetime.date, Tuple[int, str]], db_session = None) -> float:
+    @classmethod
+    def _compute_trade(cls, mkt_date : datetime.date, ao_trade : AOTrade):
+        """ Raw computation of the trade.
+
+        :param mkt_date: market date
+        :param ao_trade: ao trade to be values.
+        :returns: value that should be computed
+        """
+
+        return AirOptionFlights.from_flights( mkt_date, ao_trade.flights, ao_trade.strike).PV()
+
+    @classmethod
+    def _value_trade_id(cls, mkt_date_trade_id : Tuple[datetime.date, Tuple[int, str]], db_session = None) -> float:
         """ Returns the PV of the trade with trade_id.
 
         :param mkt_date_trade_id: market date and trade id as a tuple (useful for spark calculations)
@@ -177,7 +187,7 @@ class ControllerAO(Controller):
         """
         mkt_date, (trade_id, trade_direction) = mkt_date_trade_id
 
-        trade_value = ControllerAO._value_trade((mkt_date, ControllerAO._retrieve_tradeao(trade_id, db_session)))
+        trade_value = cls._value_trade((mkt_date, cls._retrieve_tradeao(trade_id, db_session)))
 
         return trade_value if trade_direction == 'c' else - trade_value
 

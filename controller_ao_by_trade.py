@@ -48,8 +48,8 @@ class ControllerAOByTrade(ControllerAO):
 
         return trade_pv_1
 
-    @staticmethod
-    def _value_trade_id(mkt_date_trade_id : Tuple[datetime.date, Tuple[int, str]], db_session = None) -> Tuple[int, float]:
+    @classmethod
+    def _value_trade_id(cls, mkt_date_trade_id : Tuple[datetime.date, Tuple[int, str]], db_session = None) -> Tuple[int, float]:
         """ Returns the PV of the trade with trade_id.
 
         :param mkt_date_trade_id: market date and trade id as a tuple (useful for spark calculations)
@@ -58,7 +58,7 @@ class ControllerAOByTrade(ControllerAO):
         """
         mkt_date, (trade_id, trade_direction) = mkt_date_trade_id
 
-        trade_value = ControllerAO._value_trade((mkt_date, ControllerAO._retrieve_tradeao(trade_id, db_session)))
+        trade_value = cls._value_trade((mkt_date, ControllerAO._retrieve_tradeao(trade_id, db_session)))
 
         return (trade_id, trade_value) if trade_direction == 'c' else (trade_id, - trade_value)
 
