@@ -245,11 +245,14 @@ class Controller:
                 # start by processing them 1 by one
                 queue_size = trade_queue.qsize()
                 if queue_size < self.LOCAL_WORK_LIMIT:
-                    trade_value = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size))
-                    if curr_new_mkt == 'curr':
-                        self.__market_curr = self._trade_result_agg( trade_value, self.__market_curr)
-                    else:
-                        self.__market_new = self._trade_result_agg( trade_value, self.__market_new)
+
+                    for curr_trade_val in self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size)):
+                        if curr_new_mkt == 'curr':
+                            # self.__market_curr = self._trade_result_agg( trade_value, self.__market_curr)
+                            self.__market_curr = self._trade_result_agg_single(self.__market_curr, curr_trade_val)
+                        else:
+                            self.__market_new = self._trade_result_agg_single(self.__market_new, curr_trade_val)
+                            # self.__market_new = self._trade_result_agg( trade_value, self.__market_new)
 
                 else:
                     # lots of trades, take PRESCRIBED number of trades

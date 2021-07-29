@@ -5,7 +5,7 @@ import logging
 
 from json      import loads, dumps
 from time      import sleep
-from typing    import List, Tuple, Optional
+from typing    import List, Tuple, Optional, Union, Any, Dict
 from pyspark   import SparkContext, SparkConf
 from threading import Thread
 from kafka     import KafkaConsumer, KafkaProducer, TopicPartition
@@ -16,7 +16,10 @@ from ao.trade       import AOTrade, create_session, AOTradeException
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
+
+
+RES_TYPE = Dict[str, Any]
 
 
 class ControllerAO(Controller):
@@ -142,21 +145,21 @@ class ControllerAO(Controller):
                 raise RuntimeError(f'Unknown event type: {event_type}')
 
     @classmethod
-    def _value_trade(cls, mkt_date_trade: Tuple[datetime.date, Optional[AOTrade]]) -> Optional[float]:
+    def _value_trade(cls, mkt_date_trade: Tuple[datetime.date, Optional[AOTrade], str]) -> Union[None, RES_TYPE]:
         """ Returns the value of the Mock Air Option trade.
 
-        :param mkt_date_trade: tuple of market date and AOTrade.
+        :param mkt_date_trade: tuple of market date and AOTrade., and trade direction. 'c', 'd'
         :returns: value of the trade considered.
         """
 
-        mkt_date, ao_trade = mkt_date_trade
+        mkt_date, ao_trade, trade_direction = mkt_date_trade
 
         if ao_trade is None:
-            return 0.
+            return None
 
         # ao_trade is not None, price.
         try:
-            return cls._compute_trade(mkt_date, ao_trade)
+            return cls._compute_trade(mkt_date, ao_trade, trade_direction)
 
         except AOTradeException:  # fails in AOTrade
             logger.error(f'Trade {ao_trade.position_id} could not be found in the database.')
@@ -167,18 +170,48 @@ class ControllerAO(Controller):
             return None
 
     @classmethod
-    def _compute_trade(cls, mkt_date : datetime.date, ao_trade : AOTrade):
+    def _compute_trade(cls, mkt_date : datetime.date, ao_trade : AOTrade, trade_direction : str) -> RES_TYPE:
         """ Raw computation of the trade.
 
         :param mkt_date: market date
         :param ao_trade: ao trade to be values.
+        :param trade_direction: direction of the trade, 'c' for long, 'd' for short
         :returns: value that should be computed
         """
 
-        return AirOptionFlights.from_flights( mkt_date, ao_trade.flights, ao_trade.strike).PV()
+        aof = AirOptionFlights.from_flights( mkt_date, ao_trade.flights, ao_trade.strike)
+
+        pv = aof.PV()
+        pv01 = aof.PV01()
+
+        return { 'PV'  : pv if trade_direction == 'c' else - pv
+               , 'PV01': pv01 if trade_direction == 'c' else - pv01
+               , }
+
+    @staticmethod
+    def _trade_result_agg_single(trade_pv_1 : Optional[RES_TYPE], trade_pv_2 : Optional[RES_TYPE]) -> Union[None, RES_TYPE]:
+        """ Aggregates two Dict[str, Any]"""
+
+        if trade_pv_1 is None:
+            if trade_pv_2 is None:
+                return None
+
+            return trade_pv_2
+
+        if trade_pv_2 is None:  # trade_pv_1 is not None
+            return trade_pv_1
+
+        # neither is none
+        calcs_1 = list(trade_pv_1.keys())
+        assert calcs_1 == list(trade_pv_2.keys()), f'Calculator results dont have the same calculators.'  # not same calcs
+
+        for calc in calcs_1:
+            trade_pv_1[calc] += trade_pv_2[calc]  # each calc supports aggregation +
+
+        return trade_pv_1
 
     @classmethod
-    def _value_trade_id(cls, mkt_date_trade_id : Tuple[datetime.date, Tuple[int, str]], db_session = None) -> float:
+    def _value_trade_id(cls, mkt_date_trade_id : Tuple[datetime.date, Tuple[int, str]], db_session = None) -> Union[None, RES_TYPE]:
         """ Returns the PV of the trade with trade_id.
 
         :param mkt_date_trade_id: market date and trade id as a tuple (useful for spark calculations)
@@ -187,15 +220,10 @@ class ControllerAO(Controller):
         """
         mkt_date, (trade_id, trade_direction) = mkt_date_trade_id
 
-        trade_value = cls._value_trade((mkt_date, cls._retrieve_tradeao(trade_id, db_session)))
+        return cls._value_trade((mkt_date, cls._retrieve_tradeao(trade_id, db_session), trade_direction))
 
-        return trade_value if trade_direction == 'c' else - trade_value
-
-        # if trade_direction == 'd':  # deleted trade
-        #    return - trade_value
-        # raise RuntimeError(f'Unable to handle trade {trade_id} for valuation')
-
-    def _value_portfolio_local(self, trade_ids : List[Tuple[int, str]]) -> List[float]:
+    # TODO: FIX RETURN TYPE
+    def _value_portfolio_local(self, trade_ids : List[Tuple[int, str]]) -> List[RES_TYPE]:
         """ Defines the portfolio_function from trades -> results.
 
         :param trade_ids: trade ids to evaluate, given as a list of position numbers.
@@ -207,10 +235,12 @@ class ControllerAO(Controller):
         # trade results - either float or None
         db_sess = create_session()
 
-        return [ self.__class__._value_trade_id((self.mkt_date, trade_id), db_session=db_sess)
-                 for trade_id in trade_ids]
+        nb_trades = len(trade_ids)
+        for trade_id in trade_ids:
+            logger.debug(f'Valuing trade {trade_id} of {nb_trades}.')
+            yield self.__class__._value_trade_id((self.mkt_date, trade_id), db_session=db_sess)
 
-    def _value_portfolio_remote(self, trade_ids : List[Tuple[int, str]]) -> List[float]:
+    def _value_portfolio_remote(self, trade_ids : List[Tuple[int, str]]) -> List[RES_TYPE]:
         """ Defines the portfolio_function from trades -> results.
 
         :param trade_ids: trades to evaluate.
@@ -294,4 +324,4 @@ def main():
     controller = ControllerAO()
     controller.start()
 
-# main()
+main()
