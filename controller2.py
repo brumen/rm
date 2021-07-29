@@ -23,20 +23,11 @@ class Controller:
     LOCAL_WORK_LIMIT = 700
     _NB_THREADS = 8
 
-    def __init__( self
-                , value_portfolio_fct_local : Callable
-                , value_portfolio_fct_remote: Callable ):
+    def __init__( self ):
         """ Controller class, keeps track of the system and distributes work.
-
-        :param value_portfolio_fct_local: function computing the portfolio locally, by the controller process itself.
-        :param value_portfolio_fct_remote: function computing the portfolio on spark.
         """
 
         self.__market_queue = Queue(maxsize=self.QUEUE_SIZE)
-
-        # signal handlers
-        self.__value_portfolio_fct_local = value_portfolio_fct_local
-        self.__value_portfolio_fct_remote = value_portfolio_fct_remote
 
         # variables for new market and trade events.
         self.__new_market_event = False  # we get an update for the new market.
@@ -166,38 +157,6 @@ class Controller:
 
         return prunned_positions
 
-    def add_market_working(self, new_market):
-        """ Adds the new market event to the queue, this shouldnt be that fast.
-
-        PREVIOUS IMPLEMENTATION OF add_market; REMOVE SOMETIME.
-
-        :param new_market: market event to be added.
-        :returns: nothing, just adds the market to the market process queue and sets the __new_market_event.
-        """
-
-        logger.debug('New market event occurred.')
-        self.__market_queue.put(new_market)
-
-        if (not self.__market_working('curr')) and (not self.__market_working('new')):
-            # both markets are idle (add all trades to the new market, leave the curr one alone)
-            self.__market_new = None  # reset the new market
-            for new_position in self.__all_trades:
-                self.__trade_queue_new_market.put(new_position)
-
-        if self.__market_working('curr') and (not self.__market_working('new')):
-            # add ALL positions to the new market, and start pricing it.
-            self.__market_new = None
-            for new_position in self.__all_trades:
-                self.__trade_queue_new_market.put(new_position)
-
-        # BOTTOM TWO ARE NOT NEEDED, I LEFT THEM IN TO ILLUSTRATE THAT THEY ARE NOT NEEDED.
-        # if (not self.__market_working('curr')) and self.__market_working('new'):
-        #     # ignore the market just being updated
-        #     pass
-        #
-        # if self.__market_working('curr') and self.__market_working('new'):
-        #     pass
-
     def _get_trades_from_queue(self, trade_queue : Queue, nb_elts : int = 1) -> List:
         """ Take the trades from the trade events queue and put them in the portfolio.
 
@@ -244,6 +203,24 @@ class Controller:
 
         return reduce(self._trade_result_agg_single, trades_pv_1, trade_pv_2 )
 
+    def _value_portfolio_local(self, trades : List) -> List:
+        """ Values the portfolio of trades, has to be implemented in the subclass.
+
+        :param trades: list of trades
+        :returns: list of results
+        """
+
+        raise NotImplementedError(f'_value_portfolio_local has to be implemented in the class.')
+
+    def _value_portfolio_remote(self, trades : List) -> List:
+        """ Values the portfolio of trades, has to be implemented in the subclass.
+
+        :param trades: list of trades
+        :returns: list of results
+        """
+
+        raise NotImplementedError(f'_value_portfolio_remote has to be implemented in the class.')
+
     def __trade_processor(self, curr_new_mkt : str, sleep_delay : float = 0.1):
         """ Runs the thread processor for the current (or new) market.
 
@@ -268,7 +245,7 @@ class Controller:
                 # start by processing them 1 by one
                 queue_size = trade_queue.qsize()
                 if queue_size < self.LOCAL_WORK_LIMIT:
-                    trade_value = self.__value_portfolio_fct_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size))
+                    trade_value = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size))
                     if curr_new_mkt == 'curr':
                         self.__market_curr = self._trade_result_agg( trade_value, self.__market_curr)
                     else:
@@ -276,7 +253,7 @@ class Controller:
 
                 else:
                     # lots of trades, take PRESCRIBED number of trades
-                    trade_values = self.__value_portfolio_fct_remote(self._get_trades_from_queue(trade_queue, nb_elts = queue_size // self._NB_THREADS ))
+                    trade_values = self._value_portfolio_remote(self._get_trades_from_queue(trade_queue, nb_elts = queue_size // self._NB_THREADS ))
                     if curr_new_mkt == 'curr':
                         self.__market_curr = self._trade_result_agg(trade_values, self.__market_curr)
                     else:

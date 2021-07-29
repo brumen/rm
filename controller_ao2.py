@@ -42,7 +42,7 @@ class ControllerAO(Controller):
         :param spark_ctx: configuration of spark context.
         """
 
-        super().__init__(self._value_portfolio_fct_local, self._value_portfolio_fct_spark)
+        super().__init__()
 
         self.mkt_date    = mkt_date
         self.server_name = server_name
@@ -195,7 +195,7 @@ class ControllerAO(Controller):
         #    return - trade_value
         # raise RuntimeError(f'Unable to handle trade {trade_id} for valuation')
 
-    def _value_portfolio_fct_local(self, trade_ids : List[Tuple[int, str]]) -> List[float]:
+    def _value_portfolio_local(self, trade_ids : List[Tuple[int, str]]) -> List[float]:
         """ Defines the portfolio_function from trades -> results.
 
         :param trade_ids: trade ids to evaluate, given as a list of position numbers.
@@ -210,7 +210,7 @@ class ControllerAO(Controller):
         return [ self.__class__._value_trade_id((self.mkt_date, trade_id), db_session=db_sess)
                  for trade_id in trade_ids]
 
-    def _value_portfolio_fct_spark(self, trade_ids : List[Tuple[int, str]]) -> List[float]:
+    def _value_portfolio_remote(self, trade_ids : List[Tuple[int, str]]) -> List[float]:
         """ Defines the portfolio_function from trades -> results.
 
         :param trade_ids: trades to evaluate.
@@ -289,8 +289,8 @@ class ControllerAO(Controller):
         return controller_threads
 
 
-# sample start of the controller
 def main():
+    # sample start of the controller
     controller = ControllerAO()
     controller.start()
 

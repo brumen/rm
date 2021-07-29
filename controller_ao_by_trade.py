@@ -58,13 +58,13 @@ class ControllerAOByTrade(ControllerAO):
         """
         mkt_date, (trade_id, trade_direction) = mkt_date_trade_id
 
-        trade_value = cls._value_trade((mkt_date, ControllerAO._retrieve_tradeao(trade_id, db_session)))
+        trade_value = cls._value_trade((mkt_date, cls._retrieve_tradeao(trade_id, db_session)))
 
         return (trade_id, trade_value) if trade_direction == 'c' else (trade_id, - trade_value)
 
 
-# example
 def main():
+    # By trade example
     ao_by_trade = ControllerAOByTrade(topic_to_publish_to='ao_results_by_trade')
     ao_by_trade.start()
 
