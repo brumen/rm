@@ -80,8 +80,57 @@ class ResultPublisherByTrade:
         self._root.mainloop()  # looping the tk canvas
 
 
+class ResultPublisher(ResultPublisherByTrade):
+    """ Publisher of aggregated results.
+    """
+
+    def __init__(self
+                , server = 'localhost'
+                , port   = 9092
+                , topic  = 'ao_results' ):
+
+        super().__init__(server=server, port=port, topic=topic)
+        self._results_table.showIndex()
+
+    def _get_results_ao(self):
+        """ Gets the results from Kafka and attributes them to self.curr_value etc.
+
+        :returns: None, just updates curr_value, new_value, and trades
+        """
+
+        for msg in self._subscriber:
+            logger.debug(f'Processing trades. {self._trades_curr_working} in the current queue, {self._trades_new_working} in the new queue.')
+            field, value = loads(msg.value)  # value is json encoded
+            if field == 'curr_market':
+                if value is None:
+                    self.curr_value = {}
+                else:
+                    self.curr_value = value['PV01']
+
+            elif field == 'new_market':
+                if value is None:
+                    self.new_value = {}
+                else:
+                    self.new_value = value['PV01']
+
+            elif field == 'curr_trades':
+                self._trades_curr_working = value
+
+            elif field == 'new_trades':
+                self._trades_new_working = value
+
+    def update_results(self):
+        """ Updates the pandas table w/ the results.
+        """
+
+        if isinstance(self.curr_value, dict):
+            self._results_table.model.df = pd.DataFrame.from_dict(self.curr_value, orient='index')
+            self._results_table.redraw()
+        self._root.after(1, self.update_results)
+
+
 def main():
-    rp = ResultPublisherByTrade()
+    rp = ResultPublisher(topic='ao_results')
     rp.start()
 
 

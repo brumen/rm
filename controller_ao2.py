@@ -223,7 +223,7 @@ class ControllerAO(Controller):
 
         return cls._value_trade((mkt_date, cls._retrieve_tradeao(trade_id, db_session), trade_direction))
 
-    def _value_portfolio_local(self, trade_ids : Union[List[Tuple[int, str]], Generator[Tuple[int, str]]]) -> Generator[RES_TYPE, None, None]:
+    def _value_portfolio_local(self, trade_ids : Union[List[Tuple[int, str]], Generator[Tuple[int, str], None, None]]) -> Generator[RES_TYPE, None, None]:
         """ Defines the portfolio_function from trades -> results.
 
         :param trade_ids: trade ids to evaluate, given as a list of position numbers.
@@ -324,4 +324,4 @@ def main():
     controller = ControllerAO()
     controller.start()
 
-main()
+# main()
