@@ -1,11 +1,12 @@
-# concrete implementation of the controller, used
+""" AO implementation of the controller.
+"""
 
 import datetime
 import logging
 
 from json      import loads, dumps
 from time      import sleep
-from typing    import List, Tuple, Optional, Union, Any, Dict
+from typing    import List, Tuple, Optional, Union, Any, Dict, Generator
 from pyspark   import SparkContext, SparkConf
 from threading import Thread
 from kafka     import KafkaConsumer, KafkaProducer, TopicPartition
@@ -222,8 +223,7 @@ class ControllerAO(Controller):
 
         return cls._value_trade((mkt_date, cls._retrieve_tradeao(trade_id, db_session), trade_direction))
 
-    # TODO: FIX RETURN TYPE
-    def _value_portfolio_local(self, trade_ids : List[Tuple[int, str]]) -> List[RES_TYPE]:
+    def _value_portfolio_local(self, trade_ids : Union[List[Tuple[int, str]], Generator[Tuple[int, str]]]) -> Generator[RES_TYPE, None, None]:
         """ Defines the portfolio_function from trades -> results.
 
         :param trade_ids: trade ids to evaluate, given as a list of position numbers.
@@ -232,12 +232,12 @@ class ControllerAO(Controller):
         :returns: value of the new_trades.
         """
 
-        # trade results - either float or None
         db_sess = create_session()
 
-        nb_trades = len(trade_ids)
+        # TODO: HOW TO GET A LEN FROM THE GENERATOR
+        # nb_trades = len(trade_ids)
         for trade_id in trade_ids:
-            logger.debug(f'Valuing trade {trade_id} of {nb_trades}.')
+            # logger.debug(f'Valuing trade {trade_id} of {nb_trades}.')
             yield self.__class__._value_trade_id((self.mkt_date, trade_id), db_session=db_sess)
 
     def _value_portfolio_remote(self, trade_ids : List[Tuple[int, str]]) -> List[RES_TYPE]:

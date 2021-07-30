@@ -1,8 +1,9 @@
-# main controlling logic for the real time risk management system
+""" Main/Basic controlling logic for the real time risk management system.
+"""
 
 import logging
 
-from typing    import List, Callable, Tuple, Optional
+from typing    import List, Tuple, Optional, Generator, Any, Union
 from queue     import Queue
 from time      import sleep
 from threading import Thread
@@ -157,7 +158,7 @@ class Controller:
 
         return prunned_positions
 
-    def _get_trades_from_queue(self, trade_queue : Queue, nb_elts : int = 1) -> List:
+    def _get_trades_from_queue(self, trade_queue : Queue, nb_elts : int = 1) -> Generator[Any, None, None]:
         """ Take the trades from the trade events queue and put them in the portfolio.
 
         :param trade_queue: the queue from which the elts are taken.
@@ -165,13 +166,10 @@ class Controller:
         :returns: list of new trades in the position queue.
         """
 
-        new_trades = []
         curr_elt = 0
         while (not trade_queue.empty()) and (curr_elt < nb_elts):
-            new_trades.append(trade_queue.get())
+            yield trade_queue.get()
             curr_elt += 1
-
-        return new_trades
 
     @staticmethod
     def _trade_result_agg_single(trade_pv_1 : Optional[float], trade_pv_2 : Optional[float]) -> float:
@@ -203,7 +201,7 @@ class Controller:
 
         return reduce(self._trade_result_agg_single, trades_pv_1, trade_pv_2 )
 
-    def _value_portfolio_local(self, trades : List) -> List:
+    def _value_portfolio_local(self, trades : Union[List, Generator]) -> Union[List, Generator]:
         """ Values the portfolio of trades, has to be implemented in the subclass.
 
         :param trades: list of trades
@@ -212,7 +210,7 @@ class Controller:
 
         raise NotImplementedError(f'_value_portfolio_local has to be implemented in the class.')
 
-    def _value_portfolio_remote(self, trades : List) -> List:
+    def _value_portfolio_remote(self, trades : Union[List, Generator]) -> Union[List, Generator]:
         """ Values the portfolio of trades, has to be implemented in the subclass.
 
         :param trades: list of trades
