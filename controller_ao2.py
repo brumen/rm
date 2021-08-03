@@ -17,7 +17,7 @@ from ao.trade       import AOTrade, create_session, AOTradeException
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 RES_TYPE = Dict[str, Any]
@@ -26,6 +26,8 @@ RES_TYPE = Dict[str, Any]
 class ControllerAO(Controller):
     """ Controller for AirOptions.
     """
+
+    LOCAL_WORK_LIMIT = 50  # when to switch to spark
 
     def __init__( self
                 , mkt_date            : datetime.date = datetime.date(2016, 1, 1)
@@ -234,22 +236,20 @@ class ControllerAO(Controller):
 
         db_sess = create_session()
 
-        # TODO: HOW TO GET A LEN FROM THE GENERATOR
-        # nb_trades = len(trade_ids)
-        for trade_id in trade_ids:
-            # logger.debug(f'Valuing trade {trade_id} of {nb_trades}.')
+        for trade_nb, trade_id in enumerate(trade_ids):
+            logger.debug(f'Valuing trade {trade_nb}.')
             yield self.__class__._value_trade_id((self.mkt_date, trade_id), db_session=db_sess)
 
-    def _value_portfolio_remote(self, trade_ids : List[Tuple[int, str]]) -> List[RES_TYPE]:
+    def _value_portfolio_remote(self, trade_ids : Union[List[Tuple[int, str]], Generator[Tuple[int, str], None, None]]) -> List[RES_TYPE]:
         """ Defines the portfolio_function from trades -> results.
 
         :param trade_ids: trades to evaluate.
         :returns: value of new_trades.
         """
 
-        nb_new_trades = len(trade_ids)
+        trade_ids_l = list(trade_ids)  # TODO: THIS SHOULD BE BETTER
 
-        trades = list(zip( [self.mkt_date] * nb_new_trades, trade_ids ))  # zip makes a generator, it has to be evaluated, BUMMER
+        trades = zip( [self.mkt_date] * len(trade_ids_l), trade_ids_l )
 
         return self.sc.parallelize(trades)\
                       .map(self.__class__._value_trade_id)\
@@ -324,4 +324,4 @@ def main():
     controller = ControllerAO()
     controller.start()
 
-# main()
+main()

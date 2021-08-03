@@ -7,7 +7,6 @@ from typing    import List, Tuple, Optional, Generator, Any, Union
 from queue     import Queue
 from time      import sleep
 from threading import Thread
-from functools import reduce
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
@@ -191,16 +190,6 @@ class Controller:
 
         return trade_pv_1 + trade_pv_2  # neither is None
 
-    def _trade_result_agg(self, trades_pv_1 : List[Optional[float]], trade_pv_2 : Optional[float]) -> float:
-        """ Aggregation function for trade_1 and trade_2.
-
-        :param trades_pv_1: list of trades pv.
-        :param trade_pv_2: pv of the second trade
-        :returns: aggregated value of the two trade positions.
-        """
-
-        return reduce(self._trade_result_agg_single, trades_pv_1, trade_pv_2 )
-
     def _value_portfolio_local(self, trades : Union[List, Generator]) -> Union[List, Generator]:
         """ Values the portfolio of trades, has to be implemented in the subclass.
 
@@ -242,23 +231,17 @@ class Controller:
                 logger.debug(f'Processing trades on the {curr_new_mkt} market: {trade_queue.qsize()}.')
                 # start by processing them 1 by one
                 queue_size = trade_queue.qsize()
+
                 if queue_size < self.LOCAL_WORK_LIMIT:
-
-                    for curr_trade_val in self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size)):
-                        if curr_new_mkt == 'curr':
-                            # self.__market_curr = self._trade_result_agg( trade_value, self.__market_curr)
-                            self.__market_curr = self._trade_result_agg_single(self.__market_curr, curr_trade_val)
-                        else:
-                            self.__market_new = self._trade_result_agg_single(self.__market_new, curr_trade_val)
-                            # self.__market_new = self._trade_result_agg( trade_value, self.__market_new)
-
+                    trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size))
                 else:
-                    # lots of trades, take PRESCRIBED number of trades
                     trade_values = self._value_portfolio_remote(self._get_trades_from_queue(trade_queue, nb_elts = queue_size // self._NB_THREADS ))
+
+                for curr_trade_val in trade_values:
                     if curr_new_mkt == 'curr':
-                        self.__market_curr = self._trade_result_agg(trade_values, self.__market_curr)
+                        self.__market_curr = self._trade_result_agg_single(self.__market_curr, curr_trade_val)
                     else:
-                        self.__market_new = self._trade_result_agg(trade_values, self.__market_new)
+                        self.__market_new = self._trade_result_agg_single(self.__market_new, curr_trade_val)
 
             else:
                 if curr_new_mkt == 'new':  # only for the new market

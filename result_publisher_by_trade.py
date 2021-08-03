@@ -10,6 +10,7 @@ from pandastable import Table
 
 logging.basicConfig(filename = '/tmp/rm_results_by_trade.log', level = logging.INFO)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class ResultPublisherByTrade:
@@ -47,18 +48,16 @@ class ResultPublisherByTrade:
         for msg in self._subscriber:
             logger.debug(f'Processing trades. {self._trades_curr_working} in the current queue, {self._trades_new_working} in the new queue.')
             field, value = loads(msg.value)  # value is json encoded
+
             if field == 'curr_market':
-                if value is None:
-                    self.curr_value = np.array([])
-                else:
-                    self.curr_value = np.array(list(value.items()))
+                self.curr_value = np.array([]) if value is None else np.array(list(value.items()))
+
             elif field == 'new_market':
-                if value is None:
-                    self.new_value = np.array([])
-                else:
-                    self.new_value = np.array(list(value.items()))
+                self.new_value = np.array([]) if value is None else np.array(list(value.items()))
+
             elif field == 'curr_trades':
                 self._trades_curr_working = value
+
             elif field == 'new_trades':
                 self._trades_new_working = value
 
@@ -91,6 +90,10 @@ class ResultPublisher(ResultPublisherByTrade):
 
         super().__init__(server=server, port=port, topic=topic)
         self._results_table.showIndex()
+        # add a field for trade nb
+        self._nb_field = tk.Text(self._frame, height=1, width=30)
+        # TODO: STUFF HERE IMPROVE
+        # self._nb_field.pack(side=tk.BOTTOM)
 
     def _get_results_ao(self):
         """ Gets the results from Kafka and attributes them to self.curr_value etc.
@@ -101,17 +104,12 @@ class ResultPublisher(ResultPublisherByTrade):
         for msg in self._subscriber:
             logger.debug(f'Processing trades. {self._trades_curr_working} in the current queue, {self._trades_new_working} in the new queue.')
             field, value = loads(msg.value)  # value is json encoded
+
             if field == 'curr_market':
-                if value is None:
-                    self.curr_value = {}
-                else:
-                    self.curr_value = value['PV01']
+                self.curr_value = {} if value is None else value['PV01']
 
             elif field == 'new_market':
-                if value is None:
-                    self.new_value = {}
-                else:
-                    self.new_value = value['PV01']
+                self.new_value = {} if value is None else value['PV01']
 
             elif field == 'curr_trades':
                 self._trades_curr_working = value
