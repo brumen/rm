@@ -1,4 +1,6 @@
-# Kafka Position updater
+#
+# Class that handles the updating the trade positions, and a subclass that handles the flight positions
+#
 
 import logging
 
@@ -13,6 +15,16 @@ class PositionUpdaterJoke(ProducerBase):
 
     def _message(self):
         return b'POSITION_1'
+
+
+class TradeUpdater(ProducerBase):
+    pass
+
+
+
+
+
+
 
 
 # pu = PositionUpdaterJoke()

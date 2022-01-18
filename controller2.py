@@ -20,7 +20,7 @@ class Controller:
     """
 
     QUEUE_SIZE = 1000
-    LOCAL_WORK_LIMIT = 700
+    LOCAL_WORK_LIMIT = 70000000
     _NB_THREADS = 8
 
     def __init__( self ):
@@ -30,12 +30,15 @@ class Controller:
         self.__market_queue = Queue(maxsize=self.QUEUE_SIZE)
 
         # variables for new market and trade events.
-        self.__new_market_event = False  # we get an update for the new market.
-        self._new_trade_event   = False  # we get an update that a new trade arrived.
+        self._new_market_event = False  # we get an update for the new market.
+        self._new_trade_event  = False  # we get an update that a new trade arrived.
 
         # trade queues
-        self.__trade_queue_curr_market = Queue()
-        self.__trade_queue_new_market  = Queue()
+        self._trade_queue_curr_market = Queue()
+        self._trade_queue_new_market  = Queue()
+
+        # market object
+        self._market_obj = None
 
         # current and new value of the portfolio on the market.
         self.__market_curr = None
@@ -65,10 +68,10 @@ class Controller:
         return self.__market_new
 
     def curr_mkt_queue_size(self):
-        return self.__trade_queue_curr_market.qsize()
+        return self._trade_queue_curr_market.qsize()
 
     def new_mkt_queue_size(self):
-        return self.__trade_queue_new_market.qsize()
+        return self._trade_queue_new_market.qsize()
 
     @property
     def all_trades(self):
@@ -82,32 +85,9 @@ class Controller:
         """
 
         if curr_new == 'curr':
-            return not self.__trade_queue_curr_market.empty()
+            return not self._trade_queue_curr_market.empty()
 
-        return not self.__trade_queue_new_market.empty()
-
-    def add_position(self, new_positions : List) -> None:
-        """ Adding positions to the queue: to curr_market queue only if the new market is idle, otherwise to both
-            markets.
-
-        :param new_positions: new positions to be added to the process queue.
-        :returns: adds positions to the position queue and sets the new_trade_event to true
-        """
-
-        # always add positions to the current market
-        logger.debug(f'Adding positions to CURR market: {len(new_positions)}')
-        for new_position in new_positions:
-            self.__all_trades.append(new_position)
-            self.__trade_queue_curr_market.put(new_position)
-
-        # add positions to the new market only if it's working, otherwise dont
-        if self.__market_working('new'):  # add positions also to NEW queues.
-            logger.debug(f'Adding positions to NEW market queue: {len(new_positions)}')
-            for new_position in new_positions:
-                self.__trade_queue_new_market.put(new_position)
-
-        logger.debug(f'Positions in CURR market queue: {self.__trade_queue_curr_market.qsize()}')
-        logger.debug(f'Positions in NEW  market queue: {self.__trade_queue_new_market.qsize()}')
+        return not self._trade_queue_new_market.empty()
 
     def add_market(self, new_market):
         """ Adds the new market event to the queue, this shouldnt be that fast.
@@ -123,7 +103,7 @@ class Controller:
             # both markets are idle (add all trades to the new market, leave the curr one alone)
             self.__market_new = None  # reset the new market
             for new_position in self.__prune_offsetting_trades(self.__all_trades):
-                self.__trade_queue_new_market.put(new_position)
+                self._trade_queue_new_market.put(new_position)
 
         # BOTTOM TWO ARE NOT NEEDED, I LEFT THEM IN TO ILLUSTRATE THAT THEY ARE NOT NEEDED.
         # if (not self.__market_working('curr')) and self.__market_working('new'):
@@ -216,7 +196,7 @@ class Controller:
         :returns: nothing, runs the thread for the current market.
         """
 
-        trade_queue = self.__trade_queue_curr_market if curr_new_mkt == 'curr' else self.__trade_queue_new_market
+        trade_queue = self._trade_queue_curr_market if curr_new_mkt == 'curr' else self._trade_queue_new_market
 
         while True:
 
