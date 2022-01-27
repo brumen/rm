@@ -27,8 +27,6 @@ class Controller:
         """ Controller class, keeps track of the system and distributes work.
         """
 
-        self.__market_queue = Queue(maxsize=self.QUEUE_SIZE)
-
         # variables for new market and trade events.
         self._new_market_event = False  # we get an update for the new market.
         self._new_trade_event  = False  # we get an update that a new trade arrived.
@@ -48,6 +46,14 @@ class Controller:
         self.__curr_market_prev_working = False
 
         self.__all_trades = []
+
+        # market snaps
+        initial_market = self._snap_market()
+        self._market_snap_curr = initial_market
+        self._market_snap_new  = initial_market  # TODO: CHECK IF THIS IS OK??
+
+    def _snap_market(self):
+        raise NotImplementedError(f'Implement this method')
 
     @property
     def curr_market(self):
@@ -89,15 +95,13 @@ class Controller:
 
         return not self._trade_queue_new_market.empty()
 
-    def add_market(self, new_market):
+    def new_mkt_event(self) -> None:
         """ Adds the new market event to the queue, this shouldnt be that fast.
 
-        :param new_market: market event to be added.
         :returns: nothing, just adds the market to the market process queue and sets the __new_market_event.
         """
 
         logger.debug('New market event occurred.')
-        self.__market_queue.put(new_market)
 
         if not self.__market_working('new'):
             # both markets are idle (add all trades to the new market, leave the curr one alone)
@@ -112,6 +116,29 @@ class Controller:
         #
         # if self.__market_working('curr') and self.__market_working('new'):
         #     pass
+
+    def add_position(self, new_positions : List) -> None:
+        """ Adding positions to the queue: to curr_market queue only if the new market is idle, otherwise to both
+            markets.
+
+        :param new_positions: new positions to be added to the process queue.
+        :returns: adds positions to the position queue and sets the new_trade_event to true
+        """
+
+        # always add positions to the current market
+        logger.debug(f'Adding positions to CURR market: {len(new_positions)}')
+        for new_position in new_positions:
+            self.__all_trades.append(new_position)
+            self._trade_queue_curr_market.put(new_position)
+
+        # add positions to the new market only if it's working, otherwise dont
+        if self.__market_working('new'):  # add positions also to NEW queues.
+            logger.debug(f'Adding positions to NEW market queue: {len(new_positions)}')
+            for new_position in new_positions:
+                self._trade_queue_new_market.put(new_position)
+
+        logger.debug(f'CURRENT market positions: {self._trade_queue_curr_market.qsize()}')
+        logger.debug(f'NEW     market positions: {self._trade_queue_new_market.qsize()}')
 
     @staticmethod
     def __prune_offsetting_trades(trades : List[Tuple[int, str]]) -> List[Tuple[int, str]]:
@@ -170,7 +197,7 @@ class Controller:
 
         return trade_pv_1 + trade_pv_2  # neither is None
 
-    def _value_portfolio_local(self, trades : Union[List, Generator]) -> Union[List, Generator]:
+    def _value_portfolio_local(self, trades : Union[List, Generator], params) -> Union[List, Generator]:
         """ Values the portfolio of trades, has to be implemented in the subclass.
 
         :param trades: list of trades
@@ -188,63 +215,98 @@ class Controller:
 
         raise NotImplementedError(f'_value_portfolio_remote has to be implemented in the class.')
 
-    def __trade_processor(self, curr_new_mkt : str, sleep_delay : float = 0.1):
-        """ Runs the thread processor for the current (or new) market.
+    def _replace_curr_with_new_mkt(self) -> bool:
+        """ Indicator whether to switch: curr_market <- new market
 
-        :param curr_new_mkt: choice between the current and new markets ('curr', 'new')
+        :returns: True if the switch should be done, otherwise False
+        """
+
+        if self._trade_queue_new_market.empty() and self.__new_market_prev_working:
+            return True
+
+        return False
+
+    def _trade_processor_curr(self, sleep_delay: float = 0.1):
+        """ Runs the thread processor for the current market.
+
         :param sleep_delay: sleep delay in case of IDLE market.
         :returns: nothing, runs the thread for the current market.
         """
 
-        trade_queue = self._trade_queue_curr_market if curr_new_mkt == 'curr' else self._trade_queue_new_market
+        trade_queue = self._trade_queue_curr_market
 
         while True:
 
-            logger.debug(f'Trades in {curr_new_mkt} queue: {trade_queue.qsize()}')
+            logger.info(f'Trades in current queue: {trade_queue.qsize()}')
             if not trade_queue.empty():
 
-                if curr_new_mkt == 'curr':
-                    self.__curr_market_prev_working = True
-                else:
-                    self.__new_market_prev_working = True
+                self.__curr_market_prev_working = True
 
-                logger.debug(f'Processing trades on the {curr_new_mkt} market: {trade_queue.qsize()}.')
+                logger.info(f'Processing trades on the current market: {trade_queue.qsize()}.')
                 # start by processing them 1 by one
                 queue_size = trade_queue.qsize()
+                nb_elts_to_take = 10  # TODO: HERE
 
-                if queue_size < self.LOCAL_WORK_LIMIT:
-                    trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size))
-                else:
-                    trade_values = self._value_portfolio_remote(self._get_trades_from_queue(trade_queue, nb_elts = queue_size // self._NB_THREADS ))
+                # TODO: REPLACE W REMOTE CALL AS WELL
+                trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=nb_elts_to_take), self._market_snap_curr)
+                # if queue_size < self.LOCAL_WORK_LIMIT:
+                #     trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size), self._market_snap_curr)
+                # else:
+                #     trade_values = self._value_portfolio_remote(self._get_trades_from_queue(trade_queue, nb_elts=queue_size // self._NB_THREADS))  # TODO: PARAMETERS HERE STILL TO COME
 
                 for curr_trade_val in trade_values:
-                    if curr_new_mkt == 'curr':
-                        self.__market_curr = self._trade_result_agg_single(self.__market_curr, curr_trade_val)
-                    else:
-                        self.__market_new = self._trade_result_agg_single(self.__market_new, curr_trade_val)
+                    self.__market_curr = self._trade_result_agg_single(self.__market_curr, curr_trade_val)
 
             else:
-                if curr_new_mkt == 'new':  # only for the new market
-                    if self.__new_market_prev_working:
-                        self.__market_curr = self.__market_new
-
                 # update the prev working section to set the prev working to False
-                if curr_new_mkt == 'curr':
-                    self.__curr_market_prev_working = False
-                else:
-                    self.__new_market_prev_working = False
+                self.__curr_market_prev_working = False
 
-                sleep(sleep_delay)
+            sleep(sleep_delay)
 
-    def _event_reaction(self, sleep_delay : float = 0.1):
-        """ Reacts to certain things.
+    def _trade_processor_new(self, sleep_delay : float = 0.1):
+        """ Runs the thread processor for the NEW market.
 
         :param sleep_delay: sleep delay in case of IDLE market.
         :returns: nothing, runs the thread for the current market.
         """
 
+        trade_queue = self._trade_queue_new_market
+
         while True:
-            sleep(sleep_delay)
+
+            logger.info(f'New market, trades in queue: {trade_queue.qsize()}')
+            if not trade_queue.empty():
+
+                self.__new_market_prev_working = True
+
+                logger.info(f'Processing trades on the new market: {trade_queue.qsize()}.')
+                # start by processing them 1 by one
+                queue_size = trade_queue.qsize()
+                nb_elts_to_take = 10  # TODO: HERE
+
+                # TODO: REPLACE W/ REMOTE CALL AS WELL
+                trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=nb_elts_to_take), self._market_snap_new)
+                # if queue_size < self.LOCAL_WORK_LIMIT:
+                #     trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size), self._market_snap_new)
+                # else:
+                #     trade_values = self._value_portfolio_remote(self._get_trades_from_queue(trade_queue, nb_elts = queue_size // self._NB_THREADS ))  # TODO: FIX THIS HERE
+
+                for curr_trade_val in trade_values:
+                    self.__market_new = self._trade_result_agg_single(self.__market_new, curr_trade_val)
+
+            else:
+                if self._replace_curr_with_new_mkt():  # this is equivalent to the statement above
+                    self.__market_curr = self.__market_new
+
+                    # new snaps of the market
+                    logger.info(f'Switching from current market to the new market.')
+                    self._market_snap_curr = self._market_snap_new
+                    self._market_snap_new  = self._snap_market()  # new market
+
+                # update the prev working section to set the prev working to False
+                self.__new_market_prev_working = False
+
+                sleep(sleep_delay)
 
     def start(self, idle_delay : float = 0.1) -> List[Thread]:
         """ Run the controller, start current and new market processing threads.
@@ -254,13 +316,15 @@ class Controller:
         """
 
         # new market thread, curr_mkt_thread
-        curr_mkt_thread = Thread(target = lambda : self.__trade_processor('curr', sleep_delay=idle_delay) )
+        curr_mkt_thread = Thread(target = lambda : self._trade_processor_curr(sleep_delay=idle_delay) )
         curr_mkt_thread.start()
 
-        new_mkt_thread = Thread(target = lambda : self.__trade_processor('new', sleep_delay=idle_delay) )
+        new_mkt_thread = Thread(target = lambda : self._trade_processor_new(sleep_delay=idle_delay) )
         new_mkt_thread.start()
 
-        reaction_thread = Thread(target = lambda : self._event_reaction(sleep_delay=idle_delay))
-        reaction_thread.start()
+        return [curr_mkt_thread, new_mkt_thread]
 
-        return [curr_mkt_thread, new_mkt_thread, reaction_thread]
+
+# sample start of the controller
+# controller = ControllerAO()
+# controller.start()
