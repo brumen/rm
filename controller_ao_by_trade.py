@@ -20,7 +20,9 @@ class ControllerAOByTrade(ControllerAO):
     """
 
     @staticmethod
-    def _trade_result_agg_single(trade_pv_1 : Optional[Dict[int, float]], trade_pv_2 : Optional[Tuple[int, float]]) -> Union[Dict[int, float], None]:
+    def _trade_result_agg_single( trade_pv_1 : Optional[Dict[int, float]]
+                                , trade_pv_2 : Optional[Dict[str, Union[float, Dict[str, float]]]]
+                                , ) -> Union[Dict[int, float], None]:
         """ Aggregate trade_1 and trade_2, where trade_pv_1 and trade_pv_2 are dictionaries.
         Merging of the dicts.
 
@@ -51,7 +53,7 @@ class ControllerAOByTrade(ControllerAO):
 
 def main():
     # By trade example
-    ao_by_trade = ControllerAOByTrade(topic_to_publish_to='ao_results_by_trade')
+    ao_by_trade = ControllerAOByTrade(results_topic='ao_results_by_trade')
     ao_by_trade.start()
 
-# main()
+main()

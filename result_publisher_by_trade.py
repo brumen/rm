@@ -2,7 +2,10 @@ import logging
 import tkinter as tk
 import numpy   as np
 import pandas  as pd
+import requests
 
+from typing      import Dict
+from time        import sleep
 from threading   import Thread
 from json        import loads
 from kafka       import KafkaConsumer
@@ -13,24 +16,14 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-class ResultPublisherByTrade:
+class ResultPublisherBase:
+    """ Base class for publishing results.
+    """
 
-    def __init__(self
-                , server = 'localhost'
-                , port   = 9092
-                , topic  = 'ao_results_by_trade' ):
-
-        logger.debug('Initializing ResultPublisherByTrade.')
-        self._server = server
-        self._port   = port
-        self._topic  = topic
-        self._subscriber = KafkaConsumer(topic, bootstrap_servers=f'{server}:{port}')
+    def __init__(self):
 
         # values of the portfolio
-        self.curr_value = {}  # current value
-        self.new_value  = {}  # value evaluated on the new market
-        self._trades_curr_working = 0
-        self._trades_new_working  = 0
+        self.curr_value = {}  # current results value of the portfolio
 
         # Tk canvas for display
         self._root = tk.Tk()
@@ -39,7 +32,50 @@ class ResultPublisherByTrade:
         self._results_table = Table(self._frame, showtoolbar=True, showstatusbar=True)
         self._results_table.show()
 
-    def _get_results_ao(self):
+    def _get_results(self):
+        """ Gets the results from Kafka.
+
+        :returns: None, just updates curr_value, new_value, and trades
+        """
+
+        raise NotImplemented(f'Implement the function that updates self.curr_value')
+
+    def update_results(self):
+        """ Updates the pandas table w/ the results.
+        """
+
+        if isinstance(self.curr_value, np.ndarray):
+            self._results_table.model.df = pd.DataFrame(self.curr_value)
+            self._results_table.redraw()
+
+        self._root.after(1, self.update_results)
+
+    def start(self):
+        # TODO: MAYBE FIX THREADING HERE!!!
+
+        # thread for reading results
+        thread_updating = Thread(target=self._get_results)
+        thread_updating.start()
+
+        self._root.after(1, self.update_results)
+        self._root.mainloop()  # looping the tk canvas
+
+
+class ResultPublisherKafka(ResultPublisherBase):
+    """ Results are obtained from Kafka.
+    """
+
+    def __init__( self
+                  , server_port_topic = ('localhost', 9092, 'ao_results_by_trade')
+                  , ):
+
+        super().__init__()
+
+        server, port, topic = server_port_topic
+
+        self._subscriber = KafkaConsumer(topic, bootstrap_servers=f'{server}:{port}')
+
+    def _get_results(self):
         """ Gets the results from Kafka.
 
         :returns: None, just updates curr_value, new_value, and trades
@@ -52,84 +88,51 @@ class ResultPublisherByTrade:
             if field == 'curr_market':
                 self.curr_value = np.array([]) if value is None else np.array(list(value.items()))
 
-            elif field == 'new_market':
-                self.new_value = np.array([]) if value is None else np.array(list(value.items()))
 
-            elif field == 'curr_trades':
-                self._trades_curr_working = value
-
-            elif field == 'new_trades':
-                self._trades_new_working = value
-
-    def update_results(self):
-        """ Updates the pandas table w/ the results.
-        """
-
-        if isinstance(self.curr_value, np.ndarray):
-            self._results_table.model.df = pd.DataFrame(self.curr_value)
-            self._results_table.redraw()
-        self._root.after(1, self.update_results)
-
-    def start(self):
-        # thread for reading results
-        thread_updating = Thread(target=self._get_results_ao)
-        thread_updating.start()
-
-        self._root.after(1, self.update_results)
-        self._root.mainloop()  # looping the tk canvas
-
-
-class ResultPublisher(ResultPublisherByTrade):
-    """ Publisher of aggregated results.
+class ResultPublisherRester(ResultPublisherBase):
+    """ Results are obtained from rester and displayed, somewhat processed.
     """
 
-    def __init__(self
-                , server = 'localhost'
-                , port   = 9092
-                , topic  = 'ao_results' ):
+    def __init__( self
+                  , rester_addr = 'http://localhost:5001/mkt/get_market_2'
+                  , sleep_time  = 5
+                  , ):
+        """ Display the portfolio results from the rester.
 
-        super().__init__(server=server, port=port, topic=topic)
-        self._results_table.showIndex()
-        # add a field for trade nb
-        self._nb_field = tk.Text(self._frame, height=1, width=30)
-        # TODO: STUFF HERE IMPROVE
-        # self._nb_field.pack(side=tk.BOTTOM)
-
-    def _get_results_ao(self):
-        """ Gets the results from Kafka and attributes them to self.curr_value etc.
-
-        :returns: None, just updates curr_value, new_value, and trades
+        :param rester_addr: address from which the results are read.
+        :param sleep_time: sleep time in seconds between refreshes.
         """
 
-        for msg in self._subscriber:
-            logger.debug(f'Processing trades. {self._trades_curr_working} in the current queue, {self._trades_new_working} in the new queue.')
-            field, value = loads(msg.value)  # value is json encoded
+        super().__init__()
 
-            if field == 'curr_market':
-                self.curr_value = {} if value is None else value['PV01']
+        self._rester_addr = rester_addr
+        self._sleep_time  = sleep_time
 
-            elif field == 'new_market':
-                self.new_value = {} if value is None else value['PV01']
+    def _get_results(self) -> None:
+        """ Gets the results from rester and update self.curr_value
 
-            elif field == 'curr_trades':
-                self._trades_curr_working = value
-
-            elif field == 'new_trades':
-                self._trades_new_working = value
-
-    def update_results(self):
-        """ Updates the pandas table w/ the results.
+        :returns: updates curr_value which is then displayed.
         """
 
-        if isinstance(self.curr_value, dict):
-            self._results_table.model.df = pd.DataFrame.from_dict(self.curr_value, orient='index')
-            self._results_table.redraw()
-        self._root.after(1, self.update_results)
+        while True:
+            logger.info('Obtaining new result batch.')
+            self.curr_value = self.decode_results(requests.get(self._rester_addr).json())
+
+            sleep(self._sleep_time)
+
+    @staticmethod
+    def decode_results(results : Dict[str, float]) -> np.ndarray:
+        """ Processing the results.
+
+        """
+        results_d = results.get('PV01', {})
+
+        return np.array(list(results_d.items()))
 
 
 def main():
-    rp = ResultPublisher(topic='ao_results')
+    rp = ResultPublisherRester()
     rp.start()
 
 
-# main()
+main()

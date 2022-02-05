@@ -17,7 +17,7 @@ from kafka     import KafkaConsumer, KafkaProducer, TopicPartition
 from rm.controller2    import Controller
 from ao.air_option     import AirOptionFlights
 from ao.trade          import AOTrade, create_session, AOTradeException
-from rm.market_service import AOMarketService
+from rm.market_service import MarketEncodeDecodeMixin
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def get_trade(trade_id : int, db_session = None) -> Union[None, AOTrade]:
     return ao_trade
 
 
-class ControllerAO(Controller):
+class ControllerAO(Controller, MarketEncodeDecodeMixin):
     """ Controller for AirOptions.
     """
 
@@ -310,10 +310,7 @@ class ControllerAO(Controller):
              values.
         """
 
-        response = requests.get(self._mkt_rester)
-        market_id, market = AOMarketService.decode_mkt(response.json())
-
-        return market
+        return self.decode_mkt(requests.get(self._mkt_rester).json())  # market rester gives the encoded market
 
     def __construct_portfolio(self) -> None:
         """ Gets all the positions which are in the Kafka queue in self.__listener
@@ -383,6 +380,14 @@ class ControllerAO(Controller):
                 continue
 
             self.new_mkt_event()
+
+    def encode_results(self):
+        """ Encodes the results, in this case it's easy, just call dumps.
+
+        """
+
+        return dumps(self.new_market)
+
 
     def start( self
              , controller_delay : float = 0.3
