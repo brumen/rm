@@ -1,10 +1,12 @@
-""" Results of the controller.
+""" market controller and rester.
 """
 
 import logging
 import sys
-sys.path.append('/home/brumen/work')
-from flask     import Flask, jsonify
+
+from flask     import Flask
+
+sys.path.append('/home/brumen/work/')
 
 from rm.controller_ao2 import ControllerAO
 
@@ -28,5 +30,5 @@ def get_market():
 
     return controller.encode_results()  # this encodes the latest results
 
-# Published on port 5001
+
 market_rester_2.run(port=5001)

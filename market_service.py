@@ -59,7 +59,7 @@ class MarketEncodeDecodeMixin:
     def decode_mkt(cls, encoded_id_mkt : Tuple[UUID, Dict[str, float]]) -> Dict[Tuple[str, datetime.date], float]:
         """ Decodes the encoded market w/ the encode_mkt function above.
 
-        :param encoded_mkt: encoded market to be decoded.
+        :param encoded_id_mkt: market_id, and encoded market as a tuple.
         :return: decoded market in a more reasonable form.
         """
 
@@ -68,19 +68,18 @@ class MarketEncodeDecodeMixin:
         return {cls.decode_to_tuple(encoded_nb_date) : flight_price
                 for encoded_nb_date, flight_price in encoded_mkt.items() }
 
-    # TODO: DO THESE METHODS BELONG HERE???
     @classmethod
     def encode_mkt(cls, latest_id_market : Tuple[UUID, Dict[Tuple[str, datetime.date], float]]) -> Tuple[UUID, Dict[str, float]]:
         """ Encodes the latest market to be sent over json
             encoding is in the form ('UA79', datetime.date(2022, 1, 2)) -> 'UA79|20220101'
             using %Y%m%d encoding for date.
 
-        :returns: encoded market in the format above.
+        :returns: tuple of UUID for the market, and encoded market in the format above.
         """
 
         if latest_id_market is None:
             logger.warning('Market not yet computed. Wait a bit')
-            return 'noname_id', {}
+            return uuid4(), {}  # useless uuid
 
         # market is computed, decipher it.
         latest_market_id, latest_market = latest_id_market  # TODO: FIX THE NAMING CONVENTION
@@ -88,8 +87,6 @@ class MarketEncodeDecodeMixin:
         return latest_market_id, cls.encode_from_tuple(latest_market)
 
 
-
-# TODO: USE ProducerBase class here
 class MarketService:
     """ Gathering information about the market. Runs on a ticker. For a certain period of time,
         Market data is collected from the topic air_options.ao.flights_live.

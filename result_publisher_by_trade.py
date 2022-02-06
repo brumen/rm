@@ -72,6 +72,7 @@ class ResultPublisherKafka(ResultPublisherBase):
         super().__init__()
 
         server, port, topic = server_port_topic
+        self._server_port_topic = server_port_topic
 
         self._subscriber = KafkaConsumer(topic, bootstrap_servers=f'{server}:{port}')
 
@@ -82,7 +83,7 @@ class ResultPublisherKafka(ResultPublisherBase):
         """
 
         for msg in self._subscriber:
-            logger.debug(f'Processing trades. {self._trades_curr_working} in the current queue, {self._trades_new_working} in the new queue.')
+            logger.debug(f'Processing trades from {self._server_port_topic}.')
             field, value = loads(msg.value)  # value is json encoded
 
             if field == 'curr_market':
@@ -116,7 +117,22 @@ class ResultPublisherRester(ResultPublisherBase):
 
         while True:
             logger.info('Obtaining new result batch.')
-            self.curr_value = self.decode_results(requests.get(self._rester_addr).json())
+
+            try:
+                results = requests.get(self._rester_addr)
+
+            except ConnectionError as ce:
+                logger.warning(f'Could not connect to {self._rester_addr}: {ce}')
+                results_final = {}
+
+            except Exception as e:
+                logger.warning(f'Weird error: {e}')
+                results_final = {}
+
+            finally:  # no exception
+                results = results.json()  # we got the results, convert from json
+
+            self.curr_value = self.decode_results(results_final)
 
             sleep(self._sleep_time)
 
@@ -128,11 +144,3 @@ class ResultPublisherRester(ResultPublisherBase):
         results_d = results.get('PV01', {})
 
         return np.array(list(results_d.items()))
-
-
-def main():
-    rp = ResultPublisherRester()
-    rp.start()
-
-
-main()

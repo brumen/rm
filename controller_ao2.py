@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-RES_TYPE = Dict[str, Any]
+RES_TYPE = Dict[str, Any]  # resulting type
 
 
 def get_trade(trade_id : int, db_session = None) -> Union[None, AOTrade]:
@@ -53,6 +53,7 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
     """
 
     LOCAL_WORK_LIMIT = 50  # when to switch to spark
+    VALUE_TRADE      = 'market'  # either 'on-the-fly' or 'market'
 
     def __init__( self
                 , mkt_date        : datetime.date = datetime.date(2016, 1, 1)
@@ -146,27 +147,31 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
 
     @classmethod
     def _compute_trade(cls, mkt_date : datetime.date, ao_trade : AOTrade, trade_direction : str, params) -> RES_TYPE:
+        """ Computes the value of the trade, can switch between computation types.
 
-        old_style = False
-
-        if old_style:
-            return cls._compute_trade_on_the_fly(mkt_date, ao_trade, trade_direction)
-
-        return cls._compute_trade_from_mkt(mkt_date, ao_trade, trade_direction, params)  # TODO: here the parameters are market
-
-    @classmethod
-    def _compute_trade_on_the_fly(cls, mkt_date : datetime.date, ao_trade : AOTrade, trade_direction : str) -> RES_TYPE:
-        """ Raw computation of the trade.
-
-        :param mkt_date: market date
-        :param ao_trade: ao trade to be values.
-        :param trade_direction: direction of the trade, 'c' for long, 'd' for short
-        :returns: value that should be computed
+        :param mkt_date: market date for computation.
+        :param ao_trade: trade to value, and compute risk of.
+        :param trade_direction: direction of the trade, 'c' for long, 'd' for short.
+        :param params: parameters for the market computation of the trade.
+        :returns: value of the trade, and risk.
         """
 
-        # TODO: params usage
+        if cls.VALUE_TRADE == 'on-the-fly':
+            return cls._compute_trade_on_the_fly(mkt_date, ao_trade, trade_direction)
 
-        # OLD USAGE:
+        return cls._compute_trade_from_mkt(mkt_date, ao_trade, trade_direction, params)  # params are market info
+
+    @classmethod
+    def _compute_trade_on_the_fly(cls, mkt_date : datetime.date, ao_trade : AOTrade, trade_direction : str) -> Dict[str, float]:
+        """ Compute trades by fetching the market data on-the-fly, meaning at the time that the trade is computed.
+            _compute_trade_from_mkt uses the same market for all trades (when it can).
+
+        :param mkt_date: market date.
+        :param ao_trade: ao trade to be values.
+        :param trade_direction: direction of the trade, 'c' for long, 'd' for short.
+        :returns: PV and PV01 of the trade to be computed.
+        """
+
         aof = AirOptionFlights.from_flights( mkt_date, ao_trade.flights, ao_trade.strike)
 
         pv = aof.PV()
@@ -184,15 +189,16 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
                                , trade_direction : str
                                , market          : Dict[Tuple[str, datetime.date], float]
                                , default_price   : float = 200.
-                               , ) -> RES_TYPE:
-        """ Computes the trade from the market provided (market).
+                               , ) -> Dict[str, float]:
+        """ Computes the trade from the market provided.
 
         :param mkt_date: market date
         :param ao_trade: ao trade to be values.
         :param trade_direction: direction of the trade, 'c' for long, 'd' for short
-        :param market : market provided
+        :param market: market provided, a dictionary where keys are (flight_nb, flight_date), and values
+                  are flight prices for that flight.
         :param default_price: default price if the flight could not be found in the market
-        :returns: value that should be computed
+        :returns: PV and PV01 of the trade.
         """
 
         flights = []
@@ -207,7 +213,7 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
             # carrier = Column(String)
 
             dep_date  = flight.dep_date.date()  # this is datetime.datetime by default
-            flight_id = flight.flight_id  # TODO: CHECK IF THIS IS TRUE
+            flight_id = flight.flight_id
             carrier   = flight.carrier
             flight_nb = f'{carrier}{flight_id}'
 
@@ -230,7 +236,7 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
 
     @staticmethod
     def _trade_result_agg_single(trade_pv_1 : Optional[RES_TYPE], trade_pv_2 : Optional[RES_TYPE]) -> Union[None, RES_TYPE]:
-        """ Aggregates two Dict[str, Any]"""
+        """ Aggregates two dictionaries of type: Dict[str, Any]"""
 
         if trade_pv_1 is None:
             if trade_pv_2 is None:
@@ -304,13 +310,22 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
                       # .aggregate(0., self.__class__._trade_result_agg, self.__class__._trade_result_agg)
 
     def _snap_market(self) -> Dict[Tuple[str, datetime.date], float]:
-        """ Snaps the latest market from the rester service.
+        """ Snaps the latest market from the rester service. If it cant find the rester service, returns the
+            empty market.
 
-        :returns Dict[Tuple[str, datetime.date], float]: market w/ flights and date as keys, flight prices as
-             values.
+        :returns: market w/ (flight id, flight date) as keys, flight prices as values.
         """
 
-        return self.decode_mkt(requests.get(self._mkt_rester).json())  # market rester gives the encoded market
+        try:
+            return self.decode_mkt(requests.get(self._mkt_rester).json())  # market rester gives the encoded market
+
+        except ConnectionError as ce:  # bad connection
+            logger.warning(f'Could not connect to {self._mkt_rester}: {ce}')
+            return {}
+
+        except Exception as e:
+            logger.warning(f'Other error: {e}')
+            return {}
 
     def __construct_portfolio(self) -> None:
         """ Gets all the positions which are in the Kafka queue in self.__listener
@@ -371,12 +386,12 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
     def _handle_mkt_events(self) -> None:
         """ Handles market events.
 
-        :returns: nothing, just handles the signals
+        :returns: handles the market signal.
         """
 
         for msg in self.__mkt_listener:
             logger.debug(msg)
-            if msg.value is None:  # TODO: CHECK THIS HERE!!!
+            if msg.value is None:  # TODO: check this condition.
                 continue
 
             self.new_mkt_event()

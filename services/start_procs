@@ -10,16 +10,12 @@
 #     this writes on the topic demo.ao.option_positions and reports the option_positions
 
 # PYTHON PART:
-#    start market updater in python:
-#           from rm.market_ticker import MarketUpdaterJoke; mu = MarketUpdaterJoke(); mu.start(idle_delay=5)
-#    start controller:
-#           from rm.controller_ao2 import ControllerAO; ao = ControllerAO(); ao.start()
-
+#    start market service in python:
+#           python3.9 services/market_service_start.py
+#    start controller (results) service:
+#           python3.9 services/controller_ao2_start.py
 #    start result publisher:
-#        python result_publisher.py
-
-#    react code in:
-#       ~/learn/counter-app/app.js
+#        python3.9 services/result_publisher.py
 
 
 # POSITION UPDATER IS NOT NEEDED ANYMORE:

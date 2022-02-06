@@ -44,6 +44,7 @@ class ControllerAOByTrade(ControllerAO):
         # aggregation of two dictionaries
         trade_2_id, trade_2_pv = trade_pv_2
         if trade_2_id not in trade_pv_1:
+
             trade_pv_1[trade_2_id] = trade_2_pv
         else:
             trade_pv_1[trade_2_id] += trade_2_pv
