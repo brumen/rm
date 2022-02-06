@@ -18,7 +18,6 @@ class DeltaDict(dict):
         """ Merge the two delta dicts.
 
         :param other: other delta dictionary, {'UA71': 1.,...}
-        :param delta_2: delta dictionary, {'UA71': 2, 'UA72': 1.,...}
         :returns: resulting delta dictionary {'UA71': 3, 'UA72': 1.,...}
         """
 
