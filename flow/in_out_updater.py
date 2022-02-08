@@ -4,7 +4,6 @@ from time      import sleep
 from uuid      import uuid4
 from threading import Thread
 
-from rm.flow.input_classes import InputFactory
 from rm.flow.output_classes import OutputFactory
 
 

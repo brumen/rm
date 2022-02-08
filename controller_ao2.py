@@ -2,7 +2,6 @@
 """
 
 import sys
-sys.path.append('/home/brumen/work/')
 import datetime
 import logging
 import requests
@@ -14,9 +13,11 @@ from pyspark   import SparkContext, SparkConf
 from threading import Thread
 from kafka     import KafkaConsumer, KafkaProducer, TopicPartition
 
-from rm.controller2    import Controller
+sys.path.append('/home/brumen/work/')
+
 from ao.air_option     import AirOptionFlights
 from ao.trade          import AOTrade, create_session, AOTradeException
+from rm.controller2    import Controller
 from rm.market_service import MarketEncodeDecodeMixin
 
 logging.basicConfig(filename='/tmp/controller.log')
@@ -63,7 +64,8 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
                 , mkt_rester      : str  = 'http://localhost:5000/mkt/get_market'
                 , positions_topic : str  = 'air_options.ao.option_positions'
                 , results_topic   : str  = 'ao_results'
-                , spark_ctx       : Dict = {'pyfile': r'/home/brumen/work/work_ao.zip' } ):
+                , spark_ctx       : Dict = {'pyfile': r'/home/brumen/work/work_ao.zip' }
+                  , local_only    : bool = False ):
         """ Initiates the Controller for computing the AirOptions portfolio.
 
         :param mkt_date: market date.
@@ -75,6 +77,8 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
         :param spark_ctx: configuration of spark context.
         """
 
+        super().__init__(local_only=local_only)  # _mkt_rester should be defined.
+
         self.mkt_date    = mkt_date
         self.server_name = server_name
         self.port        = port
@@ -83,8 +87,6 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
         self._mkt_rester    = mkt_rester
         self._results_topic = results_topic
         self._positions_topic = positions_topic
-
-        super().__init__()  # _mkt_rester should be defined.
 
         bootstrap_servers = f'{server_name}:{port}'
 
@@ -398,7 +400,6 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
 
     def encode_results(self):
         """ Encodes the results, in this case it's easy, just call dumps.
-
         """
 
         return dumps(self.new_market)

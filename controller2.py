@@ -23,9 +23,13 @@ class Controller:
     LOCAL_WORK_LIMIT = 70000000
     _NB_THREADS = 8
 
-    def __init__( self ):
+    def __init__( self, local_only : bool = False ):
         """ Controller class, keeps track of the system and distributes work.
+
+        :param local_only: only use local service to run the computations.
         """
+
+        self._local_only : bool = local_only
 
         # variables for new market and trade events.
         self._new_market_event = False  # we get an update for the new market.
@@ -248,11 +252,11 @@ class Controller:
                 nb_elts_to_take = 10  # TODO: HERE
 
                 # TODO: REPLACE W REMOTE CALL AS WELL
-                trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=nb_elts_to_take), self._market_snap_curr)
-                # if queue_size < self.LOCAL_WORK_LIMIT:
-                #     trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size), self._market_snap_curr)
-                # else:
-                #     trade_values = self._value_portfolio_remote(self._get_trades_from_queue(trade_queue, nb_elts=queue_size // self._NB_THREADS))  # TODO: PARAMETERS HERE STILL TO COME
+                #trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=nb_elts_to_take), self._market_snap_curr)
+                if queue_size < self.LOCAL_WORK_LIMIT:
+                    trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size), self._market_snap_curr)
+                else:
+                    trade_values = self._value_portfolio_remote(self._get_trades_from_queue(trade_queue, nb_elts=queue_size // self._NB_THREADS))  # TODO: PARAMETERS HERE STILL TO COME
 
                 for curr_trade_val in trade_values:
                     self.__market_curr = self._trade_result_agg_single(self.__market_curr, curr_trade_val)
@@ -285,11 +289,11 @@ class Controller:
                 nb_elts_to_take = 10  # TODO: HERE
 
                 # TODO: REPLACE W/ REMOTE CALL AS WELL
-                trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=nb_elts_to_take), self._market_snap_new)
-                # if queue_size < self.LOCAL_WORK_LIMIT:
-                #     trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size), self._market_snap_new)
-                # else:
-                #     trade_values = self._value_portfolio_remote(self._get_trades_from_queue(trade_queue, nb_elts = queue_size // self._NB_THREADS ))  # TODO: FIX THIS HERE
+                # trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=nb_elts_to_take), self._market_snap_new)
+                if queue_size < self.LOCAL_WORK_LIMIT:
+                    trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size), self._market_snap_new)
+                else:
+                    trade_values = self._value_portfolio_remote(self._get_trades_from_queue(trade_queue, nb_elts = queue_size // self._NB_THREADS ))  # TODO: FIX THIS HERE
 
                 for curr_trade_val in trade_values:
                     self.__market_new = self._trade_result_agg_single(self.__market_new, curr_trade_val)

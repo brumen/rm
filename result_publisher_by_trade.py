@@ -1,8 +1,11 @@
+""" Displaying the results in a table.
+"""
+
 import logging
+import requests
 import tkinter as tk
 import numpy   as np
 import pandas  as pd
-import requests
 
 from typing      import Dict
 from time        import sleep
@@ -130,7 +133,7 @@ class ResultPublisherRester(ResultPublisherBase):
                 results_final = {}
 
             finally:  # no exception
-                results = results.json()  # we got the results, convert from json
+                results_final = results.json()  # we got the results, convert from json
 
             self.curr_value = self.decode_results(results_final)
 
@@ -140,7 +143,10 @@ class ResultPublisherRester(ResultPublisherBase):
     def decode_results(results : Dict[str, float]) -> np.ndarray:
         """ Processing the results.
 
+        :param results: results to be decoded
         """
-        results_d = results.get('PV01', {})
 
-        return np.array(list(results_d.items()))
+        if results is None:
+            return np.array([])
+
+        return np.array(list(results.get('PV01', {}).items()))
