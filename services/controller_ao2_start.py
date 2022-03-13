@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel('INFO')
 
 # Controller start
-controller = ControllerAO(results_topic='ao_results')  # TODO: CHECK IF THIS IS RIGHT
+controller = ControllerAO()
 controller.start()  # this is non-blocking
 
 market_rester_2 = Flask(__name__)

@@ -168,7 +168,8 @@ class Controller:
 
         return prunned_positions
 
-    def _get_trades_from_queue(self, trade_queue : Queue, nb_elts : int = 1) -> Generator[Any, None, None]:
+    @staticmethod
+    def _get_trades_from_queue(trade_queue : Queue, nb_elts : int = 1) -> Generator[Any, None, None]:
         """ Take the trades from the trade events queue and put them in the portfolio.
 
         :param trade_queue: the queue from which the elts are taken.
@@ -286,10 +287,11 @@ class Controller:
                 logger.info(f'Processing trades on the new market: {trade_queue.qsize()}.')
                 # start by processing them 1 by one
                 queue_size = trade_queue.qsize()
-                nb_elts_to_take = 10  # TODO: HERE
 
                 # TODO: REPLACE W/ REMOTE CALL AS WELL
+                # nb_elts_to_take = 10
                 # trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=nb_elts_to_take), self._market_snap_new)
+
                 if queue_size < self.LOCAL_WORK_LIMIT:
                     trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size), self._market_snap_new)
                 else:

@@ -7,11 +7,10 @@ import logging
 import requests
 
 from json      import dumps, loads
-from time      import sleep
 from typing    import List, Tuple, Optional, Union, Any, Dict, Generator
 from pyspark   import SparkContext, SparkConf
 from threading import Thread
-from kafka     import KafkaConsumer, KafkaProducer, TopicPartition
+from kafka     import KafkaConsumer, TopicPartition
 
 sys.path.append('/home/brumen/work/')
 
@@ -50,7 +49,11 @@ def get_trade(trade_id : int, db_session = None) -> Union[None, AOTrade]:
 
 
 class ControllerAO(Controller, MarketEncodeDecodeMixin):
-    """ Controller for AirOptions.
+    """ Controller for AirOptions. This is how it works:
+
+    1. The positions are read from the positions_topic (air_options.ao.option_positions)
+    2. market events are read from mkt_events topic. (mkt_events)
+    3. holds the market results in the properties curr_market, new_market
     """
 
     LOCAL_WORK_LIMIT = 50  # when to switch to spark
@@ -63,9 +66,8 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
                 , mkt_topic       : str  = 'mkt_events'
                 , mkt_rester      : str  = 'http://localhost:5000/mkt/get_market'
                 , positions_topic : str  = 'air_options.ao.option_positions'
-                , results_topic   : str  = 'ao_results'
                 , spark_ctx       : Dict = {'pyfile': r'/home/brumen/work/work_ao.zip' }
-                  , local_only    : bool = False ):
+                , local_only      : bool = False ):
         """ Initiates the Controller for computing the AirOptions portfolio.
 
         :param mkt_date: market date.
@@ -73,7 +75,6 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
         :param port: port for the kafka server.
         :param mkt_topic: topic on Kafka to read from market/trade events.
         :param positions_topic: topic to read from positions.
-        :param results_topic: topic where results are published.
         :param spark_ctx: configuration of spark context.
         """
 
@@ -85,13 +86,11 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
 
         self._mkt_topic     = mkt_topic
         self._mkt_rester    = mkt_rester
-        self._results_topic = results_topic
         self._positions_topic = positions_topic
 
         bootstrap_servers = f'{server_name}:{port}'
 
         self.__mkt_listener = KafkaConsumer(mkt_topic, bootstrap_servers = bootstrap_servers)
-        self.__reporter     = KafkaProducer(bootstrap_servers = bootstrap_servers)  # reports the market to.
 
         self.__position_listener = KafkaConsumer(bootstrap_servers = bootstrap_servers)
         self.__position_listener.assign([TopicPartition(topic=positions_topic, partition=0)])
@@ -249,12 +248,11 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
         if trade_pv_2 is None:  # trade_pv_1 is not None
             return trade_pv_1
 
-        # neither is none
-        calcs_1 = list(trade_pv_1.keys())  # calcs are calculators, like PV, PV01...
-        assert calcs_1 == list(trade_pv_2.keys()), f'Calculator results dont have the same calculators.'  # not same calcs
+        for calc_type, calc_val in trade_pv_1.items():
+            if calc_type not in trade_pv_2:
+                raise RuntimeError(f'{calc_type} not present in the second computed value.')
 
-        for calc in calcs_1:
-            trade_pv_1[calc] += trade_pv_2[calc]  # each calc supports aggregation +
+            trade_pv_1[calc_type] += trade_pv_2[calc_type]  # each calc needs to support aggregation +
 
         return trade_pv_1
 
@@ -364,27 +362,6 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
             else:  # unknown type of event, raise RuntTimeError
                 raise RuntimeError(f'Unknown event type: {event_type}')
 
-    def _report_results(self, sleep_delay : float = 0.1):
-        """ Function that publishes the current market results to Kafka broker.
-
-        :param sleep_delay: delay between individual reporting of the current market results.
-        :returns: None, reports current market results to Kafka topic on self.__reporter.
-        """
-
-        while True:
-            logger.debug(f'Value of curr_market: {self.curr_market}')
-            logger.debug(f'Value of new_market: {self.new_market}')
-            logger.debug(f'Current portfolio size: {len(self.all_trades)}')
-
-            for field_value in [ ('curr_market', self.curr_market)
-                               , ('new_market', self.new_market)
-                               , ('curr_trades', self.curr_mkt_queue_size())
-                               , ('new_trades', self.new_mkt_queue_size())
-                               , ]:
-                self.__reporter.send(topic=self._results_topic, value=str.encode(dumps(field_value)))
-
-            sleep(sleep_delay)
-
     def _handle_mkt_events(self) -> None:
         """ Handles market events.
 
@@ -403,7 +380,6 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
         """
 
         return dumps(self.new_market)
-
 
     def start( self
              , controller_delay : float = 0.3
@@ -425,11 +401,7 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
         market_events_thread = Thread(target=self._handle_mkt_events, daemon=True)
         market_events_thread.start()
 
-        # reports results
-        reporter_thread = Thread(target= lambda : self._report_results(sleep_delay=report_delay), daemon=True)  # publisher thread.
-        reporter_thread.start()
-
         # curr_mkt_thread computes current market, new_mkt_thread is computing new market
-        controller_threads.extend([position_thread, reporter_thread, market_events_thread])
+        controller_threads.extend([position_thread, market_events_thread])
 
         return controller_threads
