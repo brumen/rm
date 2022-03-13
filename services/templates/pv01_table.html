@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+ <table id="data" class="table table-striped">
+   <thead>
+      <tr>
+        <th>Trade Id</th>
+        <th>PV01</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for trade_id, trade_pv01 in pv01_results.items() %}
+        <tr>
+          <td>{{ trade_id }}</td>
+          <td>{{ trade_pv01 }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+
+{% endblock %}
