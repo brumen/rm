@@ -69,7 +69,7 @@ class ResultPublisherKafka(ResultPublisherBase):
     """
 
     def __init__( self
-                  , server_port_topic = ('localhost', 9092, 'ao_results_by_trade')
+                  , server_port_topic = ('localhost', 9092, 'air_options.ao.results')
                   , ):
 
         super().__init__()
@@ -87,10 +87,10 @@ class ResultPublisherKafka(ResultPublisherBase):
 
         for msg in self._subscriber:
             logger.debug(f'Processing trades from {self._server_port_topic}.')
-            field, value = loads(msg.value)  # value is json encoded
+            logger.info(f'Got message: {msg.value}')
+            result_dict = loads(msg.value)  # value is json encoded
 
-            if field == 'curr_market':
-                self.curr_value = np.array([]) if value is None else np.array(list(value.items()))
+            self.curr_value = np.array([]) if result_dict is None else np.array(list(result_dict['PV01'].items()))
 
 
 class ResultPublisherRester(ResultPublisherBase):

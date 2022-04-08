@@ -4,20 +4,20 @@
 import sys
 import datetime
 import logging
-import requests
+import copy
 
 from json      import dumps, loads
 from typing    import List, Tuple, Optional, Union, Any, Dict, Generator
 from pyspark   import SparkContext, SparkConf
 from threading import Thread
-from kafka     import KafkaConsumer, TopicPartition
+from kafka     import KafkaConsumer, TopicPartition, KafkaProducer
 
 sys.path.append('/home/brumen/work/')
 
 from ao.air_option     import AirOptionFlights
 from ao.trade          import AOTrade, create_session, AOTradeException
 from rm.controller2    import Controller
-from rm.market_service import MarketEncodeDecodeMixin
+from rm.market_service import AOMarketService
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def get_trade(trade_id : int, db_session = None) -> Union[None, AOTrade]:
     return ao_trade
 
 
-class ControllerAO(Controller, MarketEncodeDecodeMixin):
+class ControllerAO(Controller):
     """ Controller for AirOptions. This is how it works:
 
     1. The positions are read from the positions_topic (air_options.ao.option_positions)
@@ -64,11 +64,16 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
                 , server_name     : str  = 'localhost'
                 , port            : int  = 9092
                 , mkt_topic       : str  = 'mkt_events'
-                , mkt_rester      : str  = 'http://localhost:5000/mkt/get_market'
+                # , mkt_rester      : str  = 'http://localhost:5000/mkt/get_market'
                 , positions_topic : str  = 'air_options.ao.option_positions'
+                , results_topic   : str  = 'air_options.ao.results'
                 , spark_ctx       : Dict = {'pyfile': r'/home/brumen/work/work_ao.zip' }
                 , local_only      : bool = False ):
         """ Initiates the Controller for computing the AirOptions portfolio.
+
+        The controller reacts to two inputs:
+            1. market events published on mkt_events topic of the kafka.
+            2. position events published on the air_options.ao.option_positions
 
         :param mkt_date: market date.
         :param server_name: kafka server name.
@@ -78,6 +83,8 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
         :param spark_ctx: configuration of spark context.
         """
 
+        self._latest_market = None
+
         super().__init__(local_only=local_only)  # _mkt_rester should be defined.
 
         self.mkt_date    = mkt_date
@@ -85,16 +92,21 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
         self.port        = port
 
         self._mkt_topic     = mkt_topic
-        self._mkt_rester    = mkt_rester
+        # self._mkt_rester    = mkt_rester
         self._positions_topic = positions_topic
+        self._results_topic   = results_topic
 
         bootstrap_servers = f'{server_name}:{port}'
 
-        self.__mkt_listener = KafkaConsumer(mkt_topic, bootstrap_servers = bootstrap_servers)
+        self.__mkt_listener = KafkaConsumer(bootstrap_servers = bootstrap_servers)
+        self.__mkt_listener.assign([TopicPartition(topic=mkt_topic, partition=0)])
+        self.__mkt_listener.seek_to_beginning()
 
         self.__position_listener = KafkaConsumer(bootstrap_servers = bootstrap_servers)
         self.__position_listener.assign([TopicPartition(topic=positions_topic, partition=0)])
         self.__position_listener.seek_to_beginning()
+
+        self.__results_publisher = KafkaProducer(bootstrap_servers = bootstrap_servers)
 
         self.__spark_ctx = spark_ctx  # spark context config
 
@@ -309,6 +321,15 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
                       .collect()
                       # .aggregate(0., self.__class__._trade_result_agg, self.__class__._trade_result_agg)
 
+    def _decode_mkt(self, request_json):
+        """ How to decode the market
+        
+        :param request_json: 
+        :return: 
+        """
+
+        return AOMarketService.decode_mkt(request_json)
+
     def _snap_market(self) -> Dict[Tuple[str, datetime.date], float]:
         """ Snaps the latest market from the rester service. If it cant find the rester service, returns the
             empty market.
@@ -316,16 +337,28 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
         :returns: market w/ (flight id, flight date) as keys, flight prices as values.
         """
 
-        try:
-            return self.decode_mkt(requests.get(self._mkt_rester).json())  # market rester gives the encoded market
-
-        except ConnectionError as ce:  # bad connection
-            logger.warning(f'Could not connect to {self._mkt_rester}: {ce}')
+        if self._latest_market is None:
             return {}
 
+        market_record = copy.deepcopy(self._latest_market)  # take the latest market
+        try:  # decode this
+            market_value = market_record.value
         except Exception as e:
-            logger.warning(f'Other error: {e}')
+            logger.error(f'Couldnt get the value from market: {e}.')
             return {}
+
+        return self._decode_mkt(loads(market_value))
+
+        # try:
+        #     return self._decode_mkt(requests.get(self._mkt_rester).json())  # market rester gives the encoded market
+        #
+        # except ConnectionError as ce:  # bad connection
+        #     logger.warning(f'Could not connect to {self._mkt_rester}: {ce}')
+        #     return {}
+        #
+        # except Exception as e:
+        #     logger.warning(f'Other error: {e}')
+        #     return {}
 
     def __construct_portfolio(self) -> None:
         """ Gets all the positions which are in the Kafka queue in self.__listener
@@ -363,23 +396,33 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
                 raise RuntimeError(f'Unknown event type: {event_type}')
 
     def _handle_mkt_events(self) -> None:
-        """ Handles market events.
+        """ Handles market events: Updates the _latest_market,
 
         :returns: handles the market signal.
         """
 
         for msg in self.__mkt_listener:
-            logger.debug(msg)
+            # logger.debug(f'Market listener: {msg})
             if msg.value is None:  # TODO: check this condition.
                 continue
 
             self.new_mkt_event()
+            self._latest_market = msg
 
     def encode_results(self):
         """ Encodes the results, in this case it's easy, just call dumps.
         """
 
         return dumps(self.new_market)
+
+    def _publish_results(self):
+
+        while True:
+            #if self._replace_curr_with_new_mkt():  # if it is to change
+            logger.info(f'Publishing new market results')
+            self.__results_publisher.send(topic  = self._results_topic
+                                         , value = bytearray(str(dumps(self.curr_market)), 'ascii')
+                                         , )
 
     def start( self
              , controller_delay : float = 0.3
@@ -401,7 +444,14 @@ class ControllerAO(Controller, MarketEncodeDecodeMixin):
         market_events_thread = Thread(target=self._handle_mkt_events, daemon=True)
         market_events_thread.start()
 
+        publish_thread = Thread(target = self._publish_results, daemon=True)
+        publish_thread.start()
+
         # curr_mkt_thread computes current market, new_mkt_thread is computing new market
-        controller_threads.extend([position_thread, market_events_thread])
+        controller_threads.extend([position_thread, market_events_thread, publish_thread])
 
         return controller_threads
+
+
+# ao = ControllerAO(local_only=True)
+# ao.start()

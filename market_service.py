@@ -10,81 +10,11 @@ from threading import Thread
 from time      import sleep
 from kafka     import KafkaConsumer, TopicPartition, KafkaProducer
 from kafka.consumer.fetcher import ConsumerRecord
-from json      import loads
+from json      import loads, dumps
 
 logging.basicConfig(filename='/tmp/market_service.log')
 logger = logging.getLogger(__name__)
-logger.setLevel('INFO')
-
-
-class MarketEncodeDecodeMixin:
-    """ Encodes and decodes the market.
-    """
-
-    @staticmethod
-    def encode_from_tuple(encode_d : Dict[Tuple[str, datetime.date], float]) -> Dict[str, float]:
-        """ Encodes the dictionary of the form (str, datetime.date): float into a dictionary
-            of Dict[str, float], by combining the str and datetime into a string.
-
-        :param encode_d: dictionary to encode w/ | for the tuple.
-        :returns: resulting encoded dictionary.
-        """
-
-        return { f"{flight_id}|{flight_date.strftime('%Y%m%d')}": flight_price
-                 for (flight_id, flight_date), flight_price in encode_d.items() }
-
-    @staticmethod
-    def decode_to_tuple(enc_str_date : str) -> Union[None, Tuple[str, datetime.date]]:
-        """ Decodes the encoded (flight_id, flight_date) to this state.
-
-        If the conversion fails, None is returned.
-
-        :param enc_str_date: encoded (flight_id, flight_date) in the format described in _encode_mkt
-        :returns: decoded flight_id, flight_date, or None if there is an error in
-        """
-
-        try:
-            flight_id, flight_date_enc = enc_str_date.split('|')
-        except Exception as e:
-            logger.warning(f'Could not convert {enc_str_date}, continuing and ignoring the element: {e}')
-            return None
-
-        try:
-            return flight_id, datetime.datetime.strptime(flight_date_enc, '%Y%m%d').date()
-        except Exception as e:
-            logger.warning(f'Could not convert the date to the datetime.date structure: {e}')
-            return None
-
-    @classmethod
-    def decode_mkt(cls, encoded_id_mkt : Tuple[UUID, Dict[str, float]]) -> Dict[Tuple[str, datetime.date], float]:
-        """ Decodes the encoded market w/ the encode_mkt function above.
-
-        :param encoded_id_mkt: market_id, and encoded market as a tuple.
-        :return: decoded market in a more reasonable form.
-        """
-
-        _, encoded_mkt = encoded_id_mkt
-
-        return {cls.decode_to_tuple(encoded_nb_date) : flight_price
-                for encoded_nb_date, flight_price in encoded_mkt.items() }
-
-    @classmethod
-    def encode_mkt(cls, latest_id_market : Tuple[UUID, Dict[Tuple[str, datetime.date], float]]) -> Tuple[UUID, Dict[str, float]]:
-        """ Encodes the latest market to be sent over json
-            encoding is in the form ('UA79', datetime.date(2022, 1, 2)) -> 'UA79|20220101'
-            using %Y%m%d encoding for date.
-
-        :returns: tuple of UUID for the market, and encoded market in the format above.
-        """
-
-        if latest_id_market is None:
-            logger.warning('Market not yet computed. Wait a bit')
-            return uuid4(), {}  # useless uuid
-
-        # market is computed, decipher it.
-        latest_market_id, latest_market = latest_id_market  # TODO: FIX THE NAMING CONVENTION
-
-        return latest_market_id, cls.encode_from_tuple(latest_market)
+logger.setLevel(logging.DEBUG)
 
 
 class MarketService:
@@ -135,6 +65,7 @@ class MarketService:
         """
 
         for msg in self.__mkt_listener:
+            logger.info(f'New market event.')
             self.__new_market_updates.update(self._process_mkt_msg(msg))
 
     def _process_mkt_msg(self, msg : ConsumerRecord) -> Dict:
@@ -145,14 +76,6 @@ class MarketService:
 
         raise NotImplementedError('Implement the _process_mkt_msg')
 
-    def _elapsed_time(self) -> int :
-        """ The amount of time elapsed since the new market has started filling
-
-        :return:
-        """
-
-        return (datetime.datetime.now() - self.__new_market_snap_time).seconds
-
     @property
     def latest_market(self) -> Tuple[UUID, Dict]:
         """ Gets the latest market id and market.
@@ -162,6 +85,16 @@ class MarketService:
 
         return self.__prev_market_id, self.__prev_market
 
+    def encode_mkt(self) -> Tuple[UUID, Dict[str, float]]:
+        """ Encodes the latest market to be sent over json
+            encoding is in the form ('UA79', datetime.date(2022, 1, 2)) -> 'UA79|20220101'
+            using %Y%m%d encoding for date.
+
+        :returns: encoded market in the format above.
+        """
+
+        raise NotImplementedError('Need to implement the encode_mkt method.')
+
     def _operate_markets(self):
         """ Switch markets every time_interval seconds.
 
@@ -169,7 +102,9 @@ class MarketService:
         """
 
         while True:
-            if self._elapsed_time() > self.time_interval:  # switch: curr_market <- new_market
+            elapsed_time = (datetime.datetime.now() - self.__new_market_snap_time).seconds
+            if elapsed_time >= self.time_interval:  # switch: curr_market <- new_market
+                logger.debug(f'Elapsed time: {elapsed_time}')
                 logger.info(f'Switching market from {self.__prev_market_id} to {self.__new_market_id}')
                 self.__prev_market |= self.__new_market_updates  # updated market
                 self.__new_market_updates = {}  # reset new market updates.
@@ -177,11 +112,13 @@ class MarketService:
                 self.__prev_market_id = self.__new_market_id
                 self.__new_market_id = uuid4()
                 self.__new_market_snap_time = datetime.datetime.now()
-                # TODO: THIS BELOW IS BAD
-                self.__mkt_producer.send(self.__mkt_producer_topic, value=bytearray(str(self.__prev_market_id),
-                                                                                    'ascii'))  # send an update to the market topic
+                self.__mkt_producer.send( self.__mkt_producer_topic
+                                        # , value=bytearray(str(self.__prev_market_id), 'ascii')
+                                        , value=bytearray(str(self.encode_mkt()), 'ascii')
+                                        , )  # send an update to the market topic
+
             else:
-                sleep(1)  # sleep for a second.
+                sleep(.2)  # sleep for a second.
 
     def run(self) -> Tuple[Thread, Thread]:
         """ Runs the threads for market operation.
@@ -202,7 +139,7 @@ class MarketService:
         return market_events, switch_markets
 
 
-class AOMarketService(MarketService, MarketEncodeDecodeMixin):
+class AOMarketService(MarketService):
     """ Market service with decode/encode features.
     """
 
@@ -251,9 +188,75 @@ class AOMarketService(MarketService, MarketEncodeDecodeMixin):
             flight_info = msg_payload['after']
             flight_carrier = flight_info.get('carrier')
             flight_nb      = flight_info.get('flight_nb')
-            flight_date    = datetime.date(1970, 1, 1) + datetime.timedelta(days=flight_info.get('dep_date'))  # TODO: DAYS after 1970/1/1
+            # TODO: below DAYS after 1970/1/1
+            flight_date    = datetime.date(1970, 1, 1) + datetime.timedelta(days=flight_info.get('dep_date'))
 
             return {(f'{flight_carrier}{flight_nb}', flight_date): flight_info.get('price')}
+
+    @staticmethod
+    def encode_from_tuple(encode_d : Dict[Tuple[str, datetime.date], float]) -> Dict[str, float]:
+        """ Encodes the dictionary of the form (str, datetime.date): float into a dictionary
+            of Dict[str, float], by combining the str and datetime into a string.
+
+        :param encode_d: dictionary to encode w/ | for the tuple.
+        :returns: resulting encoded dictionary.
+        """
+
+        return { f"{flight_id}|{flight_date.strftime('%Y%m%d')}": flight_price
+                 for (flight_id, flight_date), flight_price in encode_d.items() }
+
+    @staticmethod
+    def decode_to_tuple(enc_str_date : str) -> Union[None, Tuple[str, datetime.date]]:
+        """ Decodes the encoded (flight_id, flight_date) to this state.
+
+        If the conversion fails, None is returned.
+
+        :param enc_str_date: encoded (flight_id, flight_date) in the format described in _encode_mkt
+        :returns: decoded flight_id, flight_date, or None if there is an error in
+        """
+
+        try:
+            flight_id, flight_date_enc = enc_str_date.split('|')
+        except Exception as e:
+            logger.warning(f'Could not convert {enc_str_date}, continuing and ignoring the element: {e}')
+            return None
+
+        try:
+            return flight_id, datetime.datetime.strptime(flight_date_enc, '%Y%m%d').date()
+        except Exception as e:
+            logger.warning(f'Could not convert the date to the datetime.date structure: {e}')
+            return None
+
+    # @classmethod
+    # def decode_mkt(cls, encoded_id_mkt : Tuple[UUID, Dict[str, float]]) -> Dict[Tuple[str, datetime.date], float]:
+    #     """ Decodes the encoded market w/ the encode_mkt function above.
+    #
+    #     :param encoded_id_mkt: market_id, and encoded market as a tuple.
+    #     :return: decoded market in a more reasonable form.
+    #     """
+    #
+    #     _, encoded_mkt = encoded_id_mkt
+    #
+    #     return {cls.decode_to_tuple(encoded_nb_date) : flight_price
+    #             for encoded_nb_date, flight_price in encoded_mkt.items() }
+    #
+    # @classmethod
+    # def encode_mkt(cls, latest_id_market : Tuple[UUID, Dict[Tuple[str, datetime.date], float]]) -> Tuple[UUID, Dict[str, float]]:
+    #     """ Encodes the latest market to be sent over json
+    #         encoding is in the form ('UA79', datetime.date(2022, 1, 2)) -> 'UA79|20220101'
+    #         using %Y%m%d encoding for date.
+    #
+    #     :returns: tuple of UUID for the market, and encoded market in the format above.
+    #     """
+    #
+    #     if latest_id_market is None:
+    #         logger.warning('Market not yet computed. Wait a bit')
+    #         return uuid4(), {}  # useless uuid
+    #
+    #     # market is computed, decipher it.
+    #     latest_market_id, latest_market = latest_id_market  # TODO: FIX THE NAMING CONVENTION
+    #
+    #     return latest_market_id, cls.encode_from_tuple(latest_market)
 
     def encode_mkt(self) -> Tuple[UUID, Dict[str, float]]:
         """ Encodes the latest market to be sent over json
@@ -265,7 +268,7 @@ class AOMarketService(MarketService, MarketEncodeDecodeMixin):
 
         latest_market_id, latest_market = self.latest_market
 
-        return latest_market_id, self.encode_from_tuple(latest_market)
+        return dumps((str(latest_market_id), self.encode_from_tuple(latest_market)))
 
     def decode_mkt(self, encoded_mkt : Tuple[UUID, Dict[str, float]]) -> Tuple[UUID, Dict[Tuple[str, datetime.date], float]]:
         """ Decodes the previously encoded market.
@@ -278,3 +281,16 @@ class AOMarketService(MarketService, MarketEncodeDecodeMixin):
 
         return mkt_id, {self.decode_to_tuple(encoded_nb_date) : flight_price
                         for encoded_nb_date, flight_price in encoded_market.items() }
+
+    @classmethod
+    def decode_mkt(cls, encoded_id_mkt : Tuple[UUID, Dict[str, float]]) -> Dict[Tuple[str, datetime.date], float]:
+        """ Decodes the encoded market w/ the encode_mkt function above.
+
+        :param encoded_id_mkt: market_id, and encoded market as a tuple.
+        :return: decoded market in a more reasonable form.
+        """
+
+        _, encoded_mkt = encoded_id_mkt
+
+        return {cls.decode_to_tuple(encoded_nb_date) : flight_price
+                for encoded_nb_date, flight_price in encoded_mkt.items() }
