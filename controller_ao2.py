@@ -11,6 +11,7 @@ from typing    import List, Tuple, Optional, Union, Any, Dict, Generator
 from pyspark   import SparkContext, SparkConf
 from threading import Thread
 from kafka     import KafkaConsumer, TopicPartition, KafkaProducer
+from time      import sleep
 
 sys.path.append('/home/brumen/work/')
 
@@ -64,7 +65,6 @@ class ControllerAO(Controller):
                 , server_name     : str  = 'localhost'
                 , port            : int  = 9092
                 , mkt_topic       : str  = 'mkt_events'
-                # , mkt_rester      : str  = 'http://localhost:5000/mkt/get_market'
                 , positions_topic : str  = 'air_options.ao.option_positions'
                 , results_topic   : str  = 'air_options.ao.results'
                 , spark_ctx       : Dict = {'pyfile': r'/home/brumen/work/work_ao.zip' }
@@ -187,8 +187,10 @@ class ControllerAO(Controller):
 
         aof = AirOptionFlights.from_flights( mkt_date, ao_trade.flights, ao_trade.strike)
 
-        pv = aof.PV()
-        pv01 = aof.PV01()
+        nb_sim = 50000
+
+        pv = aof.PV(nb_sim=nb_sim)
+        pv01 = aof.PV01(nb_sim=nb_sim)
         logger.debug(f'PV, PV01 of {ao_trade}: {pv, pv01}')
 
         return { 'PV'  : pv if trade_direction == 'c' else - pv
@@ -240,8 +242,10 @@ class ControllerAO(Controller):
 
         aof = AirOptionFlights( mkt_date, flights, ao_trade.strike)
 
-        pv = aof.PV()
-        pv01 = aof.PV01()
+        nb_sim = 50000
+
+        pv = aof.PV(nb_sim=nb_sim)
+        pv01 = aof.PV01(nb_sim=nb_sim)
 
         return { 'PV'  : pv if trade_direction == 'c' else - pv
                , 'PV01': pv01 if trade_direction == 'c' else - pv01
@@ -349,17 +353,6 @@ class ControllerAO(Controller):
 
         return self._decode_mkt(loads(market_value))
 
-        # try:
-        #     return self._decode_mkt(requests.get(self._mkt_rester).json())  # market rester gives the encoded market
-        #
-        # except ConnectionError as ce:  # bad connection
-        #     logger.warning(f'Could not connect to {self._mkt_rester}: {ce}')
-        #     return {}
-        #
-        # except Exception as e:
-        #     logger.warning(f'Other error: {e}')
-        #     return {}
-
     def __construct_portfolio(self) -> None:
         """ Gets all the positions which are in the Kafka queue in self.__listener
                and saves them to self.__portfolio.
@@ -402,27 +395,26 @@ class ControllerAO(Controller):
         """
 
         for msg in self.__mkt_listener:
-            # logger.debug(f'Market listener: {msg})
             if msg.value is None:  # TODO: check this condition.
                 continue
 
             self.new_mkt_event()
             self._latest_market = msg
 
-    def encode_results(self):
-        """ Encodes the results, in this case it's easy, just call dumps.
+    def _publish_results(self, publish_delay : float = 1.):
+        """ Publishing the results to the results topic thread.
+
+        :param publish_delay: dealy in publishing.
+        :returns: None
         """
-
-        return dumps(self.new_market)
-
-    def _publish_results(self):
 
         while True:
             #if self._replace_curr_with_new_mkt():  # if it is to change
-            logger.info(f'Publishing new market results')
+            logger.debug(f'Publishing new market results')
             self.__results_publisher.send(topic  = self._results_topic
                                          , value = bytearray(str(dumps(self.curr_market)), 'ascii')
                                          , )
+            sleep(publish_delay)
 
     def start( self
              , controller_delay : float = 0.3
@@ -451,7 +443,3 @@ class ControllerAO(Controller):
         controller_threads.extend([position_thread, market_events_thread, publish_thread])
 
         return controller_threads
-
-
-# ao = ControllerAO(local_only=True)
-# ao.start()

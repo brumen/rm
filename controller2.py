@@ -10,7 +10,7 @@ from threading import Thread
 
 logging.basicConfig(filename='/tmp/controller.log')
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 class Controller:
@@ -240,7 +240,7 @@ class Controller:
 
             else:
                 # update the prev working section to set the prev working to False
-                logger.info(f'CURRENT queue: nothing to do, sleeping {sleep_delay} secs.')
+                logger.debug(f'CURRENT queue: nothing to do, sleeping {sleep_delay} secs.')
                 self.__curr_market_prev_working = False
                 sleep(sleep_delay)
 
@@ -256,16 +256,14 @@ class Controller:
              like delta.
         """
 
-        # nb_elts_to_take = 10
-        # trade_values = self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=nb_elts_to_take), self._market_snap_new)
-
         if queue_size < self.LOCAL_WORK_LIMIT or self._local_only:  # compute locally
             return self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size)
                                               , market_snap
                                               , )
 
-        # compute this remotely.
-        return self._value_portfolio_remote( self._get_trades_from_queue(trade_queue, nb_elts=queue_size // self._NB_THREADS))  # TODO: FIX THIS HERE
+        # compute this remotely.   # TODO: OPTIMIZE THE NUMBER OF ELEMENTS TO TAKE
+        return self._value_portfolio_remote( self._get_trades_from_queue( trade_queue
+                                                                        , nb_elts=queue_size // self._NB_THREADS) )
 
     def _trade_processor_new(self, sleep_delay : float = 0.1):
         """ Runs the thread processor for the NEW market.
@@ -279,7 +277,7 @@ class Controller:
         while True:
             queue_size = trade_queue.qsize()
             if not trade_queue.empty():  # queue not empty, continue working
-                logger.debug(f'NEW market: Computing {queue_size} trades.')
+                logger.info(f'NEW market: Computing {queue_size} trades.')
                 self.__new_market_prev_working = True
                 trade_values = self._evaluate_trades(queue_size, trade_queue, self._market_snap_new)
                 for curr_trade_val in trade_values:
@@ -297,7 +295,7 @@ class Controller:
                     # update the prev working section to set the prev working to False
                     self.__new_market_prev_working = False
                 else:
-                    logger.info(f'NEW market: nothing to do, waiting {sleep_delay} secs.')
+                    logger.debug(f'NEW market: nothing to do, waiting {sleep_delay} secs.')
                     self.__new_market_prev_working = False
                     sleep(sleep_delay)
 

@@ -14,7 +14,7 @@ from json      import loads, dumps
 
 logging.basicConfig(filename='/tmp/market_service.log')
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 class MarketService:
@@ -95,7 +95,7 @@ class MarketService:
 
         raise NotImplementedError('Need to implement the encode_mkt method.')
 
-    def _operate_markets(self):
+    def _operate_markets(self, sleep_delay=0.2):
         """ Switch markets every time_interval seconds.
 
         :return:
@@ -113,12 +113,11 @@ class MarketService:
                 self.__new_market_id = uuid4()
                 self.__new_market_snap_time = datetime.datetime.now()
                 self.__mkt_producer.send( self.__mkt_producer_topic
-                                        # , value=bytearray(str(self.__prev_market_id), 'ascii')
                                         , value=bytearray(str(self.encode_mkt()), 'ascii')
-                                        , )  # send an update to the market topic
+                                        , )
 
             else:
-                sleep(.2)  # sleep for a second.
+                sleep(sleep_delay)
 
     def run(self) -> Tuple[Thread, Thread]:
         """ Runs the threads for market operation.
@@ -258,8 +257,8 @@ class AOMarketService(MarketService):
     #
     #     return latest_market_id, cls.encode_from_tuple(latest_market)
 
-    def encode_mkt(self) -> Tuple[UUID, Dict[str, float]]:
-        """ Encodes the latest market to be sent over json
+    def encode_mkt(self) -> str:
+        """ Encodes the latest market and market id in json format, to be sent to kafka
             encoding is in the form ('UA79', datetime.date(2022, 1, 2)) -> 'UA79|20220101'
             using %Y%m%d encoding for date.
 
