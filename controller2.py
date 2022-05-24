@@ -244,8 +244,6 @@ class Controller:
                 self.__curr_market_prev_working = False
                 sleep(sleep_delay)
 
-            print(self.__market_curr)
-
     def _evaluate_trades(self, queue_size : int, trade_queue : Queue, market_snap ) -> List[Any]:
         """ Computes the trade metric for the queue_size of trades in trade_queue.
 

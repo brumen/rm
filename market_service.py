@@ -20,7 +20,7 @@ logger.setLevel(logging.INFO)
 class MarketService:
     """ Gathering information about the market. Runs on a ticker. For a certain period of time,
         Market data is collected from the topic air_options.ao.flights_live.
-        It is then published on the topic mkt_events in a encoded fashion.
+        It is then published on the topic mkt_events in an encoded fashion.
         Market is shown on .new_market property.
     """
 
@@ -33,9 +33,9 @@ class MarketService:
         """
 
         :param flights: flights to be in the market. If None, all flights are scheduled.
-        :param time_interval: time interval in seconds between two consequitive markets.
-        :param server_port_topic: tuple of (name of the kafka server, port nb, topic to read from) where the market related
-                     information is read from.
+        :param time_interval: time interval in seconds between two consecutive markets.
+        :param server_port_topic: tuple of (name of the kafka server, port nb, topic to read from) where the
+                     market related information is read from.
         :param mkt_events_topic: topic where the UUID of the market is published.
         """
 
@@ -95,10 +95,9 @@ class MarketService:
 
         raise NotImplementedError('Need to implement the encode_mkt method.')
 
-    def _operate_markets(self, sleep_delay=0.2):
+    def _operate_markets(self, sleep_delay=0.2) -> None:
         """ Switch markets every time_interval seconds.
 
-        :return:
         """
 
         while True:
@@ -226,37 +225,6 @@ class AOMarketService(MarketService):
             logger.warning(f'Could not convert the date to the datetime.date structure: {e}')
             return None
 
-    # @classmethod
-    # def decode_mkt(cls, encoded_id_mkt : Tuple[UUID, Dict[str, float]]) -> Dict[Tuple[str, datetime.date], float]:
-    #     """ Decodes the encoded market w/ the encode_mkt function above.
-    #
-    #     :param encoded_id_mkt: market_id, and encoded market as a tuple.
-    #     :return: decoded market in a more reasonable form.
-    #     """
-    #
-    #     _, encoded_mkt = encoded_id_mkt
-    #
-    #     return {cls.decode_to_tuple(encoded_nb_date) : flight_price
-    #             for encoded_nb_date, flight_price in encoded_mkt.items() }
-    #
-    # @classmethod
-    # def encode_mkt(cls, latest_id_market : Tuple[UUID, Dict[Tuple[str, datetime.date], float]]) -> Tuple[UUID, Dict[str, float]]:
-    #     """ Encodes the latest market to be sent over json
-    #         encoding is in the form ('UA79', datetime.date(2022, 1, 2)) -> 'UA79|20220101'
-    #         using %Y%m%d encoding for date.
-    #
-    #     :returns: tuple of UUID for the market, and encoded market in the format above.
-    #     """
-    #
-    #     if latest_id_market is None:
-    #         logger.warning('Market not yet computed. Wait a bit')
-    #         return uuid4(), {}  # useless uuid
-    #
-    #     # market is computed, decipher it.
-    #     latest_market_id, latest_market = latest_id_market  # TODO: FIX THE NAMING CONVENTION
-    #
-    #     return latest_market_id, cls.encode_from_tuple(latest_market)
-
     def encode_mkt(self) -> str:
         """ Encodes the latest market and market id in json format, to be sent to kafka
             encoding is in the form ('UA79', datetime.date(2022, 1, 2)) -> 'UA79|20220101'
@@ -268,18 +236,6 @@ class AOMarketService(MarketService):
         latest_market_id, latest_market = self.latest_market
 
         return dumps((str(latest_market_id), self.encode_from_tuple(latest_market)))
-
-    def decode_mkt(self, encoded_mkt : Tuple[UUID, Dict[str, float]]) -> Tuple[UUID, Dict[Tuple[str, datetime.date], float]]:
-        """ Decodes the previously encoded market.
-
-        :param encoded_mkt: market encoded with the encode_mkt function.
-        :return: market in a more reasonable form.
-        """
-
-        mkt_id, encoded_market = encoded_mkt
-
-        return mkt_id, {self.decode_to_tuple(encoded_nb_date) : flight_price
-                        for encoded_nb_date, flight_price in encoded_market.items() }
 
     @classmethod
     def decode_mkt(cls, encoded_id_mkt : Tuple[UUID, Dict[str, float]]) -> Dict[Tuple[str, datetime.date], float]:

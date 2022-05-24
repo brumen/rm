@@ -204,6 +204,7 @@ class ControllerAO(Controller):
                                , trade_direction : str
                                , market          : Dict[Tuple[str, datetime.date], float]
                                , default_price   : float = 200.
+                               , nb_sim          : int = 50000
                                , ) -> Dict[str, float]:
         """ Computes the trade from the market provided.
 
@@ -213,6 +214,7 @@ class ControllerAO(Controller):
         :param market: market provided, a dictionary where keys are (flight_nb, flight_date), and values
                   are flight prices for that flight.
         :param default_price: default price if the flight could not be found in the market
+        :param nb_sim: number of simulations used in pricing.
         :returns: PV and PV01 of the trade.
         """
 
@@ -241,8 +243,6 @@ class ControllerAO(Controller):
             flights.append((mkt_price, dep_date, flight_nb))
 
         aof = AirOptionFlights( mkt_date, flights, ao_trade.strike)
-
-        nb_sim = 50000
 
         pv = aof.PV(nb_sim=nb_sim)
         pv01 = aof.PV01(nb_sim=nb_sim)
@@ -325,11 +325,12 @@ class ControllerAO(Controller):
                       .collect()
                       # .aggregate(0., self.__class__._trade_result_agg, self.__class__._trade_result_agg)
 
-    def _decode_mkt(self, request_json):
-        """ How to decode the market
+    @staticmethod
+    def _decode_mkt(request_json):
+        """ Decodes the market information, used for pricing the trades.
         
         :param request_json: 
-        :return: 
+        :returns:
         """
 
         return AOMarketService.decode_mkt(request_json)
@@ -401,15 +402,14 @@ class ControllerAO(Controller):
             self.new_mkt_event()
             self._latest_market = msg
 
-    def _publish_results(self, publish_delay : float = 1.):
+    def _publish_results(self, publish_delay : float = 1.) -> None:
         """ Publishing the results to the results topic thread.
 
-        :param publish_delay: dealy in publishing.
-        :returns: None
+        :param publish_delay: interval between publishing.
+        :returns: publishes the results to the __result_publisher, doesn't return anything.
         """
 
         while True:
-            #if self._replace_curr_with_new_mkt():  # if it is to change
             logger.debug(f'Publishing new market results')
             self.__results_publisher.send(topic  = self._results_topic
                                          , value = bytearray(str(dumps(self.curr_market)), 'ascii')
