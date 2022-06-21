@@ -90,7 +90,30 @@ class ResultPublisherKafka(ResultPublisherBase):
             logger.info(f'Got message: {msg.value}')
             result_dict = loads(msg.value)  # value is json encoded
 
-            self.curr_value = np.array([]) if result_dict is None else np.array(list(result_dict['PV01'].items()))
+            self.curr_value = self._process_result(result_dict)
+
+    def _process_result(result_msg):
+        raise NotImplementedError('Need to implement the _process_result method')
+
+
+class ResultPublisherKafkaPV(ResultPublisherKafka):
+
+    def _process_result(self, result_dict):
+        """ Processing the PV result.
+        """
+
+            # self.curr_value = np.array([]) if result_dict is None else np.array(list(result_dict['PV'].items()))
+        return np.array([]) if result_dict is None else np.array(list(result_dict['PV'].items()))
+
+
+class ResultPublisherKafkaPV01(ResultPublisherKafka):
+
+    def _process_result(self, result_dict):
+        """ Processing the PV result.
+        """
+
+        return np.array([]) if result_dict is None else np.array(list(result_dict['PV'].items()))
+
 
 
 class ResultPublisherRester(ResultPublisherBase):
@@ -149,4 +172,4 @@ class ResultPublisherRester(ResultPublisherBase):
         if results is None:
             return np.array([])
 
-        return np.array(list(results.get('PV01', {}).items()))
+        return np.array(list(results.get('PV', {}).items()))

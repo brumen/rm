@@ -10,14 +10,14 @@ from flask     import Flask
 
 sys.path.append('/home/brumen/work/')
 
-logging.basicConfig(filename='/tmp/market_service_start_2.log')
+logging.basicConfig(filename='/tmp/controller_ao_service.log')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 from rm.controller_ao2 import ControllerAO
 
 # Controller start
-controller = ControllerAO()
+controller = ControllerAO(local_only=True)  # TODO: REMOVE THE local_only later
 controller.start()  # this is non-blocking
 
 # market_rester_2 = Flask(__name__)

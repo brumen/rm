@@ -3,7 +3,7 @@
 
 import logging
 
-from typing    import List, Tuple, Optional, Generator, Any, Union
+from typing    import List, Tuple, Optional, Generator, Any, Union, Dict
 from queue     import Queue
 from time      import sleep
 from threading import Thread
@@ -23,13 +23,15 @@ class Controller:
     LOCAL_WORK_LIMIT = 70000000
     _NB_THREADS = 8
 
-    def __init__( self, local_only : bool = False ):
+    def __init__( self, local_only : bool = False, pricing_params : Dict = {} ):
         """ Controller class, keeps track of the system and distributes work.
 
         :param local_only: only use local service to run the computations.
         """
+        logger.debug(f'Starting logger for local_only = {local_only}')
 
         self._local_only : bool = local_only
+        self._pricing_params = pricing_params
 
         # variables for new market and trade events.
         self._new_market_event = False  # we get an update for the new market.
@@ -235,8 +237,10 @@ class Controller:
                 logger.info(f'CURRENT queue: working on {queue_size} trades')
                 self.__curr_market_prev_working = True
                 trade_values = self._evaluate_trades(queue_size, trade_queue, self._market_snap_curr)
+                logger.debug('CURRENT queue: Finished evaluating trades, aggregating next')
                 for curr_trade_val in trade_values:
                     self.__market_curr = self._trade_result_agg_single(self.__market_curr, curr_trade_val)
+                logger.debug('CURRENT queue: finished aggregating')
 
             else:
                 # update the prev working section to set the prev working to False
@@ -255,8 +259,9 @@ class Controller:
         """
 
         if queue_size < self.LOCAL_WORK_LIMIT or self._local_only:  # compute locally
-            return self._value_portfolio_local(self._get_trades_from_queue(trade_queue, nb_elts=queue_size)
+            return self._value_portfolio_local( self._get_trades_from_queue(trade_queue, nb_elts=queue_size)
                                               , market_snap
+                                              , self._pricing_params
                                               , )
 
         # compute this remotely.   # TODO: OPTIMIZE THE NUMBER OF ELEMENTS TO TAKE
@@ -278,8 +283,10 @@ class Controller:
                 logger.info(f'NEW market: Computing {queue_size} trades.')
                 self.__new_market_prev_working = True
                 trade_values = self._evaluate_trades(queue_size, trade_queue, self._market_snap_new)
+                logger.debug('NEW market: Finished evaluating trades. Aggreagating next')
                 for curr_trade_val in trade_values:
                     self.__market_new = self._trade_result_agg_single(self.__market_new, curr_trade_val)
+                logger.debug('NEW market: finished aggregating trades.')
 
             else:  # queue is empty,
                 if self._replace_curr_with_new_mkt():  # this is equivalent to the statement above
