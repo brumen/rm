@@ -41,17 +41,14 @@ class Controller:
         self._trade_queue_curr_market = Queue()
         self._trade_queue_new_market  = Queue()
 
-        # market object
-        self._market_obj = None
-
         # current and new value of the portfolio on the market.
-        self.__market_curr = None
-        self.__market_new  = None
+        self.curr_market = None
+        self.new_market  = None
 
         self.__new_market_prev_working = False
         self.__curr_market_prev_working = False
 
-        self.__all_trades = []
+        self.all_trades = []
 
         # market snaps
         initial_market = self._snap_market()
@@ -60,34 +57,6 @@ class Controller:
 
     def _snap_market(self):
         raise NotImplementedError(f'Implement this method')
-
-    @property
-    def curr_market(self):
-        """ Returns the results on the current market.
-
-        :returns: computation results on the current market.
-        """
-
-        return self.__market_curr
-
-    @property
-    def new_market(self):
-        """ Returns the results on the new market.
-
-        :returns: computation results on the new market.
-        """
-
-        return self.__market_new
-
-    def curr_mkt_queue_size(self):
-        return self._trade_queue_curr_market.qsize()
-
-    def new_mkt_queue_size(self):
-        return self._trade_queue_new_market.qsize()
-
-    @property
-    def all_trades(self):
-        return self.__all_trades
 
     def new_mkt_event(self) -> None:
         """ Adds the new market event to the queue, this shouldnt be that fast.
@@ -99,8 +68,8 @@ class Controller:
 
         if self._trade_queue_new_market.empty():
             # both markets are idle (add all trades to the new market, leave the curr one alone)
-            self.__market_new = None  # reset the new market
-            for new_position in self.__prune_offsetting_trades(self.__all_trades):
+            self.new_market = None  # reset the new market
+            for new_position in self.__prune_offsetting_trades(self.all_trades):
                 self._trade_queue_new_market.put(new_position)
 
         # BOTTOM TWO ARE NOT NEEDED, I LEFT THEM IN TO ILLUSTRATE THAT THEY ARE NOT NEEDED.
@@ -122,7 +91,7 @@ class Controller:
         # always add positions to the current market
         logger.debug(f'Adding positions to CURR market: {len(new_positions)}')
         for new_position in new_positions:
-            self.__all_trades.append(new_position)
+            self.all_trades.append(new_position)
             self._trade_queue_curr_market.put(new_position)
 
         # add positions to the new market only if it's working, otherwise dont
@@ -239,7 +208,7 @@ class Controller:
                 trade_values = self._evaluate_trades(queue_size, trade_queue, self._market_snap_curr)
                 logger.debug('CURRENT queue: Finished evaluating trades, aggregating next')
                 for curr_trade_val in trade_values:
-                    self.__market_curr = self._trade_result_agg_single(self.__market_curr, curr_trade_val)
+                    self.curr_market = self._trade_result_agg_single(self.curr_market, curr_trade_val)
                 logger.debug('CURRENT queue: finished aggregating')
 
             else:
@@ -285,13 +254,13 @@ class Controller:
                 trade_values = self._evaluate_trades(queue_size, trade_queue, self._market_snap_new)
                 logger.debug('NEW market: Finished evaluating trades. Aggreagating next')
                 for curr_trade_val in trade_values:
-                    self.__market_new = self._trade_result_agg_single(self.__market_new, curr_trade_val)
+                    self.new_market = self._trade_result_agg_single(self.new_market, curr_trade_val)
                 logger.debug('NEW market: finished aggregating trades.')
 
             else:  # queue is empty,
                 if self._replace_curr_with_new_mkt():  # this is equivalent to the statement above
                     logger.info(f'NEW market: Switching: curr market <- new market .')
-                    self.__market_curr = self.__market_new
+                    self.curr_market = self.new_market
 
                     # new snaps of the market
                     self._market_snap_curr = self._market_snap_new

@@ -5,7 +5,6 @@ import sys
 import datetime
 import logging
 import copy
-import yaml
 
 from json      import dumps, loads
 from typing    import List, Tuple, Optional, Union, Any, Dict, Generator
@@ -13,6 +12,7 @@ from pyspark   import SparkContext, SparkConf
 from threading import Thread
 from kafka     import KafkaConsumer, TopicPartition, KafkaProducer
 from time      import sleep
+from yaml      import safe_load
 
 sys.path.append('/home/brumen/work/')
 
@@ -93,7 +93,7 @@ class ControllerAO(Controller):
         self._latest_market = None
 
         with open(pricing_config) as pricing_file:
-             pricing_params = yaml.safe_load(pricing_file)
+             pricing_params = safe_load(pricing_file)
 
         super().__init__(local_only=local_only, pricing_params=pricing_params)  # _mkt_rester should be defined.
 
