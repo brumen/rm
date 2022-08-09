@@ -20,6 +20,7 @@ from ao.air_option     import AirOptionFlights
 from ao.trade          import AOTrade, create_session, AOTradeException
 from rm.controller2    import Controller
 from rm.market_service import AOMarketService
+from rm.delta_dict     import DeltaDict
 
 logging.basicConfig(filename='/tmp/controller_ao.log')
 logger = logging.getLogger(__name__)
@@ -220,7 +221,7 @@ class ControllerAO(Controller):
         pv01 = aof.PV01(nb_sim=nb_sim)
         logger.debug(f'PV, PV01 of {ao_trade}: {pv, pv01}')
 
-        return { 'PV'  : pv if trade_direction == 'c' else - pv
+        return { 'PV'  : DeltaDict({ao_trade.position_id: pv}) if trade_direction == 'c' else DeltaDict({ao_trade.position_id: - pv})
                , 'PV01': pv01 if trade_direction == 'c' else - pv01
                , }
 
@@ -278,8 +279,9 @@ class ControllerAO(Controller):
 
         pv = aof.PV(nb_sim=nb_sim)
         pv01 = aof.PV01(nb_sim=nb_sim)
+        trade_id = ao_trade.position_id
 
-        return { 'PV'  : {flight_nb: pv} if trade_direction == 'c' else {flight_nb: - pv}
+        return { 'PV'  : DeltaDict({trade_id: pv}) if trade_direction == 'c' else DeltaDict({trade_id: - pv})
                , 'PV01': pv01 if trade_direction == 'c' else - pv01
                , }
 
@@ -300,7 +302,8 @@ class ControllerAO(Controller):
             if calc_type not in trade_pv_2:
                 raise RuntimeError(f'{calc_type} not present in the second computed value.')
 
-            trade_pv_1[calc_type] = {**trade_pv_1[calc_type], **trade_pv_2[calc_type]}  # each calc needs to support aggregation +
+            # trade_pv_1[calc_type] = {**trade_pv_1[calc_type], **trade_pv_2[calc_type]}  # each calc needs to support aggregation +
+            trade_pv_1[calc_type] += trade_pv_2[calc_type]  # each calc needs to support aggregation +
 
         return trade_pv_1
 
