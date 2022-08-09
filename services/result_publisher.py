@@ -14,9 +14,13 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def main():
-    rp = ResultPublisherKafkaPV()
+def main(result_idx = 'PV'):
+    if result_idx == 'PV01':
+        rp = ResultPublisherKafkaPV01()
+    else:
+        rp = ResultPublisherKafkaPV()
+
     rp.start()
 
 
-main()
+main(result_idx = sys.argv[1])

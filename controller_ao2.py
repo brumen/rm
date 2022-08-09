@@ -70,8 +70,8 @@ class ControllerAO(Controller):
                 , results_topic   : str  = 'air_options.ao.results'
                 , spark_ctx       : Dict = {'pyfile': r'/home/brumen/work/work_ao.zip' }
                 , local_only      : bool = False
-                  , pricing_config: str  = r'/home/brumen/work/rm/configuration.yaml'
-                  , ):
+                , pricing_config: str  = r'/home/brumen/work/rm/configuration.yaml'
+                , ):
         """ Initiates the Controller for computing the AirOptions portfolio.
 
         The controller reacts to two inputs:

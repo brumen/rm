@@ -7,7 +7,7 @@ import tkinter as tk
 import numpy   as np
 import pandas  as pd
 
-from typing      import Dict
+from typing      import Dict, Optional, Any
 from time        import sleep
 from threading   import Thread
 from json        import loads
@@ -92,14 +92,17 @@ class ResultPublisherKafka(ResultPublisherBase):
 
             self.curr_value = self._process_result(result_dict)
 
-    def _process_result(result_msg):
+    def _process_result(result_msg : Optional[Dict[str, Any]]):
         raise NotImplementedError('Need to implement the _process_result method')
 
 
 class ResultPublisherKafkaPV(ResultPublisherKafka):
 
-    def _process_result(self, result_dict):
+    def _process_result(self, result_dict : Optional[Dict[str, Dict[str, float]]]):
         """ Processing the PV result.
+
+        :param result_dict: dictionary of results, the keys are PV, PV01, the computed requests. Value is a
+           dictionary of flight names, and values of that flight.
         """
 
             # self.curr_value = np.array([]) if result_dict is None else np.array(list(result_dict['PV'].items()))
@@ -108,12 +111,14 @@ class ResultPublisherKafkaPV(ResultPublisherKafka):
 
 class ResultPublisherKafkaPV01(ResultPublisherKafka):
 
-    def _process_result(self, result_dict):
+    def _process_result(self, result_dict: Optional[Dict[str, Dict[str, float]]]):
         """ Processing the PV result.
+
+        :param result_dict: dictionary of results, the keys are PV, PV01, the computed requests. Values is
+           a dictionary of PV01s with respect to that flight.
         """
 
-        return np.array([]) if result_dict is None else np.array(list(result_dict['PV'].items()))
-
+        return np.array([]) if result_dict is None else np.array(list(result_dict['PV01'].items()))
 
 
 class ResultPublisherRester(ResultPublisherBase):
