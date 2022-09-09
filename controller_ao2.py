@@ -302,7 +302,6 @@ class ControllerAO(Controller):
             if calc_type not in trade_pv_2:
                 raise RuntimeError(f'{calc_type} not present in the second computed value.')
 
-            # trade_pv_1[calc_type] = {**trade_pv_1[calc_type], **trade_pv_2[calc_type]}  # each calc needs to support aggregation +
             trade_pv_1[calc_type] += trade_pv_2[calc_type]  # each calc needs to support aggregation +
 
         return trade_pv_1
@@ -312,7 +311,7 @@ class ControllerAO(Controller):
                        , mkt_date_trade_id : Tuple[datetime.date, Tuple[int, str]]
                        , db_session = None
                        , mkt_params        : Optional[Dict] = None
-                         , ao_params       : Optional[Dict[str, Any]] = {} ) -> Union[None, RES_TYPE]:
+                       , ao_params       : Optional[Dict[str, Any]] = {} ) -> Union[None, RES_TYPE]:
         """ Returns the PV of the trade with trade_id.
 
         :param mkt_date_trade_id: market date and trade id as a tuple (useful for spark calculations)
@@ -328,7 +327,7 @@ class ControllerAO(Controller):
     def _value_portfolio_local( self
                               , trade_ids : Union[List[Tuple[int, str]], Generator[Tuple[int, str], None, None]]
                               , mkt_params
-                                , ao_params
+                              , ao_params
                               , ) -> Union[List[RES_TYPE], Generator[RES_TYPE, None, None]]:
         """ Defines the portfolio_function from trades -> results.
 
