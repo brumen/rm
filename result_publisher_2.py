@@ -58,9 +58,14 @@ def display_results(w):
 def wrap_curses():
     curses.wrapper(display_results)
 
-thread_updating = Thread(target=get_results_ao)
-thread_updating.start()
+# example starting update and display thread
+def main():
+    thread_updating = Thread(target=get_results_ao)
+    thread_updating.start()
 
-# display results
-thread_display = Thread(target=wrap_curses)
-thread_display.start()
+    # display results
+    thread_display = Thread(target=wrap_curses)
+    thread_display.start()
+
+# default
+main()
