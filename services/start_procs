@@ -3,12 +3,12 @@
 # KAFKA system part:
 # first you have the kafka system & zookeeper up and running
 #    go to folder: ~/archive/software/kafka/kafka_3.18...
-#    ./start_zookeeper writes to /tmp/zookeeper.log
+#    ./start_zookeeper writes to /tmp/zookeeper.log  IMPORTANT: THIS IS NOT NEEDED IF ZOOKEEPER IS ALREADY RUNNING.
 #    ./start_kafka     writes to /tmp/kafka.log
 #    ./start_kafka_connect writes to /tmp/kafka_connect.log
 
 # PYTHON PART:
-#    start market service in python: python3.9 services/market_service_start.py  logs into /tmp/market_service_rester.log
-#    start controller (results) service:  python services/controller_ao2_start.py  (IMPORTANT TO START python3.8, otherwise the apache doesnt work).
+#    start market service in python: python services/market_service_start.py  logs into /tmp/market_service_rester.log
+#    start controller (results) service:  python services/controller_ao2_start.py
 #       logs into  /tmp/market_service_start_2.log, this also logs into controller.log for ControllerAO class from controller_ao2.py
-#    start result publisher: python3.9 services/result_publisher.py logs into /tmp/rm_results_by_trade.log
+#    start result publisher: python services/result_publisher.py logs into /tmp/rm_results_by_trade.log

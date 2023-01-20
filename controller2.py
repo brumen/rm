@@ -161,23 +161,14 @@ class Controller:
 
         return trade_pv_1 + trade_pv_2  # neither is None
 
-    def _value_portfolio_local(self, trades : Union[List, Generator], params) -> Union[List, Generator]:
+    def _value_portfolio(self, trades : Union[List, Generator], params) -> Union[List, Generator]:
         """ Values the portfolio of trades, has to be implemented in the subclass.
 
         :param trades: list of trades
         :returns: list of results
         """
 
-        raise NotImplementedError(f'_value_portfolio_local has to be implemented in the class.')
-
-    def _value_portfolio_remote(self, trades : Union[List, Generator]) -> Union[List, Generator]:
-        """ Values the portfolio of trades, has to be implemented in the subclass.
-
-        :param trades: list of trades
-        :returns: list of results
-        """
-
-        raise NotImplementedError(f'_value_portfolio_remote has to be implemented in the class.')
+        raise NotImplementedError(f'_value_portfolio has to be implemented in the class.')
 
     def _replace_curr_with_new_mkt(self) -> bool:
         """ Indicator whether to switch: curr_market <- new market
@@ -227,15 +218,12 @@ class Controller:
              like delta.
         """
 
-        if queue_size < self.LOCAL_WORK_LIMIT or self._local_only:  # compute locally
-            return self._value_portfolio_local( self._get_trades_from_queue(trade_queue, nb_elts=queue_size)
-                                              , market_snap
-                                              , self._pricing_params
-                                              , )
-
-        # compute this remotely.   # TODO: OPTIMIZE THE NUMBER OF ELEMENTS TO TAKE
-        return self._value_portfolio_remote( self._get_trades_from_queue( trade_queue
-                                                                        , nb_elts=queue_size // self._NB_THREADS) )
+        # TODO: FIX THIS TO PASS self._local_only to the parameters
+        # if queue_size < self.LOCAL_WORK_LIMIT or self._local_only:  # compute locally
+        return self._value_portfolio( self._get_trades_from_queue(trade_queue, nb_elts=queue_size)
+                                      , market_snap
+                                      , self._pricing_params
+                                      , )
 
     def _trade_processor_new(self, sleep_delay : float = 0.1):
         """ Runs the thread processor for the NEW market.

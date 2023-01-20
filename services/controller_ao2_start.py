@@ -14,7 +14,8 @@ logging.basicConfig(filename='/tmp/controller_ao_service.log')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-from rm.controller_ao2 import ControllerAO
+# from rm.controller_ao2 import ControllerAO
+from rm.controller_ao2_service import ControllerAO
 
 # Controller start
 controller = ControllerAO(local_only=True)  # TODO: REMOVE THE local_only later
