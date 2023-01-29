@@ -10,9 +10,13 @@ if '/home/brumen/work/' not in sys.path:
     sys.path.append('/home/brumen/work/')
 
 
+from enum       import Enum
 from typing     import List, Dict, Tuple, Any, Union, Generator, Optional
 from markupsafe import escape
 from flask      import Flask, Response, request
+
+from pyspark   import SparkContext, SparkConf
+from functools import lru_cache
 
 from ao.trade  import create_session, AOTrade, DeltaDict, AirOptionFlights
 
@@ -40,7 +44,7 @@ _trade_pv01s = {}
 def extract_trade_ids(trades : str) -> List[int]:
     """ Gets the trade ids from the trade string.
 
-    :param trades: comma separated list of trade ids.
+    :param trades: comma separated list of trade ids, like 189,190
     :result: list of trades ids in integer type.
     """
 
@@ -114,7 +118,7 @@ def trade_pv_mkt(trade_id):
         trade_pv = _compute_trade_from_mkt(
             mkt_date,
             trade,
-            'c',
+            TradeDirection.LONG,
             market,
             {'default_price': 100,
              'nb_sim': 5000,
@@ -127,33 +131,44 @@ def trade_pv_mkt(trade_id):
 
 
 @pv_rester.route('/pv/<trade_id>')
-def trade_pv(trade_id):
+def trade_pv(trade_id) -> Dict[str, float]:
     """ Computes the value of the trade given the current market.
 
     """
 
-    trades = construct_ao_trades(extract_trade_ids(escape(trade_id)))
+    trades : List[AOTrade] = construct_ao_trades(extract_trade_ids(escape(trade_id)))
 
     if not trades:
         return str(0)
 
     result = {}
-    for trade in trades:
+    for trade in trades:  # trade is AOTrade type
         trade_pos_id = trade.position_id
-        trade_pv = trade.PV(mkt_date) if trade_pos_id not in _trade_pvs else _trade_pvs[trade_pos_id]
-        _trade_pvs[trade_pos_id] = trade_pv
-        result[trade_pos_id] = trade_pv
+        # TODO: CACHING HERE!!!
+        #if trade_pos_id in _trade_pvs:
+        #    result[trade_pos_id] = _trade_pvs[trade_pos_id]
+        #else:
+        trade_pv = _compute_trade_from_mkt(mkt_date, trade)['PV']
+        #_trade_pvs |= trade_pv
+        result[trade_pos_id] = trade_pv[trade_pos_id]
+        #trade_pv = trade.PV(mkt_date) if trade_pos_id not in _trade_pvs else _trade_pvs[trade_pos_id]
+        #_trade_pvs[trade_pos_id] = trade_pv
 
     return result
 
 
+default_params : Dict[str, Any] = {'default_price': 200., 'nb_sim': 500}
+class TradeDirection(Enum):
+    LONG  = 'c'
+    SHORT = 'd'
+
 # trade with market
 def _compute_trade_from_mkt( mkt_date        : datetime.date
                              , ao_trade        : AOTrade
-                             , trade_direction : str
-                             , market          : Optional[Dict[Tuple[str, datetime.date], float]]
-                             , ao_params       : Dict[str, Any]
-                             , ) -> Dict[str, float]:
+                             , trade_direction : TradeDirection = TradeDirection.LONG
+                             , market          : Optional[Dict[Tuple[str, datetime.date], float]] = None
+                             , ao_params       : Optional[Dict[str, Any]] = None
+                             , ) -> Dict[str, DeltaDict]:
     """ Computes the trade from the market provided.
 
     :param mkt_date: market date
@@ -165,11 +180,15 @@ def _compute_trade_from_mkt( mkt_date        : datetime.date
     :param default_price: default price if the flight could not be found in the market
     :param nb_sim: number of simulations used in pricing.
     :returns: PV and PV01 of the trade.
+        PV is a dictionary of {'trade_id': float}, PV01 is the same type of dictionary
     """
 
-    default_price = ao_params['default_price'] # =   : float = 200.
-    nb_sim        = ao_params['nb_sim']  #          : int = 500
-
+    if ao_params is None:
+        default_price = default_params['default_price']
+        nb_sim = default_params['nb_sim']
+    else:
+        default_price = ao_params.get('default_price', default_params.get('default_price'))
+        nb_sim        = ao_params.get('nb_sim', default_params.get('nb_sim'))
 
     flights = []
     for flight in ao_trade.flights:
@@ -208,9 +227,35 @@ def _compute_trade_from_mkt( mkt_date        : datetime.date
     pv01 = aof.PV01(nb_sim=nb_sim)
     trade_id = ao_trade.position_id
 
-    return { 'PV'  : DeltaDict({trade_id: pv}) if trade_direction == 'c' else DeltaDict({trade_id: - pv})
-           , 'PV01': pv01 if trade_direction == 'c' else - pv01
+    return { 'PV'  : DeltaDict({trade_id: pv}) if trade_direction == TradeDirection.LONG else DeltaDict({trade_id: - pv})
+           , 'PV01': pv01 if trade_direction == TradeDirection.LONG else - pv01
            , }
+
+
+def _compute_trades_from_id(
+        mkt_date : datetime.date,
+        trade_ids : List[int],
+        trade_direction : TradeDirection = TradeDirection.LONG,
+        market          : Optional[Dict[Tuple[str, datetime.date], float]] = None,
+        ao_params       : Optional[Dict[str, Any]] = None,
+) -> Dict[str, DeltaDict]:
+    """ Computes the PV and PV01 of the trade with given id.
+
+    """
+
+    trades : List[AOTrade] = construct_ao_trades(trade_ids)
+
+    if not trades:  # empty list
+        return {'PV': {}, 'PV01': {},}
+
+
+    return _compute_trade_from_mkt(
+        mkt_date,
+        trades[0],
+        trade_direction = trade_direction,
+        market = market,
+        ao_params = ao_params,
+    )
 
 
 def _extract_market(market):
@@ -258,23 +303,34 @@ def trade_pv_market(trade_ids, market):
     return result
 
 
-def _value_portfolio_remote( self
-                             , trade_ids : Union[List[Tuple[int, str]], Generator[Tuple[int, str], None, None]]
-                             , ) -> List[Dict[str, Any]]:
-    """ Defines the portfolio_function from trades -> results.
-
-    :param trade_ids: trades to evaluate.
-    :returns: value of new_trades.
+@lru_cache
+def _set_spark_env() -> SparkContext:
+    """ Creates the spark context.
     """
 
-    trade_ids_l = list(trade_ids)  # TODO: THIS SHOULD BE BETTER
+    spark_ctx = {'pyfile': r'/home/brumen/work/work_ao.zip',}
 
-    trades = zip( [self.mkt_date] * len(trade_ids_l), trade_ids_l )
+    spark_conf = SparkConf().setMaster('local[8]')
 
-    return self.sc.parallelize(trades)\
-                  .map(self.__class__._value_trade_id)\
-                  .collect()
-                  # .aggregate(0., self.__class__._trade_result_agg, self.__class__._trade_result_agg)
+    sc = SparkContext.getOrCreate(spark_conf)
+    if 'pyfile' in spark_ctx:
+        sc.addPyFile(spark_ctx['pyfile'])
+
+    return sc
+
+
+def price_trades(trade_ids : List[int]) -> Dict[str, float]:
+    """ Prices trades using the spark parallelization.
+
+    :param trade_ids: trades that should be valued.
+    """
+
+    sc = _set_spark_env()
+
+    return sc\
+        .parallelize(trade_ids)\
+        .map(value_trade)\
+        .collect()
 
 
 @pv_rester.route('/pv01/<trade_id>')

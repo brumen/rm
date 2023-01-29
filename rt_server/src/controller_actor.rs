@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::thread::JoinHandle;
+use std::thread::{sleep, spawn, JoinHandle};
 use std::time::Duration;
 use time::format_description;
 use time::Date;
@@ -64,6 +64,10 @@ pub struct Controller {
 impl Controller {
     pub fn new(
         market_date: Date,
+        kafka_server_name: String,
+        kafka_server_port: i32,
+        mkt_topic: String,
+        pos_topic: String,
         results_topic: String,
         pricing_params_: Option<HashMap<String, f64>>,
         trade_pricer: String, // localhost:5051
@@ -117,6 +121,10 @@ impl Controller {
         // TODO: READ ALL THESE PARAMETERS FROM THE YAML CONFIG, NOT JUST SOME!
         Controller::new(
             market_date,
+            kafka_server_name,
+            kafka_server_port,
+            mkt_topic,
+            pos_topic,
             result_topic,
             Some(HashMap::<String, f64>::new()),
             "localhost:5010".to_string(),
@@ -233,7 +241,6 @@ impl Controller {
                 return TradeValue::new(); // TODO: THIS SHOULD BE DIFFERENT, CORRECT
             }
         };
-        debug!("Valuing trade {:?}", result);
 
         // we have the price, copy the market date in it.
         let mut result_tv = TradeValue::new();
@@ -519,3 +526,90 @@ impl Controller {
         });
     }
 }
+
+// #[derive(Message)]
+// #[rtype(result="Trade")]
+// struct TradeMessage;
+
+// struct ConstructPortfolio;
+
+// impl Actor for ConstructPortfolio {
+
+// }
+
+// impl Handler<TradeMessage> for ConstructPortfolio {
+//     type Result = Trade;
+
+//     fn handle(&mut self, msg: TradeMessage, ctx: &mut Context<Self>) -> Self::Result {
+
+//     //sender_new: Sender<Trade>,
+//     //sender_curr: Sender<Trade>,
+//     //kafka_server_name: String,
+//     //kafka_server_port: i32,
+//     //pos_topic: String,
+// //) {
+//     // indicators whether new positions are coming in.
+
+//     let mut prev_working = false;
+//     let mut working = false;
+
+//     let bootstrap_servers = format!("{kafka_server_name}:{kafka_server_port}");
+
+//     let mut pos_listener_ = Consumer::from_hosts(vec![bootstrap_servers.to_owned()])
+//         .with_topic_partitions(pos_topic.to_owned(), &[0])
+//         .with_fallback_offset(FetchOffset::Earliest)
+//         .with_offset_storage(GroupOffsetStorage::Kafka)
+//         .create()
+//         .unwrap();
+
+//     loop {
+//         for ms in pos_listener_.poll().unwrap().iter() {
+//             working = true;
+//             for m in ms.messages() {
+//                 let msg_decoded: Value =
+//                     serde_json::from_str(std::str::from_utf8(m.value).unwrap()).unwrap();
+
+//                 let msg_payload = &msg_decoded["payload"];
+//                 let event_type = &msg_payload["op"];
+
+//                 debug!("Getting position: {:?}", msg_payload);
+
+//                 match event_type.as_str() {
+//                     Some("c") => {
+//                         let tid = msg_payload["after"]["position_id"].as_i64();
+//                         self.add_position(
+//                             vec![Trade {
+//                                 trade_id: tid.unwrap() as u8,
+//                                 direction: TradeDirection::Create,
+//                             }],
+//                             &sender_new,
+//                             &sender_curr,
+//                         );
+//                     }
+//                     Some("d") => {
+//                         let tid = msg_payload["before"]["position_is"].as_i64();
+//                         self.add_position(
+//                             vec![Trade {
+//                                 trade_id: tid.unwrap() as u8,
+//                                 direction: TradeDirection::Delete,
+//                             }],
+//                             &sender_new,
+//                             &sender_curr,
+//                         );
+//                     }
+//                     _ => {
+//                         info!("UNIMPLEMENTED. FIX THIS");
+//                     }
+//                 }
+//             }
+//             let _ = pos_listener_.consume_messageset(ms); // TODO: FIX THIS ERROR HANDLING HERE
+//         }
+//         pos_listener_.commit_consumed().unwrap();
+//         // change the working indicators.
+//         prev_working = working;
+//         working = false;
+//         // TODO: REPORT VALUE prev_working & working
+//         let working_indicator = prev_working && working;
+//         // switch if prev_working = false
+//     }
+// }
