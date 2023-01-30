@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 use time::format_description;
 use time::Date;
 
@@ -281,11 +282,15 @@ impl Controller {
             // handle new market signals.
             // flush all markets on the new market until the last one.
             let mut new_market_result = new_market_receiver.try_iter();
+            let mut prev_new_mkt: Option<MarketType> = None;
             new_mkt = new_market_result.next();
             while new_mkt.is_some() {
+                prev_new_mkt = new_mkt;
                 new_mkt = new_market_result.next();
             }
+            new_mkt = prev_new_mkt;
             // we have the last market
+            thread::sleep(Duration::from_secs(1));
         }
     }
 
@@ -417,12 +422,12 @@ impl Controller {
                         );
                     }
 
-                    debug!("NEW MKT SENDER = {:?}", mkt_decoded);
                     let _ = new_mkt_sender.send(mkt_decoded); // send the market over the sender.
                 }
                 let _ = mkt_listener_.consume_messageset(ms);
             }
             mkt_listener_.commit_consumed().unwrap();
+            thread::sleep(Duration::from_secs(1));
         }
     }
 
