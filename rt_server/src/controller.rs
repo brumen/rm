@@ -3,20 +3,15 @@ use queues::*;
 
 use core::cmp::Eq;
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
-use kafka::producer::{Producer, RequiredAcks};
+use kafka::producer::{Producer, Record, RequiredAcks};
 use reqwest;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::thread::JoinHandle;
-use std::time::Duration;
 use time::format_description;
 use time::Date;
-
-use actix::prelude::*;
-use actix::{Actor, Context, System};
 
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
 enum TradeDirection {
@@ -42,7 +37,6 @@ pub type PortfolioType = HashMap<(String, Date), f64>;
 /// positions are in the form: (u8, TradeDirection)
 pub struct Controller {
     market_date: Date,
-    local_only: bool,
     pricing_params: PricingParams,
     _new_market_event: bool,
     _new_trade_event: bool,
@@ -56,9 +50,11 @@ pub struct Controller {
     // snaps of the current and new market
     _market_snap_curr: Arc<Mutex<Option<MarketType>>>,
     _market_snap_new: Arc<Mutex<Option<MarketType>>>,
-    _latest_market: Arc<Mutex<MarketType>>, // latest market
+    _latest_market: Arc<Mutex<MarketType>>,
     results_topic: String,
     trade_pricer: String, // trade pricer name
+    kafka_server_name: String,
+    kafka_port: i32,
 }
 
 impl Controller {
@@ -67,6 +63,8 @@ impl Controller {
         results_topic: String,
         pricing_params_: Option<HashMap<String, f64>>,
         trade_pricer: String, // localhost:5051
+        kafka_server_name: String,
+        kafka_port: i32,
     ) -> Self {
         // if given the params, use them, otherwise construct empty map
         let pricing_init = match pricing_params_ {
@@ -76,7 +74,6 @@ impl Controller {
 
         Controller {
             market_date: market_date,
-            local_only: true,
             pricing_params: pricing_init,
             _new_market_event: false,
             _new_trade_event: false,
@@ -98,16 +95,14 @@ impl Controller {
             _latest_market: Arc::new(Mutex::new(MarketType::new())), // initial latest market is empty market
             results_topic: results_topic,
             trade_pricer: trade_pricer,
+            kafka_server_name,
+            kafka_port,
         }
     }
 
     /// constructs the controller from configuration read from the file.
     pub fn new_from_config(
         market_date: Date,
-        kafka_server_name: String,
-        kafka_server_port: i32,
-        mkt_topic: String,
-        pos_topic: String,
         result_topic: String,
         config_file: String, // like "configuration.yaml"
     ) -> Self {
@@ -120,6 +115,8 @@ impl Controller {
             result_topic,
             Some(HashMap::<String, f64>::new()),
             "localhost:5010".to_string(),
+            "localhost".to_owned(),
+            9092,
         )
     }
 
@@ -130,6 +127,7 @@ impl Controller {
         new_positions: Vec<Trade>,
         sender_new: &Sender<Trade>,
         sender_curr: &Sender<Trade>,
+        new_mkt_working_recv: &Receiver<bool>,
     ) {
         let positions_len = new_positions.len();
 
@@ -137,14 +135,14 @@ impl Controller {
 
         for new_position in &new_positions {
             self.__all_trades.lock().unwrap().push(*new_position);
-            sender_curr.send(*new_position);
+            let _ = sender_curr.send(*new_position);
         }
 
-        let new_mkt_working = true; // TODO: FIX THIS PART
+        let new_mkt_working = new_mkt_working_recv.recv().unwrap();
         if new_mkt_working {
             debug!("Adding {positions_len} positions to NEW market queue");
             for new_position in &new_positions {
-                sender_new.send(*new_position);
+                let _ = sender_new.send(*new_position);
             }
         }
     }
@@ -229,7 +227,7 @@ impl Controller {
         let result = match result_pricing {
             Ok(result_price) => result_price.json::<HashMap<String, f64>>().unwrap(),
             Err(e) => {
-                warn!("Trade {trade_id} could not price correctly!");
+                warn!("Trade {trade_id} could not price correctly: {}", e);
                 return TradeValue::new(); // TODO: THIS SHOULD BE DIFFERENT, CORRECT
             }
         };
@@ -245,9 +243,15 @@ impl Controller {
         result_tv
     }
 
-    /// Function processing the current market queue.
-    pub fn _trade_processor_curr(&self, receiver: Receiver<Trade>) {
-        for message in receiver.iter() {
+    /// Constructing the current market.
+    /// receives trades on the trade_receiver channel.
+    /// publishes current market results on the curr_mkt_sender channel.
+    pub fn _trade_processor_curr(
+        &self,
+        trade_receiver: Receiver<Trade>,
+        curr_mkt_sender: Sender<PortfolioType>,
+    ) {
+        for message in trade_receiver.iter() {
             debug!("CURR market: valuing trade.");
             let trade_value = self._value_trade(message);
 
@@ -255,6 +259,8 @@ impl Controller {
                 &mut self.curr_market.lock().unwrap(),
                 Some(trade_value),
             );
+
+            let _ = curr_mkt_sender.send(self.curr_market.lock().unwrap().clone());
         }
     }
 
@@ -265,14 +271,12 @@ impl Controller {
         new_market_receiver: Receiver<MarketType>,
         new_market_working: Sender<bool>,
     ) {
-        let new_market_event = false;
-
         loop {
             let new_market_result = new_market_receiver.recv();
 
             match new_market_result {
                 Ok(new_market) => {
-                    new_market_working.send(true);
+                    let _ = new_market_working.send(true);
                     // we have the market,
                     for trade in &*self.__all_trades.lock().unwrap() {
                         debug!("NEW market: valuing trade.");
@@ -309,15 +313,14 @@ impl Controller {
         &self,
         sender_new: Sender<Trade>,
         sender_curr: Sender<Trade>,
-        kafka_server_name: String,
-        kafka_server_port: i32,
         pos_topic: String,
+        new_mkt_working: Receiver<bool>,
     ) {
         // indicators whether new positions are coming in.
         let mut prev_working = false;
         let mut working = false;
 
-        let bootstrap_servers = format!("{kafka_server_name}:{kafka_server_port}");
+        let bootstrap_servers = format!("{}:{}", self.kafka_server_name, self.kafka_port);
 
         let mut pos_listener_ = Consumer::from_hosts(vec![bootstrap_servers.to_owned()])
             .with_topic_partitions(pos_topic.to_owned(), &[0])
@@ -348,6 +351,7 @@ impl Controller {
                                 }],
                                 &sender_new,
                                 &sender_curr,
+                                &new_mkt_working,
                             );
                         }
                         Some("d") => {
@@ -359,6 +363,7 @@ impl Controller {
                                 }],
                                 &sender_new,
                                 &sender_curr,
+                                &new_mkt_working,
                             );
                         }
                         _ => {
@@ -379,61 +384,40 @@ impl Controller {
     }
 
     /// publishes the computed results to the result publisher topic in Kafka.
-    fn _publish_results(
-        &self,
-        results: Receiver<()>, // TODO: FIX THE PUBLISHING TYPE HERE
-        kafka_server_name: String,
-        kafka_server_port: i32,
-        publish_delay: Duration,
-    ) {
-        let bootstrap_servers = format!("{kafka_server_name}:{kafka_server_port}");
+    /// curr_mkt_recv is a receiver that receives the produced market and publishes it to Kafka
+    fn _publish_results(&self, curr_mkt_recv: Receiver<PortfolioType>) {
+        let bootstrap_servers = format!("{}:{}", self.kafka_server_name, self.kafka_port);
 
-        let res_publisher = Producer::from_hosts(vec![bootstrap_servers.to_owned()])
+        let mut res_publisher = Producer::from_hosts(vec![bootstrap_servers.to_owned()])
             .with_required_acks(RequiredAcks::One)
             .create()
             .unwrap();
 
         loop {
             debug!("Publishing new market results.");
-            let record = &self.curr_market;
+            let curr_mkt = curr_mkt_recv.recv().unwrap();
+            let curr_mkt_json = serde_json::ser::to_string(&curr_mkt).unwrap();
 
             // implements bytearray(str(dumps(self.curr_market)), ascii))
-            //let market_record = Record::from_value(
-            //    self.results_topic,
-            //    adsfasdf,
-            // )
+            let market_record =
+                Record::from_value(self.results_topic.as_str(), curr_mkt_json.as_bytes());
 
-            //res_publisher.send(&market_record);
-            thread::sleep(publish_delay);
+            let _ = res_publisher.send(&market_record);
         }
     }
 
-    /// snap the market from the market service receiver
-    fn _snap_market(&self, mkt_receiver: Receiver<MarketType>) -> MarketType {
-        //    match self._latest_market {
-        //        None => MarketType::<'a>::new(),
-        //        Some(latest_m) => self._decode_mkt(latest_m),
-        //    }
-        MarketType::new()
-    }
-
     /// Loop that handles the market events
-    pub fn _handle_mkt_events(
-        &self,
-        kafka_server_name: String,
-        kafka_server_port: i32,
-        mkt_topic: String,
-        new_mkt_sender: Sender<MarketType>,
-    ) {
-        let mut mkt_listener_ =
-            Consumer::from_hosts(vec![
-                format!("{kafka_server_name}:{kafka_server_port}").to_owned()
-            ])
-            .with_topic_partitions(mkt_topic.to_owned(), &[0])
-            .with_fallback_offset(FetchOffset::Earliest)
-            .with_offset_storage(GroupOffsetStorage::Kafka)
-            .create()
-            .unwrap();
+    pub fn _handle_mkt_events(&self, mkt_topic: String, new_mkt_sender: Sender<MarketType>) {
+        let mut mkt_listener_ = Consumer::from_hosts(vec![format!(
+            "{}:{}",
+            self.kafka_server_name, self.kafka_port
+        )
+        .to_owned()])
+        .with_topic_partitions(mkt_topic.to_owned(), &[0])
+        .with_fallback_offset(FetchOffset::Earliest)
+        .with_offset_storage(GroupOffsetStorage::Kafka)
+        .create()
+        .unwrap();
 
         loop {
             for ms in mkt_listener_.poll().unwrap().iter() {
@@ -442,7 +426,7 @@ impl Controller {
                     let msg_decoded: Value =
                         serde_json::from_str(std::str::from_utf8(m.value).unwrap()).unwrap();
                     // msg_decoded is an array, the first value is the market number, the second the object
-                    let market_uuid = msg_decoded[0].to_string();
+                    let _market_uuid = msg_decoded[0].to_string();
                     let market_obj = msg_decoded[1].as_object().unwrap();
 
                     // construct a new HashMap
@@ -456,7 +440,7 @@ impl Controller {
 
                     *self._latest_market.lock().unwrap() = mkt_decoded.clone();
 
-                    new_mkt_sender.send(mkt_decoded); // send the market over the sender.
+                    let _ = new_mkt_sender.send(mkt_decoded); // send the market over the sender.
                 }
                 let _ = mkt_listener_.consume_messageset(ms);
             }
@@ -486,36 +470,30 @@ impl Controller {
         let (pos_sender_new, pos_recv_new) = channel::<Trade>();
         let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
         let (mkt_working_sender, mkt_working_recv) = channel::<bool>();
+        let (curr_result_sender, curr_result_recv) = channel::<PortfolioType>();
 
         thread::scope(|s| {
             s.spawn(move || {
                 self.__construct_portfolio(
                     pos_sender_new,
                     pos_sender_curr,
-                    "localhost".to_string(),
-                    9092,
                     "air_options.ao.option_positions".to_string(),
+                    mkt_working_recv,
                 );
             });
             s.spawn(move || {
-                self._handle_mkt_events(
-                    "localhost".to_string(),
-                    9092,
-                    "mkt_events".to_string(),
-                    new_mkt_sender,
-                );
+                self._handle_mkt_events("mkt_events".to_string(), new_mkt_sender);
             });
             s.spawn(move || {
                 self._trade_processor_new(new_mkt_receiver, mkt_working_sender);
             });
             s.spawn(move || {
-                self._trade_processor_curr(pos_recv_curr);
+                self._trade_processor_curr(pos_recv_curr, curr_result_sender);
             });
 
-            // TODO: results publishing
-            //s.spawn(move || {
-            //    self._publish_results();
-            //});
+            s.spawn(move || {
+                self._publish_results(curr_result_recv);
+            });
         });
     }
 }

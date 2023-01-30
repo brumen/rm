@@ -15,6 +15,8 @@ fn main() {
         "localhost".to_string(),
         Some(HashMap::<String, f64>::new()),
         "mkt_events".to_string(), // market topic
+        "localhost".to_owned(),
+        9092,
     );
 
     controller.start();
