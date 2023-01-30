@@ -7,7 +7,7 @@ use kafka::producer::{Producer, Record, RequiredAcks};
 use reqwest;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::mpsc::{channel, Receiver, RecvError, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use time::format_description;
@@ -120,33 +120,6 @@ impl Controller {
         )
     }
 
-    /// Sends new positions to the current and new market processors.
-    ///
-    fn add_position(
-        &self,
-        new_positions: Vec<Trade>,
-        sender_new: &Sender<Trade>,
-        sender_curr: &Sender<Trade>,
-        new_mkt_working_recv: &Receiver<bool>,
-    ) {
-        let positions_len = new_positions.len();
-
-        debug!("Adding positions to CURR market: {positions_len}");
-
-        for new_position in &new_positions {
-            self.__all_trades.lock().unwrap().push(*new_position);
-            let _ = sender_curr.send(*new_position);
-        }
-
-        let new_mkt_working = new_mkt_working_recv.recv().unwrap();
-        if new_mkt_working {
-            debug!("Adding {positions_len} positions to NEW market queue");
-            for new_position in &new_positions {
-                let _ = sender_new.send(*new_position);
-            }
-        }
-    }
-
     // TODO: CHECK IF THIS IS REALLY NECESSARY TO DO, MAYBE THE KAFKA CONFIG HERE IS BETTER!!!
     /// Prunes offsetting trades.
     fn __prune_offsetting_trades(trades: &mut Vec<Trade>) -> Vec<Trade> {
@@ -182,18 +155,6 @@ impl Controller {
         prunned_positions
     }
 
-    /// indicator whether the current market should be replaced w/ the new market
-    fn _replace_curr_with_single(&self) -> bool {
-        if self._trade_queue_new_market.lock().unwrap().size() == 0
-            && *self.__new_market_prev_working.lock().unwrap()
-        {
-            debug!("Switching curr_market <- new_market");
-            return true;
-        }
-
-        false
-    }
-
     /// Aggregating the results of two trades.
     fn _trade_result_agg_single(
         exist_market: &mut MarketType,
@@ -217,7 +178,7 @@ impl Controller {
 
     /// Values the trade id
     /// Makes a call to the rester service, which values the trade.
-    fn _value_trade(&self, trade: Trade) -> TradeValue {
+    fn _value_trade(&self, trade: &Trade) -> TradeValue {
         let trade_id = trade.trade_id;
 
         //"http://localhost:5010/pv/{trade_id}"
@@ -231,7 +192,7 @@ impl Controller {
                 return TradeValue::new(); // TODO: THIS SHOULD BE DIFFERENT, CORRECT
             }
         };
-        debug!("Valuing trade {:?}", result);
+        info!("Valuing trade {:?}", result);
 
         // we have the price, copy the market date in it.
         let mut result_tv = TradeValue::new();
@@ -249,18 +210,31 @@ impl Controller {
     pub fn _trade_processor_curr(
         &self,
         trade_receiver: Receiver<Trade>,
-        curr_mkt_sender: Sender<PortfolioType>,
+        curr_portfolio_sender: Sender<PortfolioType>,
+        new_portfolio_receiver: Receiver<PortfolioType>,
     ) {
-        for message in trade_receiver.iter() {
-            debug!("CURR market: valuing trade.");
-            let trade_value = self._value_trade(message);
+        let mut curr_portfolio = PortfolioType::new();
 
-            Controller::_trade_result_agg_single(
-                &mut self.curr_market.lock().unwrap(),
-                Some(trade_value),
-            );
+        loop {
+            debug!("Working on current market!");
+            let new_portfolio_received = new_portfolio_receiver.try_recv(); // this will not block
+            match new_portfolio_received {
+                Ok(new_portfolio) => {
+                    curr_portfolio = new_portfolio;
+                }
+                _ => {}
+            };
 
-            let _ = curr_mkt_sender.send(self.curr_market.lock().unwrap().clone());
+            match trade_receiver.try_recv() {
+                Ok(trade) => {
+                    debug!("CURR market: valuing trade {}", trade.trade_id);
+                    let trade_value = self._value_trade(&trade);
+
+                    Controller::_trade_result_agg_single(&mut curr_portfolio, Some(trade_value));
+                    let _ = curr_portfolio_sender.send(curr_portfolio.clone());
+                }
+                _ => {}
+            };
         }
     }
 
@@ -269,42 +243,49 @@ impl Controller {
     pub fn _trade_processor_new(
         &self,
         new_market_receiver: Receiver<MarketType>,
-        new_market_working: Sender<bool>,
+        new_trade_receiver: Receiver<Trade>,
+        new_portfolio_sender: Sender<PortfolioType>,
     ) {
+        let mut __all_trades: Vec<Trade> = vec![];
+        let mut new_portfolio = PortfolioType::new();
+        let mut new_mkt = match new_market_receiver.try_recv() {
+            Ok(new_internal_mkt) => Some(new_internal_mkt),
+            _ => None,
+        };
+
         loop {
-            let new_market_result = new_market_receiver.recv();
-
-            match new_market_result {
-                Ok(new_market) => {
-                    let _ = new_market_working.send(true);
-                    // we have the market,
-                    for trade in &*self.__all_trades.lock().unwrap() {
-                        debug!("NEW market: valuing trade.");
-                        let trade_value = self._value_trade(*trade);
-
-                        Controller::_trade_result_agg_single(
-                            &mut *self.new_market.lock().unwrap(),
-                            Some(trade_value),
-                        );
-                    }
-
-                    // Switching markets after the new market finishes.
-                    info!("NEW market: Switching: curr_market <- new_market.");
-                    *self.curr_market.lock().unwrap() = self.new_market.lock().unwrap().clone();
-
-                    *self._market_snap_curr.lock().unwrap() =
-                        self._market_snap_new.lock().unwrap().clone();
-                    *self._market_snap_new.lock().unwrap() = Some(new_market);
-
-                    *self.__new_market_prev_working.lock().unwrap() = false;
+            // iterate over new_trade_receiver until exhaustion
+            if new_mkt.is_some() {
+                info!("Working on new market!");
+                // new market is constructed.
+                new_portfolio = PortfolioType::new();
+                for trade in &__all_trades {
+                    Controller::_trade_result_agg_single(
+                        &mut new_portfolio,
+                        Some(self._value_trade(trade)),
+                    );
                 }
-                Err(recv_error) => {
-                    warn!("Market error received {:>}", recv_error); // dont do anything, for now just report it.
+
+                let mut new_trade_iter = new_trade_receiver.try_iter();
+                let mut new_trade = new_trade_iter.next();
+                while new_trade.is_some() {
+                    let new_trade_v = new_trade.unwrap();
+                    let trade_value = self._value_trade(&new_trade_v);
+                    __all_trades.push(new_trade_v);
+                    Controller::_trade_result_agg_single(&mut new_portfolio, Some(trade_value));
+                    new_trade = new_trade_iter.next();
                 }
+                // we've exhausted the new trades -> switch markets.
+                let _ = new_portfolio_sender.send(new_portfolio.clone());
             }
-
-            // flush the messages from new_market_receiver
-            new_market_receiver.iter(); //
+            // handle new market signals.
+            // flush all markets on the new market until the last one.
+            let mut new_market_result = new_market_receiver.try_iter();
+            new_mkt = new_market_result.next();
+            while new_mkt.is_some() {
+                new_mkt = new_market_result.next();
+            }
+            // we have the last market
         }
     }
 
@@ -330,6 +311,7 @@ impl Controller {
             .unwrap();
 
         loop {
+            debug!("Listening to trades!");
             for ms in pos_listener_.poll().unwrap().iter() {
                 working = true;
                 for m in ms.messages() {
@@ -341,35 +323,31 @@ impl Controller {
 
                     debug!("Getting position: {:?}", msg_payload);
 
-                    match event_type.as_str() {
+                    let trade_to_send = match event_type.as_str() {
                         Some("c") => {
                             let tid = msg_payload["after"]["position_id"].as_i64();
-                            self.add_position(
-                                vec![Trade {
-                                    trade_id: tid.unwrap() as u8,
-                                    direction: TradeDirection::Create,
-                                }],
-                                &sender_new,
-                                &sender_curr,
-                                &new_mkt_working,
-                            );
+                            Trade {
+                                trade_id: tid.unwrap() as u8,
+                                direction: TradeDirection::Create,
+                            }
                         }
                         Some("d") => {
                             let tid = msg_payload["before"]["position_is"].as_i64();
-                            self.add_position(
-                                vec![Trade {
-                                    trade_id: tid.unwrap() as u8,
-                                    direction: TradeDirection::Delete,
-                                }],
-                                &sender_new,
-                                &sender_curr,
-                                &new_mkt_working,
-                            );
+                            Trade {
+                                trade_id: tid.unwrap() as u8,
+                                direction: TradeDirection::Delete,
+                            }
                         }
                         _ => {
                             info!("UNIMPLEMENTED. FIX THIS");
+                            Trade {
+                                trade_id: 189,
+                                direction: TradeDirection::Create,
+                            }
                         }
-                    }
+                    };
+                    let _ = sender_new.send(trade_to_send);
+                    let _ = sender_curr.send(trade_to_send);
                 }
                 let _ = pos_listener_.consume_messageset(ms); // TODO: FIX THIS ERROR HANDLING HERE
             }
@@ -420,6 +398,7 @@ impl Controller {
         .unwrap();
 
         loop {
+            debug!("Getting new markets from {mkt_topic}!");
             for ms in mkt_listener_.poll().unwrap().iter() {
                 for m in ms.messages() {
                     // TODO: ADD THIS CHECK HERE!!
@@ -438,8 +417,7 @@ impl Controller {
                         );
                     }
 
-                    *self._latest_market.lock().unwrap() = mkt_decoded.clone();
-
+                    debug!("NEW MKT SENDER = {:?}", mkt_decoded);
                     let _ = new_mkt_sender.send(mkt_decoded); // send the market over the sender.
                 }
                 let _ = mkt_listener_.consume_messageset(ms);
@@ -466,11 +444,16 @@ impl Controller {
 
     // starts the controller threads.
     pub fn start(&self) {
+        // 2 trade senders, 1 for current market, 1 for new market.
         let (pos_sender_curr, pos_recv_curr) = channel::<Trade>();
         let (pos_sender_new, pos_recv_new) = channel::<Trade>();
+        //
         let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
         let (mkt_working_sender, mkt_working_recv) = channel::<bool>();
         let (curr_result_sender, curr_result_recv) = channel::<PortfolioType>();
+        // new & current market portfolio
+        let (curr_portfolio_sender, curr_portfolio_recv) = channel::<PortfolioType>();
+        let (new_portfolio_sender, new_portfolio_recv) = channel::<PortfolioType>();
 
         thread::scope(|s| {
             s.spawn(move || {
@@ -485,10 +468,14 @@ impl Controller {
                 self._handle_mkt_events("mkt_events".to_string(), new_mkt_sender);
             });
             s.spawn(move || {
-                self._trade_processor_new(new_mkt_receiver, mkt_working_sender);
+                self._trade_processor_new(new_mkt_receiver, pos_recv_new, new_portfolio_sender);
             });
             s.spawn(move || {
-                self._trade_processor_curr(pos_recv_curr, curr_result_sender);
+                self._trade_processor_curr(
+                    pos_recv_curr,
+                    curr_portfolio_sender,
+                    new_portfolio_recv,
+                );
             });
 
             s.spawn(move || {
