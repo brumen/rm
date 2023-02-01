@@ -12,7 +12,7 @@ fn main() {
 
     let controller = Controller::new(
         Date::from_calendar_date(2016, Month::January, 1).unwrap(),
-        "localhost".to_string(),
+        "air_options.ao.results".to_string(),
         Some(HashMap::<String, f64>::new()),
         "localhost:5010".to_string(),
         "localhost".to_string(), // market topic
