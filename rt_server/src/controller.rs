@@ -1,7 +1,6 @@
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 
-use core::cmp::Eq;
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 use kafka::producer::{Producer, Record, RequiredAcks};
 use reqwest;
