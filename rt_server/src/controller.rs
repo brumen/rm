@@ -1,10 +1,12 @@
 use log::{debug, info, warn};
+use serde::{Deserialize, Serialize};
 
 use core::cmp::Eq;
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 use kafka::producer::{Producer, Record, RequiredAcks};
 use reqwest;
 use serde_json::Value;
+use serde_yaml;
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 use std::thread;
@@ -12,18 +14,7 @@ use std::time::Duration;
 use time::format_description;
 use time::Date;
 
-#[derive(Clone, Debug, PartialEq, Eq, Copy)]
-enum TradeDirection {
-    Create,
-    Delete,
-    Update,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
-pub struct Trade {
-    trade_id: u8,
-    direction: TradeDirection,
-}
+use crate::trade::{Trade, TradeDirection, TradeHandling};
 
 pub type PricingParams = HashMap<String, f64>;
 pub type MarketType = HashMap<(String, Date), f64>;
@@ -37,21 +28,35 @@ pub type PortfolioType = HashMap<(String, Date), f64>;
 pub struct Controller {
     market_date: Date,
     pricing_params: PricingParams,
-    // snaps of the current and new market
-    results_topic: String,
-    trade_pricer: String, // trade pricer name
     kafka_server_name: String,
     kafka_port: i32,
+    trade_pricer: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PricingStruct {
+    nb_sim: i32,
+    default_price: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RTConfig {
+    kafka_server_name: String,
+    kafka_server_port: i32,
+    mkt_topic: String,
+    results_topic: String,
+    pos_topic: String,
+    trade_pricer: String,
+    pricing_params: PricingStruct,
 }
 
 impl Controller {
     pub fn new(
         market_date: Date,
-        results_topic: String,
         pricing_params_: Option<HashMap<String, f64>>,
-        trade_pricer: String, // localhost:5051
         kafka_server_name: String,
         kafka_port: i32,
+        trade_pricer: String,
     ) -> Self {
         // if given the params, use them, otherwise construct empty map
         let pricing_init = match pricing_params_ {
@@ -62,31 +67,36 @@ impl Controller {
         Controller {
             market_date: market_date,
             pricing_params: pricing_init,
-            results_topic: results_topic,
-            trade_pricer: trade_pricer,
             kafka_server_name,
             kafka_port,
+            trade_pricer,
         }
     }
 
     /// constructs the controller from configuration read from the file.
     pub fn new_from_config(
         market_date: Date,
-        result_topic: String,
-        config_file: String, // like "configuration.yaml"
-    ) -> Self {
-        //let config_f = File::open(config_file)?;
-        //let pricing_params = serde_yaml::from_reader::<'static, HashMap<&str, f64>>(config_f)?;
+        kafka_server_name: String,
+        kafka_port: i32,
+        trade_pricer: String,
+        config_file: String,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let config_f = std::fs::File::open(config_file).unwrap();
+        let config_map: RTConfig = serde_yaml::from_reader(config_f).unwrap();
 
-        // TODO: READ ALL THESE PARAMETERS FROM THE YAML CONFIG, NOT JUST SOME!
-        Controller::new(
+        Ok(Controller::new(
             market_date,
-            result_topic,
-            Some(HashMap::<String, f64>::new()),
-            "localhost:5010".to_string(),
-            "localhost".to_owned(),
-            9092,
-        )
+            Some(HashMap::from([
+                ("nb_sim".to_owned(), config_map.pricing_params.nb_sim as f64),
+                (
+                    "default_price".to_string(),
+                    config_map.pricing_params.default_price,
+                ),
+            ])),
+            kafka_server_name,
+            kafka_port,
+            trade_pricer,
+        ))
     }
 
     /// Aggregating the results of two trades.
@@ -228,7 +238,7 @@ impl Controller {
     }
 
     /// listens to kafka stream and stores portfolio locally.
-    pub fn __construct_portfolio(
+    fn __construct_portfolio(
         &self,
         sender_new: Sender<Trade>,
         sender_curr: Sender<Trade>,
@@ -250,34 +260,7 @@ impl Controller {
                     let msg_decoded: Value =
                         serde_json::from_str(std::str::from_utf8(m.value).unwrap()).unwrap();
 
-                    let msg_payload = &msg_decoded["payload"];
-                    let event_type = &msg_payload["op"];
-
-                    debug!("Getting position: {:?}", msg_payload);
-
-                    let trade_to_send = match event_type.as_str() {
-                        Some("c") => {
-                            let tid = msg_payload["after"]["position_id"].as_i64();
-                            Trade {
-                                trade_id: tid.unwrap() as u8,
-                                direction: TradeDirection::Create,
-                            }
-                        }
-                        Some("d") => {
-                            let tid = msg_payload["before"]["position_is"].as_i64();
-                            Trade {
-                                trade_id: tid.unwrap() as u8,
-                                direction: TradeDirection::Delete,
-                            }
-                        }
-                        _ => {
-                            info!("UNIMPLEMENTED. FIX THIS");
-                            Trade {
-                                trade_id: 189,
-                                direction: TradeDirection::Create,
-                            }
-                        }
-                    };
+                    let trade_to_send = Controller::recover_trade(&msg_decoded);
                     let _ = sender_new.send(trade_to_send);
                     let _ = sender_curr.send(trade_to_send);
                 }
@@ -289,7 +272,11 @@ impl Controller {
 
     /// publishes the computed results to the result publisher topic in Kafka.
     /// curr_mkt_recv is a receiver that receives the produced market and publishes it to Kafka
-    fn _publish_results(&self, curr_portfolio_recv: Receiver<PortfolioType>) {
+    fn _publish_results(
+        &self,
+        curr_portfolio_recv: Receiver<PortfolioType>,
+        results_topic: String,
+    ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name, self.kafka_port);
 
         let mut res_publisher = Producer::from_hosts(vec![bootstrap_servers.to_owned()])
@@ -313,9 +300,8 @@ impl Controller {
             let curr_mkt_pv = format!("{{\"PV\": {}}}", curr_mkt_json);
 
             // implements bytearray(str(dumps(self.curr_market)), ascii))
-            let market_record =
-                Record::from_value(self.results_topic.as_str(), curr_mkt_pv.as_bytes())
-                    .with_partition(0);
+            let market_record = Record::from_value(results_topic.as_str(), curr_mkt_pv.as_bytes())
+                .with_partition(0);
 
             let _ = res_publisher.send(&market_record);
             thread::sleep(Duration::from_secs(1));
@@ -389,7 +375,12 @@ impl Controller {
     //fn _decode_mkt(market: MarketType<'a>) -> u8 {}
 
     // starts the controller threads.
-    pub fn start(&self) {
+    pub fn start(
+        &self,
+        pos_topic: String,     // position topic on kafka
+        mkt_topic: String,     // market topic
+        results_topic: String, // publish the results topic
+    ) {
         // 2 trade senders, 1 for current market, 1 for new market.
         let (pos_sender_curr, pos_recv_curr) = channel::<Trade>();
         let (pos_sender_new, pos_recv_new) = channel::<Trade>();
@@ -401,14 +392,10 @@ impl Controller {
 
         thread::scope(|s| {
             s.spawn(move || {
-                self.__construct_portfolio(
-                    pos_sender_new,
-                    pos_sender_curr,
-                    "air_options.ao.option_positions".to_string(),
-                );
+                self.__construct_portfolio(pos_sender_new, pos_sender_curr, pos_topic);
             });
             s.spawn(move || {
-                self._handle_mkt_events("mkt_events".to_string(), new_mkt_sender);
+                self._handle_mkt_events(mkt_topic, new_mkt_sender);
             });
             s.spawn(move || {
                 self._trade_processor_new(new_mkt_receiver, pos_recv_new, new_portfolio_sender);
@@ -424,9 +411,43 @@ impl Controller {
             let _ = thread::Builder::new()
                 .name("publish_thread".to_string())
                 .spawn_scoped(s, move || {
-                    self._publish_results(curr_portfolio_recv);
+                    self._publish_results(curr_portfolio_recv, results_topic);
                 })
                 .unwrap();
         });
+    }
+}
+
+impl TradeHandling for Controller {
+    /// recovers the trade from the message itself.
+    fn recover_trade(msg_decoded: &Value) -> Trade {
+        let msg_payload = &msg_decoded["payload"];
+        let event_type = &msg_payload["op"];
+
+        debug!("Getting position: {:?}", msg_payload);
+
+        match event_type.as_str() {
+            Some("c") => {
+                let tid = msg_payload["after"]["position_id"].as_i64();
+                return Trade {
+                    trade_id: tid.unwrap() as u8,
+                    direction: TradeDirection::Create,
+                };
+            }
+            Some("d") => {
+                let tid = msg_payload["before"]["position_is"].as_i64();
+                return Trade {
+                    trade_id: tid.unwrap() as u8,
+                    direction: TradeDirection::Delete,
+                };
+            }
+            _ => {
+                info!("UNIMPLEMENTED. FIX THIS");
+                return Trade {
+                    trade_id: 189,
+                    direction: TradeDirection::Create,
+                };
+            }
+        }
     }
 }
