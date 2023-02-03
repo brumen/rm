@@ -320,6 +320,8 @@ impl Controller {
         .create()
         .unwrap();
 
+        let mkt_update_client = reqwest::blocking::Client::new();
+
         loop {
             debug!("Getting new markets from {mkt_topic}!");
             for ms in mkt_listener_.poll().unwrap().iter() {
@@ -330,6 +332,14 @@ impl Controller {
                     // msg_decoded is an array, the first value is the market number, the second the object
                     let _market_uuid = msg_decoded[0].to_string();
                     let market_obj = msg_decoded[1].as_object().unwrap();
+
+                    // update the market on the market_api
+                    //"http://localhost:5010/pv/{trade_id}"
+                    let _ = mkt_update_client
+                        .post("http://localhost:5010/market")
+                        .json(&HashMap::from([("market", market_obj)]))
+                        .send()
+                        .unwrap();
 
                     // construct a new HashMap
                     let mut mkt_decoded = MarketType::new();

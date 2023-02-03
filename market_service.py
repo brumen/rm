@@ -4,13 +4,13 @@
 import datetime
 import logging
 
-from typing    import Optional, Dict, Tuple, Union
-from uuid      import uuid4, UUID
+from typing import Optional, Dict, Tuple, Union
+from uuid import uuid4, UUID
 from threading import Thread
-from time      import sleep
-from kafka     import KafkaConsumer, TopicPartition, KafkaProducer
+from time import sleep
+from kafka import KafkaConsumer, TopicPartition, KafkaProducer
 from kafka.consumer.fetcher import ConsumerRecord
-from json      import loads, dumps
+from json import loads, dumps
 
 logging.basicConfig(filename='/tmp/market_service.log')
 logger = logging.getLogger(__name__)
@@ -24,12 +24,7 @@ class MarketService:
         Market is shown on .new_market property.
     """
 
-    def __init__( self
-                , flights           : Optional = None
-                , time_interval     : int      = 5
-                , server_port_topic : Tuple[str, str, str] = ('localhost', 9092, 'air_options.ao.flights_live', )
-                , mkt_events_topic  : str = 'mkt_events'
-                , ):
+    def __init__(self, flights: Optional = None, time_interval: int = 5, server_port_topic: Tuple[str, str, str] = ('localhost', 9092, 'air_options.ao.flights_live', ), mkt_events_topic: str = 'mkt_events', ):
         """
 
         :param flights: flights to be in the market. If None, all flights are scheduled.
@@ -39,23 +34,24 @@ class MarketService:
         :param mkt_events_topic: topic where the UUID of the market is published.
         """
 
-        self.flights       = flights
+        self.flights = flights
         self.time_interval = time_interval
 
         server_name, port, mkt_topic = server_port_topic
         server_port = f'{server_name}:{port}'
         self.__mkt_listener = KafkaConsumer(bootstrap_servers=server_port)
-        self.__mkt_listener.assign([TopicPartition(topic=mkt_topic, partition=0)])
+        self.__mkt_listener.assign(
+            [TopicPartition(topic=mkt_topic, partition=0)])
         self.__mkt_listener.seek_to_beginning()
 
         # producer of market events
         self.__mkt_producer = KafkaProducer(bootstrap_servers=server_port)
         self.__mkt_producer_topic = mkt_events_topic
 
-        self.__prev_market          = {}  # both markets are empty
-        self.__new_market_updates   = {}
-        self.__prev_market_id       = uuid4()  # ID of the previous market
-        self.__new_market_id        = uuid4()  # ID of the new market
+        self.__prev_market = {}  # both markets are empty
+        self.__new_market_updates = {}
+        self.__prev_market_id = uuid4()  # ID of the previous market
+        self.__new_market_id = uuid4()  # ID of the new market
         self.__new_market_snap_time = datetime.datetime.now()
 
     def _update_new_mkt_events(self):
@@ -68,7 +64,7 @@ class MarketService:
             logger.info(f'New market event.')
             self.__new_market_updates.update(self._process_mkt_msg(msg))
 
-    def _process_mkt_msg(self, msg : ConsumerRecord) -> Dict:
+    def _process_mkt_msg(self, msg: ConsumerRecord) -> Dict:
         """ Processes the market message.
 
         :returns: processed market message.
@@ -101,19 +97,20 @@ class MarketService:
         """
 
         while True:
-            elapsed_time = (datetime.datetime.now() - self.__new_market_snap_time).seconds
+            elapsed_time = (datetime.datetime.now() -
+                            self.__new_market_snap_time).seconds
             if elapsed_time >= self.time_interval:  # switch: curr_market <- new_market
                 logger.debug(f'Elapsed time: {elapsed_time}')
-                logger.info(f'Switching market from {self.__prev_market_id} to {self.__new_market_id}')
+                logger.info(
+                    f'Switching market from {self.__prev_market_id} to {self.__new_market_id}')
                 self.__prev_market |= self.__new_market_updates  # updated market
                 self.__new_market_updates = {}  # reset new market updates.
 
                 self.__prev_market_id = self.__new_market_id
                 self.__new_market_id = uuid4()
                 self.__new_market_snap_time = datetime.datetime.now()
-                self.__mkt_producer.send( self.__mkt_producer_topic
-                                        , value=bytearray(str(self.encode_mkt()), 'ascii')
-                                        , )
+                self.__mkt_producer.send(self.__mkt_producer_topic, value=bytearray(
+                    str(self.encode_mkt()), 'ascii'), )
 
             else:
                 sleep(sleep_delay)
@@ -128,10 +125,12 @@ class MarketService:
         returns: market events thread, switch market thread.
         """
 
-        market_events = Thread(target=self._update_new_mkt_events)  # market event topic reading thread
+        # market event topic reading thread
+        market_events = Thread(target=self._update_new_mkt_events)
         market_events.start()
 
-        switch_markets = Thread(target=self._operate_markets)  # market event topic reading thread
+        # market event topic reading thread
+        switch_markets = Thread(target=self._operate_markets)
         switch_markets.start()
 
         return market_events, switch_markets
@@ -141,7 +140,7 @@ class AOMarketService(MarketService):
     """ Market service with decode/encode features.
     """
 
-    def _process_mkt_msg(self, msg : ConsumerRecord) -> Dict[Tuple[str, datetime.date], float]:
+    def _process_mkt_msg(self, msg: ConsumerRecord) -> Dict[Tuple[str, datetime.date], float]:
         """ Snaps the market at a particular time.
 
         :param msg: message from kafka connect, in the form:
@@ -185,14 +184,15 @@ class AOMarketService(MarketService):
         if msg_payload.get('op') == 'c':  # create, only look at 'after'
             flight_info = msg_payload['after']
             flight_carrier = flight_info.get('carrier')
-            flight_nb      = flight_info.get('flight_nb')
+            flight_nb = flight_info.get('flight_nb')
             # TODO: below DAYS after 1970/1/1
-            flight_date    = datetime.date(1970, 1, 1) + datetime.timedelta(days=flight_info.get('dep_date'))
+            flight_date = datetime.date(
+                1970, 1, 1) + datetime.timedelta(days=flight_info.get('dep_date'))
 
             return {(f'{flight_carrier}{flight_nb}', flight_date): flight_info.get('price')}
 
     @staticmethod
-    def encode_from_tuple(encode_d : Dict[Tuple[str, datetime.date], float]) -> Dict[str, float]:
+    def encode_from_tuple(encode_d: Dict[Tuple[str, datetime.date], float]) -> Dict[str, float]:
         """ Encodes the dictionary of the form (str, datetime.date): float into a dictionary
             of Dict[str, float], by combining the str and datetime into a string.
 
@@ -200,11 +200,11 @@ class AOMarketService(MarketService):
         :returns: resulting encoded dictionary.
         """
 
-        return { f"{flight_id}|{flight_date.strftime('%Y%m%d')}": flight_price
-                 for (flight_id, flight_date), flight_price in encode_d.items() }
+        return {f"{flight_id}|{flight_date.strftime('%Y%m%d')}": flight_price
+                for (flight_id, flight_date), flight_price in encode_d.items()}
 
     @staticmethod
-    def decode_to_tuple(enc_str_date : str) -> Union[None, Tuple[str, datetime.date]]:
+    def decode_to_tuple(enc_str_date: str) -> Union[None, Tuple[str, datetime.date]]:
         """ Decodes the encoded (flight_id, flight_date) to this state.
 
         If the conversion fails, None is returned.
@@ -216,13 +216,15 @@ class AOMarketService(MarketService):
         try:
             flight_id, flight_date_enc = enc_str_date.split('|')
         except Exception as e:
-            logger.warning(f'Could not convert {enc_str_date}, continuing and ignoring the element: {e}')
+            logger.warning(
+                f'Could not convert {enc_str_date}, continuing and ignoring the element: {e}')
             return None
 
         try:
             return flight_id, datetime.datetime.strptime(flight_date_enc, '%Y%m%d').date()
         except Exception as e:
-            logger.warning(f'Could not convert the date to the datetime.date structure: {e}')
+            logger.warning(
+                f'Could not convert the date to the datetime.date structure: {e}')
             return None
 
     def encode_mkt(self) -> str:
@@ -238,7 +240,13 @@ class AOMarketService(MarketService):
         return dumps((str(latest_market_id), self.encode_from_tuple(latest_market)))
 
     @classmethod
-    def decode_mkt(cls, encoded_id_mkt : Tuple[UUID, Dict[str, float]]) -> Dict[Tuple[str, datetime.date], float]:
+    def decode_mkt_data(cls, encoded_mkt: Dict[str, float]) -> Dict[Tuple[str, datetime.date], float]:
+
+        return {cls.decode_to_tuple(encoded_nb_date): flight_price
+                for encoded_nb_date, flight_price in encoded_mkt.items()}
+
+    @classmethod
+    def decode_mkt(cls, encoded_id_mkt: Tuple[UUID, Dict[str, float]]) -> Dict[Tuple[str, datetime.date], float]:
         """ Decodes the encoded market w/ the encode_mkt function above.
 
         :param encoded_id_mkt: market_id, and encoded market as a tuple.
@@ -247,5 +255,4 @@ class AOMarketService(MarketService):
 
         _, encoded_mkt = encoded_id_mkt
 
-        return {cls.decode_to_tuple(encoded_nb_date) : flight_price
-                for encoded_nb_date, flight_price in encoded_mkt.items() }
+        return cls.decode_mkt_data(encoded_mkt)
