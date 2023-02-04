@@ -16,9 +16,6 @@ from markupsafe import escape
 from flask import Flask, Response, request
 from json import dumps, loads
 
-from pyspark import SparkContext, SparkConf
-from functools import lru_cache
-
 from ao.trade import AOTrade, DeltaDict, AirOptionFlights
 from rm.market_service import AOMarketService
 from rm.services.trade_api_pricers import (
@@ -28,6 +25,7 @@ from rm.services.trade_api_pricers import (
     construct_ao_trades,
     extract_trade_ids,
     TradeDirection,
+    price_trades,
 )
 
 
@@ -136,72 +134,20 @@ def trade_pv(trade_id):
     return result
 
 
-@ lru_cache
-def _set_spark_env() -> SparkContext:
-    """ Creates the spark context.
+@ pv_rester.route('/pv_spark/<trade_ids>')
+def trade_pv_spark(trade_ids):
+    """ Returns the PV of the trade.
+    Trade can be either in the form of 200, or a list of trades, separated by , - e.g.
+        200, 201, 202
     """
 
-    spark_ctx = {'pyfile': r'/home/brumen/work/work_ao.zip', }
+    trades: List[int] = extract_trade_ids(escape(trade_ids))
 
-    spark_conf = SparkConf().setMaster('local[8]')
+    if not trades:
+        return str(0)
 
-    sc = SparkContext.getOrCreate(spark_conf)
-    if 'pyfile' in spark_ctx:
-        sc.addPyFile(spark_ctx['pyfile'])
-
-    return sc
-
-
-def price_trades(trade_ids: List[int]) -> Dict[str, float]:
-    """ Prices trades using the spark parallelization.
-
-    :param trade_ids: trades that should be valued.
-    """
-
-    sc = _set_spark_env()
-
-    return sc\
-        .parallelize(trade_ids)\
-        .map(value_trade)\
-        .collect()
-
-    # aggregated
-    # return sum( [DeltaDict(trade.PV01(mkt_date) if trade.position_id not in trade_pv01s else trade_pv01s[trade.position_id])
-    #             for trade in trades[1:]]
-    #            , start = DeltaDict(trades[0].PV01(mkt_date) if trades[0].position_id not in trade_pv01s else trade_pv01s[trades[0].position_id]))
-
-    # non-aggregated
-    # return {trade.position_id: trade.PV01(mkt_date) for trade in trades}
-
-
-# @classmethod
-# def _compute_trade_on_the_fly(cls
-#                               , mkt_date        : datetime.date
-#                               , ao_trade        : AOTrade
-#                               , trade_direction : str
-#                               , ao_params       : Dict[str, Any]
-#                               , ) -> Dict[str, float]:
-#     """ Compute trades by fetching the market data on-the-fly, meaning at the time that the trade is computed.
-#         _compute_trade_from_mkt uses the same market for all trades (when it can).
-
-#     :param mkt_date: market date.
-#     :param ao_trade: ao trade to be values.
-#     :param trade_direction: direction of the trade, 'c' for long, 'd' for short.
-#     :param ao_params: parameters related to valuation/risk of the trade
-#     :returns: PV and PV01 of the trade to be computed.
-#     """
-
-#     aof = AirOptionFlights.from_flights( mkt_date, ao_trade.flights, ao_trade.strike)
-
-#     nb_sim = ao_params['nb_sim']
-
-#     pv = aof.PV(nb_sim=nb_sim)
-#     pv01 = aof.PV01(nb_sim=nb_sim)
-#     logger.debug(f'PV, PV01 of {ao_trade}: {pv, pv01}')
-
-#     return { 'PV'  : DeltaDict({ao_trade.position_id: pv}) if trade_direction == 'c' else DeltaDict({ao_trade.position_id: - pv})
-#            , 'PV01': pv01 if trade_direction == 'c' else - pv01
-#            , }
+    global mkt_date
+    return price_trades(mkt_date, trades)
 
 
 # pv rester start

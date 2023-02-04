@@ -333,8 +333,7 @@ impl Controller {
                     let _market_uuid = msg_decoded[0].to_string();
                     let market_obj = msg_decoded[1].as_object().unwrap();
 
-                    // update the market on the market_api
-                    //"http://localhost:5010/pv/{trade_id}"
+                    // update the market rester market_api
                     let _ = mkt_update_client
                         .post("http://localhost:5010/market")
                         .json(&HashMap::from([("market", market_obj)]))

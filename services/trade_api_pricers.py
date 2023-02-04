@@ -9,12 +9,14 @@ import sys
 if '/home/brumen/work/' not in sys.path:
     sys.path.append('/home/brumen/work/')
 
-
+from json import loads
 from enum import Enum
+from requests import Response, get as requests_get
 from typing import List, Dict, Tuple, Any, Union, Generator, Optional
 from pyspark import SparkContext, SparkConf
+from functools import lru_cache
 from ao.trade import create_session, AOTrade, DeltaDict, AirOptionFlights
-
+from rm.market_service import AOMarketService
 
 # logging
 logging.basicConfig(filename='/tmp/trade_pv_restr.log')
@@ -145,3 +147,74 @@ def _compute_trades_from_id(
         market=market,
         ao_params=ao_params,
     )
+
+
+@ lru_cache
+def _set_spark_env() -> SparkContext:
+    """ Creates the spark context.
+    """
+
+    spark_ctx = {'pyfile':
+        [
+            r'/home/brumen/work/work_ao.zip',
+            r'/home/brumen/work/work_rm.zip',
+        ] 
+    }
+
+    spark_conf = SparkConf().setMaster('local[8]')
+
+    sc = SparkContext.getOrCreate(spark_conf)
+    if 'pyfile' in spark_ctx:
+        for spark_pyfile in spark_ctx['pyfile']:
+            sc.addPyFile(spark_pyfile)
+
+    return sc
+
+
+def _value_trade_spark(
+    market_date_trade_id : Tuple[datetime.date, int]
+):
+    """ Values the trades """
+
+    market_date, trade_id = market_date_trade_id
+
+    trade = construct_ao_trades([trade_id,])
+    if not trade:
+        return {}
+
+    # call the service for the market 
+    market = requests_get('http://localhost:5010/market')
+    market_decoded = AOMarketService.decode_mkt_data(loads(market.content))
+
+    return _compute_trade_from_mkt(
+        market_date, 
+        trade[0],
+        TradeDirection.LONG, 
+        market_decoded, 
+        default_params,
+    ).get('PV', {})  # TODO: THIS SHOUDLD BE FIXED.
+
+
+def price_trades(
+    market_date: datetime.date,
+    trade_ids: List[int],
+) -> Dict[str, float]:
+    """ Prices trades using the spark parallelization.
+
+    :param trade_ids: trades that should be valued.
+    """
+
+    sc = _set_spark_env()
+
+    nb_trades = len(trade_ids)
+
+    trade_vals = sc\
+        .parallelize(zip([market_date] * nb_trades, trade_ids, ))\
+        .map(_value_trade_spark)\
+        .collect()
+
+    result_pv = {}
+    for result_trade in trade_vals:
+        result_pv |= result_trade
+
+    return result_pv
