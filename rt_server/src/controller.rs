@@ -10,9 +10,10 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 use std::thread;
 use std::time::Duration;
-use time::format_description;
-use time::Date;
+use string_join::Join;
+use time::{format_description, Date};
 
+use crate::encdec::EncoderDecoder;
 use crate::trade::{Trade, TradeDirection, TradeHandling};
 
 pub type PricingParams = HashMap<String, f64>;
@@ -129,12 +130,22 @@ impl Controller {
             reqwest::blocking::get(format!("http://{}/pv/{}", self.trade_pricer, trade_id));
 
         let result = match result_pricing {
-            Ok(result_price) => result_price.json::<HashMap<String, f64>>().unwrap(),
+            Ok(result_price) => {
+                match result_price.json::<HashMap<String, f64>>() {
+                    Ok(result_pricer_inner) => result_pricer_inner,
+                    Err(e) => {
+                        warn!("Could not conver the result to a map: {:?}", e);
+                        return TradeValue::new();
+
+                    }
+                }
+            },
             Err(e) => {
                 warn!("Trade {trade_id} could not price correctly: {}", e);
                 return TradeValue::new(); // TODO: THIS SHOULD BE DIFFERENT, CORRECT
-            }
+            },
         };
+
         debug!("Valuing trade {:?}", result);
 
         // we have the price, copy the market date in it.
@@ -164,6 +175,7 @@ impl Controller {
                 Ok(new_portfolio) => {
                     info!("Switching current <- new market.");
                     curr_portfolio = new_portfolio;
+                    let _ = curr_portfolio_sender.send(curr_portfolio.clone());
                 }
                 _ => {}
             };
@@ -174,12 +186,58 @@ impl Controller {
                     let trade_value = self._value_trade(&trade);
 
                     Controller::_trade_result_agg_single(&mut curr_portfolio, Some(trade_value));
+                    let _ = curr_portfolio_sender.send(curr_portfolio.clone());
                 }
                 _ => {}
             };
-            let _ = curr_portfolio_sender.send(curr_portfolio.clone());
-            thread::sleep(Duration::from_secs(1));
         }
+    }
+
+    fn _price_trades_on_spark(&self, trades: &Vec<Trade>) -> PortfolioType {
+        let mut new_portfolio = PortfolioType::new();
+
+        // TODO: REWRITE THIS, THIS IS SHIT
+        // let k = |trade: Trade| -> String { trade.trade_id.to_string() };
+        // let s = ",".join(
+        //     *trades
+        //         .into_iter()
+        //         .map(|trade: &Trade| -> String { trade.trade_id.to_string() })
+        //         .collect(),
+        // );
+
+        let mut all_trades_str = String::from(trades[0].trade_id.to_string());
+        for trade in &trades[1..] {
+            all_trades_str = format!("{},{}", all_trades_str, trade.trade_id.to_string());
+        }
+
+        info!("SPARK: Pricing trades {}.", all_trades_str);
+        // use the pv_spark service http://localhost:5010/pv_spark/189,190,...
+        let result_pricing = reqwest::blocking::get(format!(
+            "http://{}/pv_spark/{}",
+            self.trade_pricer, all_trades_str
+        ));
+
+        let result = match result_pricing {
+            Ok(result_price) =>
+                match result_price.json::<HashMap<String, f64>>() {
+                    Ok(result_pricer_inner) => result_pricer_inner,
+                    Err(e) => {
+                        warn!("Could not conver the result to a map: {:?}", e);
+                        return TradeValue::new();
+                    }
+                },
+            Err(e) => {
+                warn!("Trades could not price correctly: {}", e);
+                HashMap::<String, f64>::new() // TODO: THIS SHOULD BE DIFFERENT, CORRECT
+            }
+        };
+
+        // we have the price, copy the market date in it.
+        for (trade_obj, trade_res) in result.iter() {
+            let _ = &new_portfolio.insert((trade_obj.clone(), self.market_date), *trade_res);
+        }
+
+        new_portfolio
     }
 
     /// processes the trades on the new market.
@@ -199,16 +257,20 @@ impl Controller {
         loop {
             // iterate over new_trade_receiver until exhaustion
             if new_mkt.is_some() {
-                info!("Working on new market!");
+                info!("NEW market: Working.");
                 // new market is constructed.
                 let mut new_portfolio = PortfolioType::new();
-                for trade in &__all_trades {
-                    Controller::_trade_result_agg_single(
-                        &mut new_portfolio,
-                        Some(self._value_trade(trade)),
-                    );
+                if __all_trades.len() > 10 {
+                    new_portfolio = self._price_trades_on_spark(&__all_trades);
+                } else {
+                    // compute the trades 1 by 1.
+                    for trade in &__all_trades {
+                        Controller::_trade_result_agg_single(
+                            &mut new_portfolio,
+                            Some(self._value_trade(trade)),
+                        );
+                    }
                 }
-
                 let mut new_trade_iter = new_trade_receiver.try_iter();
                 let mut new_trade = new_trade_iter.next();
                 while new_trade.is_some() {
@@ -232,7 +294,7 @@ impl Controller {
             }
             new_mkt = prev_new_mkt;
             // we have the last market
-            thread::sleep(Duration::from_secs(1));
+            thread::sleep(Duration::from_millis(100));
         }
     }
 
@@ -358,30 +420,6 @@ impl Controller {
         }
     }
 
-    /// decodes the
-    fn _decode_flight_date(flight_date: String) -> (String, Date) {
-        // flight_date is in the form UA96|2015-01-01
-        let mut flight_date_v = flight_date.split("|");
-
-        // TODO: A LOT OF CHECKING HAS TO BE DONE HERE
-        let flight_ = flight_date_v.next().unwrap();
-        let date_format = format_description::parse("[year][month][day]").unwrap();
-        let date_ = Date::parse(flight_date_v.next().unwrap(), &date_format).unwrap();
-
-        (flight_.to_owned(), date_)
-    }
-
-    fn _encode_flight_date(flight: String, date: Date) -> String {
-        // flight_date is in the form UA96|2015-01-01
-
-        let date_format = format_description::parse("[year][month][day]").unwrap();
-
-        format!("{}|{}", flight, date.format(&date_format).unwrap())
-    }
-
-    // decodes the market from the rester service.
-    //fn _decode_mkt(market: MarketType<'a>) -> u8 {}
-
     // starts the controller threads.
     pub fn start(
         &self,
@@ -399,22 +437,33 @@ impl Controller {
         let (new_portfolio_sender, new_portfolio_recv) = channel::<PortfolioType>();
 
         thread::scope(|s| {
-            s.spawn(move || {
-                self.__construct_portfolio(pos_sender_new, pos_sender_curr, pos_topic);
-            });
-            s.spawn(move || {
-                self._handle_mkt_events(mkt_topic, new_mkt_sender);
-            });
-            s.spawn(move || {
-                self._trade_processor_new(new_mkt_receiver, pos_recv_new, new_portfolio_sender);
-            });
-            s.spawn(move || {
-                self._trade_processor_curr(
-                    pos_recv_curr,
-                    curr_portfolio_sender,
-                    new_portfolio_recv,
-                );
-            });
+            let _ = thread::Builder::new()
+                .name("accepting_trades".to_string())
+                .spawn_scoped(s, move || {
+                    self.__construct_portfolio(pos_sender_new, pos_sender_curr, pos_topic);
+                });
+
+            let _ = thread::Builder::new()
+                .name("market_events".to_string())
+                .spawn_scoped(s, move || {
+                    self._handle_mkt_events(mkt_topic, new_mkt_sender);
+                });
+
+            let _ = thread::Builder::new()
+                .name("new_portfolio".to_string())
+                .spawn_scoped(s, move || {
+                    self._trade_processor_new(new_mkt_receiver, pos_recv_new, new_portfolio_sender);
+                });
+
+            let _ = thread::Builder::new()
+                .name("curr_portfolio".to_string())
+                .spawn_scoped(s, move || {
+                    self._trade_processor_curr(
+                        pos_recv_curr,
+                        curr_portfolio_sender,
+                        new_portfolio_recv,
+                    );
+                });
 
             let _ = thread::Builder::new()
                 .name("publish_thread".to_string())
@@ -457,5 +506,28 @@ impl TradeHandling for Controller {
                 };
             }
         }
+    }
+}
+
+impl EncoderDecoder for Controller {
+    /// decodes the encoding string.
+    fn _decode_flight_date(flight_date: String) -> (String, Date) {
+        // flight_date is in the form UA96|20150101
+        let mut flight_date_v = flight_date.split("|");
+
+        // TODO: A LOT OF CHECKING HAS TO BE DONE HERE
+        let flight_ = flight_date_v.next().unwrap();
+        let date_format = format_description::parse("[year][month][day]").unwrap();
+        let date_ = Date::parse(flight_date_v.next().unwrap(), &date_format).unwrap();
+
+        (flight_.to_owned(), date_)
+    }
+
+    fn _encode_flight_date(flight: String, date: Date) -> String {
+        // flight_date is in the form UA96|20150101
+
+        let date_format = format_description::parse("[year][month][day]").unwrap();
+
+        format!("{}|{}", flight, date.format(&date_format).unwrap())
     }
 }

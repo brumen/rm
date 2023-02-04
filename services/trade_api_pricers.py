@@ -14,12 +14,13 @@ from enum import Enum
 from requests import Response, get as requests_get
 from typing import List, Dict, Tuple, Any, Union, Generator, Optional
 from pyspark import SparkContext, SparkConf
+from sqlalchemy.exc import OperationalError
 from functools import lru_cache
 from ao.trade import create_session, AOTrade, DeltaDict, AirOptionFlights
 from rm.market_service import AOMarketService
 
 # logging
-logging.basicConfig(filename='/tmp/trade_pv_restr.log')
+logging.basicConfig(filename='/tmp/trade_pv_restr_pricers.log')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -61,7 +62,14 @@ def construct_ao_trades(trade_ids: List[int]) -> List[AOTrade]:
 
 
 # trade with market
-def _compute_trade_from_mkt(mkt_date: datetime.date, ao_trade: AOTrade, trade_direction: TradeDirection = TradeDirection.LONG, market: Optional[Dict[Tuple[str, datetime.date], float]] = None, ao_params: Optional[Dict[str, Any]] = None, ) -> Dict[str, DeltaDict]:
+def _compute_trade_from_mkt(
+    mkt_date: datetime.date, 
+    ao_trade: AOTrade, 
+    trade_direction: TradeDirection = TradeDirection.LONG, 
+    market: Optional[Dict[Tuple[str, datetime.date], float]] = None, 
+    ao_params: Optional[Dict[str, Any]] = None, 
+    session = None,
+) -> Dict[str, DeltaDict]:
     """ Computes the trade from the market provided.
 
     :param mkt_date: market date
@@ -178,7 +186,14 @@ def _value_trade_spark(
 
     market_date, trade_id = market_date_trade_id
 
-    trade = construct_ao_trades([trade_id,])
+    session = create_session()
+    try: 
+        trade = session.query(AOTrade).filter(AOTrade.position_id.in_([trade_id,])).all()
+    except OperationalError as e:
+        logger.warn(f"Could not obtain {trade_id} correctly from DB.")
+        return {}  # TODO: WRONG THIS IS WRONG 
+
+    #    trade = construct_ao_trades([trade_id,])
     if not trade:
         return {}
 
@@ -189,9 +204,10 @@ def _value_trade_spark(
     return _compute_trade_from_mkt(
         market_date, 
         trade[0],
-        TradeDirection.LONG, 
-        market_decoded, 
-        default_params,
+        trade_direction = TradeDirection.LONG,
+        market = market_decoded,
+        ao_params = default_params,
+        session = session,
     ).get('PV', {})  # TODO: THIS SHOUDLD BE FIXED.
 
 

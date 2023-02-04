@@ -5,6 +5,7 @@ use std::time::Duration;
 use time::{Date, Month};
 
 mod trade;
+mod encdec;
 
 mod controller;
 use controller::Controller;
