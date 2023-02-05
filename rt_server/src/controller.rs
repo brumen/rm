@@ -228,7 +228,7 @@ impl Controller {
                 },
             Err(e) => {
                 warn!("Trades could not price correctly: {}", e);
-                HashMap::<String, f64>::new() // TODO: THIS SHOULD BE DIFFERENT, CORRECT
+                return TradeValue::new() // TODO: What to do if the trade cant convert
             }
         };
 
@@ -386,29 +386,55 @@ impl Controller {
 
         loop {
             debug!("Getting new markets from {mkt_topic}!");
-            for ms in mkt_listener_.poll().unwrap().iter() {
+            for ms in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
                 for m in ms.messages() {
                     // TODO: ADD THIS CHECK HERE!!
                     let msg_decoded: Value =
                         serde_json::from_str(std::str::from_utf8(m.value).unwrap()).unwrap();
                     // msg_decoded is an array, the first value is the market number, the second the object
                     let _market_uuid = msg_decoded[0].to_string();
-                    let market_obj = msg_decoded[1].as_object().unwrap();
+                    let market_obj = match msg_decoded[1].as_object() {
+                        Some(mo) => mo,
+                        None => {
+                            warn!("Couldnt retrive the market from the message.");
+                            MarketType::new()
+                        },
+                    };
 
                     // update the market rester market_api
-                    let _ = mkt_update_client
+                    let market_posted = mkt_update_client
                         .post("http://localhost:5010/market")
                         .json(&HashMap::from([("market", market_obj)]))
-                        .send()
-                        .unwrap();
+                        .send();
+
+                    match market_posted {
+                        Ok(_) => {
+                            debug!("Market posted successfully.");
+                        },
+                        Err(e) => {
+                            warn!("Could not post the market successfully. Ignoring last market.");
+                        }
+                    }
 
                     // construct a new HashMap
                     let mut mkt_decoded = MarketType::new();
                     for (market_flight_date, flight_price) in market_obj.iter() {
-                        let _ = &mkt_decoded.insert(
-                            Controller::_decode_flight_date(market_flight_date.clone()), // TODO: THIS SHOULD BE A REFERENCE OR SOMETHING
-                            flight_price.as_f64().unwrap(), // TODO: FIX THIS HERE
-                        );
+                        let decoded_mkt_date = match Controller::_decode_flight_date(market_flight_date.clone()) {
+                            Some(decoded_mkt_and_date) => decoded_mkt_and_date,
+                            Err(e) => {
+                                warn!("Couldnt decode {:?}", market_flight_date);
+                                continue;
+                            },
+                        };
+                        let decoded_price = match flight_price.as_f64() {
+                            Some(fp) => fp,
+                            Err(e) => {
+                                warn!("Couldnt convert flight price {:?} to a float.", flight_price);
+                                continue;
+                            },
+                        };
+                        
+                        let _ = &mkt_decoded.insert(decoded_mkt_date, decoded_price);
                     }
 
                     let _ = new_mkt_sender.send(mkt_decoded); // send the market over the sender.
@@ -416,7 +442,7 @@ impl Controller {
                 let _ = mkt_listener_.consume_messageset(ms);
             }
             mkt_listener_.commit_consumed().unwrap();
-            thread::sleep(Duration::from_secs(1));
+            thread::sleep(Duration::from_millis(100));
         }
     }
 
@@ -436,24 +462,28 @@ impl Controller {
         let (curr_portfolio_sender, curr_portfolio_recv) = channel::<PortfolioType>();
         let (new_portfolio_sender, new_portfolio_recv) = channel::<PortfolioType>();
 
+        // threads fail if any of them can not be created.
         thread::scope(|s| {
             let _ = thread::Builder::new()
                 .name("accepting_trades".to_string())
                 .spawn_scoped(s, move || {
                     self.__construct_portfolio(pos_sender_new, pos_sender_curr, pos_topic);
-                });
+                })
+                .unwrap();
 
             let _ = thread::Builder::new()
                 .name("market_events".to_string())
                 .spawn_scoped(s, move || {
                     self._handle_mkt_events(mkt_topic, new_mkt_sender);
-                });
+                })
+                .unwrap();
 
             let _ = thread::Builder::new()
                 .name("new_portfolio".to_string())
                 .spawn_scoped(s, move || {
                     self._trade_processor_new(new_mkt_receiver, pos_recv_new, new_portfolio_sender);
-                });
+                })
+                .unwrap();
 
             let _ = thread::Builder::new()
                 .name("curr_portfolio".to_string())
@@ -463,7 +493,8 @@ impl Controller {
                         curr_portfolio_sender,
                         new_portfolio_recv,
                     );
-                });
+                })
+                .unwrap();
 
             let _ = thread::Builder::new()
                 .name("publish_thread".to_string())
@@ -499,7 +530,7 @@ impl TradeHandling for Controller {
                 };
             }
             _ => {
-                info!("UNIMPLEMENTED. FIX THIS");
+                warn!("UNIMPLEMENTED. FIX THIS");
                 return Trade {
                     trade_id: 189,
                     direction: TradeDirection::Create,
@@ -510,24 +541,25 @@ impl TradeHandling for Controller {
 }
 
 impl EncoderDecoder for Controller {
-    /// decodes the encoding string.
-    fn _decode_flight_date(flight_date: String) -> (String, Date) {
+
+    /// decodes the encoded string.
+    /// Returns the error if it cant decode.
+    fn _decode_flight_date(flight_date: String) -> Result<(String, Date)> {
         // flight_date is in the form UA96|20150101
         let mut flight_date_v = flight_date.split("|");
 
-        // TODO: A LOT OF CHECKING HAS TO BE DONE HERE
-        let flight_ = flight_date_v.next().unwrap();
+        let flight_ = flight_date_v.next()?;
         let date_format = format_description::parse("[year][month][day]").unwrap();
-        let date_ = Date::parse(flight_date_v.next().unwrap(), &date_format).unwrap();
+        let date_ = Date::parse(flight_date_v.next()?, &date_format)?;
 
-        (flight_.to_owned(), date_)
+        Ok((flight_.to_owned(), date_))
     }
 
-    fn _encode_flight_date(flight: String, date: Date) -> String {
+    fn _encode_flight_date(flight: String, date: Date) -> Result<String> {
         // flight_date is in the form UA96|20150101
 
         let date_format = format_description::parse("[year][month][day]").unwrap();
 
-        format!("{}|{}", flight, date.format(&date_format).unwrap())
+        Ok(format!("{}|{}", flight, date.format(&date_format)?))
     }
 }

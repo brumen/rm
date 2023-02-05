@@ -1,5 +1,9 @@
 // Starts the controller.
 
+// ADD THIS TO POWERSHELL:
+// $env:OPENSSL_DIR = 'C:\Tools\vcpkg\installed\x64-windows-static'
+// $env:OPENSSL_STATIC = 'Yes'
+
 use std::collections::HashMap;
 use std::time::Duration;
 use time::{Date, Month};
