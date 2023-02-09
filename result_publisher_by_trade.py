@@ -109,6 +109,27 @@ class ResultPublisherKafkaPV(ResultPublisherKafka):
         return np.array([]) if result_dict is None else np.array(list(result_dict['PV'].items()))
 
 
+class ResultPublisherKafkaPV_Useless(ResultPublisherKafka):
+
+    def _process_result(self, result_dict : Optional[Dict[str, Dict[str, float]]]):
+        """ Processing the PV result.
+
+        :param result_dict: dictionary of results, the keys are PV, PV01, the computed requests. Value is a
+           dictionary of flight names, and values of that flight.
+        """
+
+        if result_dict is None:
+            return np.array([])
+
+        # sort the results:
+        itemized_l = []
+        for trade_id_date, trade_val in result_dict['PV'].items():
+            itemized_l.append((trade_id_date.split('|')[0], trade_val))
+
+
+        return np.array(sorted(itemized_l, key=lambda trade_id_date: trade_id_date[0]))
+
+
 class ResultPublisherKafkaPV01(ResultPublisherKafka):
 
     def _process_result(self, result_dict: Optional[Dict[str, Dict[str, float]]]):

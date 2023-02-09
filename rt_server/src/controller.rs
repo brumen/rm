@@ -7,13 +7,16 @@ use reqwest;
 use serde_json::Value;
 use serde_yaml;
 use std::collections::HashMap;
+use std::ffi::NulError;
+use std::io::Error;
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 use std::thread;
 use std::time::Duration;
 use string_join::Join;
 use time::{format_description, Date};
+use time::error::{Parse, Format};
 
-use crate::encdec::EncoderDecoder;
+use crate::encdec::{EncoderDecoder, DecoderError};
 use crate::trade::{Trade, TradeDirection, TradeHandling};
 
 pub type PricingParams = HashMap<String, f64>;
@@ -351,10 +354,15 @@ impl Controller {
             // serialize the current market into HashMap<String, f64>
             let mut curr_mkt_ser = HashMap::<String, f64>::new();
             for ((flight_nb, flight_date), flight_val) in curr_mkt.iter() {
-                curr_mkt_ser.insert(
-                    Controller::_encode_flight_date(flight_nb.clone(), *flight_date),
-                    *flight_val,
-                );
+                let encoded_flight_date = Controller::_encode_flight_date(flight_nb.clone(), *flight_date);
+                match encoded_flight_date {
+                    Ok(flight_date_enc) => {
+                        curr_mkt_ser.insert(flight_date_enc,*flight_val);
+                    },
+                    Err(e) => {
+                        warn!("Could not encode the flight nb and date {:?}", e);
+                    }
+                }
             }
             let curr_mkt_json = serde_json::ser::to_string(&curr_mkt_ser).unwrap();
 
@@ -393,18 +401,12 @@ impl Controller {
                         serde_json::from_str(std::str::from_utf8(m.value).unwrap()).unwrap();
                     // msg_decoded is an array, the first value is the market number, the second the object
                     let _market_uuid = msg_decoded[0].to_string();
-                    let market_obj = match msg_decoded[1].as_object() {
-                        Some(mo) => mo,
-                        None => {
-                            warn!("Couldnt retrive the market from the message.");
-                            MarketType::new()
-                        },
-                    };
+                    let market_obj = msg_decoded[1].as_object();
 
                     // update the market rester market_api
                     let market_posted = mkt_update_client
                         .post("http://localhost:5010/market")
-                        .json(&HashMap::from([("market", market_obj)]))
+                        .json(&HashMap::from([("market", &market_obj)]))
                         .send();
 
                     match market_posted {
@@ -418,9 +420,9 @@ impl Controller {
 
                     // construct a new HashMap
                     let mut mkt_decoded = MarketType::new();
-                    for (market_flight_date, flight_price) in market_obj.iter() {
+                    for (market_flight_date, flight_price) in market_obj.unwrap().iter() {
                         let decoded_mkt_date = match Controller::_decode_flight_date(market_flight_date.clone()) {
-                            Some(decoded_mkt_and_date) => decoded_mkt_and_date,
+                            Ok(decoded_mkt_and_date) => decoded_mkt_and_date,
                             Err(e) => {
                                 warn!("Couldnt decode {:?}", market_flight_date);
                                 continue;
@@ -428,12 +430,12 @@ impl Controller {
                         };
                         let decoded_price = match flight_price.as_f64() {
                             Some(fp) => fp,
-                            Err(e) => {
+                            None => {
                                 warn!("Couldnt convert flight price {:?} to a float.", flight_price);
                                 continue;
                             },
                         };
-                        
+
                         let _ = &mkt_decoded.insert(decoded_mkt_date, decoded_price);
                     }
 
@@ -544,18 +546,30 @@ impl EncoderDecoder for Controller {
 
     /// decodes the encoded string.
     /// Returns the error if it cant decode.
-    fn _decode_flight_date(flight_date: String) -> Result<(String, Date)> {
+    fn _decode_flight_date(flight_date: String) -> Result<(String, Date), DecoderError> {
         // flight_date is in the form UA96|20150101
         let mut flight_date_v = flight_date.split("|");
 
-        let flight_ = flight_date_v.next()?;
-        let date_format = format_description::parse("[year][month][day]").unwrap();
-        let date_ = Date::parse(flight_date_v.next()?, &date_format)?;
-
-        Ok((flight_.to_owned(), date_))
+        let flight_ = flight_date_v.next();
+        match flight_ {
+            Some(flight_v) => {
+                match flight_date_v.next() {
+                    Some(date_v) => {
+                        let date_format = format_description::parse("[year][month][day]").unwrap();
+                        return Ok((flight_v.to_string(),  Date::parse(date_v, &date_format)?));
+                    },
+                    None => {
+                        return Err(DecoderError::SplitError("Could not get fligth nb".to_string()));
+                    },
+                }
+            },
+            None => {
+                return Err(DecoderError::SplitError("Could not get date from the encoder".to_string()));
+            }
+        }
     }
 
-    fn _encode_flight_date(flight: String, date: Date) -> Result<String> {
+    fn _encode_flight_date(flight: String, date: Date) -> Result<String, Format> {
         // flight_date is in the form UA96|20150101
 
         let date_format = format_description::parse("[year][month][day]").unwrap();
