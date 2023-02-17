@@ -7,14 +7,12 @@ use reqwest;
 use serde_json::Value;
 use serde_yaml;
 use std::collections::HashMap;
-use std::ffi::NulError;
-use std::io::Error;
-use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
+use std::sync::mpsc::{channel, Receiver, Sender, sync_channel, SyncSender};
 use std::thread;
 use std::time::Duration;
 use string_join::Join;
 use time::{format_description, Date};
-use time::error::{Parse, Format};
+use time::error::Format;
 
 use crate::encdec::{EncoderDecoder, DecoderError};
 use crate::trade::{Trade, TradeDirection, TradeHandling};
@@ -56,7 +54,7 @@ pub struct RTConfig {
 impl Controller {
     pub fn new(
         market_date: Date,
-        pricing_params_: Option<HashMap<String, f64>>,
+        pricing_params_: Option<PricingParams>,
         kafka_server_name: String,
         kafka_port: i32,
         trade_pricer: String,
@@ -64,7 +62,7 @@ impl Controller {
         // if given the params, use them, otherwise construct empty map
         let pricing_init = match pricing_params_ {
             Some(pricing_hash) => pricing_hash,
-            None => HashMap::new(),
+            None => PricingParams::new(),
         };
 
         Controller {
@@ -77,11 +75,9 @@ impl Controller {
     }
 
     /// constructs the controller from configuration read from the file.
+    /// config_file. If it cant read the file properly, it crashes.
     pub fn new_from_config(
         market_date: Date,
-        kafka_server_name: String,
-        kafka_port: i32,
-        trade_pricer: String,
         config_file: String,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config_f = std::fs::File::open(config_file).unwrap();
@@ -89,6 +85,7 @@ impl Controller {
 
         Ok(Controller::new(
             market_date,
+            // pricing_params
             Some(HashMap::from([
                 ("nb_sim".to_owned(), config_map.pricing_params.nb_sim as f64),
                 (
@@ -96,9 +93,9 @@ impl Controller {
                     config_map.pricing_params.default_price,
                 ),
             ])),
-            kafka_server_name,
-            kafka_port,
-            trade_pricer,
+            config_map.kafka_server_name,
+            config_map.kafka_server_port,
+            config_map.trade_pricer,
         ))
     }
 
@@ -137,9 +134,8 @@ impl Controller {
                 match result_price.json::<HashMap<String, f64>>() {
                     Ok(result_pricer_inner) => result_pricer_inner,
                     Err(e) => {
-                        warn!("Could not conver the result to a map: {:?}", e);
+                        warn!("Could not convert the result to a map: {:?}", e);
                         return TradeValue::new();
-
                     }
                 }
             },
@@ -171,59 +167,80 @@ impl Controller {
         new_portfolio_receiver: Receiver<PortfolioType>,
     ) {
         let mut curr_portfolio = PortfolioType::new();
+        let mut prev_potential_portfolio : Option<PortfolioType>= None;
+        let mut processing_trades = false;
 
         loop {
-            let new_portfolio_received = new_portfolio_receiver.try_recv(); // this will not block
-            match new_portfolio_received {
+            // receive information from the senders
+            let new_potential_trade = trade_receiver.try_recv();
+            let new_potential_portfolio = new_portfolio_receiver.try_recv();
+
+            if let Ok(trade) = new_potential_trade {
+                info!("CURR market: valuing trade {}", trade.trade_id);
+                let trade_value = self._value_trade(&trade);
+
+                Controller::_trade_result_agg_single(&mut curr_portfolio, Some(trade_value));
+                let _ = curr_portfolio_sender.send(curr_portfolio.clone());
+                processing_trades = true;
+            } else {
+                processing_trades = false;
+            }
+
+            match new_potential_portfolio {
                 Ok(new_portfolio) => {
-                    info!("Switching current <- new market.");
-                    curr_portfolio = new_portfolio;
-                    let _ = curr_portfolio_sender.send(curr_portfolio.clone());
-                }
-                _ => {}
-            };
-
-            match trade_receiver.try_recv() {
-                Ok(trade) => {
-                    info!("CURR market: valuing trade {}", trade.trade_id);
-                    let trade_value = self._value_trade(&trade);
-
-                    Controller::_trade_result_agg_single(&mut curr_portfolio, Some(trade_value));
-                    let _ = curr_portfolio_sender.send(curr_portfolio.clone());
-                }
-                _ => {}
-            };
+                    if processing_trades {
+                        // processor is working, just mark the prev potential portfolio as a candidate
+                        prev_potential_portfolio = Some(new_portfolio);
+                    } else {
+                        // processor not working
+                        info!("CURR market: Switching current <- new market.");
+                        prev_potential_portfolio = Some(new_portfolio.clone());
+                        curr_portfolio = new_portfolio;
+                        info!("CURR market: Current portfolio has {} trades", curr_portfolio.keys().len());
+                        let _ = curr_portfolio_sender.send(curr_portfolio.clone());
+                    }
+                },
+                _ => {  // we dont have a new portfolio
+                    if !processing_trades {
+                        if prev_potential_portfolio.is_some() {
+                            curr_portfolio = prev_potential_portfolio.clone().unwrap();
+                        }
+                    }
+                },
+            }
         }
     }
 
+    /// prices trades on spark
     fn _price_trades_on_spark(&self, trades: &Vec<Trade>) -> PortfolioType {
-        let mut new_portfolio = PortfolioType::new();
-
-        // TODO: REWRITE THIS, THIS IS SHIT
-        // let k = |trade: Trade| -> String { trade.trade_id.to_string() };
-        // let s = ",".join(
-        //     *trades
-        //         .into_iter()
-        //         .map(|trade: &Trade| -> String { trade.trade_id.to_string() })
-        //         .collect(),
-        // );
-
-        let mut all_trades_str = String::from(trades[0].trade_id.to_string());
-        for trade in &trades[1..] {
-            all_trades_str = format!("{},{}", all_trades_str, trade.trade_id.to_string());
+        if trades.is_empty() {
+            return PortfolioType::new();
         }
 
-        info!("SPARK: Pricing trades {}.", all_trades_str);
+        let all_trades_str = ",".join(
+            trades
+                .into_iter()
+                .map(|trade: &Trade| -> String {trade.trade_id.to_string()} )
+        );
+
+        //info!("SPARK: Pricing trades {}.", all_trades_str);
         // use the pv_spark service http://localhost:5010/pv_spark/189,190,...
         let result_pricing = reqwest::blocking::get(format!(
-            "http://{}/pv_spark/{}",
+            "http://{}/pv/{}",
             self.trade_pricer, all_trades_str
         ));
 
-        let result = match result_pricing {
+        match result_pricing {
             Ok(result_price) =>
                 match result_price.json::<HashMap<String, f64>>() {
-                    Ok(result_pricer_inner) => result_pricer_inner,
+                    Ok(result_pricer_inner) => {
+                        let mut new_portfolio = PortfolioType::new();
+                        for (trade_obj, trade_res) in result_pricer_inner.iter() {
+                            let _ = &new_portfolio.insert((trade_obj.clone(), self.market_date), *trade_res);
+                        }
+                        info!("SPARK: Computed portfolio w/ {} trades", new_portfolio.keys().len());
+                        return new_portfolio;
+                    },
                     Err(e) => {
                         warn!("Could not conver the result to a map: {:?}", e);
                         return TradeValue::new();
@@ -235,69 +252,60 @@ impl Controller {
             }
         };
 
-        // we have the price, copy the market date in it.
-        for (trade_obj, trade_res) in result.iter() {
-            let _ = &new_portfolio.insert((trade_obj.clone(), self.market_date), *trade_res);
-        }
-
-        new_portfolio
     }
 
     /// processes the trades on the new market.
     /// new_market_receiver:
     pub fn _trade_processor_new(
         &self,
-        new_market_receiver: Receiver<MarketType>,
-        new_trade_receiver: Receiver<Trade>,
-        new_portfolio_sender: Sender<PortfolioType>,
+        new_market_receiver: Receiver<MarketType>,  //
+        new_trade_receiver: Receiver<Trade>,  // receiving new additional trades
+        new_portfolio_sender: SyncSender<PortfolioType>,  // results are sent here
     ) {
-        let mut __all_trades: Vec<Trade> = vec![];
-        let mut new_mkt = match new_market_receiver.try_recv() {
-            Ok(new_internal_mkt) => Some(new_internal_mkt),
-            _ => None,
-        };
+        let mut all_trades: Vec<Trade> = vec![];
+
+        let mut now_working = false;  // is it working in this iteration
+        let mut prev_working = false;  // is it working in the previous iteration
+        let mut new_portfolio = PortfolioType::new();
 
         loop {
-            // iterate over new_trade_receiver until exhaustion
-            if new_mkt.is_some() {
-                info!("NEW market: Working.");
-                // new market is constructed.
-                let mut new_portfolio = PortfolioType::new();
-                if __all_trades.len() > 10 {
-                    new_portfolio = self._price_trades_on_spark(&__all_trades);
-                } else {
-                    // compute the trades 1 by 1.
-                    for trade in &__all_trades {
-                        Controller::_trade_result_agg_single(
-                            &mut new_portfolio,
-                            Some(self._value_trade(trade)),
-                        );
-                    }
-                }
-                let mut new_trade_iter = new_trade_receiver.try_iter();
-                let mut new_trade = new_trade_iter.next();
-                while new_trade.is_some() {
-                    let new_trade_v = new_trade.unwrap();
-                    let trade_value = self._value_trade(&new_trade_v);
-                    __all_trades.push(new_trade_v);
+
+            let new_potential_market = new_market_receiver.try_recv();
+            let new_potential_trade = new_trade_receiver.try_recv();
+
+            let no_new_trade = new_potential_trade.is_err();
+            if let Ok(new_trade) = new_potential_trade {
+                if now_working {
+                    info!("NEW market: Adding additional trade {}", new_trade.trade_id);
+                    let trade_value = self._value_trade(&new_trade);
                     Controller::_trade_result_agg_single(&mut new_portfolio, Some(trade_value));
-                    new_trade = new_trade_iter.next();
                 }
-                // we've exhausted the new trades -> switch markets.
-                let _ = new_portfolio_sender.send(new_portfolio.clone());
+                all_trades.push(new_trade);
             }
-            // handle new market signals.
-            // flush all markets on the new market until the last one.
-            let mut new_market_result = new_market_receiver.try_iter();
-            let mut prev_new_mkt: Option<MarketType> = None;
-            new_mkt = new_market_result.next();
-            while new_mkt.is_some() {
-                prev_new_mkt = new_mkt;
-                new_mkt = new_market_result.next();
+
+            let no_new_market = new_potential_market.is_err();
+            if let Ok(_new_market) = new_potential_market {
+                if !now_working {
+                    info!("NEW market: Working. {} trades", all_trades.len());
+                    new_portfolio = self._price_trades_on_spark(&all_trades);
+                    now_working = true;
+                }
             }
-            new_mkt = prev_new_mkt;
-            // we have the last market
-            thread::sleep(Duration::from_millis(100));
+
+            debug!("NEW market: New trade {}, new market {}", !no_new_trade, !no_new_market);
+
+            if no_new_trade && no_new_market {
+                debug!("NEW market: NOT working.");
+                now_working = false;
+            }
+
+            if !now_working && prev_working && no_new_market && no_new_trade {
+                info!("NEW market: Publishing the portfolio");
+                let _ = new_portfolio_sender.send(new_portfolio);
+                new_portfolio = PortfolioType::new();  // new portfolio resets
+            }
+
+            prev_working = now_working;
         }
     }
 
@@ -373,7 +381,7 @@ impl Controller {
                 .with_partition(0);
 
             let _ = res_publisher.send(&market_record);
-            thread::sleep(Duration::from_secs(1));
+            thread::sleep(Duration::from_millis(10));
         }
     }
 
@@ -413,7 +421,7 @@ impl Controller {
                         Ok(_) => {
                             debug!("Market posted successfully.");
                         },
-                        Err(e) => {
+                        _ => {
                             warn!("Could not post the market successfully. Ignoring last market.");
                         }
                     }
@@ -423,7 +431,7 @@ impl Controller {
                     for (market_flight_date, flight_price) in market_obj.unwrap().iter() {
                         let decoded_mkt_date = match Controller::_decode_flight_date(market_flight_date.clone()) {
                             Ok(decoded_mkt_and_date) => decoded_mkt_and_date,
-                            Err(e) => {
+                            _ => {
                                 warn!("Couldnt decode {:?}", market_flight_date);
                                 continue;
                             },
@@ -462,7 +470,7 @@ impl Controller {
         let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
         // new & current market portfolio
         let (curr_portfolio_sender, curr_portfolio_recv) = channel::<PortfolioType>();
-        let (new_portfolio_sender, new_portfolio_recv) = channel::<PortfolioType>();
+        let (new_portfolio_sender, new_portfolio_recv) = sync_channel::<PortfolioType>(1);
 
         // threads fail if any of them can not be created.
         thread::scope(|s| {
@@ -483,7 +491,11 @@ impl Controller {
             let _ = thread::Builder::new()
                 .name("new_portfolio".to_string())
                 .spawn_scoped(s, move || {
-                    self._trade_processor_new(new_mkt_receiver, pos_recv_new, new_portfolio_sender);
+                    self._trade_processor_new(
+                        new_mkt_receiver,
+                        pos_recv_new,
+                        new_portfolio_sender,
+                    );
                 })
                 .unwrap();
 
@@ -520,14 +532,14 @@ impl TradeHandling for Controller {
             Some("c") => {
                 let tid = msg_payload["after"]["position_id"].as_i64();
                 return Trade {
-                    trade_id: tid.unwrap() as u8,
+                    trade_id: tid.unwrap() as u16,
                     direction: TradeDirection::Create,
                 };
             }
             Some("d") => {
                 let tid = msg_payload["before"]["position_is"].as_i64();
                 return Trade {
-                    trade_id: tid.unwrap() as u8,
+                    trade_id: tid.unwrap() as u16,
                     direction: TradeDirection::Delete,
                 };
             }
@@ -550,8 +562,7 @@ impl EncoderDecoder for Controller {
         // flight_date is in the form UA96|20150101
         let mut flight_date_v = flight_date.split("|");
 
-        let flight_ = flight_date_v.next();
-        match flight_ {
+        match flight_date_v.next() {
             Some(flight_v) => {
                 match flight_date_v.next() {
                     Some(date_v) => {

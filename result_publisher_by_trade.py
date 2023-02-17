@@ -111,6 +111,20 @@ class ResultPublisherKafkaPV(ResultPublisherKafka):
 
 class ResultPublisherKafkaPV_Useless(ResultPublisherKafka):
 
+    def _get_results(self):
+        """ Gets the results from Kafka.
+
+        :returns: None, just updates curr_value, new_value, and trades
+        """
+
+        for msg in self._subscriber:
+            logger.info(f'Processing trades from {self._server_port_topic}.')
+            logger.debug(f'Got message: {msg.value}')
+            result_dict = loads(msg.value)  # value is json encoded
+
+            self.curr_value = self._process_result(result_dict)
+            self._subscriber.seek_to_end()
+
     def _process_result(self, result_dict : Optional[Dict[str, Dict[str, float]]]):
         """ Processing the PV result.
 
@@ -126,7 +140,7 @@ class ResultPublisherKafkaPV_Useless(ResultPublisherKafka):
         for trade_id_date, trade_val in result_dict['PV'].items():
             itemized_l.append((trade_id_date.split('|')[0], trade_val))
 
-
+        logger.info(f"Published list has {len(itemized_l)} trades");
         return np.array(sorted(itemized_l, key=lambda trade_id_date: trade_id_date[0]))
 
 

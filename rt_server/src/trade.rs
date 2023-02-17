@@ -10,7 +10,7 @@ pub enum TradeDirection {
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub struct Trade {
-    pub trade_id: u8,
+    pub trade_id: u16,
     pub direction: TradeDirection,
 }
 
