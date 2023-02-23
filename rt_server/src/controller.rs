@@ -122,12 +122,18 @@ impl Controller {
 
     /// Values the trade id
     /// Makes a call to the rester service, which values the trade.
-    fn _value_trade(&self, trade: &Trade) -> TradeValue {
+    fn _value_trade(&self, trade: &Trade, market : &str) -> TradeValue {
         let trade_id = trade.trade_id;
+
+        let mkt_used = match market {
+            "curr" => "pv",
+            "new" => "pv_new",
+            _ => "pv",
+        };
 
         //"http://localhost:5010/pv/{trade_id}"
         let result_pricing =
-            reqwest::blocking::get(format!("http://{}/pv/{}", self.trade_pricer, trade_id));
+            reqwest::blocking::get(format!("http://{}/{}/{}", self.trade_pricer, mkt_used, trade_id));
 
         let result = match result_pricing {
             Ok(result_price) => {
@@ -177,7 +183,7 @@ impl Controller {
 
             if let Ok(trade) = new_potential_trade {
                 info!("CURR market: valuing trade {}", trade.trade_id);
-                let trade_value = self._value_trade(&trade);
+                let trade_value = self._value_trade(&trade, "curr");
 
                 Controller::_trade_result_agg_single(&mut curr_portfolio, Some(trade_value));
                 let _ = curr_portfolio_sender.send(curr_portfolio.clone());
@@ -194,6 +200,12 @@ impl Controller {
                     } else {
                         // processor not working
                         info!("CURR market: Switching current <- new market.");
+                        // send the switch events
+                        let switch_markets = reqwest::blocking::get(format!(
+                            "http://{}/switch_markets",
+                            self.trade_pricer
+                        ));
+                        // switch portfolios
                         prev_potential_portfolio = Some(new_portfolio.clone());
                         curr_portfolio = new_portfolio;
                         info!("CURR market: Current portfolio has {} trades", curr_portfolio.keys().len());
@@ -277,7 +289,7 @@ impl Controller {
             if let Ok(new_trade) = new_potential_trade {
                 if now_working {
                     info!("NEW market: Adding additional trade {}", new_trade.trade_id);
-                    let trade_value = self._value_trade(&new_trade);
+                    let trade_value = self._value_trade(&new_trade, "new");
                     Controller::_trade_result_agg_single(&mut new_portfolio, Some(trade_value));
                 }
                 all_trades.push(new_trade);
@@ -386,7 +398,14 @@ impl Controller {
     }
 
     /// Loop that handles the market events
-    pub fn _handle_mkt_events(&self, mkt_topic: String, new_mkt_sender: Sender<MarketType>) {
+    /// mkt_topic - receiving market events from this topic
+    /// new_mkt_sender - sending the new market to the pricing api
+    /// switch_mkt_recv - receiver receiving the event when to switch markets.
+    pub fn _handle_mkt_events(
+        &self,
+        mkt_topic: String,
+        new_mkt_sender: Sender<MarketType>,
+    ) {
         let mut mkt_listener_ = Consumer::from_hosts(vec![format!(
             "{}:{}",
             self.kafka_server_name, self.kafka_port
@@ -401,7 +420,7 @@ impl Controller {
         let mkt_update_client = reqwest::blocking::Client::new();
 
         loop {
-            debug!("Getting new markets from {mkt_topic}!");
+            debug!("Getting new markets from {mkt_topic}.");
             for ms in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
                 for m in ms.messages() {
                     // TODO: ADD THIS CHECK HERE!!
@@ -413,7 +432,7 @@ impl Controller {
 
                     // update the market rester market_api
                     let market_posted = mkt_update_client
-                        .post("http://localhost:5010/market")
+                        .post("http://localhost:5010/future_market")
                         .json(&HashMap::from([("market", &market_obj)]))
                         .send();
 

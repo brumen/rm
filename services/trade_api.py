@@ -47,7 +47,9 @@ mkt_date = datetime.date(2016, 7, 1)
 # market on which the trades are priced.
 MARKET_TYPE = Optional[Dict[Tuple[str, datetime.date], float]]
 ENCODED_MARKET_TYPE = Optional[Dict[str, float]]
-market: MARKET_TYPE = {}
+market: MARKET_TYPE = {}  # current market
+new_market : MARKET_TYPE = {}  # new market to price on.
+future_market : MARKET_TYPE = {}  # future market, which will replace the new_market
 
 
 @pv_rester.route('/market_date', methods=['GET', 'POST', ])
@@ -89,31 +91,69 @@ def get_market() -> Response:
                           float] = AOMarketService.decode_mkt_data(new_market)
     market = decoded_new_mkt  # update the market.
 
-    return Response("Updated market")
+    return Response("Updated CURRENT market.")
 
 
-@ pv_rester.route('/update_market', methods=['POST', ])
-def update_market():
-    """ Resets the market and updates it w/ the market provided.
+@pv_rester.route('/new_market', methods=['GET', 'POST',])
+def get_new_market() -> Response:
+    """ Storage for the new market.
     """
 
-    market_to_update = request.form.get('market')
-    global market
-    decoded_update_market: Dict[Tuple[str, datetime.date],
-                                float] = AOMarketService.decode_mkt_data(market_to_update)
-    market |= decoded_update_market
-    return Response(dumps(market))
+    global new_market
+    if request.method == 'GET':  # get method
+        return Response(dumps(AOMarketService.encode_from_tuple(new_market)))
+
+    # post method
+    replace_new_market = loads(request.data).get('market')
+    if replace_new_market is None:
+        return Response(None)
+
+    decoded_replaced_new_mkt: Dict[Tuple[str, datetime.date],
+                          float] = AOMarketService.decode_mkt_data(replace_new_market)
+    new_market = decoded_replaced_new_mkt  # update the market.
+
+    return Response("Updated NEW market.")
 
 
-@ pv_rester.route('/pv/<trade_id>')
-def trade_pv(trade_id):
-    """ Returns the PV of the trade.
-    Trade can be either in the form of 200, or a list of trades, separated by , - e.g.
-        200, 201, 202
+@pv_rester.route('/future_market', methods=['GET', 'POST',])
+def get_future_market() -> Response:
+    """ Storage for the future market. This market replaces the new market.
     """
 
-    trades: List[AOTrade] = construct_ao_trades(
-        extract_trade_ids(escape(trade_id)))
+    global future_market
+    if request.method == 'GET':  # get method
+        return Response(dumps(AOMarketService.encode_from_tuple(future_market)))
+
+    # post method
+    replace_future_market = loads(request.data).get('market')
+    if replace_future_market is None:
+        return Response(None)
+
+    decoded_replaced_future_mkt: Dict[Tuple[str, datetime.date],
+                          float] = AOMarketService.decode_mkt_data(replace_future_market)
+    future_market = decoded_replaced_future_mkt  # update the market.
+
+    return Response("Updated NEW market.")
+
+
+@pv_rester.route('/switch_markets', methods=['GET',])
+def switch_markets() -> Response:
+    """ Switches the following markets:
+        1. market <- new_market
+        2. new_market <- future_market
+    """
+
+    global market, new_market, future_market
+
+    market = new_market
+    new_market = future_market
+
+    return Response('Replaced current/new markets')
+
+
+def trade_pv_market(trade_ids : List[int], market_ : MARKET_TYPE):
+
+    trades: List[AOTrade] = construct_ao_trades(trade_ids)
 
     if not trades:
         return str(0)
@@ -125,13 +165,37 @@ def trade_pv(trade_id):
             mkt_date,
             trade,
             TradeDirection.LONG,
-            market,
+            market_,
             default_params,  # TODO: A SERVICE FOR MANIPULATING PRICING PARAMS.
         )
 
         result |= trade_pv['PV']
 
     return result
+
+
+@ pv_rester.route('/pv/<trade_id>')
+def trade_pv(trade_id):
+    """ Returns the PV of the trade.
+    Trade can be either in the form of 200, or a list of trades, separated by , - e.g.
+        200, 201, 202
+    """
+
+    trade_ids = extract_trade_ids(escape(trade_id))
+
+    return trade_pv_market(trade_ids, market)
+
+
+@ pv_rester.route('/pv_new/<trade_id>')
+def trade_pv_new(trade_id):
+    """ Returns the PV of the trade.
+    Trade can be either in the form of 200, or a list of trades, separated by , - e.g.
+        200, 201, 202
+    """
+
+    trade_ids = extract_trade_ids(escape(trade_id))
+
+    return trade_pv_market(trade_ids, new_market)
 
 
 @ pv_rester.route('/pv_spark/<trade_ids>')
