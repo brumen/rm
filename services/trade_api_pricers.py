@@ -184,25 +184,28 @@ def _value_trade_spark(
 ):
     """ Values the trades """
 
-    market_date, trade_id = market_date_trade_id
+    market_date, trade_id, curr_new_mkt = market_date_trade_id
 
     session = create_session()
-    try: 
+    try:
         trade = session.query(AOTrade).filter(AOTrade.position_id.in_([trade_id,])).all()
     except OperationalError as e:
         logger.warn(f"Could not obtain {trade_id} correctly from DB.")
-        return {}  # TODO: WRONG THIS IS WRONG 
+        return {}  # TODO: WRONG THIS IS WRONG
 
     #    trade = construct_ao_trades([trade_id,])
     if not trade:
         return {}
 
-    # call the service for the market 
-    market = requests_get('http://localhost:5010/market')
+    # call the service for the market
+    if curr_new_mkt == 'c':
+        market = requests_get('http://localhost:5010/market')
+    else:
+        market = requests_get('http://localhost:5010/new_market')
     market_decoded = AOMarketService.decode_mkt_data(loads(market.content))
 
     return _compute_trade_from_mkt(
-        market_date, 
+        market_date,
         trade[0],
         trade_direction = TradeDirection.LONG,
         market = market_decoded,
@@ -212,12 +215,14 @@ def _value_trade_spark(
 
 
 def price_trades(
-    market_date: datetime.date,
-    trade_ids: List[int],
+        market_date: datetime.date,
+        trade_ids: List[int],
+        curr_new_mkt: chr,
 ) -> Dict[str, float]:
     """ Prices trades using the spark parallelization.
 
     :param trade_ids: trades that should be valued.
+    :param curr_new_mkt: 'c' for current market, 'n' for new market
     """
 
     sc = _set_spark_env()
@@ -225,7 +230,7 @@ def price_trades(
     nb_trades = len(trade_ids)
 
     trade_vals = sc\
-        .parallelize(zip([market_date] * nb_trades, trade_ids, ))\
+        .parallelize(zip([market_date] * nb_trades, trade_ids, [curr_new_mkt,] * nb_trades))\
         .map(_value_trade_spark)\
         .collect()
 

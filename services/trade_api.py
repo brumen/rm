@@ -1,6 +1,9 @@
 """ Rester service for trade PV.
     Market publishes on: localhost:5010/trade_pv
     writes logs to /tmp/trade_pv_restr.log
+
+start proper server with:
+    mod_wsgi-express start-server services/trade_api.py --processes 4 --port 5010
 """
 
 import logging
@@ -211,7 +214,23 @@ def trade_pv_spark(trade_ids):
         return str(0)
 
     global mkt_date
-    return price_trades(mkt_date, trades)
+    return price_trades(mkt_date, trades, 'c')
+
+
+@ pv_rester.route('/pv_spark_new/<trade_ids>')
+def trade_pv_spark_new(trade_ids):
+    """ Returns the PV of the trade.
+    Trade can be either in the form of 200, or a list of trades, separated by , - e.g.
+        200, 201, 202
+    """
+
+    trades: List[int] = extract_trade_ids(escape(trade_ids))
+
+    if not trades:
+        return str(0)
+
+    global mkt_date
+    return price_trades(mkt_date, trades, 'n')
 
 
 # pv rester start
@@ -220,4 +239,5 @@ def main():
 
 
 # UNCOMMENT IF TO RUN RESTER.
-main()
+#main()
+application = pv_rester  # IMPORTANT: this has to be called application

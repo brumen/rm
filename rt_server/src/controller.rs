@@ -126,9 +126,9 @@ impl Controller {
         let trade_id = trade.trade_id;
 
         let mkt_used = match market {
-            "curr" => "pv",
-            "new" => "pv_new",
-            _ => "pv",
+            "curr" => "pv_spark",  // before was "pv"
+            "new" => "pv_spark_new",  // before was "pv_new"
+            _ => "pv",  // unimportant
         };
 
         //"http://localhost:5010/pv/{trade_id}"
