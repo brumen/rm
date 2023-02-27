@@ -1,8 +1,13 @@
 """ Service for market snapper.
 """
 
-import datetime
 import logging
+# IMPORTANT: This configuration _HAS_ to be here on top.
+logging.basicConfig(filename='/tmp/market_service.log')
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+import datetime
 
 from typing import Optional, Dict, Tuple, Union
 from uuid import uuid4, UUID
@@ -11,10 +16,6 @@ from time import sleep
 from kafka import KafkaConsumer, TopicPartition, KafkaProducer
 from kafka.consumer.fetcher import ConsumerRecord
 from json import loads, dumps
-
-logging.basicConfig(filename='/tmp/market_service.log')
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 
 class MarketService:

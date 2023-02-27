@@ -7,6 +7,14 @@ start proper server with:
 """
 
 import logging
+# IMPORTANT: This logging config MUST BE HERE ON TOP, OTHERWISE IT DOES NOT WORK
+logging.basicConfig(
+    filename='/tmp/trade_pv_restr.log',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 import datetime
 import logging
 import sys
@@ -31,11 +39,6 @@ from rm.services.trade_api_pricers import (
     price_trades,
 )
 
-
-# logging
-logging.basicConfig(filename='/tmp/trade_pv_restr.log')
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 # rester start
 pv_rester = Flask(__name__)
@@ -155,6 +158,11 @@ def switch_markets() -> Response:
 
 
 def trade_pv_market(trade_ids : List[int], market_ : MARKET_TYPE):
+    """ Prices the trades with ids on the market provided.
+
+    :param trade_ids: list of trade ids to price.
+    :param market_: market for pricing.
+    """
 
     trades: List[AOTrade] = construct_ao_trades(trade_ids)
 
@@ -201,36 +209,49 @@ def trade_pv_new(trade_id):
     return trade_pv_market(trade_ids, new_market)
 
 
-@ pv_rester.route('/pv_spark/<trade_ids>')
-def trade_pv_spark(trade_ids):
+@ pv_rester.route('/pv_spark', methods=['POST',])
+def trade_pv_spark() -> Response:
+    """ Returns the PV of the trades presented.
+    Trade can be either in the form of 200, or a list of trades, separated by , - e.g.
+        200, 201, 202
+    """
+
+    # requests has to have a form {"trades": "190,191"}
+    initial_trades = request.form.get('trades')
+
+    if not initial_trades:
+        return Response(dumps({}))
+
+    trades : List[int]  = extract_trade_ids(escape(initial_trades))  # list of trade ids in the json encoded format
+    print("TRADES", trades)
+
+    if not trades:  # list is empty
+        return Response(dump({}))
+
+    return Response(dumps(price_trades(mkt_date, trades, 'c')))  # response of the priced trades
+
+
+@ pv_rester.route('/pv_spark_new', methods=['POST',])
+def trade_pv_spark_new() -> Response:
     """ Returns the PV of the trade.
     Trade can be either in the form of 200, or a list of trades, separated by , - e.g.
         200, 201, 202
     """
 
-    trades: List[int] = extract_trade_ids(escape(trade_ids))
+    initial_trades = request.form.get('trades')
+
+    if not initial_trades:
+        return Response(dumps({}))
+
+    trades: List[int] = extract_trade_ids(escape(initial_trades))
 
     if not trades:
-        return str(0)
+        return Response(dumps({}))
 
-    global mkt_date
-    return price_trades(mkt_date, trades, 'c')
+    priced_trades = price_trades(mkt_date, trades, 'n')
+    logger.info(f"Pricing {len(priced_trades.keys())} on NEW market using SPARK.")
 
-
-@ pv_rester.route('/pv_spark_new/<trade_ids>')
-def trade_pv_spark_new(trade_ids):
-    """ Returns the PV of the trade.
-    Trade can be either in the form of 200, or a list of trades, separated by , - e.g.
-        200, 201, 202
-    """
-
-    trades: List[int] = extract_trade_ids(escape(trade_ids))
-
-    if not trades:
-        return str(0)
-
-    global mkt_date
-    return price_trades(mkt_date, trades, 'n')
+    return Response(dumps(priced_trades))
 
 
 # pv rester start
@@ -239,5 +260,5 @@ def main():
 
 
 # UNCOMMENT IF TO RUN RESTER.
-#main()
-application = pv_rester  # IMPORTANT: this has to be called application
+main()
+# application = pv_rester  # IMPORTANT: this has to be called application

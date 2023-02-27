@@ -7,17 +7,15 @@
     Market service publishes on mkt_events topic, mkt event is the uuid4 described above.
 """
 
-import sys
 import logging
-
-from flask import Flask, jsonify
-
-sys.path.append('/home/brumen/work/')
-
 logging.basicConfig(filename='/tmp/market_service_rester.log')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+import sys
+sys.path.append('/home/brumen/work/')
+
+from flask import Flask, jsonify
 from rm.market_service import AOMarketService
 
 market_rester = Flask(__name__)

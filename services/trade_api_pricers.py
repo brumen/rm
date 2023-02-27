@@ -3,6 +3,11 @@
     writes logs to /tmp/trade_pv_restr.log
 """
 
+import logging
+# logging - THIS HAS TO BE HERE ON TOP.
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 import datetime
 import logging
 import sys
@@ -18,11 +23,6 @@ from sqlalchemy.exc import OperationalError
 from functools import lru_cache
 from ao.trade import create_session, AOTrade, DeltaDict, AirOptionFlights
 from rm.market_service import AOMarketService
-
-# logging
-logging.basicConfig(filename='/tmp/trade_pv_restr_pricers.log')
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 
 # default params are the default pricing parameters, more to come.
@@ -63,11 +63,11 @@ def construct_ao_trades(trade_ids: List[int]) -> List[AOTrade]:
 
 # trade with market
 def _compute_trade_from_mkt(
-    mkt_date: datetime.date, 
-    ao_trade: AOTrade, 
-    trade_direction: TradeDirection = TradeDirection.LONG, 
-    market: Optional[Dict[Tuple[str, datetime.date], float]] = None, 
-    ao_params: Optional[Dict[str, Any]] = None, 
+    mkt_date: datetime.date,
+    ao_trade: AOTrade,
+    trade_direction: TradeDirection = TradeDirection.LONG,
+    market: Optional[Dict[Tuple[str, datetime.date], float]] = None,
+    ao_params: Optional[Dict[str, Any]] = None,
     session = None,
 ) -> Dict[str, DeltaDict]:
     """ Computes the trade from the market provided.

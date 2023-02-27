@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 use kafka::producer::{Producer, Record, RequiredAcks};
 use reqwest;
+use reqwest::blocking::Client;
 use serde_json::Value;
 use serde_yaml;
 use std::collections::HashMap;
@@ -126,8 +127,8 @@ impl Controller {
         let trade_id = trade.trade_id;
 
         let mkt_used = match market {
-            "curr" => "pv_spark",  // before was "pv"
-            "new" => "pv_spark_new",  // before was "pv_new"
+            "curr" => "pv",
+            "new" => "pv_new",
             _ => "pv",  // unimportant
         };
 
@@ -140,7 +141,7 @@ impl Controller {
                 match result_price.json::<HashMap<String, f64>>() {
                     Ok(result_pricer_inner) => result_pricer_inner,
                     Err(e) => {
-                        warn!("Could not convert the result to a map: {:?}", e);
+                        warn!("_value_trade: Could not convert the result to a map: {:?}", e);
                         return TradeValue::new();
                     }
                 }
@@ -224,23 +225,24 @@ impl Controller {
     }
 
     /// prices trades on spark
-    fn _price_trades_on_spark(&self, trades: &Vec<Trade>) -> PortfolioType {
+    ///   takes as arguments the list of trades, and pricing client, used for post request
+    fn _price_trades_on_spark(&self, trades: &Vec<Trade>, pricing_client : &Client) -> PortfolioType {
         if trades.is_empty() {
             return PortfolioType::new();
         }
 
-        let all_trades_str = ",".join(
-            trades
+        let all_trade_ids = ",".join(
+             trades
                 .into_iter()
                 .map(|trade: &Trade| -> String {trade.trade_id.to_string()} )
         );
 
-        //info!("SPARK: Pricing trades {}.", all_trades_str);
-        // use the pv_spark service http://localhost:5010/pv_spark/189,190,...
-        let result_pricing = reqwest::blocking::get(format!(
-            "http://{}/pv/{}",
-            self.trade_pricer, all_trades_str
-        ));
+        let result_pricing = pricing_client
+            .post("http://localhost:5010/pv_spark_new")
+            .form(&HashMap::from([("trades", &all_trade_ids)]))
+            .send();
+
+        // unwrap the result_pricing
 
         match result_pricing {
             Ok(result_price) =>
@@ -254,7 +256,7 @@ impl Controller {
                         return new_portfolio;
                     },
                     Err(e) => {
-                        warn!("Could not conver the result to a map: {:?}", e);
+                        warn!("_price_trades_on_spark: Could not convert the result to a map: {:?}", e);
                         return TradeValue::new();
                     }
                 },
@@ -265,6 +267,22 @@ impl Controller {
         };
 
     }
+
+    fn _price_trades_sequentially(&self, trades: &Vec<Trade>) -> PortfolioType {
+        if trades.is_empty() {
+            return PortfolioType::new();
+        }
+
+        let mut new_portfolio = PortfolioType::new();
+
+        for trade in trades {
+            let trade_value = self._value_trade(&trade, "new");
+            Controller::_trade_result_agg_single(&mut new_portfolio, Some(trade_value));
+        }
+
+        new_portfolio
+    }
+
 
     /// processes the trades on the new market.
     /// new_market_receiver:
@@ -279,6 +297,8 @@ impl Controller {
         let mut now_working = false;  // is it working in this iteration
         let mut prev_working = false;  // is it working in the previous iteration
         let mut new_portfolio = PortfolioType::new();
+
+        let pricing_client = Client::new();
 
         loop {
 
@@ -299,7 +319,8 @@ impl Controller {
             if let Ok(_new_market) = new_potential_market {
                 if !now_working {
                     info!("NEW market: Working. {} trades", all_trades.len());
-                    new_portfolio = self._price_trades_on_spark(&all_trades);
+                    //new_portfolio = self._price_trades_on_spark(&all_trades, &pricing_client);
+                    new_portfolio = self._price_trades_sequentially(&all_trades);
                     now_working = true;
                 }
             }
@@ -312,7 +333,7 @@ impl Controller {
             }
 
             if !now_working && prev_working && no_new_market && no_new_trade {
-                info!("NEW market: Publishing the portfolio");
+                info!("NEW market: Publishing portfolio. {} trades", new_portfolio.keys().len());
                 let _ = new_portfolio_sender.send(new_portfolio);
                 new_portfolio = PortfolioType::new();  // new portfolio resets
             }
