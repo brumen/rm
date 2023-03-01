@@ -113,12 +113,14 @@ impl Controller {
                 // aggregate 2 hashmaps, one for exiting market, one from the trade_pv_2
                 for (trade_id, trade_value) in trade_pv.iter() {
                     if exist_market.contains_key(trade_id) {
+
                         match trade_direction {
                             TradeDirection::Create => {
                                 exist_market
                                     .insert(trade_id.clone(), exist_market[trade_id] + *trade_value);
                             },
                             TradeDirection::Delete => {
+                                info!("Aggregation: {:?}", trade_direction);
                                 exist_market.remove(trade_id);
                             },
                             TradeDirection::Update => {
@@ -127,6 +129,7 @@ impl Controller {
                             },
                         }
                     } else {
+
                         match trade_direction {
                             TradeDirection::Create => {
                                 exist_market.insert(trade_id.clone(), *trade_value);
@@ -206,9 +209,23 @@ impl Controller {
             let new_potential_portfolio = new_portfolio_receiver.try_recv();
 
             if let Ok(trade) = new_potential_trade {
-                info!("CURR market: valuing trade {}", trade.trade_id);
-                let trade_value = self._value_trade(&trade, "curr");
-                info!("CURR value = {:?}", trade_value);
+                info!("CURR market: Processing trade {}, dir {:?}", trade.trade_id, trade.direction);
+                let trade_value = match trade.direction {
+                    TradeDirection::Create => {
+                        info!("Pricing trade {}", trade.trade_id);
+                        let tv = self._value_trade(&trade, "curr");
+                        info!("CURR value = {:?}", tv);
+                        tv
+                    },
+                    TradeDirection::Delete => {
+                        HashMap::from([
+                            ((trade.trade_id.to_string(), self.market_date), 0. as f64),  // value unimportant, as it removes the trade
+                        ])
+                    },
+                    TradeDirection::Update => {
+                        self._value_trade(&trade, "curr")
+                    },
+                };
 
                 Controller::_trade_result_agg_single(&mut curr_portfolio, Some(trade_value), trade.direction);
                 let _ = curr_portfolio_sender.send(curr_portfolio.clone());
@@ -332,12 +349,35 @@ impl Controller {
             let no_new_trade = new_potential_trade.is_err();
             if let Ok(new_trade) = new_potential_trade {
                 if now_working {
-                    info!("NEW market: Pricing trade {}", new_trade.trade_id);
-                    let trade_value = self._value_trade(&new_trade, "new");
+                    info!("NEW market: Processing trade {}", new_trade.trade_id);
+                    let trade_value = match new_trade.direction {
+                        TradeDirection::Create => {
+                            self._value_trade(&new_trade, "new")
+                        },
+                        TradeDirection::Delete => {
+                            HashMap::from([
+                                ((new_trade.trade_id.to_string(), self.market_date), 0. as f64),  // 0 is not important here.
+                            ])
+                        },
+                        TradeDirection::Update => {
+                            self._value_trade(&new_trade, "new")  // This case not used yet.
+                        },
+                    };
                     Controller::_trade_result_agg_single(&mut new_portfolio, Some(trade_value), new_trade.direction);
                 }
-                info!("NEW market: Adding additional trade {}", new_trade.trade_id);
-                all_trades.push(new_trade);
+                // update trades depending on the direction.
+                match new_trade.direction {
+                    TradeDirection::Create => {
+                        info!("NEW market: Adding trade {}", new_trade.trade_id);
+                        all_trades.push(new_trade);
+
+                    },
+                    TradeDirection::Delete => {
+                        info!("NEW market: Deleting trade {}", new_trade.trade_id);
+                        all_trades.retain(|&trade| trade.trade_id != new_trade.trade_id);
+                    },
+                    _ => {},  // nothing on update.
+                }
                 info!("LOCALLY STORED: {} trades", all_trades.len());
             }
 
