@@ -123,7 +123,7 @@ class ResultPublisherKafkaPV_Useless(ResultPublisherKafka):
             result_dict = loads(msg.value)  # value is json encoded
 
             self.curr_value = self._process_result(result_dict)
-            self._subscriber.seek_to_end()
+            #self._subscriber.seek_to_end()
 
     def _process_result(self, result_dict : Optional[Dict[str, Dict[str, float]]]):
         """ Processing the PV result.

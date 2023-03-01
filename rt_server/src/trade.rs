@@ -15,5 +15,5 @@ pub struct Trade {
 }
 
 pub trait TradeHandling {
-    fn recover_trade(msg_decoded: &Value) -> Trade;
+    fn recover_trade(msg_decoded: &Value) -> Option<Trade>;
 }

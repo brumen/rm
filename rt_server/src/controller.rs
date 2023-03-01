@@ -100,10 +100,12 @@ impl Controller {
         ))
     }
 
-    /// Aggregating the results of two trades.
+    /// Aggregating the results of an exiting market (exist_market) and a new trade (trade_pv_result)
+    /// depending on the trade direction.
     fn _trade_result_agg_single(
         exist_market: &mut MarketType,
         trade_pv_result: Option<TradeValue>,
+        trade_direction: TradeDirection,
     ) {
         match trade_pv_result {
             None => (),
@@ -111,10 +113,29 @@ impl Controller {
                 // aggregate 2 hashmaps, one for exiting market, one from the trade_pv_2
                 for (trade_id, trade_value) in trade_pv.iter() {
                     if exist_market.contains_key(trade_id) {
-                        exist_market
-                            .insert(trade_id.clone(), exist_market[trade_id] + *trade_value);
+                        match trade_direction {
+                            TradeDirection::Create => {
+                                exist_market
+                                    .insert(trade_id.clone(), exist_market[trade_id] + *trade_value);
+                            },
+                            TradeDirection::Delete => {
+                                exist_market.remove(trade_id);
+                            },
+                            TradeDirection::Update => {
+                                exist_market
+                                    .insert(trade_id.clone(), *trade_value);
+                            },
+                        }
                     } else {
-                        exist_market.insert(trade_id.clone(), *trade_value);
+                        match trade_direction {
+                            TradeDirection::Create => {
+                                exist_market.insert(trade_id.clone(), *trade_value);
+                            },
+                            TradeDirection::Update => {
+                                exist_market.insert(trade_id.clone(), *trade_value);
+                            },
+                            _ => {},
+                        }
                     }
                 }
             }
@@ -161,6 +182,8 @@ impl Controller {
             let _ = &result_tv.insert((trade_obj.clone(), self.market_date), *trade_res);
         }
 
+        info!("Value of trade = {:?}", result_tv);
+
         result_tv
     }
 
@@ -185,8 +208,9 @@ impl Controller {
             if let Ok(trade) = new_potential_trade {
                 info!("CURR market: valuing trade {}", trade.trade_id);
                 let trade_value = self._value_trade(&trade, "curr");
+                info!("CURR value = {:?}", trade_value);
 
-                Controller::_trade_result_agg_single(&mut curr_portfolio, Some(trade_value));
+                Controller::_trade_result_agg_single(&mut curr_portfolio, Some(trade_value), trade.direction);
                 let _ = curr_portfolio_sender.send(curr_portfolio.clone());
                 processing_trades = true;
             } else {
@@ -277,7 +301,7 @@ impl Controller {
 
         for trade in trades {
             let trade_value = self._value_trade(&trade, "new");
-            Controller::_trade_result_agg_single(&mut new_portfolio, Some(trade_value));
+            Controller::_trade_result_agg_single(&mut new_portfolio, Some(trade_value), trade.direction);
         }
 
         new_portfolio
@@ -308,19 +332,21 @@ impl Controller {
             let no_new_trade = new_potential_trade.is_err();
             if let Ok(new_trade) = new_potential_trade {
                 if now_working {
-                    info!("NEW market: Adding additional trade {}", new_trade.trade_id);
+                    info!("NEW market: Pricing trade {}", new_trade.trade_id);
                     let trade_value = self._value_trade(&new_trade, "new");
-                    Controller::_trade_result_agg_single(&mut new_portfolio, Some(trade_value));
+                    Controller::_trade_result_agg_single(&mut new_portfolio, Some(trade_value), new_trade.direction);
                 }
+                info!("NEW market: Adding additional trade {}", new_trade.trade_id);
                 all_trades.push(new_trade);
+                info!("LOCALLY STORED: {} trades", all_trades.len());
             }
 
             let no_new_market = new_potential_market.is_err();
             if let Ok(_new_market) = new_potential_market {
                 if !now_working {
                     info!("NEW market: Working. {} trades", all_trades.len());
-                    //new_portfolio = self._price_trades_on_spark(&all_trades, &pricing_client);
-                    new_portfolio = self._price_trades_sequentially(&all_trades);
+                    new_portfolio = self._price_trades_on_spark(&all_trades, &pricing_client);
+                    //new_portfolio = self._price_trades_sequentially(&all_trades);
                     now_working = true;
                 }
             }
@@ -359,15 +385,23 @@ impl Controller {
             .unwrap();
 
         loop {
-            debug!("Listening to trades!");
             for ms in pos_listener_.poll().unwrap().iter() {
                 for m in ms.messages() {
-                    let msg_decoded: Value =
-                        serde_json::from_str(std::str::from_utf8(m.value).unwrap()).unwrap();
-
-                    let trade_to_send = Controller::recover_trade(&msg_decoded);
-                    let _ = sender_new.send(trade_to_send);
-                    let _ = sender_curr.send(trade_to_send);
+                    if let Ok(m_value_str) = std::str::from_utf8(m.value) {
+                        if let Ok(msg_decoded) = serde_json::from_str::<Value>(m_value_str) {
+                            let trade_to_send = Controller::recover_trade(&msg_decoded);
+                            // if the trade is None, there is possibly something wrong in
+                            if trade_to_send.is_some() {
+                                let actual_trade = trade_to_send.unwrap();
+                                let _ = sender_new.send(actual_trade);
+                                let _ = sender_curr.send(actual_trade);
+                            }
+                        } else {
+                            warn!("Couldnt deal with message {:?}", m_value_str);
+                        }
+                    } else { // m_value_str is not ok, couldnt transform
+                        warn!("Could not deal with message!!! Investigate!")
+                    }
                 }
                 let _ = pos_listener_.consume_messageset(ms); // TODO: FIX THIS ERROR HANDLING HERE
             }
@@ -562,7 +596,13 @@ impl Controller {
 
 impl TradeHandling for Controller {
     /// recovers the trade from the message itself.
-    fn recover_trade(msg_decoded: &Value) -> Trade {
+    fn recover_trade(msg_decoded: &Value) -> Option<Trade> {
+
+        if msg_decoded.is_null() {  // nothing to do, return None
+            return None;
+        }
+
+        // trade is not None, continue w/ this.
         let msg_payload = &msg_decoded["payload"];
         let event_type = &msg_payload["op"];
 
@@ -571,24 +611,24 @@ impl TradeHandling for Controller {
         match event_type.as_str() {
             Some("c") => {
                 let tid = msg_payload["after"]["position_id"].as_i64();
-                return Trade {
+                return Some(Trade {
                     trade_id: tid.unwrap() as u16,
                     direction: TradeDirection::Create,
-                };
+                });
             }
             Some("d") => {
-                let tid = msg_payload["before"]["position_is"].as_i64();
-                return Trade {
+                let tid = msg_payload["before"]["position_id"].as_i64();
+                return Some(Trade {
                     trade_id: tid.unwrap() as u16,
                     direction: TradeDirection::Delete,
-                };
+                });
             }
             _ => {
                 warn!("UNIMPLEMENTED. FIX THIS");
-                return Trade {
+                return Some(Trade {
                     trade_id: 189,
                     direction: TradeDirection::Create,
-                };
+                });
             }
         }
     }

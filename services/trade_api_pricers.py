@@ -28,6 +28,8 @@ from rm.market_service import AOMarketService
 # default params are the default pricing parameters, more to come.
 default_params: Dict[str, Any] = {'default_price': 200., 'nb_sim': 500}
 
+# common_session = create_session()
+
 
 class TradeDirection(Enum):
     LONG = 'c'
@@ -56,6 +58,8 @@ def construct_ao_trades(trade_ids: List[int]) -> List[AOTrade]:
 
     # TODO: WHAT TO DO W/ THIS SESSION. THIS SESSION SI NOT NEEDED PERHAPS
     session = create_session()
+    # global common_session
+    # session = common_session
 
     # TODO: CAN WE DO A GENERATOR HERE???
     return session.query(AOTrade).filter(AOTrade.position_id.in_(trade_ids)).all()
@@ -68,7 +72,6 @@ def _compute_trade_from_mkt(
     trade_direction: TradeDirection = TradeDirection.LONG,
     market: Optional[Dict[Tuple[str, datetime.date], float]] = None,
     ao_params: Optional[Dict[str, Any]] = None,
-    session = None,
 ) -> Dict[str, DeltaDict]:
     """ Computes the trade from the market provided.
 
@@ -129,7 +132,10 @@ def _compute_trade_from_mkt(
     pv01 = aof.PV01(nb_sim=nb_sim)
     trade_id = ao_trade.position_id
 
-    return {'PV': DeltaDict({trade_id: pv}) if trade_direction == TradeDirection.LONG else DeltaDict({trade_id: - pv}), 'PV01': pv01 if trade_direction == TradeDirection.LONG else - pv01, }
+    return {
+        'PV': DeltaDict({trade_id: pv}) if trade_direction == TradeDirection.LONG else DeltaDict({trade_id: - pv}),
+        'PV01': pv01 if trade_direction == TradeDirection.LONG else - pv01,
+    }
 
 
 def _compute_trades_from_id(
@@ -214,6 +220,29 @@ def _value_trade_spark(
     ).get('PV', {})  # TODO: THIS SHOUDLD BE FIXED.
 
 
+def _price_explicit_trade(trade_mkt_date_mkt_id : Tuple[AOTrade, datetime.date, chr]):
+
+    market_date, trade, curr_new_mkt = trade_mkt_date_mkt_id
+
+    if not trade:
+        return {}
+
+    # call the service for the market
+    if curr_new_mkt == 'c':
+        market = requests_get('http://localhost:5010/market')
+    else:
+        market = requests_get('http://localhost:5010/new_market')
+    market_decoded = AOMarketService.decode_mkt_data(loads(market.content))
+
+    return _compute_trade_from_mkt(
+        market_date,
+        trade,
+        trade_direction = TradeDirection.LONG,
+        market = market_decoded,
+        ao_params = default_params,
+    ).get('PV', {})  # TODO: THIS SHOUDLD BE FIXED.
+
+
 def price_trades(
         market_date: datetime.date,
         trade_ids: List[int],
@@ -229,9 +258,19 @@ def price_trades(
 
     nb_trades = len(trade_ids)
 
+    session = create_session()
+    try:
+        trades : List[AOTrade]  = session.query(AOTrade).filter(AOTrade.position_id.in_(trade_ids)).all()
+    except OperationalError as e:
+        logger.warn(f"Could not obtain {trade_id} correctly from DB.")
+        return {}  # TODO: WRONG THIS IS WRONG
+
+    for t in trades:
+        t._aof(market_date)  # IMPORTANT: touching the trade. IMPORTANT
+
     trade_vals = sc\
-        .parallelize(zip([market_date] * nb_trades, trade_ids, [curr_new_mkt,] * nb_trades))\
-        .map(_value_trade_spark)\
+        .parallelize(zip([market_date] * nb_trades, trades, [curr_new_mkt,] * nb_trades))\
+        .map(_price_explicit_trade)\
         .collect()
 
     result_pv = {}

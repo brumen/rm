@@ -167,7 +167,7 @@ def trade_pv_market(trade_ids : List[int], market_ : MARKET_TYPE):
     trades: List[AOTrade] = construct_ao_trades(trade_ids)
 
     if not trades:
-        return str(0)
+        return {}
 
     result: Dict[int, float] = {}  # result pvs for every trade id
 
@@ -223,7 +223,6 @@ def trade_pv_spark() -> Response:
         return Response(dumps({}))
 
     trades : List[int]  = extract_trade_ids(escape(initial_trades))  # list of trade ids in the json encoded format
-    print("TRADES", trades)
 
     if not trades:  # list is empty
         return Response(dump({}))
@@ -259,6 +258,6 @@ def main():
     pv_rester.run(port=5010)
 
 
+application = pv_rester  # IMPORTANT: this has to be called application, for mod_express
 # UNCOMMENT IF TO RUN RESTER.
 main()
-# application = pv_rester  # IMPORTANT: this has to be called application
