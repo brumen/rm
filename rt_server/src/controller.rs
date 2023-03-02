@@ -8,7 +8,7 @@ use reqwest::blocking::Client;
 use serde_json::Value;
 use serde_yaml;
 use std::collections::HashMap;
-use std::sync::mpsc::{channel, Receiver, Sender, sync_channel, SyncSender};
+use std::sync::mpsc::{channel, Receiver, Sender, sync_channel, SyncSender, TryRecvError};
 use std::thread;
 use std::time::Duration;
 use string_join::Join;
@@ -204,10 +204,8 @@ impl Controller {
         let mut processing_trades = false;
 
         loop {
-            // receive information from the senders
+            // receive new trade to price on current market
             let new_potential_trade = trade_receiver.try_recv();
-            let new_potential_portfolio = new_portfolio_receiver.try_recv();
-
             if let Ok(trade) = new_potential_trade {
                 info!("CURR market: Processing trade {}, dir {:?}", trade.trade_id, trade.direction);
                 let trade_value = match trade.direction {
@@ -234,6 +232,8 @@ impl Controller {
                 processing_trades = false;
             }
 
+            // receive new portfolio, replace current w/ new.
+            let new_potential_portfolio = new_portfolio_receiver.try_recv();
             match new_potential_portfolio {
                 Ok(new_portfolio) => {
                     if processing_trades {
@@ -343,9 +343,8 @@ impl Controller {
 
         loop {
 
-            let new_potential_market = new_market_receiver.try_recv();
+            // handling new trade event
             let new_potential_trade = new_trade_receiver.try_recv();
-
             let no_new_trade = new_potential_trade.is_err();
             if let Ok(new_trade) = new_potential_trade {
                 if now_working {
@@ -381,24 +380,27 @@ impl Controller {
                 info!("LOCALLY STORED: {} trades", all_trades.len());
             }
 
-            let no_new_market = new_potential_market.is_err();
-            if let Ok(_new_market) = new_potential_market {
-                if !now_working {
-                    info!("NEW market: Working. {} trades", all_trades.len());
-                    new_portfolio = self._price_trades_on_spark(&all_trades, &pricing_client);
-                    //new_portfolio = self._price_trades_sequentially(&all_trades);
-                    now_working = true;
-                }
+            // handling new market event - roll to the latest new market, ignore in between markets
+            let mut new_market_event = false;
+            while new_market_receiver.try_recv().is_ok() {
+                new_market_event = true;
             }
 
-            debug!("NEW market: New trade {}, new market {}", !no_new_trade, !no_new_market);
+            if new_market_event && !now_working {
+                info!("NEW market: Working. {} trades", all_trades.len());
+                new_portfolio = self._price_trades_on_spark(&all_trades, &pricing_client);
+                //new_portfolio = self._price_trades_sequentially(&all_trades);
+                now_working = true;
+            }
 
-            if no_new_trade && no_new_market {
+            debug!("NEW market: New trade {}, new market {}", !no_new_trade, new_market_event);
+
+            if no_new_trade && !new_market_event {
                 debug!("NEW market: NOT working.");
                 now_working = false;
             }
 
-            if !now_working && prev_working && no_new_market && no_new_trade {
+            if !now_working && prev_working && !new_market_event && no_new_trade {
                 info!("NEW market: Publishing portfolio. {} trades", new_portfolio.keys().len());
                 let _ = new_portfolio_sender.send(new_portfolio);
                 new_portfolio = PortfolioType::new();  // new portfolio resets
@@ -561,7 +563,7 @@ impl Controller {
                         let _ = &mkt_decoded.insert(decoded_mkt_date, decoded_price);
                     }
 
-                    let _ = new_mkt_sender.send(mkt_decoded); // send the market over the sender.
+                    let _ = new_mkt_sender.send(mkt_decoded); // send the market to new_market event
                 }
                 let _ = mkt_listener_.consume_messageset(ms);
             }
