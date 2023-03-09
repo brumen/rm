@@ -149,7 +149,7 @@ def switch_markets() -> Response:
         2. new_market <- future_market
     """
 
-    global market, new_market, future_market
+    global market, new_market, future_market, test_switch_markets
 
     market = new_market
     new_market = future_market

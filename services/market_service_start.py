@@ -25,7 +25,7 @@ market_rester.use_debugger = True
 
 # starting the service
 aom = AOMarketService(time_interval=5)
-aom.run()  # starts the publishing, non-blocking
+aom.run(sleep_delay=5, testing_shift=(1., 5.))  # starts the publishing, non-blocking
 
 
 # @market_rester.route('/mkt/get_market')

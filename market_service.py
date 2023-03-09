@@ -25,7 +25,13 @@ class MarketService:
         Market is shown on .new_market property.
     """
 
-    def __init__(self, flights: Optional = None, time_interval: int = 5, server_port_topic: Tuple[str, str, str] = ('localhost', 9092, 'air_options.ao.flights_live', ), mkt_events_topic: str = 'mkt_events', ):
+    def __init__(
+            self,
+            flights: Optional = None,
+            time_interval: int = 5,
+            server_port_topic: Tuple[str, str, str] = ('localhost', 9092, 'air_options.ao.flights_live', ),
+            mkt_events_topic: str = 'mkt_events',
+    ):
         """
 
         :param flights: flights to be in the market. If None, all flights are scheduled.
@@ -92,9 +98,12 @@ class MarketService:
 
         raise NotImplementedError('Need to implement the encode_mkt method.')
 
-    def _operate_markets(self, sleep_delay=0.2) -> None:
+    def _operate_markets(self, sleep_delay=0.2, testing_shift=(1., 1., )) -> None:
         """ Switch markets every time_interval seconds.
 
+        :param sleep_delay: only issue a new market every sleep_delay seconds.
+        :param testing_shift: alternate between multiplying the market by first or second element.
+            IMPORTANT: this latter just for testing purposes.
         """
 
         while True:
@@ -103,26 +112,33 @@ class MarketService:
             if elapsed_time >= self.time_interval:  # switch: curr_market <- new_market
                 logger.debug(f'Elapsed time: {elapsed_time}')
                 logger.info(
-                    f'Switching market from {self.__prev_market_id} to {self.__new_market_id}')
+                    f'Switching market from {self.__prev_market_id} to {self.__new_market_id}'
+                )
                 self.__prev_market |= self.__new_market_updates  # updated market
+
                 self.__new_market_updates = {}  # reset new market updates.
 
                 self.__prev_market_id = self.__new_market_id
                 self.__new_market_id = uuid4()
                 self.__new_market_snap_time = datetime.datetime.now()
-                self.__mkt_producer.send(self.__mkt_producer_topic, value=bytearray(
-                    str(self.encode_mkt()), 'ascii'), )
+                logger.info(f"Market sent: {self.encode_mkt()}")
+                self.__mkt_producer.send(
+                    self.__mkt_producer_topic,
+                    value=bytearray(str(self.encode_mkt()), 'ascii'),
+                )
 
             else:
                 sleep(sleep_delay)
 
-    def run(self) -> Tuple[Thread, Thread]:
+    def run(self, sleep_delay=5, testing_shift = (1., 1.)) -> Tuple[Thread, Thread]:
         """ Runs the threads for market operation.
 
         2 threads are ran:
            1. _update_new_mkt_events: collects market events and updates the new market.
            2. _operate_markets: holds the current and new market, and switches between them.
 
+        :params sleep_delay: sleep delay
+        :params testing_shift: shift to multiply the markets with.
         returns: market events thread, switch market thread.
         """
 
@@ -131,7 +147,7 @@ class MarketService:
         market_events.start()
 
         # market event topic reading thread
-        switch_markets = Thread(target=self._operate_markets)
+        switch_markets = Thread(target=lambda : self._operate_markets(sleep_delay=sleep_delay, testing_shift=testing_shift))
         switch_markets.start()
 
         return market_events, switch_markets
