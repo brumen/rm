@@ -36,6 +36,7 @@ pub struct Controller {
     kafka_server_name: String,
     kafka_port: i32,
     trade_pricer: String,
+    metric: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -53,6 +54,7 @@ pub struct RTConfig {
     pos_topic: String,
     trade_pricer: String,
     pricing_params: PricingStruct,
+    metric: String,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -68,6 +70,7 @@ impl Controller {
         kafka_server_name: String,
         kafka_port: i32,
         trade_pricer: String,
+        metric: String,
     ) -> Self {
         // if given the params, use them, otherwise construct empty map
         let pricing_init = match pricing_params_ {
@@ -81,6 +84,7 @@ impl Controller {
             kafka_server_name,
             kafka_port,
             trade_pricer,
+            metric,
         }
     }
 
@@ -106,6 +110,7 @@ impl Controller {
             config_map.kafka_server_name,
             config_map.kafka_server_port,
             config_map.trade_pricer,
+            config_map.metric,
         ))
     }
 
@@ -178,8 +183,8 @@ impl Controller {
         let mut new_potential_portfolio : Option<(PortfolioType, Vec<Trade>)>;
         let mut all_trades : Vec<Trade> = vec![];
         let mut agg_trades = AggregatedTrades::new();
-        let mut nb_conseq_processed_trades : i32;  // number of trades which have been consequitively processed before refreshing to the new
-                                                   // market is switched.
+        let mut nb_conseq_processed_trades : usize;  // number of trades which have been consequitively processed before refreshing to the new
+        // market is switched.
         let max_number_trades = 20;  // TODO: FACTOR THIS OUT
 
         // compute the initial portfolio
@@ -201,7 +206,10 @@ impl Controller {
                         curr_portfolio.remove(&(tid.to_string(), self.market_date));
                     }
 
-                    self._add_trade_to_list(trade, &mut all_trades, &mut agg_trades);
+                    // update aggregated trades and all_trades.
+                    agg_trades += trade;
+                    all_trades.push(trade); // all trades just add the new one.
+
                     let _ = curr_portfolio_sender.send(PortfolioType(curr_portfolio.clone()));
 
                     nb_conseq_processed_trades += 1;
@@ -219,16 +227,17 @@ impl Controller {
             }
 
             if let Some((new_p, new_trades)) = new_potential_portfolio {
-                if new_trades.len() >= all_trades.len() {  // new is further ahead, update
-                    self._switch_markets();
-                    // update all_trades & current portfolio
-                    info!("CURR: all trades = {:?}", all_trades);
-                    info!("CURR: new trades = {:?}", new_trades);
-                    info!("CURR: new_p = {:?}", new_p);
+                self._switch_markets();
+                let new_l = new_trades.len();
+                let all_l = all_trades.len();
+
+                if new_l >= all_l {  // new processor is further ahead
                     all_trades = new_trades;
                     curr_portfolio = new_p;
-                    let _ = curr_portfolio_sender.send(PortfolioType(curr_portfolio.clone()));
+                } else if (new_l < all_l) && (new_l >= all_l - nb_conseq_processed_trades - 1) {  // new is not ahead, but we can still update.
+                    curr_portfolio.extend(new_p.0.into_iter());
                 }
+                let _ = curr_portfolio_sender.send(PortfolioType(curr_portfolio.clone()));
             }
         }
     }
@@ -245,28 +254,28 @@ impl Controller {
         let mut nb_added_trades = 0;
         while let Ok(trade) = trade_receiver.try_recv() {
             info!("{:?} market: Getting trade {}", market_, trade.trade_id);
-            self._add_trade_to_list(trade, existing_trades, agg_trades);
+            // update aggregated trades and existing trades.
+            *agg_trades += trade;
+            existing_trades.push(trade); // all trades just add the new one.
             nb_added_trades += 1;
         }
 
         nb_added_trades
     }
 
-    // Updates all_trades w/ keys from new trades.
-    // TODO: instead of new_p accept the new_p.keys() argument
-    fn _update_all_trades(
-        &self,
-        all_trades: &mut Vec<Trade>,
-        new_p: &PortfolioType,
-    ) {
-        info!("CURR: updating w/ trades from the NEW portfolio.");
-        for (trade_id, _) in new_p.keys() {
-            let curr_trade = Trade {
-                trade_id: trade_id.parse::<u16>().unwrap(),
-                direction: TradeDirection::Create,  // TODO: CHECK IF THIS IS CORRECT
-            };
-            if !all_trades.contains(&curr_trade) {
-                all_trades.push(curr_trade);
+    /// compute the pricing endpoint for the rester service for
+    /// a particular metric and market.
+    fn _pricing_endpoint(&self, market_ : CurrNewMarket) -> String {
+
+        if self.metric == "PV".to_string() {
+            match market_ {
+                CurrNewMarket::Current => return "pv_spark".to_string(),
+                CurrNewMarket::New => return "pv_spark_new".to_string(),
+            }
+        } else {  // assume "PV01"
+            match market_ {
+                CurrNewMarket::Current => return "pv01_spark".to_string(),
+                CurrNewMarket::New => return "pv01_spark_new".to_string(),
             }
         }
     }
@@ -280,10 +289,6 @@ impl Controller {
         market_ : CurrNewMarket,
     ) -> PortfolioType {
 
-        // if agg_trades.keys()..is_empty() {
-        //     return PortfolioType::new();
-        // }
-
         // joins all trades with commas, like 190,191,192
         let all_trade_ids = ",".join(
             agg_trades
@@ -292,10 +297,9 @@ impl Controller {
                 .map(|trade_id: &u16| -> String {trade_id.to_string()} )
         );
 
-        let market_endpoint = match market_ {
-            CurrNewMarket::Current => "pv_spark",
-            CurrNewMarket::New => "pv_spark_new",
-        };
+        let pricing_endpoint = self._pricing_endpoint(market_);
+        let market_endpoint = pricing_endpoint.as_str();
+        info!("ENDPOINT: {}", market_endpoint);
         let result_pricing_start = Instant::now();
         let result_pricing = pricing_client
             .post(format!("http://{}/{}", self.trade_pricer, market_endpoint))
@@ -313,10 +317,7 @@ impl Controller {
             },
         };
 
-        // multiply the portfolio * positions TODO: IMPLEMENT THIS ON PORTFOLIOTYPE
-        for ((trade_id, _), trade_val) in priced_portfolio.iter_mut() {
-            *trade_val *= agg_trades.get(&trade_id.parse::<u16>().unwrap()).unwrap();
-        }
+        priced_portfolio *= agg_trades;  // fix the priced portfolio by the weights, aggregated trades.
 
         priced_portfolio
     }
@@ -388,53 +389,42 @@ impl Controller {
         new_market_event
     }
 
-    // TODO: THIS IS A SIMPLE FUNCTION, SHOULD BE REMOVED.
-    fn _add_trade_to_list(
-        &self,
-        new_trade : Trade,
-        all_trades : &mut Vec<Trade>,
-        agg_trades : &mut AggregatedTrades,
-    ) {
-        all_trades.push(new_trade); // all trades just add the new one.
-
-        // TODO: THIS HAS TO GO INTO portfolio.rs with AggregatedTrades implementation
-        // aggregated trades,
-        let new_trade_id = new_trade.trade_id;
-        let new_trade_position = match new_trade.direction {
-            TradeDirection::Create => 1.,
-            TradeDirection::Delete => -1.,
-            _ => 0.,
-        };
-
-        if let Some(agg_pos) = agg_trades.get_mut(&new_trade_id) {
-            *agg_pos += new_trade_position;
-        } else {
-            agg_trades.insert(new_trade_id, new_trade_position);
-        }
-    }
-
     /// processes the trades on the new market.
     /// new_market_receiver:
     pub fn _trade_processor_new(
         &self,
-        new_market_receiver: Receiver<MarketType>,  //
+        new_market_receiver: Receiver<MarketType>,
         new_trade_receiver: Receiver<Trade>,  // receiving new additional trades
         new_portfolio_sender: Sender<(PortfolioType, Vec<Trade>)>,  // results are sent here
     ) {
         let mut all_trades : Vec<Trade> = vec![];
         let mut agg_trades = AggregatedTrades::new();
-        let mut new_portfolio = PortfolioType::new();  // = self._price_trades(&agg_trades, CurrNewMarket::New);
+        let mut new_portfolio = PortfolioType::new();
 
         loop {
 
             // handling new trade event
-            let nb_new_trades = self._find_initial_trades(&new_trade_receiver, &mut all_trades, &mut agg_trades, CurrNewMarket::New);
-            // let new_trade_event = nb_new_trades > 0;
+            let _ = self._find_initial_trades(&new_trade_receiver, &mut all_trades, &mut agg_trades, CurrNewMarket::New);
 
             let new_market_event = self._new_market_event(&new_market_receiver);
             if new_market_event {
-                info!("NEW: Working. {} trades", all_trades.len());
+                info!("NEW: Working. {} trades", agg_trades.keys().len());
                 new_portfolio = self._price_trades(&agg_trades, CurrNewMarket::New);
+            }
+
+            // catch up any remaining trades
+            while let Ok(trade) = new_trade_receiver.try_recv() {
+                info!("NEW: Processing trade {}, dir {:?}", trade.trade_id, trade.direction);
+                let tid = trade.trade_id;
+                if trade.direction == TradeDirection::Create {
+                    new_portfolio += self._value_trade(tid, CurrNewMarket::New);
+                } else {  // delete trade TODO: THIS HAS TO BE HANDLED TO INCLUDE UPDATE AND ALL
+                    new_portfolio.remove(&(tid.to_string(), self.market_date));
+                }
+
+                // update all_trades and agg_trades.
+                all_trades.push(trade);
+                agg_trades += trade;
             }
 
             // decisions whether to publish the market or not.

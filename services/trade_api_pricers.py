@@ -221,11 +221,12 @@ def _value_trade_spark(
 
 
 # TODO: FIX THE RETURN ARGUMENTS OF THIS FUNCTION - THIS ONLY WORKS FOR PV.
-def _price_explicit_trade(trade_mkt_date_mkt_id : Tuple[AOTrade, datetime.date, chr]) -> Dict[str, float]:
+def _price_explicit_trade(trade_mkt_date_mkt_id : Tuple[AOTrade, datetime.date, chr, str]) -> Dict[str, float]:
     """ Function to be sent to spark to price a trade.
     """
 
-    market_date, trade, curr_new_mkt = trade_mkt_date_mkt_id
+    # metric = 'PV', 'PV01', ...
+    market_date, trade, curr_new_mkt, metric = trade_mkt_date_mkt_id
 
     if not trade:
         return {}
@@ -243,18 +244,20 @@ def _price_explicit_trade(trade_mkt_date_mkt_id : Tuple[AOTrade, datetime.date, 
         trade_direction = TradeDirection.LONG,
         market = market_decoded,
         ao_params = default_params,
-    ).get('PV', {})  # TODO: THIS SHOUDLD BE FIXED.
+    ).get(metric, {})  # TODO: THIS SHOUDLD BE FIXED.
 
 
 def price_trades(
         market_date: datetime.date,
         trade_ids: List[int],
         curr_new_mkt: chr,
+        metric : str = 'PV',
 ) -> Dict[str, float]:
     """ Prices trades using the spark parallelization.
 
     :param trade_ids: trades that should be valued.
     :param curr_new_mkt: 'c' for current market, 'n' for new market
+    :param metric: metric to compute, either 'PV', or 'PV01'.
     """
 
     sc = _set_spark_env()
@@ -272,7 +275,7 @@ def price_trades(
         t._aof(market_date)  # IMPORTANT: touching the trade. IMPORTANT
 
     trade_vals = sc\
-        .parallelize(zip([market_date] * nb_trades, trades, [curr_new_mkt,] * nb_trades))\
+        .parallelize(zip([market_date] * nb_trades, trades, [curr_new_mkt,] * nb_trades, [metric,] * nb_trades))\
         .map(_price_explicit_trade)\
         .collect()  # TODO: YOU CAN REDUCE THIS ON SPARK AS WELL
 

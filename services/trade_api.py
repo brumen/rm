@@ -157,11 +157,16 @@ def switch_markets() -> Response:
     return Response('Replaced current/new markets')
 
 
-def trade_pv_market(trade_ids : List[int], market_ : MARKET_TYPE):
+def trade_pv_market(
+        trade_ids : List[int],
+        market_ : MARKET_TYPE,
+        metric : str = 'PV',
+):
     """ Prices the trades with ids on the market provided.
 
     :param trade_ids: list of trade ids to price.
     :param market_: market for pricing.
+    :param metric: metric to compute, either 'PV' or 'PV01'.
     """
 
     trades: List[AOTrade] = construct_ao_trades(trade_ids)
@@ -180,7 +185,7 @@ def trade_pv_market(trade_ids : List[int], market_ : MARKET_TYPE):
             default_params,  # TODO: A SERVICE FOR MANIPULATING PRICING PARAMS.
         )
 
-        result |= trade_pv['PV']
+        result |= trade_pv[metric]
 
     return result
 
@@ -197,6 +202,18 @@ def trade_pv(trade_id):
     return trade_pv_market(trade_ids, market)
 
 
+@ pv_rester.route('/pv01/<trade_id>')
+def trade_pv01(trade_id):
+    """ Returns the PV of the trade.
+    Trade can be either in the form of 200, or a list of trades, separated by , - e.g.
+        200, 201, 202
+    """
+
+    trade_ids = extract_trade_ids(escape(trade_id))
+
+    return trade_pv_market(trade_ids, market, 'PV01')
+
+
 @ pv_rester.route('/pv_new/<trade_id>')
 def trade_pv_new(trade_id):
     """ Returns the PV of the trade.
@@ -207,6 +224,18 @@ def trade_pv_new(trade_id):
     trade_ids = extract_trade_ids(escape(trade_id))
 
     return trade_pv_market(trade_ids, new_market)
+
+
+@ pv_rester.route('/pv01_new/<trade_id>')
+def trade_pv01_new(trade_id):
+    """ Returns the PV of the trade.
+    Trade can be either in the form of 200, or a list of trades, separated by , - e.g.
+        200, 201, 202
+    """
+
+    trade_ids = extract_trade_ids(escape(trade_id))
+
+    return trade_pv_market(trade_ids, new_market, 'PV01')
 
 
 @ pv_rester.route('/pv_spark', methods=['POST',])
@@ -230,6 +259,27 @@ def trade_pv_spark() -> Response:
     return Response(dumps(price_trades(mkt_date, trades, 'c')))  # response of the priced trades
 
 
+@ pv_rester.route('/pv01_spark', methods=['POST',])
+def trade_pv01_spark() -> Response:
+    """ Returns the PV of the trades presented.
+    Trade can be either in the form of 200, or a list of trades, separated by , - e.g.
+        200, 201, 202
+    """
+
+    # requests has to have a form {"trades": "190,191"}
+    initial_trades = request.form.get('trades')
+
+    if not initial_trades:
+        return Response(dumps({}))
+
+    trades : List[int]  = extract_trade_ids(escape(initial_trades))  # list of trade ids in the json encoded format
+
+    if not trades:  # list is empty
+        return Response(dump({}))
+
+    return Response(dumps(price_trades(mkt_date, trades, 'c', 'PV01', )))  # response of the priced trades
+
+
 @ pv_rester.route('/pv_spark_new', methods=['POST',])
 def trade_pv_spark_new() -> Response:
     """ Returns the PV of the trade.
@@ -248,7 +298,30 @@ def trade_pv_spark_new() -> Response:
         return Response(dumps({}))
 
     priced_trades = price_trades(mkt_date, trades, 'n')
-    logger.info(f"Pricing {len(priced_trades.keys())} on NEW market using SPARK.")
+    logger.info(f"PV01 {len(priced_trades.keys())} on NEW market using SPARK.")
+
+    return Response(dumps(priced_trades))
+
+
+@ pv_rester.route('/pv01_spark_new', methods=['POST',])
+def trade_pv01_spark_new() -> Response:
+    """ Returns the PV of the trade.
+    Trade can be either in the form of 200, or a list of trades, separated by , - e.g.
+        200, 201, 202
+    """
+
+    initial_trades = request.form.get('trades')
+
+    if not initial_trades:
+        return Response(dumps({}))
+
+    trades: List[int] = extract_trade_ids(escape(initial_trades))
+
+    if not trades:
+        return Response(dumps({}))
+
+    priced_trades = price_trades(mkt_date, trades, 'n', 'PV01',)
+    logger.info(f"PV01 {len(priced_trades.keys())} on NEW market using SPARK.")
 
     return Response(dumps(priced_trades))
 

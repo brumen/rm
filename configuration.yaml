@@ -7,3 +7,4 @@ trade_pricer: "localhost:5010"
 pricing_params:
     nb_sim: 5000
     default_price: 200.
+metric: "PV"
