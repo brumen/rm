@@ -253,6 +253,24 @@ def trade_pv_spark_new() -> Response:
     return Response(dumps(priced_trades))
 
 
+@pv_rester.route('/results', methods=['GET',])
+def present_results():
+    server = 'localhost'
+    port = 9092
+    topic = 'air_options.ao.results'
+
+    # _subscriber = KafkaConsumer(topic, bootstrap_servers=f'{server}:{port}')
+    _subscriber = list()
+
+    for msg in _subscriber:
+        logger.debug(f'Processing results from {server}@{port}@{topic}.')
+        result_dict = loads(msg.value)  # value is json encoded
+
+        # updating state
+        yield result_dict
+
+
+
 # pv rester start
 def main():
     pv_rester.run(port=5010)

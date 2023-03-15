@@ -220,7 +220,10 @@ def _value_trade_spark(
     ).get('PV', {})  # TODO: THIS SHOUDLD BE FIXED.
 
 
-def _price_explicit_trade(trade_mkt_date_mkt_id : Tuple[AOTrade, datetime.date, chr]):
+# TODO: FIX THE RETURN ARGUMENTS OF THIS FUNCTION - THIS ONLY WORKS FOR PV.
+def _price_explicit_trade(trade_mkt_date_mkt_id : Tuple[AOTrade, datetime.date, chr]) -> Dict[str, float]:
+    """ Function to be sent to spark to price a trade.
+    """
 
     market_date, trade, curr_new_mkt = trade_mkt_date_mkt_id
 
@@ -271,7 +274,7 @@ def price_trades(
     trade_vals = sc\
         .parallelize(zip([market_date] * nb_trades, trades, [curr_new_mkt,] * nb_trades))\
         .map(_price_explicit_trade)\
-        .collect()
+        .collect()  # TODO: YOU CAN REDUCE THIS ON SPARK AS WELL
 
     result_pv = {}
     for result_trade in trade_vals:

@@ -10,6 +10,7 @@ use time::{Date, Month};
 
 mod trade;
 mod encdec;
+mod portfolio;
 
 mod controller;
 use controller::Controller;
