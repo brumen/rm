@@ -127,18 +127,17 @@ impl Controller {
                 format!(
                     "http://{}/{}/{}",
                     self.trade_pricer,
-                    match market {
-                        CurrNewMarket::Current => "pv",
-                        CurrNewMarket::New => "pv_new",
-                    },
+                    self._pricing_endpoint(market),
                     trade_id,
                 )
             );
 
-        let result = match result_pricing {
+        match result_pricing {
             Ok(result_price) => {
                 match result_price.json::<HashMap<String, f64>>() {  // String in this hash is the trade_id from trade
-                    Ok(result_pricer_inner) => result_pricer_inner,
+                    Ok(result_pricer_inner) => {
+                        return TradeValue(result_pricer_inner);
+                    },
                     Err(e) => {
                         warn!("_value_trade: Could not convert the result to a map: {:?}", e);
                         return TradeValue::new();
@@ -150,16 +149,6 @@ impl Controller {
                 return TradeValue::new(); // TODO: THIS SHOULD BE DIFFERENT, CORRECT
             },
         };
-
-        // we have the price, copy the market date in it.
-        let mut result_tv = TradeValue::new();
-
-        for (trade_obj, trade_res) in result.iter() {
-            let _ = &result_tv.insert((trade_obj.clone(), self.market_date), *trade_res);
-        }
-
-        info!("VALUATION: id: {}, market: {:?}, value: {:?}", trade_id, market, result_tv);
-        result_tv
     }
 
     fn _switch_markets(&self) {
@@ -198,12 +187,13 @@ impl Controller {
             nb_conseq_processed_trades = 0;
             while let Ok(trade) = trade_receiver.try_recv() {
                 if !all_trades.contains(&trade) {
-                    info!("CURR: Processing trade {}, dir {:?}", trade.trade_id, trade.direction);
-                    let tid = trade.trade_id;
+                    let trade_id = trade.trade_id;
+                    info!("CURR: Processing trade {}, dir {:?}", trade_id, trade.direction);
+                    let trade_v = self._value_trade(trade.trade_id, CurrNewMarket::Current);
                     if trade.direction == TradeDirection::Create {
-                        curr_portfolio += self._value_trade(tid, CurrNewMarket::Current);
-                    } else {  // delete trade TODO: THIS HAS TO BE HANDLED TO INCLUDE UPDATE AND ALL
-                        curr_portfolio.remove(&(tid.to_string(), self.market_date));
+                        curr_portfolio += trade_v;
+                    } else {
+                        curr_portfolio -= trade_v;
                     }
 
                     // update aggregated trades and all_trades.
@@ -265,7 +255,7 @@ impl Controller {
 
     /// compute the pricing endpoint for the rester service for
     /// a particular metric and market.
-    fn _pricing_endpoint(&self, market_ : CurrNewMarket) -> String {
+    fn _pricing_endpoint_spark(&self, market_ : CurrNewMarket) -> String {
 
         if self.metric == "PV".to_string() {
             match market_ {
@@ -279,6 +269,22 @@ impl Controller {
             }
         }
     }
+
+    fn _pricing_endpoint(&self, market_ : CurrNewMarket) -> String {
+
+        if self.metric == "PV".to_string() {
+            match market_ {
+                CurrNewMarket::Current => return "pv".to_string(),
+                CurrNewMarket::New => return "pv_new".to_string(),
+            }
+        } else {  // assume "PV01"
+            match market_ {
+                CurrNewMarket::Current => return "pv01".to_string(),
+                CurrNewMarket::New => return "pv01_new".to_string(),
+            }
+        }
+    }
+
 
     /// prices trades on spark
     ///   takes as arguments the list of trades, and pricing client, used for post request
@@ -297,9 +303,9 @@ impl Controller {
                 .map(|trade_id: &u16| -> String {trade_id.to_string()} )
         );
 
-        let pricing_endpoint = self._pricing_endpoint(market_);
-        let market_endpoint = pricing_endpoint.as_str();
-        info!("ENDPOINT: {}", market_endpoint);
+        let pricing_endpoint_spark = self._pricing_endpoint_spark(market_);
+        info!("ENDPOINT: {}", pricing_endpoint_spark);
+        let market_endpoint = pricing_endpoint_spark.as_str();
         let result_pricing_start = Instant::now();
         let result_pricing = pricing_client
             .post(format!("http://{}/{}", self.trade_pricer, market_endpoint))
@@ -308,7 +314,6 @@ impl Controller {
         info!("SPARK pricing took: {:?}", result_pricing_start.elapsed().as_secs_f32());
 
         // unwrap the result_pricing
-
         let mut priced_portfolio = match result_pricing {
             Ok(result_price) => self._unwrap_pricing_results(result_price),
             Err(e) => {
@@ -357,19 +362,12 @@ impl Controller {
     // converts the spark response into a trade value.
     fn _unwrap_pricing_results(&self, result_price: Response) -> PortfolioType {
 
-        match result_price.json::<HashMap<String, f64>>() {
-            Ok(result_pricer_inner) => {
-                let mut new_portfolio = PortfolioType::new();
-                for (trade_obj, trade_res) in result_pricer_inner.iter() {
-                    let _ = &new_portfolio.insert((trade_obj.clone(), self.market_date), *trade_res);
-                }
-                info!("SPARK: Computed portfolio w/ {} trades", new_portfolio.keys().len());
-                return new_portfolio;
-            },
-            Err(e) => {
-                warn!("_price_trades: Could not convert the result to a map: {:?}", e);
-                return PortfolioType::new();
-            }
+        if let Ok(result_price_inner) = result_price.json::<HashMap<String, f64>>() {
+            info!("SPARK: Computed portfolio w/ {} trades", result_price_inner.keys().len());
+            return PortfolioType(result_price_inner);
+        } else {
+            warn!("_unwrap_pricing_results: Could not convert the result to a HashMap<String, f64>");
+            return PortfolioType::new();
         }
     }
 
@@ -415,11 +413,11 @@ impl Controller {
             // catch up any remaining trades
             while let Ok(trade) = new_trade_receiver.try_recv() {
                 info!("NEW: Processing trade {}, dir {:?}", trade.trade_id, trade.direction);
-                let tid = trade.trade_id;
+                let trade_v = self._value_trade(trade.trade_id, CurrNewMarket::New);
                 if trade.direction == TradeDirection::Create {
-                    new_portfolio += self._value_trade(tid, CurrNewMarket::New);
-                } else {  // delete trade TODO: THIS HAS TO BE HANDLED TO INCLUDE UPDATE AND ALL
-                    new_portfolio.remove(&(tid.to_string(), self.market_date));
+                    new_portfolio += trade_v;
+                } else {
+                    new_portfolio -= trade_v;
                 }
 
                 // update all_trades and agg_trades.
@@ -492,21 +490,7 @@ impl Controller {
 
         loop {
             let curr_mkt = curr_portfolio_recv.recv().unwrap();
-            // serialize the current market into HashMap<String, f64>
-            let mut curr_mkt_ser = HashMap::<String, f64>::new();
-            for ((flight_nb, flight_date), flight_val) in curr_mkt.iter() {
-                let encoded_flight_date = Controller::_encode_flight_date(flight_nb.clone(), *flight_date);
-                match encoded_flight_date {
-                    Ok(flight_date_enc) => {
-                        curr_mkt_ser.insert(flight_date_enc,*flight_val);
-                    },
-                    Err(e) => {
-                        warn!("Could not encode the flight nb and date {:?}", e);
-                    }
-                }
-            }
-            let curr_mkt_json = serde_json::ser::to_string(&curr_mkt_ser).unwrap();
-
+            let curr_mkt_json = serde_json::ser::to_string(&curr_mkt).unwrap();
             let curr_mkt_pv = format!("{{\"PV\": {}}}", curr_mkt_json);
 
             // implements bytearray(str(dumps(self.curr_market)), ascii))
@@ -700,7 +684,7 @@ impl TradeHandling for Controller {
                 });
             }
             _ => {
-                warn!("UNIMPLEMENTED. FIX THIS");
+                warn!("UNIMPLEMENTED. THIS SHOULD NOT HAPPEN. EXAMINE. ");
                 return Some(Trade {
                     trade_id: 189,
                     direction: TradeDirection::Create,

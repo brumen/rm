@@ -153,6 +153,35 @@ class ResultPublisherKafkaPV_Useless(ResultPublisherKafka):
         return np.array(sorted(itemized_l, key=lambda trade_id_date: int(trade_id_date[0])))
 
 
+class ResultPublisherKafkaPV01_Useless(ResultPublisherKafka):
+
+    def _get_results(self):
+        super()._get_results()
+        #self._subscriber.seek_to_end()
+
+    def _process_result(
+            self,
+            curr_result: Optional[Dict[str, Dict[str, float]]],
+            prev_result: Optional[Dict[str, Dict[str, float]]],
+    ):
+        """ Processing the PV result.
+
+        :param result_dict: dictionary of results, the keys are PV, PV01, the computed requests. Value is a
+           dictionary of flight names, and values of that flight.
+        """
+
+        if curr_result is None:
+            return np.array([[]])
+
+        # sort the results:
+        itemized_l = []
+        for trade_id_date, trade_val in curr_result['PV'].items():
+            itemized_l.append((trade_id_date.split('|')[0], trade_val))
+
+        logger.info(f"Published list has {len(itemized_l)} trades");
+        return np.array(itemized_l)
+
+
 class ResultPublisherKafkaPV_Useless2(ResultPublisherKafka):
 
     def _process_result(

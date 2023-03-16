@@ -13,12 +13,13 @@ from rm.result_publisher_by_trade import (
     ResultPublisherKafkaPV01,
     ResultPublisherKafkaPV_Useless,
     ResultPublisherKafkaPV_Useless2,
+    ResultPublisherKafkaPV01_Useless,
 )
 
 
 def main(result_idx = 'PV'):
     if result_idx == 'PV01':
-        rp = ResultPublisherKafkaPV01()
+        rp = ResultPublisherKafkaPV01_Useless()
     else:
         rp = ResultPublisherKafkaPV_Useless()
 
