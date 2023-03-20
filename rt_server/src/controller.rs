@@ -19,10 +19,22 @@ use core::convert::From;
 use crate::encdec::{EncoderDecoder, DecoderError};
 use crate::trade::{Trade, TradeDirection, TradeHandling};
 use crate::controller::reqwest::blocking::Response;
-use crate::portfolio::{MarketType, PortfolioType, TradeValue, AggregatedTrades};
+use crate::portfolio::{
+    MarketType,
+    PortfolioType,
+    TradeValue,
+    AggregatedTrades,
+    PV01Results,
+    PricingResults,
+};
 
 pub type PricingParams = HashMap<String, f64>;
 
+// which metric to compute
+pub enum PricingMetric {
+    PV,
+    PV01,
+}
 
 /// Controller structure.
 /// market_date: date when we are pricing.
@@ -36,7 +48,7 @@ pub struct Controller {
     kafka_server_name: String,
     kafka_port: i32,
     trade_pricer: String,
-    metric: String,
+    metric: PricingMetric,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -70,7 +82,7 @@ impl Controller {
         kafka_server_name: String,
         kafka_port: i32,
         trade_pricer: String,
-        metric: String,
+        metric: PricingMetric,
     ) -> Self {
         // if given the params, use them, otherwise construct empty map
         let pricing_init = match pricing_params_ {
@@ -97,6 +109,13 @@ impl Controller {
         let config_f = std::fs::File::open(config_file).unwrap();
         let config_map: RTConfig = serde_yaml::from_reader(config_f).unwrap();
 
+        let mut controller_metric;
+        if config_map.metric == "PV".to_string() {
+            controller_metric = PricingMetric::PV;
+        } else {
+            controller_metric = PricingMetric::PV01;
+        };
+
         Ok(Controller::new(
             market_date,
             // pricing_params
@@ -110,13 +129,13 @@ impl Controller {
             config_map.kafka_server_name,
             config_map.kafka_server_port,
             config_map.trade_pricer,
-            config_map.metric,
+            controller_metric,
         ))
     }
 
     /// Values the trade id
     /// Makes a call to the rester service, which values the trade.
-    fn _value_trade(&self, trade_id: u16, market : CurrNewMarket) -> TradeValue {
+    fn _value_trade(&self, trade_id: u16, market : CurrNewMarket) -> PricingResults {
 
         debug!("VALUATION: Pricing trade: {}, market: {:?}", trade_id, market);
 
@@ -133,24 +152,18 @@ impl Controller {
             );
 
         match result_pricing {
-            Ok(result_price) => {
-                match result_price.json::<HashMap<String, f64>>() {  // String in this hash is the trade_id from trade
-                    Ok(result_pricer_inner) => {
-                        return TradeValue(result_pricer_inner);
-                    },
-                    Err(e) => {
-                        warn!("_value_trade: Could not convert the result to a map: {:?}", e);
-                        return TradeValue::new();
-                    }
-                }
-            },
+            Ok(result_price) => { return self._unwrap_pricing_results(result_price); },
             Err(e) => {
                 warn!("Trade {trade_id} could not price correctly: {}", e);
-                return TradeValue::new(); // TODO: THIS SHOULD BE DIFFERENT, CORRECT
+                match self.metric {
+                    PricingMetric::PV => {return PricingResults::PV(PortfolioType::new())},
+                    PricingMetric::PV01 => {return PricingResults::PV01(PV01Results::new())},
+                }
             },
-        };
+        }
     }
 
+    /// switch markets on the trade api.
     fn _switch_markets(&self) {
         info!("CURR processor: Switching markets: current <- new.");
         let _ = reqwest::blocking::get(format!(
@@ -179,7 +192,7 @@ impl Controller {
         // compute the initial portfolio
         let _ = self._find_initial_trades(&trade_receiver, &mut all_trades, &mut agg_trades, CurrNewMarket::Current);  // this updates all_trades
         let mut curr_portfolio = self._price_trades(&agg_trades, CurrNewMarket::Current);
-        let _ = curr_portfolio_sender.send(PortfolioType(curr_portfolio.clone()));
+        let _ = curr_portfolio_sender.send(curr_portfolio.clone());
 
         loop {
 
@@ -187,20 +200,19 @@ impl Controller {
             nb_conseq_processed_trades = 0;
             while let Ok(trade) = trade_receiver.try_recv() {
                 if !all_trades.contains(&trade) {
-                    let trade_id = trade.trade_id;
-                    info!("CURR: Processing trade {}, dir {:?}", trade_id, trade.direction);
+                    info!("CURR: Processing trade {}, dir {:?}", trade.trade_id, trade.direction);
                     let trade_v = self._value_trade(trade.trade_id, CurrNewMarket::Current);
-                    if trade.direction == TradeDirection::Create {
-                        curr_portfolio += trade_v;
-                    } else {
-                        curr_portfolio -= trade_v;
+                    match trade.direction {
+                        TradeDirection::Create => curr_portfolio += trade_v,
+                        TradeDirection::Delete => curr_portfolio -= trade_v,
+                        _ => {},
                     }
 
                     // update aggregated trades and all_trades.
                     agg_trades += trade;
                     all_trades.push(trade); // all trades just add the new one.
 
-                    let _ = curr_portfolio_sender.send(PortfolioType(curr_portfolio.clone()));
+                    let _ = curr_portfolio_sender.send(curr_portfolio.clone());
 
                     nb_conseq_processed_trades += 1;
                     if nb_conseq_processed_trades > max_number_trades {
@@ -227,7 +239,7 @@ impl Controller {
                 } else if (new_l < all_l) && (new_l >= all_l - nb_conseq_processed_trades - 1) {  // new is not ahead, but we can still update.
                     curr_portfolio.extend(new_p.0.into_iter());
                 }
-                let _ = curr_portfolio_sender.send(PortfolioType(curr_portfolio.clone()));
+                let _ = curr_portfolio_sender.send(curr_portfolio.clone());
             }
         }
     }
@@ -257,31 +269,38 @@ impl Controller {
     /// a particular metric and market.
     fn _pricing_endpoint_spark(&self, market_ : CurrNewMarket) -> String {
 
-        if self.metric == "PV".to_string() {
-            match market_ {
-                CurrNewMarket::Current => return "pv_spark".to_string(),
-                CurrNewMarket::New => return "pv_spark_new".to_string(),
-            }
-        } else {  // assume "PV01"
-            match market_ {
-                CurrNewMarket::Current => return "pv01_spark".to_string(),
-                CurrNewMarket::New => return "pv01_spark_new".to_string(),
-            }
+        match self.metric {
+            PricingMetric::PV => {
+                match market_ {
+                    CurrNewMarket::Current => return "pv_spark".to_string(),
+                    CurrNewMarket::New => return "pv_spark_new".to_string(),
+                }
+            },
+            PricingMetric::PV01 => {
+                match market_ {
+                    CurrNewMarket::Current => return "pv01_spark".to_string(),
+                    CurrNewMarket::New => return "pv01_spark_new".to_string(),
+                }
+            },
         }
     }
 
+    /// pricing endpoints for valuing on the go
     fn _pricing_endpoint(&self, market_ : CurrNewMarket) -> String {
 
-        if self.metric == "PV".to_string() {
-            match market_ {
-                CurrNewMarket::Current => return "pv".to_string(),
-                CurrNewMarket::New => return "pv_new".to_string(),
-            }
-        } else {  // assume "PV01"
-            match market_ {
-                CurrNewMarket::Current => return "pv01".to_string(),
-                CurrNewMarket::New => return "pv01_new".to_string(),
-            }
+        match self.metric {
+            PricingMetric::PV => {
+                match market_ {
+                    CurrNewMarket::Current => return "pv".to_string(),
+                    CurrNewMarket::New => return "pv_new".to_string(),
+                }
+            },
+            PricingMetric::PV01 => {
+                match market_ {
+                    CurrNewMarket::Current => return "pv01".to_string(),
+                    CurrNewMarket::New => return "pv01_new".to_string(),
+                }
+            },
         }
     }
 
@@ -304,7 +323,6 @@ impl Controller {
         );
 
         let pricing_endpoint_spark = self._pricing_endpoint_spark(market_);
-        info!("ENDPOINT: {}", pricing_endpoint_spark);
         let market_endpoint = pricing_endpoint_spark.as_str();
         let result_pricing_start = Instant::now();
         let result_pricing = pricing_client
@@ -324,7 +342,12 @@ impl Controller {
 
         priced_portfolio *= agg_trades;  // fix the priced portfolio by the weights, aggregated trades.
 
-        priced_portfolio
+        // let's do the aggregation here.
+        match priced_portfolio {
+            PricingResults::PV(portfolio) => portfolio,
+            PricingResults::PV01(pv01_results) => pv01_results.aggregate()
+        }
+
     }
 
     fn _price_trades_sequentially(
@@ -360,14 +383,32 @@ impl Controller {
 
 
     // converts the spark response into a trade value.
-    fn _unwrap_pricing_results(&self, result_price: Response) -> PortfolioType {
+    fn _unwrap_pricing_results(&self, result_price: Response) -> PricingResults {
 
-        if let Ok(result_price_inner) = result_price.json::<HashMap<String, f64>>() {
-            info!("SPARK: Computed portfolio w/ {} trades", result_price_inner.keys().len());
-            return PortfolioType(result_price_inner);
-        } else {
-            warn!("_unwrap_pricing_results: Could not convert the result to a HashMap<String, f64>");
-            return PortfolioType::new();
+        match self.metric {
+            PricingMetric::PV => {
+                let results_conv = result_price.json::<HashMap<String, f64>>();
+                if results_conv.is_ok() {
+                    PricingResults::PV(PortfolioType(results_conv.unwrap()))
+                } else {
+                    PricingResults::PV(PortfolioType::new())
+                }
+            },
+            PricingMetric::PV01 => {
+                let results_conv = result_price.json::<HashMap<String, HashMap<String, f64>>>();
+                if results_conv.is_ok() {
+                    let mut pv01 = PV01Results::new();
+                    for (trade_id, trade_result) in results_conv.unwrap().iter() {
+                        // TODO: FIX THIS PART HERE
+                        let mut new_port = PortfolioType::new();
+                        new_port.add_ref_hash(trade_result);
+                        let _ = pv01.insert((*trade_id.clone()).to_string(), new_port);
+                    }
+                    PricingResults::PV01(pv01)
+                } else {
+                    PricingResults::PV01(PV01Results::new())
+                }
+            },
         }
     }
 
@@ -414,10 +455,10 @@ impl Controller {
             while let Ok(trade) = new_trade_receiver.try_recv() {
                 info!("NEW: Processing trade {}, dir {:?}", trade.trade_id, trade.direction);
                 let trade_v = self._value_trade(trade.trade_id, CurrNewMarket::New);
-                if trade.direction == TradeDirection::Create {
-                    new_portfolio += trade_v;
-                } else {
-                    new_portfolio -= trade_v;
+                match trade.direction {
+                    TradeDirection::Create => {new_portfolio += trade_v;},
+                    TradeDirection::Delete => {new_portfolio -= trade_v;},
+                    _ => {},
                 }
 
                 // update all_trades and agg_trades.
@@ -428,7 +469,7 @@ impl Controller {
             // decisions whether to publish the market or not.
             if new_market_event {
                 info!("NEW: Publishing portfolio. {} trades", new_portfolio.keys().len());
-                let _ = new_portfolio_sender.send((PortfolioType(new_portfolio.clone()), all_trades.clone()));
+                let _ = new_portfolio_sender.send((new_portfolio.clone(), all_trades.clone()));
             }
         }
     }

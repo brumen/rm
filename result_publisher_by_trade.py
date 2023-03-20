@@ -179,7 +179,7 @@ class ResultPublisherKafkaPV01_Useless(ResultPublisherKafka):
             itemized_l.append((trade_id_date.split('|')[0], trade_val))
 
         logger.info(f"Published list has {len(itemized_l)} trades");
-        return np.array(itemized_l)
+        return np.array(sorted(itemized_l, key=lambda trade_id: trade_id))
 
 
 class ResultPublisherKafkaPV_Useless2(ResultPublisherKafka):

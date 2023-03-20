@@ -134,7 +134,7 @@ def _compute_trade_from_mkt(
 
     return {
         'PV': DeltaDict({trade_id: pv}) if trade_direction == TradeDirection.LONG else DeltaDict({trade_id: - pv}),
-        'PV01': pv01 if trade_direction == TradeDirection.LONG else - pv01,
+        'PV01': DeltaDict({trade_id: pv01}) if trade_direction == TradeDirection.LONG else DeltaDict({trade_id: - pv01}),
     }
 
 
