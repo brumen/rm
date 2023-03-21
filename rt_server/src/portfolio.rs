@@ -1,0 +1,408 @@
+use log::{warn};
+use std::{collections::HashMap, ops::SubAssign};
+use time::Date;
+use std::ops::{Add, Deref, DerefMut, AddAssign, Mul, MulAssign, };
+use serde::{Serialize};
+
+// market information = ((flight, market date), value)
+pub type MarketInner = HashMap<(String, Date), f64>;
+#[derive(Debug, PartialEq)]
+pub struct MarketType (pub MarketInner);
+
+
+pub type PortfolioInner = HashMap<String, f64>;
+#[derive(Debug, PartialEq, Serialize, Clone)]
+pub struct PortfolioType ( pub PortfolioInner );
+pub type TradeValue = PortfolioType;
+#[allow(non_snake_case)]
+pub fn TradeValue(data: HashMap<String, f64>) -> TradeValue {
+    PortfolioType(data)
+}
+
+use crate::trade::{Trade, TradeDirection};
+
+
+#[macro_export]
+macro_rules! ref_deref_trait {
+    ( $x:ty, $y:ty ) => {
+        impl Deref for $x {
+            type Target = $y;
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl DerefMut for $x {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                &mut self.0
+            }
+        }
+    };
+}
+
+
+ref_deref_trait!(MarketType, MarketInner);
+
+impl MarketType {
+    pub fn new() -> Self {
+        Self(MarketInner::new())
+    }
+}
+
+ref_deref_trait!(PortfolioType, PortfolioInner);
+
+
+impl Add for PortfolioType {
+    type Output = PortfolioType;
+
+    fn add(self, other_portfolio : PortfolioType) -> Self::Output {
+
+        let mut new_portfolio = PortfolioInner::new();
+        new_portfolio.extend((*self).clone());  // TODO: Can this be done w/o copying.
+
+        for (trade_id, trade_value) in other_portfolio.iter() {
+            if let Some(self_value) = new_portfolio.get_mut(trade_id) {
+                *self_value += *trade_value;
+            } else {  // not found in
+                new_portfolio.insert((*trade_id).clone(), *trade_value);
+            }
+        }
+        PortfolioType(new_portfolio)
+    }
+}
+
+
+impl SubAssign for PortfolioType {
+    fn sub_assign(&mut self, rhs: Self) {
+        // negate the values of
+        for (trade_id, trade_value) in rhs.iter() {
+            if let Some(self_value) = self.get_mut(trade_id) {
+                *self_value -= *trade_value;
+            } else {  // None
+                self.insert((*trade_id).clone(), - *trade_value);
+            }
+        }
+    }
+}
+
+impl AddAssign<PortfolioType> for PortfolioType {
+    fn add_assign(&mut self, other: Self) {
+        for (trade_id, trade_value) in other.iter() {
+            if let Some(self_value) = self.get_mut(trade_id) {
+                *self_value += *trade_value;
+            } else {  // None
+                self.insert((*trade_id).clone(), *trade_value);
+            }
+        }
+    }
+}
+
+impl AddAssign<&PortfolioType> for PortfolioType {
+
+    fn add_assign(&mut self, other: &Self) {
+        for (trade_id, trade_value) in other.iter() {
+            if let Some(self_value) = self.get_mut(trade_id) {
+                *self_value += *trade_value;
+            } else {  // None
+                self.insert((*trade_id).clone(), *trade_value);
+            }
+        }
+    }
+}
+
+impl SubAssign<&PortfolioType> for PortfolioType {
+
+    fn sub_assign(&mut self, other: &Self) {
+        for (trade_id, trade_value) in other.iter() {
+            if let Some(self_value) = self.get_mut(trade_id) {
+                *self_value -= *trade_value;
+            } else {  // None
+                self.insert((*trade_id).clone(), - *trade_value);
+            }
+        }
+    }
+}
+
+
+impl PortfolioType {
+    pub fn new() -> Self {
+        Self(PortfolioInner::new())
+    }
+}
+
+impl<const N: usize> From<[(String, f64); N]> for PortfolioType {
+    fn from(arr: [(String, f64); N]) -> Self {
+        Self(PortfolioInner::from(arr))
+    }
+}
+
+impl From<&HashMap<String, f64>> for PortfolioType {
+    fn from(other_portfolio: &HashMap<String, f64>) -> Self {
+        let mut new_portf = PortfolioInner::new();
+        for (trade_id, trade_value) in other_portfolio.iter() {
+            if let Some(self_value) = new_portf.get_mut(trade_id) {
+                *self_value += *trade_value;
+            } else {  // not found in
+                new_portf.insert((*trade_id).clone(), *trade_value);
+            }
+        }
+
+        Self(new_portf)
+    }
+}
+
+
+// AggregatedTrades
+pub type AggregatedInner = HashMap<u16, f64>;
+
+#[derive(Debug, PartialEq)]
+pub struct AggregatedTrades ( pub AggregatedInner );
+
+ref_deref_trait!(AggregatedTrades, AggregatedInner);
+
+impl Mul<f64> for PortfolioType {
+    type Output = PortfolioType;
+
+    fn mul(self, rhs: f64) -> Self {
+        let mut new_agg_trades = Self::new();
+        for (trade_id, trade_val) in self.iter() {
+            new_agg_trades.insert(trade_id.clone(), *trade_val * rhs);
+        }
+        new_agg_trades
+    }
+}
+
+impl MulAssign<&AggregatedTrades> for PortfolioType {
+    fn mul_assign(&mut self, rhs: &AggregatedTrades) {
+        for (trade_id, trade_val) in self.iter_mut() {
+
+            if let Ok(tid) = trade_id.parse::<u16>() {
+                if let Some(trade_mult) = rhs.get(&tid) {
+                    *trade_val *= *trade_mult;
+                } else {
+                    warn!("Could not find the multiplying factor for {}", tid);
+                }
+            } else {
+                warn!("Could not convert {:?} to u16", trade_id);
+            }
+        }
+    }
+}
+
+impl MulAssign<f64> for PortfolioType {
+    fn mul_assign(&mut self, rhs: f64) {
+        for (trade_id, trade_val) in self.iter_mut() {
+            *trade_val *= rhs;
+        }
+    }
+}
+
+
+// impl AddAssign for AggregatedTrades {
+//     fn add_assign(&mut self, other: Self) {
+//         for (trade_id, trade_value) in other.iter() {
+//             if let Some(self_value) = self.get_mut(trade_id) {
+//                 // self_value - (Trade, f64)
+//                 let mut trade, trade_position = *self_value;
+//                 let trade_other, trade_position_other = *trade_value;
+//                 *trade_position += *trade_position_other;
+//                 *self_value += *trade_value;
+//             } else {  // None
+//                 self.insert((*trade_id).clone(), *trade_value);  // TODO: CHECK IF THIS CLONE IS NEEDED.
+//             }
+//         }
+//     }
+// }
+
+impl AggregatedTrades {
+    pub fn new() -> Self {
+        Self(AggregatedInner::new())
+    }
+}
+
+impl AddAssign<Trade> for AggregatedTrades {
+    fn add_assign(&mut self, rhs: Trade) {
+        let new_trade_id = rhs.trade_id;
+        let new_trade_position = match rhs.direction {
+            TradeDirection::Create => 1.,
+            TradeDirection::Delete => -1.,
+            _ => 0.,
+        };
+
+        if let Some(agg_pos) = self.get_mut(&new_trade_id) {
+            *agg_pos += new_trade_position;
+            if *agg_pos == 0. {
+                let _ = self.remove(&new_trade_id);
+            }
+        } else {
+            self.insert(new_trade_id, new_trade_position);
+        }
+    }
+}
+
+
+// PV01Results
+pub type PV01Inner = HashMap<String, PortfolioType>;
+#[derive(Clone)]
+pub struct PV01Results ( pub PV01Inner );
+
+ref_deref_trait!(PV01Results, PV01Inner);
+
+impl MulAssign<&AggregatedTrades> for PV01Results {
+    fn mul_assign(&mut self, rhs: &AggregatedTrades) {
+        for (trade_id, trade_val) in self.iter_mut() {
+
+            if let Ok(tid) = trade_id.parse::<u16>() {
+                if let Some(trade_mult) = rhs.get(&tid) {
+                    *trade_val *= *trade_mult;
+                } else {
+                    warn!("Could not find the multiplying factor for {}", tid);
+                }
+            } else {
+                warn!("Could not convert {:?} to u16", trade_id);
+            }
+        }
+    }
+}
+
+impl Mul<f64> for PV01Results {
+    type Output = Self;
+
+    fn mul(self, rhs: f64) -> Self {
+        let mut new_pv01 = PV01Results::new();
+        for (trade_id, portfolio) in self.iter() {
+            let mut inner_portf = PortfolioType::new();
+            for (trade_id_inner, value) in portfolio.iter() {
+                inner_portf.insert(trade_id_inner.clone(), value * rhs);
+            }
+            new_pv01.insert(trade_id.clone(), inner_portf);
+        }
+
+        new_pv01
+    }
+}
+
+impl PV01Results {
+    pub fn new() -> Self {
+        Self(PV01Inner::new())
+    }
+
+    // aggregates the PV01 results into Portfoliotype, irrespective of trades.
+    pub fn aggregate(self) -> PortfolioType {
+        let mut pv01_aggs = PortfolioType::new();
+        for (trade_id, trade_pv01) in self.iter() {
+            pv01_aggs += trade_pv01;
+        }
+        pv01_aggs
+    }
+}
+
+
+pub enum PricingResults {
+    PV(PortfolioType),
+    PV01(PV01Results),
+}
+
+impl Mul<f64> for PricingResults {
+    type Output = Self;
+
+    fn mul(self, rhs: f64) -> Self {
+
+        match self {
+            Self::PV(pv_result) => Self::PV(pv_result * rhs),
+            Self::PV01(pv01_result) => Self::PV01(pv01_result * rhs),
+        }
+    }
+}
+
+impl AddAssign<PricingResults> for PortfolioType {
+
+    fn add_assign(&mut self, rhs: PricingResults) {
+
+        match rhs {
+            PricingResults::PV(pv_results) => {
+                *self += pv_results;
+            },
+            PricingResults::PV01(pv01_results) => {
+                for (trade_id, trade_portf) in pv01_results.iter() {
+                    *self += trade_portf;
+                }
+            },
+        }
+    }
+}
+
+impl SubAssign<PricingResults> for PortfolioType {
+
+    fn sub_assign(&mut self, rhs: PricingResults) {
+
+        match rhs {
+            PricingResults::PV(pv_results) => {
+                *self -= pv_results;
+            },
+            PricingResults::PV01(pv01_results) => {
+                for (trade_id, trade_portf) in pv01_results.iter() {
+                    *self -= trade_portf;
+
+                }
+            },
+        }
+    }
+}
+
+
+impl MulAssign<&AggregatedTrades> for PricingResults {
+
+    fn mul_assign(&mut self, rhs: &AggregatedTrades) {
+
+        match self {
+            PricingResults::PV(ref mut portfolio) => *portfolio *= rhs,
+            PricingResults::PV01(pv01_results) => {
+                // go over trades and multiply each one by a factor.
+                for (trade_id, trade_val) in pv01_results.iter_mut() {
+
+                    if let Ok(tid) = trade_id.parse::<u16>() {
+                        if let Some(trade_mult) = rhs.get(&tid) {
+                            *trade_val *= *trade_mult;
+                        } else {
+                            warn!("Could not find the multiplying factor for {}", tid);
+                        }
+                    } else {
+                        warn!("Could not convert {:?} to u16", trade_id);
+                    }
+                }
+
+            }
+        }
+
+    }
+}
+
+
+
+
+#[cfg(test)]
+mod portfolio_tests {
+    use time::{Date, Month};
+
+    use crate::portfolio::PortfolioType;
+
+
+    #[test]
+    fn portfolio_works_1() {
+        // tests whether += works for 2 portfolios.
+
+        let date_1 = Date::from_calendar_date(2023, Month::January, 10).unwrap();
+        let date_2 = Date::from_calendar_date(2023, Month::February, 20).unwrap();
+        let date_3 = date_1.clone();
+        let date_4 = date_1.clone();
+        let date_5 = date_2.clone();
+        let mut portfolio_1 = PortfolioType::from([('1'.to_string(), 10.), ('2'.to_string(), 20.),]);
+        let portfolio_2 = PortfolioType::from([('1'.to_string(), 20.),]);
+        portfolio_1 += portfolio_2;
+        let portfolio_res = PortfolioType::from([('1'.to_string(), 30.), ('2'.to_string(), 20.),]);
+
+        assert_eq!(portfolio_1, portfolio_res);
+    }
+}
