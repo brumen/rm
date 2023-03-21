@@ -399,10 +399,7 @@ impl Controller {
                 if results_conv.is_ok() {
                     let mut pv01 = PV01Results::new();
                     for (trade_id, trade_result) in results_conv.unwrap().iter() {
-                        // TODO: FIX THIS PART HERE
-                        let mut new_port = PortfolioType::new();
-                        new_port.add_ref_hash(trade_result);
-                        let _ = pv01.insert((*trade_id.clone()).to_string(), new_port);
+                        let _ = pv01.insert((*trade_id.clone()).to_string(), PortfolioType::from(trade_result));
                     }
                     PricingResults::PV01(pv01)
                 } else {
