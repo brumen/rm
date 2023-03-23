@@ -1,5 +1,6 @@
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 use kafka::producer::{Producer, Record, RequiredAcks};
@@ -31,9 +32,19 @@ use crate::portfolio::{
 pub type PricingParams = HashMap<String, f64>;
 
 // which metric to compute
+#[derive(Clone, Copy)]
 pub enum PricingMetric {
     PV,
     PV01,
+}
+
+impl fmt::Display for PricingMetric {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PricingMetric::PV => write!(f, "PV"),
+            PricingMetric::PV01 => write!(f, "PV01"),
+        }
+    }
 }
 
 /// Controller structure.
@@ -109,7 +120,7 @@ impl Controller {
         let config_f = std::fs::File::open(config_file).unwrap();
         let config_map: RTConfig = serde_yaml::from_reader(config_f).unwrap();
 
-        let mut controller_metric;
+        let controller_metric;
         if config_map.metric == "PV".to_string() {
             controller_metric = PricingMetric::PV;
         } else {
@@ -135,7 +146,7 @@ impl Controller {
 
     /// Values the trade id
     /// Makes a call to the rester service, which values the trade.
-    fn _value_trade(&self, trade_id: u16, market : CurrNewMarket) -> PricingResults {
+    fn _value_trade(&self, trade_id: u16, market : CurrNewMarket, metric: PricingMetric) -> PricingResults {
 
         debug!("VALUATION: Pricing trade: {}, market: {:?}", trade_id, market);
 
@@ -146,16 +157,16 @@ impl Controller {
                 format!(
                     "http://{}/{}/{}",
                     self.trade_pricer,
-                    self._pricing_endpoint(market),
+                    self._pricing_endpoint(market, metric),
                     trade_id,
                 )
             );
 
         match result_pricing {
-            Ok(result_price) => { return self._unwrap_pricing_results(result_price); },
+            Ok(result_price) => { return self._unwrap_pricing_results(result_price, metric); },
             Err(e) => {
                 warn!("Trade {trade_id} could not price correctly: {}", e);
-                match self.metric {
+                match metric {
                     PricingMetric::PV => {return PricingResults::PV(PortfolioType::new())},
                     PricingMetric::PV01 => {return PricingResults::PV01(PV01Results::new())},
                 }
@@ -191,7 +202,7 @@ impl Controller {
 
         // compute the initial portfolio
         let _ = self._find_initial_trades(&trade_receiver, &mut all_trades, &mut agg_trades, CurrNewMarket::Current);  // this updates all_trades
-        let mut curr_portfolio = self._price_trades(&agg_trades, CurrNewMarket::Current);
+        let mut curr_portfolio = self._price_trades(&agg_trades, CurrNewMarket::Current, self.metric);
         let _ = curr_portfolio_sender.send(curr_portfolio.clone());
 
         loop {
@@ -201,7 +212,7 @@ impl Controller {
             while let Ok(trade) = trade_receiver.try_recv() {
                 if !all_trades.contains(&trade) {
                     info!("CURR: Processing trade {}, dir {:?}", trade.trade_id, trade.direction);
-                    let trade_v = self._value_trade(trade.trade_id, CurrNewMarket::Current);
+                    let trade_v = self._value_trade(trade.trade_id, CurrNewMarket::Current, self.metric);
                     match trade.direction {
                         TradeDirection::Create => curr_portfolio += trade_v,
                         TradeDirection::Delete => curr_portfolio -= trade_v,
@@ -267,9 +278,9 @@ impl Controller {
 
     /// compute the pricing endpoint for the rester service for
     /// a particular metric and market.
-    fn _pricing_endpoint_spark(&self, market_ : CurrNewMarket) -> String {
+    fn _pricing_endpoint_spark(&self, market_ : CurrNewMarket, metric: PricingMetric) -> String {
 
-        match self.metric {
+        match metric {
             PricingMetric::PV => {
                 match market_ {
                     CurrNewMarket::Current => return "pv_spark".to_string(),
@@ -286,9 +297,9 @@ impl Controller {
     }
 
     /// pricing endpoints for valuing on the go
-    fn _pricing_endpoint(&self, market_ : CurrNewMarket) -> String {
+    fn _pricing_endpoint(&self, market_ : CurrNewMarket, metric: PricingMetric) -> String {
 
-        match self.metric {
+        match metric {
             PricingMetric::PV => {
                 match market_ {
                     CurrNewMarket::Current => return "pv".to_string(),
@@ -312,6 +323,7 @@ impl Controller {
         agg_trades: &AggregatedTrades,
         pricing_client : &Client,
         market_ : CurrNewMarket,
+        metric : PricingMetric,
     ) -> PortfolioType {
 
         // joins all trades with commas, like 190,191,192
@@ -322,7 +334,7 @@ impl Controller {
                 .map(|trade_id: &u16| -> String {trade_id.to_string()} )
         );
 
-        let pricing_endpoint_spark = self._pricing_endpoint_spark(market_);
+        let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
         let market_endpoint = pricing_endpoint_spark.as_str();
         let result_pricing_start = Instant::now();
         let result_pricing = pricing_client
@@ -333,7 +345,7 @@ impl Controller {
 
         // unwrap the result_pricing
         let mut priced_portfolio = match result_pricing {
-            Ok(result_price) => self._unwrap_pricing_results(result_price),
+            Ok(result_price) => self._unwrap_pricing_results(result_price, self.metric),
             Err(e) => {
                 warn!("Trades could not price correctly: {}", e);
                 return PortfolioType::new() // TODO: What to do if the trade cant convert
@@ -354,12 +366,13 @@ impl Controller {
         &self,
         agg_trades: &AggregatedTrades,
         market_ : CurrNewMarket,
+        metric : PricingMetric,
     ) -> PortfolioType {
 
         let mut new_portfolio = PortfolioType::new();
 
         for (trade_id, trade_position) in agg_trades.iter() {
-            new_portfolio += self._value_trade(*trade_id, market_) * (*trade_position);
+            new_portfolio += self._value_trade(*trade_id, market_, metric) * (*trade_position);
         }
 
         new_portfolio
@@ -369,23 +382,24 @@ impl Controller {
         &self,
         agg_trades: &AggregatedTrades,
         market_ : CurrNewMarket,
+        metric: PricingMetric,
     ) -> PortfolioType {
 
         let nb_trades = agg_trades.keys().len();
         let pricing_client = Client::new();
 
         if nb_trades > 30 {  // TODO: FACTOR THIS 30 out.
-            return self._price_trades_on_spark(agg_trades, &pricing_client, market_);
+            return self._price_trades_on_spark(agg_trades, &pricing_client, market_, metric);
         }
 
-        self._price_trades_sequentially(agg_trades, market_)
+        self._price_trades_sequentially(agg_trades, market_, metric)
     }
 
 
     // converts the spark response into a trade value.
-    fn _unwrap_pricing_results(&self, result_price: Response) -> PricingResults {
+    fn _unwrap_pricing_results(&self, result_price: Response, metric: PricingMetric) -> PricingResults {
 
-        match self.metric {
+        match metric {
             PricingMetric::PV => {
                 let results_conv = result_price.json::<HashMap<String, f64>>();
                 if results_conv.is_ok() {
@@ -445,13 +459,13 @@ impl Controller {
             let new_market_event = self._new_market_event(&new_market_receiver);
             if new_market_event {
                 info!("NEW: Working. {} trades", agg_trades.keys().len());
-                new_portfolio = self._price_trades(&agg_trades, CurrNewMarket::New);
+                new_portfolio = self._price_trades(&agg_trades, CurrNewMarket::New, self.metric);
             }
 
             // catch up any remaining trades
             while let Ok(trade) = new_trade_receiver.try_recv() {
                 info!("NEW: Processing trade {}, dir {:?}", trade.trade_id, trade.direction);
-                let trade_v = self._value_trade(trade.trade_id, CurrNewMarket::New);
+                let trade_v = self._value_trade(trade.trade_id, CurrNewMarket::New, self.metric);
                 match trade.direction {
                     TradeDirection::Create => {new_portfolio += trade_v;},
                     TradeDirection::Delete => {new_portfolio -= trade_v;},
@@ -529,7 +543,7 @@ impl Controller {
         loop {
             let curr_mkt = curr_portfolio_recv.recv().unwrap();
             let curr_mkt_json = serde_json::ser::to_string(&curr_mkt).unwrap();
-            let curr_mkt_pv = format!("{{\"PV\": {}}}", curr_mkt_json);
+            let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric, curr_mkt_json);
 
             // implements bytearray(str(dumps(self.curr_market)), ascii))
             let market_record = Record::from_value(results_topic.as_str(), curr_mkt_pv.as_bytes())

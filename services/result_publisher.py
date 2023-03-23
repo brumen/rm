@@ -19,9 +19,9 @@ from rm.result_publisher_by_trade import (
 
 def main(result_idx = 'PV'):
     if result_idx == 'PV01':
-        rp = ResultPublisherKafkaPV01_Useless()
+        rp = ResultPublisherKafkaPV01_Useless(metric='PV01',)
     else:
-        rp = ResultPublisherKafkaPV_Useless()
+        rp = ResultPublisherKafkaPV_Useless(metric='PV',)  # TODO: both the class & metric are provided, no need for that.
 
     rp.start()
 

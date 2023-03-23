@@ -70,12 +70,18 @@ class ResultPublisherKafka(ResultPublisherBase):
 
     def __init__( self
                   , server_port_topic = ('localhost', 9092, 'air_options.ao.results')
-                  , ):
+                  , metric : str = 'PV'):
+        """ Kafka receiver.
+
+        :param server_port_topic: server, port and topic where to read data.
+        :param metric: metric which should be extracted from the message, currently only 'PV', 'PV01'.
+        """
 
         super().__init__()
 
         server, port, topic = server_port_topic
         self._server_port_topic = server_port_topic
+        self.metric = metric
 
         self._subscriber = KafkaConsumer(topic, bootstrap_servers=f'{server}:{port}')
 
@@ -121,7 +127,7 @@ class ResultPublisherKafkaPV(ResultPublisherKafka):
         """
 
             # self.curr_value = np.array([]) if result_dict is None else np.array(list(result_dict['PV'].items()))
-        return np.array([]) if current_result is None else np.array(list(current_result['PV'].items()))
+        return np.array([]) if current_result is None else np.array(list(current_result[self.metric].items()))
 
 
 class ResultPublisherKafkaPV_Useless(ResultPublisherKafka):
@@ -144,9 +150,13 @@ class ResultPublisherKafkaPV_Useless(ResultPublisherKafka):
         if curr_result is None:
             return np.array([[]])
 
+        proper_results = curr_result.get(self.metric)
+        if proper_results is None:
+            return prev_result  # nothing new to display
+
         # sort the results:
         itemized_l = []
-        for trade_id_date, trade_val in curr_result['PV'].items():
+        for trade_id_date, trade_val in proper_results.items():
             itemized_l.append((trade_id_date.split('|')[0], trade_val))
 
         logger.info(f"Published list has {len(itemized_l)} trades");
@@ -173,9 +183,13 @@ class ResultPublisherKafkaPV01_Useless(ResultPublisherKafka):
         if curr_result is None:
             return np.array([[]])
 
+        proper_results = curr_result.get(self.metric)
+        if proper_results is None:
+            return prev_result
+
         # sort the results:
         itemized_l = []
-        for trade_id_date, trade_val in curr_result['PV'].items():
+        for trade_id_date, trade_val in proper_results.items():
             itemized_l.append((trade_id_date.split('|')[0], trade_val))
 
         logger.info(f"Published list has {len(itemized_l)} trades");

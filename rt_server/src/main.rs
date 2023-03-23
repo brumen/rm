@@ -5,6 +5,7 @@
 // $env:OPENSSL_DIR = 'C:\Tools\vcpkg\installed\x64-windows-static'
 // $env:OPENSSL_STATIC = 'Yes'
 
+use std::env::{args, };
 
 use time::{Date, Month};
 
@@ -20,9 +21,12 @@ fn main() {
 
     let market_date = Date::from_calendar_date(2016, Month::January, 1).unwrap();
 
+    let config_file : String = args().nth(1).unwrap();
+
     let controller2 = Controller::new_from_config(
         market_date,
-        "/home/brumen/work/rm/configuration.yaml".to_owned(),
+        config_file,
+        //"/home/brumen/work/rm/configuration.yaml".to_owned(),
     )
     .unwrap();
 
