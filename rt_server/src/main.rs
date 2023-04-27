@@ -12,23 +12,26 @@ use time::{Date, Month};
 mod trade;
 mod encdec;
 mod portfolio;
+mod pricer;
 
 mod controller;
 use controller::Controller;
+
+mod trader;
 
 fn main() {
     env_logger::init(); // Start w/ RUST_LOG=debug cargo r
 
     let market_date = Date::from_calendar_date(2016, Month::January, 1).unwrap();
-
+    let option_type = "ao".to_string();
     let config_file : String = args().nth(1).unwrap();
 
     let controller2 = Controller::new_from_config(
         market_date,
+        option_type,
         config_file,
         //"/home/brumen/work/rm/configuration.yaml".to_owned(),
-    )
-    .unwrap();
+    ).unwrap();
 
     // TODO: The topics should be read from config as well.
     controller2.start(

@@ -1,11 +1,11 @@
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
-use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
+use std::time::Instant;
+use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, Message};
 use kafka::producer::{Producer, Record, RequiredAcks};
 use reqwest;
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, Response,};
 use serde_json::Value;
 use serde_yaml;
 use std::collections::HashMap;
@@ -14,38 +14,28 @@ use std::thread;
 use string_join::Join;
 use time::{format_description, Date};
 use time::error::Format;
-use std::time::Instant;
 use core::convert::From;
 
 use crate::encdec::{EncoderDecoder, DecoderError};
-use crate::trade::{Trade, TradeDirection, TradeHandling};
-use crate::controller::reqwest::blocking::Response;
+use crate::trade::{Trade, TradeDirection, AOTradeHandling};
 use crate::portfolio::{
     MarketType,
     PortfolioType,
-    TradeValue,
     AggregatedTrades,
     PV01Results,
     PricingResults,
 };
+use crate::pricer::{
+    PricingMetric,
+    PricingStruct,
+    RestPricer,
+    RestPricerSpark,
+    Decoder,
+    PricePortfolioSpark, PricePortfolioSequentially,
+};
 
 pub type PricingParams = HashMap<String, f64>;
 
-// which metric to compute
-#[derive(Clone, Copy)]
-pub enum PricingMetric {
-    PV,
-    PV01,
-}
-
-impl fmt::Display for PricingMetric {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            PricingMetric::PV => write!(f, "PV"),
-            PricingMetric::PV01 => write!(f, "PV01"),
-        }
-    }
-}
 
 /// Controller structure.
 /// market_date: date when we are pricing.
@@ -55,6 +45,7 @@ impl fmt::Display for PricingMetric {
 /// trader_pricer: name of the rester service, like localhost:5010
 pub struct Controller {
     market_date: Date,
+    option_type: String,
     pricing_params: PricingParams,
     kafka_server_name: String,
     kafka_port: i32,
@@ -62,11 +53,6 @@ pub struct Controller {
     metric: PricingMetric,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PricingStruct {
-    nb_sim: i32,
-    default_price: f64,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RTConfig {
@@ -89,6 +75,7 @@ pub enum CurrNewMarket {
 impl Controller {
     pub fn new(
         market_date: Date,
+        option_type: String,
         pricing_params_: Option<PricingParams>,
         kafka_server_name: String,
         kafka_port: i32,
@@ -103,6 +90,7 @@ impl Controller {
 
         Controller {
             market_date: market_date,
+            option_type,
             pricing_params: pricing_init,
             kafka_server_name,
             kafka_port,
@@ -115,6 +103,7 @@ impl Controller {
     /// config_file. If it cant read the file properly, it crashes.
     pub fn new_from_config(
         market_date: Date,
+        option_type: String,
         config_file: String,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config_f = std::fs::File::open(config_file).unwrap();
@@ -129,6 +118,7 @@ impl Controller {
 
         Ok(Controller::new(
             market_date,
+            option_type,
             // pricing_params
             Some(HashMap::from([
                 ("nb_sim".to_owned(), config_map.pricing_params.nb_sim as f64),
@@ -142,36 +132,6 @@ impl Controller {
             config_map.trade_pricer,
             controller_metric,
         ))
-    }
-
-    /// Values the trade id
-    /// Makes a call to the rester service, which values the trade.
-    fn _value_trade(&self, trade_id: u16, market : CurrNewMarket, metric: PricingMetric) -> PricingResults {
-
-        debug!("VALUATION: Pricing trade: {}, market: {:?}", trade_id, market);
-
-        // Create or update trades have to be evaluated, so we have to price them.
-        //"http://localhost:5010/pv/{trade_id}"
-        let result_pricing =
-            reqwest::blocking::get(
-                format!(
-                    "http://{}/{}/{}",
-                    self.trade_pricer,
-                    self._pricing_endpoint(market, metric),
-                    trade_id,
-                )
-            );
-
-        match result_pricing {
-            Ok(result_price) => { return self._unwrap_pricing_results(result_price, metric); },
-            Err(e) => {
-                warn!("Trade {trade_id} could not price correctly: {}", e);
-                match metric {
-                    PricingMetric::PV => {return PricingResults::PV(PortfolioType::new())},
-                    PricingMetric::PV01 => {return PricingResults::PV01(PV01Results::new())},
-                }
-            },
-        }
     }
 
     /// switch markets on the trade api.
@@ -276,153 +236,6 @@ impl Controller {
         nb_added_trades
     }
 
-    /// compute the pricing endpoint for the rester service for
-    /// a particular metric and market.
-    fn _pricing_endpoint_spark(&self, market_ : CurrNewMarket, metric: PricingMetric) -> String {
-
-        match metric {
-            PricingMetric::PV => {
-                match market_ {
-                    CurrNewMarket::Current => return "pv_spark".to_string(),
-                    CurrNewMarket::New => return "pv_spark_new".to_string(),
-                }
-            },
-            PricingMetric::PV01 => {
-                match market_ {
-                    CurrNewMarket::Current => return "pv01_spark".to_string(),
-                    CurrNewMarket::New => return "pv01_spark_new".to_string(),
-                }
-            },
-        }
-    }
-
-    /// pricing endpoints for valuing on the go
-    fn _pricing_endpoint(&self, market_ : CurrNewMarket, metric: PricingMetric) -> String {
-
-        match metric {
-            PricingMetric::PV => {
-                match market_ {
-                    CurrNewMarket::Current => return "pv".to_string(),
-                    CurrNewMarket::New => return "pv_new".to_string(),
-                }
-            },
-            PricingMetric::PV01 => {
-                match market_ {
-                    CurrNewMarket::Current => return "pv01".to_string(),
-                    CurrNewMarket::New => return "pv01_new".to_string(),
-                }
-            },
-        }
-    }
-
-
-    /// prices trades on spark
-    ///   takes as arguments the list of trades, and pricing client, used for post request
-    fn _price_trades_on_spark(
-        &self,
-        agg_trades: &AggregatedTrades,
-        pricing_client : &Client,
-        market_ : CurrNewMarket,
-        metric : PricingMetric,
-    ) -> PortfolioType {
-
-        // joins all trades with commas, like 190,191,192
-        let all_trade_ids = ",".join(
-            agg_trades
-                .keys()
-                .into_iter()
-                .map(|trade_id: &u16| -> String {trade_id.to_string()} )
-        );
-
-        let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
-        let market_endpoint = pricing_endpoint_spark.as_str();
-        let result_pricing_start = Instant::now();
-        let result_pricing = pricing_client
-            .post(format!("http://{}/{}", self.trade_pricer, market_endpoint))
-            .form(&HashMap::from([("trades", &all_trade_ids)]))
-            .send();
-        info!("SPARK pricing took: {:?}", result_pricing_start.elapsed().as_secs_f32());
-
-        // unwrap the result_pricing
-        let mut priced_portfolio = match result_pricing {
-            Ok(result_price) => self._unwrap_pricing_results(result_price, self.metric),
-            Err(e) => {
-                warn!("Trades could not price correctly: {}", e);
-                return PortfolioType::new() // TODO: What to do if the trade cant convert
-            },
-        };
-
-        priced_portfolio *= agg_trades;  // fix the priced portfolio by the weights, aggregated trades.
-
-        // let's do the aggregation here.
-        match priced_portfolio {
-            PricingResults::PV(portfolio) => portfolio,
-            PricingResults::PV01(pv01_results) => pv01_results.aggregate()
-        }
-
-    }
-
-    fn _price_trades_sequentially(
-        &self,
-        agg_trades: &AggregatedTrades,
-        market_ : CurrNewMarket,
-        metric : PricingMetric,
-    ) -> PortfolioType {
-
-        let mut new_portfolio = PortfolioType::new();
-
-        for (trade_id, trade_position) in agg_trades.iter() {
-            new_portfolio += self._value_trade(*trade_id, market_, metric) * (*trade_position);
-        }
-
-        new_portfolio
-    }
-
-    fn _price_trades(
-        &self,
-        agg_trades: &AggregatedTrades,
-        market_ : CurrNewMarket,
-        metric: PricingMetric,
-    ) -> PortfolioType {
-
-        let nb_trades = agg_trades.keys().len();
-        let pricing_client = Client::new();
-
-        if nb_trades > 30 {  // TODO: FACTOR THIS 30 out.
-            return self._price_trades_on_spark(agg_trades, &pricing_client, market_, metric);
-        }
-
-        self._price_trades_sequentially(agg_trades, market_, metric)
-    }
-
-
-    // converts the spark response into a trade value.
-    fn _unwrap_pricing_results(&self, result_price: Response, metric: PricingMetric) -> PricingResults {
-
-        match metric {
-            PricingMetric::PV => {
-                let results_conv = result_price.json::<HashMap<String, f64>>();
-                if results_conv.is_ok() {
-                    PricingResults::PV(PortfolioType(results_conv.unwrap()))
-                } else {
-                    PricingResults::PV(PortfolioType::new())
-                }
-            },
-            PricingMetric::PV01 => {
-                let results_conv = result_price.json::<HashMap<String, HashMap<String, f64>>>();
-                if results_conv.is_ok() {
-                    let mut pv01 = PV01Results::new();
-                    for (trade_id, trade_result) in results_conv.unwrap().iter() {
-                        let _ = pv01.insert((*trade_id.clone()).to_string(), PortfolioType::from(trade_result));
-                    }
-                    PricingResults::PV01(pv01)
-                } else {
-                    PricingResults::PV01(PV01Results::new())
-                }
-            },
-        }
-    }
-
     /// indicator if there is a new market present.
     /// consumes the new market events to come to the last one.
     fn _new_market_event(
@@ -506,7 +319,7 @@ impl Controller {
                 for m in ms.messages() {
                     if let Ok(m_value_str) = std::str::from_utf8(m.value) {
                         if let Ok(msg_decoded) = serde_json::from_str::<Value>(m_value_str) {
-                            let trade_to_send = Controller::recover_trade(&msg_decoded);
+                            let trade_to_send = Controller::recover_trade_ao(&msg_decoded);
                             // if the trade is None, there is possibly something wrong in
                             if trade_to_send.is_some() {
                                 let actual_trade = trade_to_send.unwrap();
@@ -574,29 +387,20 @@ impl Controller {
         .create()
         .unwrap();
 
-        let mkt_update_client = reqwest::blocking::Client::new();
+        let mkt_update_client = Client::new();
 
         loop {
             debug!("Getting new markets from {mkt_topic}.");
             for ms in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
                 for m in ms.messages() {
 
-                    let msg_decoded : Value =
-                        if let Ok(m_utf) = std::str::from_utf8(m.value) {
-                            if let Ok(m_json) = serde_json::from_str(m_utf) {
-                                m_json
-                            } else {
-                                warn!("Could not decode to JSON. Continuing w/ next market: {:?}", m_utf);
-                                continue;
-                            }
-                        } else {
-                            warn!("Could not decode the market message into UTF8, continuing w/o");
-                            continue;
-                        };
+                    let decoded_msg = Self::_decode_mkt_msg(&m);
 
-                    // msg_decoded is an array, the first value is the market number, the second the object
-                    let _market_uuid = msg_decoded[0].to_string();
-                    let market_obj = msg_decoded[1].as_object();
+                    if decoded_msg.is_none() {
+                        continue;
+                    }
+
+                    let (_market_uuid, market_obj) = decoded_msg.unwrap();  // this will work, since it's not none
 
                     // update the market rester market_api
                     let market_posted = mkt_update_client
@@ -615,8 +419,8 @@ impl Controller {
 
                     // construct a new HashMap
                     let mut mkt_decoded = MarketType::new();
-                    for (market_flight_date, flight_price) in market_obj.unwrap().iter() {
-                        let decoded_mkt_date = match Controller::_decode_flight_date(market_flight_date.clone()) {
+                    for (market_flight_date, flight_price) in market_obj.iter() {
+                        let decoded_mkt_date = match Self::_decode_flight_date(market_flight_date.clone()) {
                             Ok(decoded_mkt_and_date) => decoded_mkt_and_date,
                             _ => {
                                 warn!("Couldnt decode {:?}", market_flight_date);
@@ -642,6 +446,31 @@ impl Controller {
         }
     }
 
+    /// decoded the message from the Kafka market stream.
+    /// Returns the market in the form of HashMap, otherwise
+    /// return None
+    fn _decode_mkt_msg<'a>(message: &'a Message<'a> ) -> Option<(String, &'a HashMap<String, Value>)> {
+
+        let msg_decoded : Value =
+            if let Ok(message_utf) = std::str::from_utf8(message.value) {
+                if let Ok(message_json) = serde_json::from_str(message_utf) {
+                    message_json
+                } else {
+                    warn!("Could not decode to JSON. Continuing w/ next market: {:?}", message_utf);
+                    return None;
+                }
+            } else {
+                warn!("Could not decode the market message into UTF8, continuing w/o");
+                return None;
+            };
+
+        // msg_decoded is an array, the first value is the market number, the second the object
+        let _market_uuid = msg_decoded[0].to_string();
+        let market_obj = msg_decoded[1].as_object().unwrap();
+
+        Some((_market_uuid, market_obj.unwrap()))
+    }
+
     // starts the controller threads.
     pub fn start(
         &self,
@@ -656,7 +485,7 @@ impl Controller {
         let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
         // new & current market portfolio
         let (curr_portfolio_sender, curr_portfolio_recv) = channel::<PortfolioType>();
-        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, Vec<Trade>)>();  //sync_channel (1)
+        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, Vec<Trade>)>();
 
         // threads fail if any of them can not be created.
         thread::scope(|s| {
@@ -706,9 +535,9 @@ impl Controller {
     }
 }
 
-impl TradeHandling for Controller {
+impl AOTradeHandling for Controller {
     /// recovers the trade from the message itself.
-    fn recover_trade(msg_decoded: &Value) -> Option<Trade> {
+    fn recover_trade_ao(msg_decoded: &Value) -> Option<Trade> {
 
         if msg_decoded.is_null() {  // nothing to do, return None
             return None;
@@ -780,3 +609,167 @@ impl EncoderDecoder for Controller {
         Ok(format!("{}|{}", flight, date.format(&date_format)?))
     }
 }
+
+impl Decoder for Controller {
+
+    // converts the spark response into a trade value.
+    fn _unwrap_pricing_results(&self, result_price: Response, metric: PricingMetric) -> PricingResults {
+
+        match metric {
+            PricingMetric::PV => {
+                let results_conv = result_price.json::<HashMap<String, f64>>();
+                if results_conv.is_ok() {
+                    PricingResults::PV(PortfolioType(results_conv.unwrap()))
+                } else {
+                    PricingResults::PV(PortfolioType::new())
+                }
+            },
+            PricingMetric::PV01 => {
+                let results_conv = result_price.json::<HashMap<String, HashMap<String, f64>>>();
+                if results_conv.is_ok() {
+                    let mut pv01 = PV01Results::new();
+                    for (trade_id, trade_result) in results_conv.unwrap().iter() {
+                        let _ = pv01.insert((*trade_id.clone()).to_string(), PortfolioType::from(trade_result));
+                    }
+                    PricingResults::PV01(pv01)
+                } else {
+                    PricingResults::PV01(PV01Results::new())
+                }
+            },
+        }
+    }
+
+}
+
+
+impl RestPricer for Controller {
+
+    /// pricing endpoints for valuing on the go
+    fn _pricing_endpoint(&self, market_ : CurrNewMarket, metric: PricingMetric) -> String {
+
+        match metric {
+            PricingMetric::PV => {
+                match market_ {
+                    CurrNewMarket::Current => return "pv".to_string(),
+                    CurrNewMarket::New => return "pv_new".to_string(),
+                }
+            },
+            PricingMetric::PV01 => {
+                match market_ {
+                    CurrNewMarket::Current => return "pv01".to_string(),
+                    CurrNewMarket::New => return "pv01_new".to_string(),
+                }
+            },
+        }
+    }
+
+
+    fn _trade_pricer(&self) -> String {
+        "localhost:5010".to_string()
+    }
+
+    fn _value_trade(&self, trade_id: u16, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
+        debug!("VALUATION: Pricing trade: {}, market: {:?}", trade_id, market);
+
+        // Create or update trades have to be evaluated, so we have to price them.
+        //"http://localhost:5010/pv/{trade_id}"
+        let result_pricing =
+            reqwest::blocking::get(
+                format!(
+                    "http://{}/{}/{}",
+                    self.trade_pricer(),  // TODO: FIX THIS PART
+                    self._pricing_endpoint(market, metric),
+                    trade_id,
+                )
+            );
+
+        match result_pricing {
+            Ok(result_price) => { return self._unwrap_pricing_results(result_price, metric); },
+            Err(e) => {
+                warn!("Trade {trade_id} could not price correctly: {}", e);
+                match metric {
+                    PricingMetric::PV => {return PricingResults::PV(PortfolioType::new())},
+                    PricingMetric::PV01 => {return PricingResults::PV01(PV01Results::new())},
+                }
+            },
+        }
+    }
+
+}
+
+
+impl RestPricerSpark for Controller {
+
+    /// compute the pricing endpoint for the rester service for
+    /// a particular metric and market.
+    fn _pricing_endpoint_spark(&self, market_ : CurrNewMarket, metric: PricingMetric) -> String {
+
+        match metric {
+            PricingMetric::PV => {
+                match market_ {
+                    CurrNewMarket::Current => return "pv_spark".to_string(),
+                    CurrNewMarket::New => return "pv_spark_new".to_string(),
+                }
+            },
+            PricingMetric::PV01 => {
+                match market_ {
+                    CurrNewMarket::Current => return "pv01_spark".to_string(),
+                    CurrNewMarket::New => return "pv01_spark_new".to_string(),
+                }
+            },
+        }
+    }
+
+    ///
+    fn trade_pricer(&self) -> String {
+        "localhost:5010".to_string()
+    }
+
+    fn _price_trades_on_spark(
+        &self,
+        agg_trades: &AggregatedTrades,
+        pricing_client : &Client,
+        market_ : CurrNewMarket,
+        metric : PricingMetric,
+    ) -> PortfolioType {
+
+        // joins all trades with commas, like 190,191,192
+        let all_trade_ids = ",".join(
+            agg_trades
+                .keys()
+                .into_iter()
+                .map(|trade_id: &u16| -> String {trade_id.to_string()} )
+        );
+
+        let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
+        let market_endpoint = pricing_endpoint_spark.as_str();
+        let result_pricing_start = Instant::now();
+        let result_pricing = pricing_client
+            .post(format!("http://{}/{}", self.trade_pricer, market_endpoint))
+            .form(&HashMap::from([("trades", &all_trade_ids)]))
+            .send();
+        info!("SPARK pricing took: {:?}", result_pricing_start.elapsed().as_secs_f32());
+
+        // unwrap the result_pricing
+        let mut priced_portfolio = match result_pricing {
+            Ok(result_price) => self._unwrap_pricing_results(result_price, metric),
+            Err(e) => {
+                warn!("Trades could not price correctly: {}", e);
+                return PortfolioType::new() // TODO: What to do if the trade cant convert
+            },
+        };
+
+        priced_portfolio *= agg_trades;  // fix the priced portfolio by the weights, aggregated trades.
+
+        // let's do the aggregation here.
+        match priced_portfolio {
+            PricingResults::PV(portfolio) => portfolio,
+            PricingResults::PV01(pv01_results) => pv01_results.aggregate()
+        }
+    }
+
+}
+
+impl PricePortfolioSequentially for Controller {}
+
+impl PricePortfolioSpark for Controller {}
