@@ -23,7 +23,7 @@ pub trait AOTradeHandling {
 
 ///
 /// encoding the LETF trade.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LETFTrade {
     pub trade_id: String,
     pub stock: String,
@@ -31,20 +31,20 @@ pub struct LETFTrade {
     pub beta: f64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LETFFuture {
     pub trade_id: String,
     pub stock: String,
     pub amount: f64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LETFCash {
     pub trade_id: String,
     pub amount: f64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum LETFHedge {
     Future(LETFFuture),
     Cash(LETFCash),

@@ -51,7 +51,6 @@ impl MarketType {
 /// trader_pricer: name of the rester service, like localhost:5010
 pub struct LETFTrader {
     market_date: Date,
-    option_type: String,
     pricing_params: PricingParams,
     kafka_server_name: String,
     kafka_port: i32,
@@ -84,7 +83,6 @@ pub enum CurrNewMarket {
 impl LETFTrader {
     pub fn new(
         market_date: Date,
-        option_type: String,
         pricing_params_: Option<PricingParams>,
         kafka_server_name: String,
         kafka_port: i32,
@@ -101,7 +99,6 @@ impl LETFTrader {
 
         Self {
             market_date: market_date,
-            option_type,
             pricing_params: pricing_init,
             kafka_server_name,
             kafka_port,
@@ -117,7 +114,6 @@ impl LETFTrader {
     /// config_file. If it cant read the file properly, it crashes.
     pub fn new_from_config(
         market_date: Date,
-        option_type: String,
         config_file: String,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config_f = std::fs::File::open(config_file).unwrap();
@@ -132,7 +128,6 @@ impl LETFTrader {
 
         Ok(Self::new(
             market_date,
-            option_type,
             // pricing_params
             Some(HashMap::from([
                 ("nb_sim".to_owned(), config_map.pricing_params.nb_sim as f64),
@@ -159,7 +154,17 @@ impl LETFTrader {
     ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name, self.kafka_port);
 
-        let mut pos_listener_ = Consumer::from_hosts(vec![bootstrap_servers.to_owned()])
+        let mut pos_listener_2 = Consumer::from_hosts(vec![bootstrap_servers.to_owned()])
+            .with_topic_partitions(pos_topic.to_owned(), &[0])
+            .with_fallback_offset(FetchOffset::Earliest)
+            .with_offset_storage(GroupOffsetStorage::Kafka)
+            .create()
+            .unwrap();
+
+        let mut pos_listener_ = Consumer::from_hosts(vec![format!(
+            "{}:{}",
+            self.kafka_server_name, self.kafka_port
+        ).to_owned()])
             .with_topic_partitions(pos_topic.to_owned(), &[0])
             .with_fallback_offset(FetchOffset::Earliest)
             .with_offset_storage(GroupOffsetStorage::Kafka)
@@ -172,11 +177,13 @@ impl LETFTrader {
             .unwrap();
 
         loop {
+            debug!("WE ARE HERE {:?}", pos_topic);
             for ms in pos_listener_.poll().unwrap().iter() {
+                debug!("WE ARE HERE TOOOOOO");
                 for m in ms.messages() {
 
                     let trade_v = self._decode_trade(m);
-
+                    debug!("Procesing trade {:?}", trade_v);
                     if trade_v.is_none() {
                         continue;  // hope is lost for this trade, continue
                     }
@@ -192,7 +199,6 @@ impl LETFTrader {
 
                         let _ = hedge_book.send(&hedge_record);
                     }
-
                 }
                 let _ = pos_listener_.consume_messageset(ms); // TODO: FIX THIS ERROR HANDLING HERE
             }
@@ -206,7 +212,8 @@ impl LETFTrader {
         let amount = trade.amount;
         let stock_name = trade.stock;
 
-        let stock_value = self.curr_mkt.lock().expect("Could not lock the current market, weird").get(&stock_name);
+        let stock_binding = self.curr_mkt.lock().expect("Could not lock the current market, weird");
+        let stock_value = stock_binding.get(&stock_name);
 
         if stock_value.is_none() {  // returns empty hedge if it cant determine the stock value.
             warn!("Can't find the value of stock {}", stock_name);
@@ -214,9 +221,6 @@ impl LETFTrader {
         }
 
         let exposure_amt = beta * amount * stock_value.unwrap();
-
-        // TODO: WE CAN UNLOCK HERE AGAIN.
-        // TODO: CHECK IF THE HEDGE IS OK
 
         vec![
             LETFHedge::Future( LETFFuture {
@@ -257,7 +261,6 @@ impl LETFTrader {
     pub fn _handle_mkt_events(
         &self,
         mkt_topic: String,
-        new_mkt_sender: Sender<MarketType>,
     ) {
 
         let mut mkt_listener_ = Consumer::from_hosts(vec![format!(
@@ -271,18 +274,19 @@ impl LETFTrader {
             .unwrap();
 
         loop {
-            debug!("Getting new quotes from {mkt_topic}.");
             for ms in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
+                debug!("Getting new quotes from {mkt_topic}.");
                 for m in ms.messages() {
-
-                    let decoded_market_msg = self._decode_market_msg(*m);
-
+                    let decoded_market_msg = self._decode_market_msg(m);
+                    debug!("Got quote: {:?}", decoded_market_msg);
                     if decoded_market_msg.is_none() {
                         continue;  // ignore the market message if it cant be decoded correctly.
                     }
-                    let new_quote = decoded_market_msg.unwrap();
-                    let curr_mkt_tmp = self.curr_mkt.lock().unwrap();  // lock the current market
-                    let _ = curr_mkt_tmp.insert(new_quote.stock, new_quote.value);
+                    let new_quote_mkt = decoded_market_msg.unwrap();
+                    let mut curr_mkt_tmp = self.curr_mkt.lock().unwrap();  // lock the current market
+                    for (new_quote, new_value) in new_quote_mkt.iter() {
+                        let _ = curr_mkt_tmp.insert(new_quote.to_string(), *new_value);
+                    }
                 }
                 let _ = mkt_listener_.consume_messageset(ms);
             }
@@ -291,7 +295,7 @@ impl LETFTrader {
     }
 
     /// decodes the market message and updates the market
-    fn _decode_market_msg(&self, market_msg : Message) -> Option<MarketQuote> {
+    fn _decode_market_msg(&self, market_msg : &Message) -> Option<HashMap<String, f64>> {
 
         let message_utf = std::str::from_utf8(market_msg.value);
 
@@ -299,11 +303,10 @@ impl LETFTrader {
             warn!("Could not decode the market message into UTF8, continuing w/o");
             return None;
         }
-
-        let message_json = serde_json::from_str::<MarketQuote>(message_utf.unwrap());
+        let message_json = serde_json::from_str::<HashMap<String, f64>>(message_utf.unwrap());
 
         if message_json.is_err() {
-            warn!("Could not decode to JSON. Continuing w/ next market: {:?}", message_utf);
+            warn!("Could not decode to JSON. Continuing w/ next market: {:?}", message_utf.unwrap());
             return None;
         }
 
@@ -317,14 +320,6 @@ impl LETFTrader {
         mkt_topic: String,     // market topic
         results_topic: String, // publish the results topic
     ) {
-        // 2 trade senders, 1 for current market, 1 for new market.
-        let (pos_sender_curr, pos_recv_curr) = channel::<Trade>();
-        let (pos_sender_new, pos_recv_new) = channel::<Trade>();
-        // events about the new market event
-        let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
-        // new & current market portfolio
-        let (curr_portfolio_sender, curr_portfolio_recv) = channel::<PortfolioType>();
-        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, Vec<Trade>)>();  //sync_channel (1)
 
         // threads fail if any of them can not be created.
         thread::scope(|s| {
@@ -333,7 +328,6 @@ impl LETFTrader {
                 .spawn_scoped(s, move || {
                     self._handle_mkt_events(
                         mkt_topic,
-                        new_mkt_sender,
                     );
                 })
                 .unwrap();
@@ -342,8 +336,8 @@ impl LETFTrader {
                 .name("hedger".to_string())
                 .spawn_scoped(s, move || {
                     self.__hedger(
-                        self.pos_topic,
-                        self.hedge_topic,
+                        pos_topic.clone(),
+                        results_topic.clone(),
                     );
                 })
                 .unwrap();

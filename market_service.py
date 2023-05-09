@@ -32,6 +32,7 @@ class LETFProducer(BaseProducer):
         self._stocks : List[str] = stocks
 
         # intermediate state for stock values.
+        # stocks are in the form of {stock_name: stock_value}, like {'APL': 150., 'NVA': 300.}
         self._curr_stocks : Dict[str, float] = {stock: 50. + stock_idx * 5 for stock_idx, stock in enumerate(self._stocks)}  # initial values
 
     def _value_to_publish(self):
@@ -40,10 +41,10 @@ class LETFProducer(BaseProducer):
 
         while True:
 
-            yield dumps(self._curr_stocks)
+            yield self._curr_stocks
 
             for stock in self._stocks:
-                _curr_stocks[stock] += random.gauss(mu=0., sigma=1.)  # add some random value
+                self._curr_stocks[stock] += random.gauss(mu=0., sigma=1.)  # add some random value
 
             sleep(1.)
 

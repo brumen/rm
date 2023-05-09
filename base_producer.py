@@ -9,6 +9,7 @@ logger.setLevel(logging.INFO)
 
 import datetime
 import random
+import json
 
 from typing import Optional, Dict, Tuple, Union, List
 from uuid import uuid4, UUID
@@ -30,8 +31,16 @@ class BaseProducer:
         server_name, port, mkt_topic = server_port_topic
         bootstrap_servers = f'{server_name}:{port}'
 
-        self._mkt_producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
+        self._mkt_producer = KafkaProducer(
+            bootstrap_servers=bootstrap_servers,
+            value_serializer=self._serialize_msg,
+        )
+
         self._mkt_producer_topic = mkt_topic
+
+    @staticmethod
+    def _serialize_msg(m):
+        return json.dumps(m).encode('utf-8')
 
     def _producer_thread(self, sleep_delay = 1.):
         """ Base producer thread.
@@ -41,11 +50,11 @@ class BaseProducer:
         """
 
         for value in self._value_to_publish():
-            print("Publishing value.")
+            print(f'Publishing value {value}.')
 
             self._mkt_producer.send(
                 self._mkt_producer_topic,
-                value=bytearray(str(self._value_to_publish()), 'ascii'),
+                value=value
             )
 
     def _value_to_publish(self):

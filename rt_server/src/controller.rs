@@ -391,10 +391,10 @@ impl Controller {
 
         loop {
             debug!("Getting new markets from {mkt_topic}.");
-            for ms in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
-                for m in ms.messages() {
+            for mkt_msg_set in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
+                for mkt_msg in mkt_msg_set.messages() {
 
-                    let decoded_msg = Self::_decode_mkt_msg(&m);
+                    let decoded_msg = Self::_decode_mkt_msg(&mkt_msg);
 
                     if decoded_msg.is_none() {
                         continue;
@@ -419,28 +419,14 @@ impl Controller {
 
                     // construct a new HashMap
                     let mut mkt_decoded = MarketType::new();
-                    for (market_flight_date, flight_price) in market_obj.iter() {
-                        let decoded_mkt_date = match Self::_decode_flight_date(market_flight_date.clone()) {
-                            Ok(decoded_mkt_and_date) => decoded_mkt_and_date,
-                            _ => {
-                                warn!("Couldnt decode {:?}", market_flight_date);
-                                continue;
-                            },
-                        };
-                        let decoded_price = match flight_price.as_f64() {
-                            Some(fp) => fp,
-                            None => {
-                                warn!("Couldnt convert flight price {:?} to a float.", flight_price);
-                                continue;
-                            },
-                        };
-
-                        let _ = &mkt_decoded.insert(decoded_mkt_date, decoded_price);
+                    for ( (flight_name, flight_date), flight_price) in market_obj.iter() {
+                        // TODO: THIS CLONING HAS TO CHANGE
+                        let _ = &mkt_decoded.insert((flight_name.clone(), flight_date.clone()), *flight_price);
                     }
 
                     let _ = new_mkt_sender.send(mkt_decoded); // send the market to new_market event
                 }
-                let _ = mkt_listener_.consume_messageset(ms);
+                let _ = mkt_listener_.consume_messageset(mkt_msg_set);
             }
             mkt_listener_.commit_consumed().unwrap();
         }
@@ -449,11 +435,17 @@ impl Controller {
     /// decoded the message from the Kafka market stream.
     /// Returns the market in the form of HashMap, otherwise
     /// return None
-    fn _decode_mkt_msg<'a>(message: &'a Message<'a> ) -> Option<(String, &'a HashMap<String, Value>)> {
+    fn _decode_mkt_msg(message: &Message ) -> Option<(String, MarketType)> {
 
-        let msg_decoded : Value =
+        #[derive(Debug, Serialize, Deserialize)]
+        struct __Mkt_Message (
+            String,
+            HashMap<(String, Date), f64>,
+        );
+
+        let msg_decoded =
             if let Ok(message_utf) = std::str::from_utf8(message.value) {
-                if let Ok(message_json) = serde_json::from_str(message_utf) {
+                if let Ok(message_json) = serde_json::from_str::<__Mkt_Message>(message_utf) {
                     message_json
                 } else {
                     warn!("Could not decode to JSON. Continuing w/ next market: {:?}", message_utf);
@@ -464,11 +456,7 @@ impl Controller {
                 return None;
             };
 
-        // msg_decoded is an array, the first value is the market number, the second the object
-        let _market_uuid = msg_decoded[0].to_string();
-        let market_obj = msg_decoded[1].as_object().unwrap();
-
-        Some((_market_uuid, market_obj.unwrap()))
+        Some((msg_decoded.0, MarketType(msg_decoded.1)))
     }
 
     // starts the controller threads.

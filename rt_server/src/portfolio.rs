@@ -2,12 +2,20 @@ use log::{warn};
 use std::{collections::HashMap, ops::SubAssign};
 use time::Date;
 use std::ops::{Add, Deref, DerefMut, AddAssign, Mul, MulAssign, };
-use serde::{Serialize};
+use serde::{Serialize, Deserialize};
 
 // market information = ((flight, market date), value)
 pub type MarketInner = HashMap<(String, Date), f64>;
-#[derive(Debug, PartialEq)]
-pub struct MarketType (pub MarketInner);
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct MarketType (
+    pub MarketInner
+);
+
+impl Into<MarketInner> for MarketType {
+    fn into(self) -> MarketInner {
+        self.0.into_iter().map(|x| (x.0, x.1)).collect()
+    }
+}
 
 
 pub type PortfolioInner = HashMap<String, f64>;
