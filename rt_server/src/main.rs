@@ -13,13 +13,16 @@ mod trade;
 mod encdec;
 mod portfolio;
 mod pricer;
+mod market;
+mod ref_deref;
 
 mod controller;
 use controller::Controller;
 
 mod trader;
-
 use trader::LETFTrader;
+
+
 
 fn main() {
 
@@ -43,7 +46,7 @@ fn main_risk() {
     ).unwrap();
 
     // TODO: The topics should be read from config as well.
-    controller2.start(
+    controller2.start (
         "air_options.ao.option_positions".to_owned(),
         "mkt_events".to_owned(),
         "air_options.ao.results".to_owned(),
@@ -67,7 +70,7 @@ fn main_trader() {
     ).unwrap();
 
     // TODO: The topics should be read from config as well.
-    trader.start(
+    trader.start (
         "letf.positions".to_owned(),
         "letf.mkt".to_owned(),
         "letf.results".to_owned(),

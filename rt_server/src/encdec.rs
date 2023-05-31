@@ -1,6 +1,8 @@
 use time::Date;
 use time::error::{Parse, Format};  // parse error
 
+// TODO: THIS WHOLE FILE CAN BE REMOVED IN THE NEXT ITERATION.
+
 pub enum DecoderError {
     Parse(Parse),
     SplitError(String),
@@ -11,6 +13,7 @@ impl From<Parse> for DecoderError {
         DecoderError::Parse(p)
     }
 }
+
 
 pub trait EncoderDecoder {
 

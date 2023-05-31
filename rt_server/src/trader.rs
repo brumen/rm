@@ -5,43 +5,23 @@ use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, Message,};
 use kafka::producer::{Producer, Record, RequiredAcks};
 use serde_yaml;
 use std::collections::HashMap;
-use std::sync::mpsc::{channel, Sender};
 use std::thread;
 use time::Date;
 use core::convert::From;
 use std::sync::{Arc, Mutex,};
 use uuid::Uuid;
-use std::ops::{Deref, DerefMut,};
 
 use crate::trade::{
-    Trade,
     LETFTrade,
     LETFFuture,
     LETFCash,
     LETFHedge,
 };
-use crate::ref_deref_trait;
-use crate::portfolio::{
-    PortfolioType,
-};
 use crate::pricer::{PricingMetric, PricingStruct,};
+use crate::market::MarketType;
 
 pub type PricingParams = HashMap<String, f64>;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct MarketQuote {
-    stock: String,
-    value: f64,
-}
-pub struct MarketType ( HashMap<String, f64> );
-
-ref_deref_trait!(MarketType, HashMap<String, f64>);
-
-impl MarketType {
-    pub fn new() -> Self {
-        Self(HashMap::<String, f64>::new())
-    }
-}
 
 /// Controller structure.
 /// market_date: date when we are pricing.
@@ -154,13 +134,6 @@ impl LETFTrader {
     ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name, self.kafka_port);
 
-        let mut pos_listener_2 = Consumer::from_hosts(vec![bootstrap_servers.to_owned()])
-            .with_topic_partitions(pos_topic.to_owned(), &[0])
-            .with_fallback_offset(FetchOffset::Earliest)
-            .with_offset_storage(GroupOffsetStorage::Kafka)
-            .create()
-            .unwrap();
-
         let mut pos_listener_ = Consumer::from_hosts(vec![format!(
             "{}:{}",
             self.kafka_server_name, self.kafka_port
@@ -177,9 +150,7 @@ impl LETFTrader {
             .unwrap();
 
         loop {
-            debug!("WE ARE HERE {:?}", pos_topic);
             for ms in pos_listener_.poll().unwrap().iter() {
-                debug!("WE ARE HERE TOOOOOO");
                 for m in ms.messages() {
 
                     let trade_v = self._decode_trade(m);
@@ -294,7 +265,8 @@ impl LETFTrader {
         }
     }
 
-    /// decodes the market message and updates the market
+    /// decodes the market message
+    /// if there is any mistake
     fn _decode_market_msg(&self, market_msg : &Message) -> Option<HashMap<String, f64>> {
 
         let message_utf = std::str::from_utf8(market_msg.value);
@@ -314,6 +286,9 @@ impl LETFTrader {
     }
 
     /// starts the controller threads.
+    /// 2 threads at the moment:
+    ///    1st: handles market events and updates the market.
+    ///    2nd: handles position events and returns hedges.
     pub fn start(
         &self,
         pos_topic: String,     // position topic on kafka

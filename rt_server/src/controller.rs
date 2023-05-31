@@ -1,37 +1,41 @@
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 
-use std::time::Instant;
-use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, Message};
+use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, };
 use kafka::producer::{Producer, Record, RequiredAcks};
 use reqwest;
 use reqwest::blocking::{Client, Response,};
-use serde_json::Value;
 use serde_yaml;
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
-use string_join::Join;
-use time::{format_description, Date};
-use time::error::Format;
+use time::Date;
 use core::convert::From;
 
-use crate::encdec::{EncoderDecoder, DecoderError};
-use crate::trade::{Trade, TradeDirection, AOTradeHandling};
+use crate::trade::{
+    Trade,
+    TradeDirection,
+    TradeHandling,
+    AOTrade,
+};
+
 use crate::portfolio::{
-    MarketType,
     PortfolioType,
     AggregatedTrades,
     PV01Results,
     PricingResults,
 };
+
+use crate::market::{MarketType, };
+use crate::ref_deref::{TryFromRef,};
+
 use crate::pricer::{
     PricingMetric,
     PricingStruct,
     RestPricer,
     RestPricerSpark,
     Decoder,
-    PricePortfolioSpark, PricePortfolioSequentially,
+    PricePortfolioSpark,
 };
 
 pub type PricingParams = HashMap<String, f64>;
@@ -72,6 +76,8 @@ pub enum CurrNewMarket {
     New,
 }
 
+
+// Controller is generic over MarketType type, which originally was (String, Date)
 impl Controller {
     pub fn new(
         market_date: Date,
@@ -152,7 +158,6 @@ impl Controller {
         curr_portfolio_sender: Sender<PortfolioType>,
         new_portfolio_receiver: Receiver<(PortfolioType, Vec<Trade>)>,
     ) {
-        //let mut curr_portfolio = PortfolioType::new();
         let mut new_potential_portfolio : Option<(PortfolioType, Vec<Trade>)>;
         let mut all_trades : Vec<Trade> = vec![];
         let mut agg_trades = AggregatedTrades::new();
@@ -316,21 +321,20 @@ impl Controller {
 
         loop {
             for ms in pos_listener_.poll().unwrap().iter() {
-                for m in ms.messages() {
-                    if let Ok(m_value_str) = std::str::from_utf8(m.value) {
-                        if let Ok(msg_decoded) = serde_json::from_str::<Value>(m_value_str) {
-                            let trade_to_send = Controller::recover_trade_ao(&msg_decoded);
-                            // if the trade is None, there is possibly something wrong in
-                            if trade_to_send.is_some() {
-                                let actual_trade = trade_to_send.unwrap();
-                                let _ = sender_new.send(actual_trade);
-                                let _ = sender_curr.send(actual_trade);
-                            }
-                        } else {
-                            warn!("Couldnt deal with message {:?}", m_value_str);
-                        }
-                    } else { // m_value_str is not ok, couldnt transform
-                        warn!("Could not deal with message!!! Investigate!")
+                for msg in ms.messages() {
+                    let possible_trade = Trade::try_from_ref(msg);
+                    // Controller::recover_trade(msg);
+
+                    // if the trade is None, there is possibly something wrong in
+                    if possible_trade.is_err() {
+                        warn!("Trade is WRONG!!! FIX IT!");
+                        continue;
+                    }
+
+                    if possible_trade.is_ok() {
+                        let trade = possible_trade.unwrap();
+                        let _ = sender_new.send(trade);
+                        let _ = sender_curr.send(trade);
                     }
                 }
                 let _ = pos_listener_.consume_messageset(ms); // TODO: FIX THIS ERROR HANDLING HERE
@@ -371,7 +375,7 @@ impl Controller {
     /// mkt_topic - receiving market events from this topic
     /// new_mkt_sender - sending the new market to the pricing api
     /// switch_mkt_recv - receiver receiving the event when to switch markets.
-    pub fn _handle_mkt_events(
+    pub fn _handle_mkt_events (
         &self,
         mkt_topic: String,
         new_mkt_sender: Sender<MarketType>,
@@ -394,13 +398,17 @@ impl Controller {
             for mkt_msg_set in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
                 for mkt_msg in mkt_msg_set.messages() {
 
-                    let decoded_msg = Self::_decode_mkt_msg(&mkt_msg);
+                    // TODO: REMOVE this line below here.
+                    //let optional_mkt : Option<MarketType> = Self::_decode_mkt_msg(&mkt_msg);
+                    let optional_mkt = MarketType::try_from_ref(&mkt_msg);
 
-                    if decoded_msg.is_none() {
+                    if optional_mkt.is_err() {
+                        warn!("Could not conver the market message to the market type!");
                         continue;
                     }
 
-                    let (_market_uuid, market_obj) = decoded_msg.unwrap();  // this will work, since it's not none
+                    // optional_mkt is not None, we can unwrap.
+                    let market_obj = optional_mkt.unwrap();
 
                     // update the market rester market_api
                     let market_posted = mkt_update_client
@@ -417,46 +425,17 @@ impl Controller {
                         }
                     }
 
-                    // construct a new HashMap
+                    // construct a new MarketType element.
                     let mut mkt_decoded = MarketType::new();
-                    for ( (flight_name, flight_date), flight_price) in market_obj.iter() {
-                        // TODO: THIS CLONING HAS TO CHANGE
-                        let _ = &mkt_decoded.insert((flight_name.clone(), flight_date.clone()), *flight_price);
+                    for (mkt_key, mkt_price) in market_obj.into_iter() {
+                        let _ = &mkt_decoded.insert(mkt_key.clone(), mkt_price);
                     }
-
                     let _ = new_mkt_sender.send(mkt_decoded); // send the market to new_market event
                 }
                 let _ = mkt_listener_.consume_messageset(mkt_msg_set);
             }
             mkt_listener_.commit_consumed().unwrap();
         }
-    }
-
-    /// decoded the message from the Kafka market stream.
-    /// Returns the market in the form of HashMap, otherwise
-    /// return None
-    fn _decode_mkt_msg(message: &Message ) -> Option<(String, MarketType)> {
-
-        #[derive(Debug, Serialize, Deserialize)]
-        struct __Mkt_Message (
-            String,
-            HashMap<(String, Date), f64>,
-        );
-
-        let msg_decoded =
-            if let Ok(message_utf) = std::str::from_utf8(message.value) {
-                if let Ok(message_json) = serde_json::from_str::<__Mkt_Message>(message_utf) {
-                    message_json
-                } else {
-                    warn!("Could not decode to JSON. Continuing w/ next market: {:?}", message_utf);
-                    return None;
-                }
-            } else {
-                warn!("Could not decode the market message into UTF8, continuing w/o");
-                return None;
-            };
-
-        Some((msg_decoded.0, MarketType(msg_decoded.1)))
     }
 
     // starts the controller threads.
@@ -523,80 +502,6 @@ impl Controller {
     }
 }
 
-impl AOTradeHandling for Controller {
-    /// recovers the trade from the message itself.
-    fn recover_trade_ao(msg_decoded: &Value) -> Option<Trade> {
-
-        if msg_decoded.is_null() {  // nothing to do, return None
-            return None;
-        }
-
-        // trade is not None, continue w/ this.
-        let msg_payload = &msg_decoded["payload"];
-        let event_type = &msg_payload["op"];
-
-        debug!("Getting position: {:?}", msg_payload);
-
-        match event_type.as_str() {
-            Some("c") => {
-                let tid = msg_payload["after"]["position_id"].as_i64();
-                return Some(Trade {
-                    trade_id: tid.unwrap() as u16,
-                    direction: TradeDirection::Create,
-                });
-            }
-            Some("d") => {
-                let tid = msg_payload["before"]["position_id"].as_i64();
-                return Some(Trade {
-                    trade_id: tid.unwrap() as u16,
-                    direction: TradeDirection::Delete,
-                });
-            }
-            _ => {
-                warn!("UNIMPLEMENTED. THIS SHOULD NOT HAPPEN. EXAMINE. ");
-                return Some(Trade {
-                    trade_id: 189,
-                    direction: TradeDirection::Create,
-                });
-            }
-        }
-    }
-}
-
-impl EncoderDecoder for Controller {
-
-    /// decodes the encoded string.
-    /// Returns the error if it cant decode.
-    fn _decode_flight_date(flight_date: String) -> Result<(String, Date), DecoderError> {
-        // flight_date is in the form UA96|20150101
-        let mut flight_date_v = flight_date.split("|");
-
-        match flight_date_v.next() {
-            Some(flight_v) => {
-                match flight_date_v.next() {
-                    Some(date_v) => {
-                        let date_format = format_description::parse("[year][month][day]").unwrap();
-                        return Ok((flight_v.to_string(),  Date::parse(date_v, &date_format)?));
-                    },
-                    None => {
-                        return Err(DecoderError::SplitError("Could not get fligth nb".to_string()));
-                    },
-                }
-            },
-            None => {
-                return Err(DecoderError::SplitError("Could not get date from the encoder".to_string()));
-            }
-        }
-    }
-
-    fn _encode_flight_date(flight: String, date: Date) -> Result<String, Format> {
-        // flight_date is in the form UA96|20150101
-
-        let date_format = format_description::parse("[year][month][day]").unwrap();
-
-        Ok(format!("{}|{}", flight, date.format(&date_format)?))
-    }
-}
 
 impl Decoder for Controller {
 
@@ -651,36 +556,9 @@ impl RestPricer for Controller {
         }
     }
 
-
-    fn _trade_pricer(&self) -> String {
+    // server ip which prices the trades.
+    fn _pricing_server(&self) -> String {
         "localhost:5010".to_string()
-    }
-
-    fn _value_trade(&self, trade_id: u16, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
-        debug!("VALUATION: Pricing trade: {}, market: {:?}", trade_id, market);
-
-        // Create or update trades have to be evaluated, so we have to price them.
-        //"http://localhost:5010/pv/{trade_id}"
-        let result_pricing =
-            reqwest::blocking::get(
-                format!(
-                    "http://{}/{}/{}",
-                    self.trade_pricer(),  // TODO: FIX THIS PART
-                    self._pricing_endpoint(market, metric),
-                    trade_id,
-                )
-            );
-
-        match result_pricing {
-            Ok(result_price) => { return self._unwrap_pricing_results(result_price, metric); },
-            Err(e) => {
-                warn!("Trade {trade_id} could not price correctly: {}", e);
-                match metric {
-                    PricingMetric::PV => {return PricingResults::PV(PortfolioType::new())},
-                    PricingMetric::PV01 => {return PricingResults::PV01(PV01Results::new())},
-                }
-            },
-        }
     }
 
 }
@@ -708,56 +586,8 @@ impl RestPricerSpark for Controller {
         }
     }
 
-    ///
-    fn trade_pricer(&self) -> String {
+    fn _pricing_server_spark(&self) -> String {
         "localhost:5010".to_string()
     }
 
-    fn _price_trades_on_spark(
-        &self,
-        agg_trades: &AggregatedTrades,
-        pricing_client : &Client,
-        market_ : CurrNewMarket,
-        metric : PricingMetric,
-    ) -> PortfolioType {
-
-        // joins all trades with commas, like 190,191,192
-        let all_trade_ids = ",".join(
-            agg_trades
-                .keys()
-                .into_iter()
-                .map(|trade_id: &u16| -> String {trade_id.to_string()} )
-        );
-
-        let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
-        let market_endpoint = pricing_endpoint_spark.as_str();
-        let result_pricing_start = Instant::now();
-        let result_pricing = pricing_client
-            .post(format!("http://{}/{}", self.trade_pricer, market_endpoint))
-            .form(&HashMap::from([("trades", &all_trade_ids)]))
-            .send();
-        info!("SPARK pricing took: {:?}", result_pricing_start.elapsed().as_secs_f32());
-
-        // unwrap the result_pricing
-        let mut priced_portfolio = match result_pricing {
-            Ok(result_price) => self._unwrap_pricing_results(result_price, metric),
-            Err(e) => {
-                warn!("Trades could not price correctly: {}", e);
-                return PortfolioType::new() // TODO: What to do if the trade cant convert
-            },
-        };
-
-        priced_portfolio *= agg_trades;  // fix the priced portfolio by the weights, aggregated trades.
-
-        // let's do the aggregation here.
-        match priced_portfolio {
-            PricingResults::PV(portfolio) => portfolio,
-            PricingResults::PV01(pv01_results) => pv01_results.aggregate()
-        }
-    }
-
 }
-
-impl PricePortfolioSequentially for Controller {}
-
-impl PricePortfolioSpark for Controller {}

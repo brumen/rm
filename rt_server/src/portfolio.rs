@@ -1,21 +1,11 @@
 use log::{warn};
 use std::{collections::HashMap, ops::SubAssign};
-use time::Date;
-use std::ops::{Add, Deref, DerefMut, AddAssign, Mul, MulAssign, };
-use serde::{Serialize, Deserialize};
+use std::ops::{Add, AddAssign, Mul, MulAssign, };
+use serde::{Serialize,};
 
-// market information = ((flight, market date), value)
-pub type MarketInner = HashMap<(String, Date), f64>;
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct MarketType (
-    pub MarketInner
-);
-
-impl Into<MarketInner> for MarketType {
-    fn into(self) -> MarketInner {
-        self.0.into_iter().map(|x| (x.0, x.1)).collect()
-    }
-}
+use std::ops::{Deref, DerefMut,};
+use crate::ref_deref_trait;
+use crate::trade::{Trade, TradeDirection};
 
 
 pub type PortfolioInner = HashMap<String, f64>;
@@ -27,36 +17,6 @@ pub fn TradeValue(data: HashMap<String, f64>) -> TradeValue {
     PortfolioType(data)
 }
 
-use crate::trade::{Trade, TradeDirection};
-
-
-#[macro_export]
-macro_rules! ref_deref_trait {
-    ( $x:ty, $y:ty ) => {
-        impl Deref for $x {
-            type Target = $y;
-
-            fn deref(&self) -> &Self::Target {
-                &self.0
-            }
-        }
-
-        impl DerefMut for $x {
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                &mut self.0
-            }
-        }
-    };
-}
-
-
-ref_deref_trait!(MarketType, MarketInner);
-
-impl MarketType {
-    pub fn new() -> Self {
-        Self(MarketInner::new())
-    }
-}
 
 ref_deref_trait!(PortfolioType, PortfolioInner);
 
@@ -205,23 +165,6 @@ impl MulAssign<f64> for PortfolioType {
         }
     }
 }
-
-
-// impl AddAssign for AggregatedTrades {
-//     fn add_assign(&mut self, other: Self) {
-//         for (trade_id, trade_value) in other.iter() {
-//             if let Some(self_value) = self.get_mut(trade_id) {
-//                 // self_value - (Trade, f64)
-//                 let mut trade, trade_position = *self_value;
-//                 let trade_other, trade_position_other = *trade_value;
-//                 *trade_position += *trade_position_other;
-//                 *self_value += *trade_value;
-//             } else {  // None
-//                 self.insert((*trade_id).clone(), *trade_value);  // TODO: CHECK IF THIS CLONE IS NEEDED.
-//             }
-//         }
-//     }
-// }
 
 impl AggregatedTrades {
     pub fn new() -> Self {
@@ -388,14 +331,11 @@ impl MulAssign<&AggregatedTrades> for PricingResults {
 }
 
 
-
-
 #[cfg(test)]
 mod portfolio_tests {
     use time::{Date, Month};
 
     use crate::portfolio::PortfolioType;
-
 
     #[test]
     fn portfolio_works_1() {
