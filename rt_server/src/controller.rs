@@ -1,55 +1,54 @@
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 
-use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, };
-use kafka::producer::{Producer, Record, RequiredAcks};
-use reqwest;
+use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, Message, };
 use reqwest::blocking::{Client, Response,};
-use serde_yaml;
 use std::collections::HashMap;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Sender};
 use std::thread;
-use time::Date;
 use core::convert::From;
 
-use crate::trade::{
-    Trade,
-    TradeDirection,
-    TradeHandling,
-    AOTrade,
-};
+use crate::market::MktMsgParams;
+
+use crate::trade::Trade;
 
 use crate::portfolio::{
     PortfolioType,
-    AggregatedTrades,
-    PV01Results,
     PricingResults,
+    PV01Results,
 };
 
-use crate::market::{MarketType, };
-use crate::ref_deref::{TryFromRef,};
+
+use crate::market::{
+    MarketType,
+    CurrNewMarket,
+    MktEventHandler,
+    AOStruct,
+};
+use crate::ref_deref::TryFromRef;
 
 use crate::pricer::{
+    BasicValue,
     PricingMetric,
     PricingStruct,
     RestPricer,
     RestPricerSpark,
     Decoder,
-    PricePortfolioSpark,
 };
+
+use crate::publish::PublishResults;
+use crate::streaming::Streaming;
+use crate::trade_processor::{MarketSwitching, RiskProcessors, };
 
 pub type PricingParams = HashMap<String, f64>;
 
 
 /// Controller structure.
-/// market_date: date when we are pricing.
 /// pricing_params: parameters pushed to the pricing server
 /// kafka_server_name: name of kafka server, like "localhost"
 /// kafka_port: port of kafka server, like 9092
 /// trader_pricer: name of the rester service, like localhost:5010
 pub struct Controller {
-    market_date: Date,
-    option_type: String,
     pricing_params: PricingParams,
     kafka_server_name: String,
     kafka_port: i32,
@@ -60,28 +59,21 @@ pub struct Controller {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RTConfig {
-    kafka_server_name: String,
-    kafka_server_port: i32,
-    mkt_topic: String,
-    results_topic: String,
-    pos_topic: String,
-    trade_pricer: String,
-    pricing_params: PricingStruct,
-    metric: String,
+    pub kafka_server_name: String,
+    pub kafka_server_port: i32,
+    pub mkt_topic: String,
+    pub results_topic: String,
+    pub pos_topic: String,
+    pub trade_pricer: String,
+    pub pricing_params: PricingStruct,
+    pub metric: String,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum CurrNewMarket {
-    Current,
-    New,
-}
 
 
 // Controller is generic over MarketType type, which originally was (String, Date)
 impl Controller {
     pub fn new(
-        market_date: Date,
-        option_type: String,
         pricing_params_: Option<PricingParams>,
         kafka_server_name: String,
         kafka_port: i32,
@@ -95,8 +87,6 @@ impl Controller {
         };
 
         Controller {
-            market_date: market_date,
-            option_type,
             pricing_params: pricing_init,
             kafka_server_name,
             kafka_port,
@@ -108,23 +98,18 @@ impl Controller {
     /// constructs the controller from configuration read from the file.
     /// config_file. If it cant read the file properly, it crashes.
     pub fn new_from_config(
-        market_date: Date,
-        option_type: String,
         config_file: String,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config_f = std::fs::File::open(config_file).unwrap();
         let config_map: RTConfig = serde_yaml::from_reader(config_f).unwrap();
 
-        let controller_metric;
-        if config_map.metric == "PV".to_string() {
-            controller_metric = PricingMetric::PV;
+        let controller_metric = if config_map.metric == *"PV" {
+            PricingMetric::PV
         } else {
-            controller_metric = PricingMetric::PV01;
+            PricingMetric::PV01
         };
 
         Ok(Controller::new(
-            market_date,
-            option_type,
             // pricing_params
             Some(HashMap::from([
                 ("nb_sim".to_owned(), config_map.pricing_params.nb_sim as f64),
@@ -140,169 +125,6 @@ impl Controller {
         ))
     }
 
-    /// switch markets on the trade api.
-    fn _switch_markets(&self) {
-        info!("CURR processor: Switching markets: current <- new.");
-        let _ = reqwest::blocking::get(format!(
-            "http://{}/switch_markets",
-            self.trade_pricer
-        ));
-    }
-
-    /// Constructing the current market.
-    /// receives trades on the trade_receiver channel.
-    /// publishes current market results on the curr_mkt_sender channel.
-    pub fn _trade_processor_curr(
-        &self,
-        trade_receiver: Receiver<Trade>,
-        curr_portfolio_sender: Sender<PortfolioType>,
-        new_portfolio_receiver: Receiver<(PortfolioType, Vec<Trade>)>,
-    ) {
-        let mut new_potential_portfolio : Option<(PortfolioType, Vec<Trade>)>;
-        let mut all_trades : Vec<Trade> = vec![];
-        let mut agg_trades = AggregatedTrades::new();
-        let mut nb_conseq_processed_trades : usize;  // number of trades which have been consequitively processed before refreshing to the new
-        // market is switched.
-        let max_number_trades = 20;  // TODO: FACTOR THIS OUT
-
-        // compute the initial portfolio
-        let _ = self._find_initial_trades(&trade_receiver, &mut all_trades, &mut agg_trades, CurrNewMarket::Current);  // this updates all_trades
-        let mut curr_portfolio = self._price_trades(&agg_trades, CurrNewMarket::Current, self.metric);
-        let _ = curr_portfolio_sender.send(curr_portfolio.clone());
-
-        loop {
-
-            // receive new trade to price on current market
-            nb_conseq_processed_trades = 0;
-            while let Ok(trade) = trade_receiver.try_recv() {
-                if !all_trades.contains(&trade) {
-                    info!("CURR: Processing trade {}, dir {:?}", trade.trade_id, trade.direction);
-                    let trade_v = self._value_trade(trade.trade_id, CurrNewMarket::Current, self.metric);
-                    match trade.direction {
-                        TradeDirection::Create => curr_portfolio += trade_v,
-                        TradeDirection::Delete => curr_portfolio -= trade_v,
-                        _ => {},
-                    }
-
-                    // update aggregated trades and all_trades.
-                    agg_trades += trade;
-                    all_trades.push(trade); // all trades just add the new one.
-
-                    let _ = curr_portfolio_sender.send(curr_portfolio.clone());
-
-                    nb_conseq_processed_trades += 1;
-                    if nb_conseq_processed_trades > max_number_trades {
-                        info!("CURR: Interrupting the trade processing.");
-                        break;  // break out of this while
-                    }
-                }
-            }
-
-            // receive new portfolio, replace current w/ new.
-            new_potential_portfolio = None;
-            while let Ok(new_portfolio) = new_portfolio_receiver.try_recv() {
-                new_potential_portfolio = Some(new_portfolio);
-            }
-
-            if let Some((new_p, new_trades)) = new_potential_portfolio {
-                self._switch_markets();
-                let new_l = new_trades.len();
-                let all_l = all_trades.len();
-
-                if new_l >= all_l {  // new processor is further ahead
-                    all_trades = new_trades;
-                    curr_portfolio = new_p;
-                } else if (new_l < all_l) && (new_l >= all_l - nb_conseq_processed_trades - 1) {  // new is not ahead, but we can still update.
-                    curr_portfolio.extend(new_p.0.into_iter());
-                }
-                let _ = curr_portfolio_sender.send(curr_portfolio.clone());
-            }
-        }
-    }
-
-    // augments the existing trades w/ new ones.
-    // returns the number of updated trades.
-    fn _find_initial_trades(
-        &self,
-        trade_receiver: &Receiver<Trade>,
-        existing_trades : &mut Vec<Trade>,
-        agg_trades: &mut AggregatedTrades,
-        market_ : CurrNewMarket,
-    ) -> u16 {
-        let mut nb_added_trades = 0;
-        while let Ok(trade) = trade_receiver.try_recv() {
-            info!("{:?} market: Getting trade {}", market_, trade.trade_id);
-            // update aggregated trades and existing trades.
-            *agg_trades += trade;
-            existing_trades.push(trade); // all trades just add the new one.
-            nb_added_trades += 1;
-        }
-
-        nb_added_trades
-    }
-
-    /// indicator if there is a new market present.
-    /// consumes the new market events to come to the last one.
-    fn _new_market_event(
-        &self,
-        new_market_receiver: &Receiver<MarketType>,
-    ) -> bool {
-
-        // handling new market event - roll to the latest new market, ignore in between markets
-        let mut new_market_event = false;
-        while new_market_receiver.try_recv().is_ok() {
-            new_market_event = true;
-        }
-
-        new_market_event
-    }
-
-    /// processes the trades on the new market.
-    /// new_market_receiver:
-    pub fn _trade_processor_new(
-        &self,
-        new_market_receiver: Receiver<MarketType>,
-        new_trade_receiver: Receiver<Trade>,  // receiving new additional trades
-        new_portfolio_sender: Sender<(PortfolioType, Vec<Trade>)>,  // results are sent here
-    ) {
-        let mut all_trades : Vec<Trade> = vec![];
-        let mut agg_trades = AggregatedTrades::new();
-        let mut new_portfolio = PortfolioType::new();
-
-        loop {
-
-            // handling new trade event
-            let _ = self._find_initial_trades(&new_trade_receiver, &mut all_trades, &mut agg_trades, CurrNewMarket::New);
-
-            let new_market_event = self._new_market_event(&new_market_receiver);
-            if new_market_event {
-                info!("NEW: Working. {} trades", agg_trades.keys().len());
-                new_portfolio = self._price_trades(&agg_trades, CurrNewMarket::New, self.metric);
-            }
-
-            // catch up any remaining trades
-            while let Ok(trade) = new_trade_receiver.try_recv() {
-                info!("NEW: Processing trade {}, dir {:?}", trade.trade_id, trade.direction);
-                let trade_v = self._value_trade(trade.trade_id, CurrNewMarket::New, self.metric);
-                match trade.direction {
-                    TradeDirection::Create => {new_portfolio += trade_v;},
-                    TradeDirection::Delete => {new_portfolio -= trade_v;},
-                    _ => {},
-                }
-
-                // update all_trades and agg_trades.
-                all_trades.push(trade);
-                agg_trades += trade;
-            }
-
-            // decisions whether to publish the market or not.
-            if new_market_event {
-                info!("NEW: Publishing portfolio. {} trades", new_portfolio.keys().len());
-                let _ = new_portfolio_sender.send((new_portfolio.clone(), all_trades.clone()));
-            }
-        }
-    }
-
     /// listens to kafka stream and stores portfolio locally.
     fn __construct_portfolio(
         &self,
@@ -312,8 +134,8 @@ impl Controller {
     ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name, self.kafka_port);
 
-        let mut pos_listener_ = Consumer::from_hosts(vec![bootstrap_servers.to_owned()])
-            .with_topic_partitions(pos_topic.to_owned(), &[0])
+        let mut pos_listener_ = Consumer::from_hosts(vec![bootstrap_servers,])
+            .with_topic_partitions(pos_topic, &[0])
             .with_fallback_offset(FetchOffset::Earliest)
             .with_offset_storage(GroupOffsetStorage::Kafka)
             .create()
@@ -331,110 +153,13 @@ impl Controller {
                         continue;
                     }
 
-                    if possible_trade.is_ok() {
-                        let trade = possible_trade.unwrap();
-                        let _ = sender_new.send(trade);
-                        let _ = sender_curr.send(trade);
-                    }
+                    let trade = possible_trade.unwrap();
+                    let _ = sender_new.send(trade);
+                    let _ = sender_curr.send(trade);
                 }
                 let _ = pos_listener_.consume_messageset(ms); // TODO: FIX THIS ERROR HANDLING HERE
             }
             pos_listener_.commit_consumed().unwrap();
-        }
-    }
-
-    /// publishes the computed results to the result publisher topic in Kafka.
-    /// curr_mkt_recv is a receiver that receives the produced market and publishes it to Kafka
-    fn _publish_results(
-        &self,
-        curr_portfolio_recv: Receiver<PortfolioType>,
-        results_topic: String,
-    ) {
-        let bootstrap_servers = format!("{}:{}", self.kafka_server_name, self.kafka_port);
-
-        let mut res_publisher = Producer::from_hosts(vec![bootstrap_servers.to_owned()])
-            .with_required_acks(RequiredAcks::One)
-            .create()
-            .unwrap();
-
-        loop {
-            let curr_mkt = curr_portfolio_recv.recv().unwrap();
-            let curr_mkt_json = serde_json::ser::to_string(&curr_mkt).unwrap();
-            let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric, curr_mkt_json);
-
-            // implements bytearray(str(dumps(self.curr_market)), ascii))
-            let market_record = Record::from_value(results_topic.as_str(), curr_mkt_pv.as_bytes())
-                .with_partition(0);
-
-            info!("PUBLISHING: Publishing new portfolio w/ {} trades.", curr_mkt.keys().len());
-            let _ = res_publisher.send(&market_record);
-        }
-    }
-
-    /// Loop that handles the market events
-    /// mkt_topic - receiving market events from this topic
-    /// new_mkt_sender - sending the new market to the pricing api
-    /// switch_mkt_recv - receiver receiving the event when to switch markets.
-    pub fn _handle_mkt_events (
-        &self,
-        mkt_topic: String,
-        new_mkt_sender: Sender<MarketType>,
-    ) {
-        let mut mkt_listener_ = Consumer::from_hosts(vec![format!(
-            "{}:{}",
-            self.kafka_server_name, self.kafka_port
-        )
-        .to_owned()])
-        .with_topic_partitions(mkt_topic.to_owned(), &[0])
-        .with_fallback_offset(FetchOffset::Earliest)
-        .with_offset_storage(GroupOffsetStorage::Kafka)
-        .create()
-        .unwrap();
-
-        let mkt_update_client = Client::new();
-
-        loop {
-            debug!("Getting new markets from {mkt_topic}.");
-            for mkt_msg_set in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
-                for mkt_msg in mkt_msg_set.messages() {
-
-                    // TODO: REMOVE this line below here.
-                    //let optional_mkt : Option<MarketType> = Self::_decode_mkt_msg(&mkt_msg);
-                    let optional_mkt = MarketType::try_from_ref(&mkt_msg);
-
-                    if optional_mkt.is_err() {
-                        warn!("Could not conver the market message to the market type!");
-                        continue;
-                    }
-
-                    // optional_mkt is not None, we can unwrap.
-                    let market_obj = optional_mkt.unwrap();
-
-                    // update the market rester market_api
-                    let market_posted = mkt_update_client
-                        .post("http://localhost:5010/future_market")
-                        .json(&HashMap::from([("market", &market_obj)]))
-                        .send();
-
-                    match market_posted {
-                        Ok(_) => {
-                            debug!("Market posted successfully.");
-                        },
-                        _ => {
-                            warn!("Could not post the market successfully. Ignoring last market.");
-                        }
-                    }
-
-                    // construct a new MarketType element.
-                    let mut mkt_decoded = MarketType::new();
-                    for (mkt_key, mkt_price) in market_obj.into_iter() {
-                        let _ = &mkt_decoded.insert(mkt_key.clone(), mkt_price);
-                    }
-                    let _ = new_mkt_sender.send(mkt_decoded); // send the market to new_market event
-                }
-                let _ = mkt_listener_.consume_messageset(mkt_msg_set);
-            }
-            mkt_listener_.commit_consumed().unwrap();
         }
     }
 
@@ -466,7 +191,9 @@ impl Controller {
             let _ = thread::Builder::new()
                 .name("market_events".to_string())
                 .spawn_scoped(s, move || {
-                    self._handle_mkt_events(mkt_topic, new_mkt_sender);
+                    self._handle_mkt_events(
+                        mkt_topic,
+                        MktMsgParams::AOParams(AOStruct{mkt_sender: new_mkt_sender}))
                 })
                 .unwrap();
 
@@ -511,27 +238,28 @@ impl Decoder for Controller {
         match metric {
             PricingMetric::PV => {
                 let results_conv = result_price.json::<HashMap<String, f64>>();
-                if results_conv.is_ok() {
-                    PricingResults::PV(PortfolioType(results_conv.unwrap()))
-                } else {
-                    PricingResults::PV(PortfolioType::new())
+
+                if results_conv.is_err() {
+                    return PricingResults::PV(PortfolioType::new())
                 }
+
+                PricingResults::PV(PortfolioType(results_conv.unwrap()))
             },
             PricingMetric::PV01 => {
                 let results_conv = result_price.json::<HashMap<String, HashMap<String, f64>>>();
-                if results_conv.is_ok() {
-                    let mut pv01 = PV01Results::new();
-                    for (trade_id, trade_result) in results_conv.unwrap().iter() {
-                        let _ = pv01.insert((*trade_id.clone()).to_string(), PortfolioType::from(trade_result));
-                    }
-                    PricingResults::PV01(pv01)
-                } else {
-                    PricingResults::PV01(PV01Results::new())
+
+                if results_conv.is_err() {
+                    return PricingResults::PV01(PV01Results::new());
                 }
+
+                let mut pv01 = PV01Results::new();
+                for (trade_id, trade_result) in results_conv.unwrap().iter() {
+                    let _ = pv01.insert((*trade_id.clone()).to_string(), PortfolioType::from(trade_result));
+                }
+                PricingResults::PV01(pv01)
             },
         }
     }
-
 }
 
 
@@ -543,14 +271,14 @@ impl RestPricer for Controller {
         match metric {
             PricingMetric::PV => {
                 match market_ {
-                    CurrNewMarket::Current => return "pv".to_string(),
-                    CurrNewMarket::New => return "pv_new".to_string(),
+                    CurrNewMarket::Current => "pv".to_string(),
+                    CurrNewMarket::New => "pv_new".to_string(),
                 }
             },
             PricingMetric::PV01 => {
                 match market_ {
-                    CurrNewMarket::Current => return "pv01".to_string(),
-                    CurrNewMarket::New => return "pv01_new".to_string(),
+                    CurrNewMarket::Current => "pv01".to_string(),
+                    CurrNewMarket::New => "pv01_new".to_string(),
                 }
             },
         }
@@ -573,14 +301,14 @@ impl RestPricerSpark for Controller {
         match metric {
             PricingMetric::PV => {
                 match market_ {
-                    CurrNewMarket::Current => return "pv_spark".to_string(),
-                    CurrNewMarket::New => return "pv_spark_new".to_string(),
+                    CurrNewMarket::Current => "pv_spark".to_string(),
+                    CurrNewMarket::New => "pv_spark_new".to_string(),
                 }
             },
             PricingMetric::PV01 => {
                 match market_ {
-                    CurrNewMarket::Current => return "pv01_spark".to_string(),
-                    CurrNewMarket::New => return "pv01_spark_new".to_string(),
+                    CurrNewMarket::Current => "pv01_spark".to_string(),
+                    CurrNewMarket::New => "pv01_spark_new".to_string(),
                 }
             },
         }
@@ -590,4 +318,114 @@ impl RestPricerSpark for Controller {
         "localhost:5010".to_string()
     }
 
+}
+
+
+impl Streaming for Controller {
+    fn kafka_server_name(&self) -> String {
+        self.kafka_server_name.clone()  // TODO: CHECK IF THIS CAN BE REMOVED HERE!!!
+    }
+
+    fn kafka_port(&self) -> i32 {
+        self.kafka_port
+    }
+}
+
+
+impl PublishResults for Controller {
+
+    fn metric(&self) -> PricingMetric {
+        self.metric
+    }
+}
+
+
+impl MktEventHandler for Controller {
+
+    fn _handle_mkt_msg(
+        &self,
+        mkt_msg : &Message,
+        mkt_msg_params: MktMsgParams,
+    ) {
+
+        let optional_mkt = MarketType::try_from_ref(&mkt_msg);
+
+        if optional_mkt.is_err() {
+            warn!("Could not conver the market message to the market type!");
+            return;
+        }
+
+        // optional_mkt is not None, we can unwrap.
+        let market_obj = optional_mkt.unwrap();
+        let mkt_client_address = "http://localhost:5010/future_market";
+        let mkt_update_client = Client::new();
+        // update the market rester market_api
+        let market_posted = mkt_update_client
+            .post(format!("{0}", mkt_client_address))
+            .json(&HashMap::from([("market", &market_obj)]))
+            .send();
+
+        match market_posted {
+            Ok(_) => {
+                debug!("Market posted successfully.");
+            },
+            _ => {
+                warn!("Could not post the market successfully. Ignoring last market.");
+            }
+        }
+
+        let MktMsgParams::AOParams(ao_params) = mkt_msg_params else {
+            warn!("Parameters provided to _handle_mkt_msg are of the wrong type");
+            return;
+        };
+        let _ = ao_params.mkt_sender.send(market_obj); // send the market to new_market event
+    }
+}
+
+
+impl MarketSwitching for Controller {
+    /// switch markets on the trade api.
+    fn _switch_markets(&self) {
+        info!("Switching markets: current <- new.");
+        let _ = reqwest::blocking::get(format!(
+            "http://{}/switch_markets",
+            self.trade_pricer
+        ));
+    }
+}
+
+
+impl BasicValue for Controller {
+
+    fn metric(&self) -> PricingMetric {
+        self.metric
+    }
+
+    // prices the trade given the market spec & pricing metric.
+    fn _value_trade(&self, trade_id: u16, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
+        debug!("VALUATION: Pricing trade: {}, market: {:?}", trade_id, market);
+
+        // Create or update trades have to be evaluated, so we have to price them.
+        //"http://localhost:5010/pv/{trade_id}"
+        let result_pricing =
+            reqwest::blocking::get(
+                format!(
+                    "http://{}/{}/{}",
+                    self._pricing_server(),
+                    self._pricing_endpoint(market, metric),
+                    trade_id,
+                )
+            );
+
+        match result_pricing {
+            Ok(result_price) => { self._unwrap_pricing_results(result_price, metric) },
+            Err(e) => {
+                warn!("Trade {trade_id} could not price correctly: {}", e);
+                match metric {
+                    PricingMetric::PV => {PricingResults::PV(PortfolioType::new())},
+                    PricingMetric::PV01 => {PricingResults::PV01(PV01Results::new())},
+                }
+            },
+        }
+    }
 }

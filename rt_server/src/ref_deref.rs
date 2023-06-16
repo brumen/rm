@@ -1,4 +1,4 @@
-
+use std::fmt::Debug;
 
 #[macro_export]
 macro_rules! ref_deref_trait {
@@ -36,9 +36,10 @@ macro_rules! ref_deref_trait {
 // };
 
 
-// TryFrom trait for a referenced variable.
 pub trait TryFromRef<T : Sized> {
-    type Error;
+    type Error : Debug;
 
-    fn try_from_ref(value: &T) -> Result<Self, Self::Error> where Self : Sized;
+    fn try_from_ref (value: &T) -> Result<Self, Self::Error>
+    where
+        Self : Sized + Debug;
 }

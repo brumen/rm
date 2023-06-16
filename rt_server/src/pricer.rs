@@ -1,4 +1,4 @@
-use log::{debug, warn, info,};
+use log::{warn, info,};
 use std::fmt;
 use serde::{Deserialize, Serialize};
 use reqwest::blocking::{Client, Response,};
@@ -6,12 +6,11 @@ use std::time::Instant;
 use std::collections::HashMap;
 use string_join::Join;
 
-use crate::controller::CurrNewMarket;
+use crate::market::CurrNewMarket;
 use crate::portfolio::{
     PricingResults,
     PortfolioType,
     AggregatedTrades,
-    PV01Results,
 };
 
 
@@ -43,41 +42,19 @@ pub trait Decoder {
 }
 
 
+pub trait BasicValue {
+    fn metric(&self) -> PricingMetric;
+    fn _value_trade(&self, trade_id: u16, market: CurrNewMarket, metric: PricingMetric) -> PricingResults;
+}
+
+
 /// trait for implementing the pricer which comes from the REST service for the trade.
 ///
-pub trait RestPricer : Decoder {
+pub trait RestPricer : Decoder + BasicValue {
     // ip of the rest pricer, like localhost:5010
     fn _pricing_server(&self) -> String;
     // endpoint to use for pricing the trade (like pv_spark)
     fn _pricing_endpoint(&self, market_ : CurrNewMarket, metric: PricingMetric) -> String;
-
-    //fn _value_trade(&self, trade_id: u16, market: CurrNewMarket, metric: PricingMetric) -> PricingResults;
-    fn _value_trade(&self, trade_id: u16, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
-        debug!("VALUATION: Pricing trade: {}, market: {:?}", trade_id, market);
-
-        // Create or update trades have to be evaluated, so we have to price them.
-        //"http://localhost:5010/pv/{trade_id}"
-        let result_pricing =
-            reqwest::blocking::get(
-                format!(
-                    "http://{}/{}/{}",
-                    self._pricing_server(),
-                    self._pricing_endpoint(market, metric),
-                    trade_id,
-                )
-            );
-
-        match result_pricing {
-            Ok(result_price) => { return self._unwrap_pricing_results(result_price, metric); },
-            Err(e) => {
-                warn!("Trade {trade_id} could not price correctly: {}", e);
-                match metric {
-                    PricingMetric::PV => {return PricingResults::PV(PortfolioType::new())},
-                    PricingMetric::PV01 => {return PricingResults::PV01(PV01Results::new())},
-                }
-            },
-        }
-    }
 
     /// agg_trades: aggregated trades, where keys are trade ids, and values are the positions of
     /// those trades.
@@ -119,7 +96,6 @@ pub trait RestPricerSpark : Decoder {
         let all_trade_ids = ",".join(
             agg_trades
                 .keys()
-                .into_iter()
                 .map(|trade_id: &u16| -> String {trade_id.to_string()} )
         );
 
@@ -152,18 +128,17 @@ pub trait RestPricerSpark : Decoder {
 }
 
 
-pub trait PricePortfolioSpark {
+pub trait PriceMultipleTrades {
     fn _price_trades(
         &self,
         agg_trades: &AggregatedTrades,
         market_ : CurrNewMarket,
         metric: PricingMetric,
     ) -> PortfolioType;
-
 }
 
 // for every type that implements RestPricer & RestPricerSpark implement this as well.
-impl<T:RestPricerSpark + RestPricer> PricePortfolioSpark for T {
+impl<T:RestPricerSpark + RestPricer> PriceMultipleTrades for T {
     fn _price_trades(
         &self,
         agg_trades: &AggregatedTrades,

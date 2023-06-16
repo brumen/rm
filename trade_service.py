@@ -42,11 +42,14 @@ class LETFTradeProducer(BaseProducer):
 
             left_stock = random.choice(self._stocks)
             amount = np.random.rand() * 100  # rand() is between 0-1.
-            letf_position = {'trade_id': str(uuid4()),
-                             'stock': left_stock,
-                             'amount': amount,
-                             'beta': self._beta,
-                             }
+            letf_position = {
+                'LETF': {
+                    'trade_id': str(uuid4()),
+                    'stock': left_stock,
+                    'amount': amount,
+                    'beta': self._beta,
+                }
+            }
 
             yield letf_position
 
