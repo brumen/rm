@@ -4,25 +4,24 @@
 
 use log::{debug, info, warn};
 use std::sync::{Arc, Mutex,};
-use std::sync::mpsc::channel;
+use std::sync::mpsc::Sender;
 use kafka::consumer::Message;
-use std::thread;
 use serde::Deserialize;
 
+use crate::engine::CalcController;
 use crate::portfolio::{
     PortfolioType,
     AggregatedTrades,
     PricingResults,
-    PortfolioSender,
+    PV01Results,
 };
 
 use crate::market::{
     MarketType,
-    MktEventHandler,
     MktMsgParams,
     CurrNewMarket,
-    LETFP
 };
+use crate::mkt_handler::MktEventHandler;
 use crate::ref_deref::TryFromRef;
 
 use crate::pricer::{
@@ -32,10 +31,10 @@ use crate::pricer::{
 };
 
 use crate::streaming::Streaming;
-use crate::trade::LETFTrade;
-use crate::trade_processor::{RiskProcessors, MarketSwitching};
+use crate::trade::{LETFTrade, TradeTypes, TradeAggregation,};
+use crate::trade_processor::MarketSwitching;
 use crate::publish::PublishResults;
-use crate::trade::BaseTrade;
+
 
 /// RTRM - Real time risk manager using local
 ///    local market and local pricing.
@@ -101,78 +100,10 @@ impl RTRMLocal {
             controller_metric,
         ))
     }
+}
 
-    // starts the controller threads.
-    // TT mnemonic for TradeType
-    pub fn start<TT: Send + std::fmt::Debug + Clone + BaseTrade + std::cmp::PartialEq + for<'a> TryFromRef<Message<'a>>> (
-        &self,
-        pos_topic: String,     // position topic on kafka
-        mkt_topic: String,     // market topic
-        results_topic: String, // publish the results topic
-    ) {
-        // 2 trade senders, 1 for current market, 1 for new market.
-        let (pos_sender_curr, pos_recv_curr) = channel::<TT>();
-        let (pos_sender_new, pos_recv_new) = channel::<TT>();
-        // events about the new market event
-        let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
-        // new & current market portfolio
-        let (curr_portfolio_sender, curr_portfolio_recv) = channel::<PortfolioType>();
-        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, Vec<TT>)>();
-
-        // threads fail if any of them can not be created.
-        thread::scope(|s| {
-            let _ = thread::Builder::new()
-                .name("accepting_trades".to_string())
-                .spawn_scoped(s, move || {
-                    self.__construct_portfolio(pos_sender_new, pos_sender_curr, pos_topic);
-                })
-                .unwrap();
-
-            let _ = thread::Builder::new()
-                .name("market_events".to_string())
-                .spawn_scoped(s, move || {
-                    self._handle_mkt_events(
-                        mkt_topic,
-                        MktMsgParams::LETFParams(
-                            LETFP {
-                                curr_mkt: Arc::clone(&self.curr_market),
-                                new_mkt_sender,
-                            }
-                        )
-                    )
-                })
-                .unwrap();
-
-            let _ = thread::Builder::new()
-                .name("new_portfolio".to_string())
-                .spawn_scoped(s, move || {
-                    self._trade_processor_new(
-                        new_mkt_receiver,
-                        pos_recv_new,
-                        new_portfolio_sender,
-                    );
-                })
-                .unwrap();
-
-            let _ = thread::Builder::new()
-                .name("curr_portfolio".to_string())
-                .spawn_scoped(s, move || {
-                    self._trade_processor_curr(
-                        pos_recv_curr,
-                        curr_portfolio_sender,
-                        new_portfolio_recv,
-                    );
-                })
-                .unwrap();
-
-            let _ = thread::Builder::new()
-                .name("publish_thread".to_string())
-                .spawn_scoped(s, move || {
-                    self._publish_results(curr_portfolio_recv, results_topic);
-                })
-                .unwrap();
-        });
-    }
+impl CalcController for RTRMLocal {
+    type TradeType = TradeTypes;
 }
 
 impl MarketSwitching for RTRMLocal {
@@ -186,6 +117,19 @@ impl MarketSwitching for RTRMLocal {
 
 }
 
+impl TradeAggregation for RTRMLocal {
+
+    type TT = TradeTypes;
+
+    fn all_trades(&self) -> Vec<Self::TT> {
+        todo!()
+    }
+
+    fn aggregated_trades(&self) -> AggregatedTrades {
+        todo!()
+    }
+}
+
 
 impl BasicValue for RTRMLocal {
 
@@ -194,28 +138,51 @@ impl BasicValue for RTRMLocal {
     }
 
     /// pricing the trade locally
-    fn _value_trade(&self, trade_id: u16, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
+    fn _value_trade(&self, trade_id: String, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
+
+        //let trade = self.all_trades();
 
         let amount = 100.;
 
         // TODO: THIS IS WRONG, BUT WE'll JUST GO ALONG
         let trade = LETFTrade {
-            trade_id: trade_id.to_string(),
+            trade_id,
             stock: "AAPL".to_string(),
             amount,
             beta: 2.,
         };
 
-        let stock_mkt = self.curr_market.lock().expect("Could not lock the current market, weird");
+        let stock_mkt_arc = match market {
+            CurrNewMarket::Current => self.curr_market.lock(),
+            CurrNewMarket::New => self.new_market.lock(),
+        };
+        let stock_mkt = stock_mkt_arc.expect("Could not lock the current market, weird");
         let stock_name = &trade.stock;
         let stock_value = stock_mkt.get(stock_name);
         if stock_value.is_none() {  // returns empty hedge if it cant determine the stock value.
             warn!("Can't find the value of stock {}", stock_name);
             // TODO: THIS IS NOT RIGHT, IT'S NOT FAIR
-            return PricingResults::PV(PortfolioType::from([(stock_name.clone(), 0.),]));
+            match metric {
+                PricingMetric::PV => {
+                    return PricingResults::PV(PortfolioType::from([(stock_name.clone(), 0.),]));
+                },
+                PricingMetric::PV01 => {
+                    //return PricingResults::PV01(PortfolioType::from([(stock_name.clone(), 0.),]));
+
+                    // TODO: THIS IS WRONG
+                    return PricingResults::PV01(PV01Results::new());
+                },
+            }
         }
 
-        PricingResults::PV(PortfolioType::from([(stock_name.clone(), amount),]))
+        // we have stock value, dont need more
+        match metric {
+            PricingMetric::PV =>
+                PricingResults::PV(PortfolioType::from([(stock_name.clone(), amount),])),
+            PricingMetric::PV01 =>
+                // TODO: THIS IS WRONG, FIX IT!!!!
+                PricingResults::PV01(PV01Results::new()),
+        }
     }
 }
 
@@ -237,6 +204,7 @@ impl MktEventHandler for RTRMLocal {
     fn _handle_mkt_msg(
         &self,
         mkt_msg: &Message,
+        new_mkt_sender: Sender<MarketType>,
         mkt_params: MktMsgParams,
     ) {
 
@@ -280,7 +248,7 @@ impl PriceMultipleTrades for RTRMLocal {
         let mut new_portfolio = PortfolioType::new();
 
         for (trade_id, trade_position) in agg_trades.iter() {
-            new_portfolio += self._value_trade(*trade_id, market_, metric) * (*trade_position);
+            new_portfolio += self._value_trade(trade_id.clone(), market_, metric) * (*trade_position);  // TODO: WITHOUT CLONING
         }
 
         new_portfolio

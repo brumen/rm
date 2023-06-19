@@ -1,29 +1,26 @@
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 
-use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, Message, };
+use kafka::consumer::Message;
 use reqwest::blocking::{Client, Response,};
 use std::collections::HashMap;
-use std::sync::mpsc::{channel, Sender};
-use std::thread;
+use std::sync::mpsc::Sender;
 use core::convert::From;
+use std::sync::{Arc, Mutex};
 
 use crate::market::MktMsgParams;
-
-use crate::trade::Trade;
-
+use crate::trade::{AOTrade, TradeAggregation, BaseTrade, };
 use crate::portfolio::{
     PortfolioType,
     PricingResults,
     PV01Results,
+    AggregatedTrades,
 };
 
 
 use crate::market::{
     MarketType,
     CurrNewMarket,
-    MktEventHandler,
-    AOStruct,
 };
 use crate::ref_deref::TryFromRef;
 
@@ -38,7 +35,9 @@ use crate::pricer::{
 
 use crate::publish::PublishResults;
 use crate::streaming::Streaming;
-use crate::trade_processor::{MarketSwitching, RiskProcessors, };
+use crate::trade_processor::MarketSwitching;
+use crate::engine::CalcController;
+use crate::mkt_handler::MktEventHandler;
 
 pub type PricingParams = HashMap<String, f64>;
 
@@ -48,12 +47,14 @@ pub type PricingParams = HashMap<String, f64>;
 /// kafka_server_name: name of kafka server, like "localhost"
 /// kafka_port: port of kafka server, like 9092
 /// trader_pricer: name of the rester service, like localhost:5010
-pub struct Controller {
+pub struct Controller<TT> {
     pricing_params: PricingParams,
     kafka_server_name: String,
     kafka_port: i32,
     trade_pricer: String,
     metric: PricingMetric,
+    _all_trades: Arc<Mutex<Vec<TT>>>,
+    _aggregated_trades: Arc<Mutex<AggregatedTrades>>,
 }
 
 
@@ -72,7 +73,7 @@ pub struct RTConfig {
 
 
 // Controller is generic over MarketType type, which originally was (String, Date)
-impl Controller {
+impl<TT> Controller<TT> {
     pub fn new(
         pricing_params_: Option<PricingParams>,
         kafka_server_name: String,
@@ -86,12 +87,14 @@ impl Controller {
             None => PricingParams::new(),
         };
 
-        Controller {
+        Controller::<TT> {
             pricing_params: pricing_init,
             kafka_server_name,
             kafka_port,
             trade_pricer,
             metric,
+            _all_trades: Arc::new(Mutex::new(Vec::<TT>::new())),
+            _aggregated_trades: Arc::new(Mutex::new(AggregatedTrades::new())),
         }
     }
 
@@ -124,113 +127,15 @@ impl Controller {
             controller_metric,
         ))
     }
-
-    /// listens to kafka stream and stores portfolio locally.
-    fn __construct_portfolio(
-        &self,
-        sender_new: Sender<Trade>,
-        sender_curr: Sender<Trade>,
-        pos_topic: String,
-    ) {
-        let bootstrap_servers = format!("{}:{}", self.kafka_server_name, self.kafka_port);
-
-        let mut pos_listener_ = Consumer::from_hosts(vec![bootstrap_servers,])
-            .with_topic_partitions(pos_topic, &[0])
-            .with_fallback_offset(FetchOffset::Earliest)
-            .with_offset_storage(GroupOffsetStorage::Kafka)
-            .create()
-            .unwrap();
-
-        loop {
-            for ms in pos_listener_.poll().unwrap().iter() {
-                for msg in ms.messages() {
-                    let possible_trade = Trade::try_from_ref(msg);
-                    // Controller::recover_trade(msg);
-
-                    // if the trade is None, there is possibly something wrong in
-                    if possible_trade.is_err() {
-                        warn!("Trade is WRONG!!! FIX IT!");
-                        continue;
-                    }
-
-                    let trade = possible_trade.unwrap();
-                    let _ = sender_new.send(trade);
-                    let _ = sender_curr.send(trade);
-                }
-                let _ = pos_listener_.consume_messageset(ms); // TODO: FIX THIS ERROR HANDLING HERE
-            }
-            pos_listener_.commit_consumed().unwrap();
-        }
-    }
-
-    // starts the controller threads.
-    pub fn start(
-        &self,
-        pos_topic: String,     // position topic on kafka
-        mkt_topic: String,     // market topic
-        results_topic: String, // publish the results topic
-    ) {
-        // 2 trade senders, 1 for current market, 1 for new market.
-        let (pos_sender_curr, pos_recv_curr) = channel::<Trade>();
-        let (pos_sender_new, pos_recv_new) = channel::<Trade>();
-        // events about the new market event
-        let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
-        // new & current market portfolio
-        let (curr_portfolio_sender, curr_portfolio_recv) = channel::<PortfolioType>();
-        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, Vec<Trade>)>();
-
-        // threads fail if any of them can not be created.
-        thread::scope(|s| {
-            let _ = thread::Builder::new()
-                .name("accepting_trades".to_string())
-                .spawn_scoped(s, move || {
-                    self.__construct_portfolio(pos_sender_new, pos_sender_curr, pos_topic);
-                })
-                .unwrap();
-
-            let _ = thread::Builder::new()
-                .name("market_events".to_string())
-                .spawn_scoped(s, move || {
-                    self._handle_mkt_events(
-                        mkt_topic,
-                        MktMsgParams::AOParams(AOStruct{mkt_sender: new_mkt_sender}))
-                })
-                .unwrap();
-
-            let _ = thread::Builder::new()
-                .name("new_portfolio".to_string())
-                .spawn_scoped(s, move || {
-                    self._trade_processor_new(
-                        new_mkt_receiver,
-                        pos_recv_new,
-                        new_portfolio_sender,
-                    );
-                })
-                .unwrap();
-
-            let _ = thread::Builder::new()
-                .name("curr_portfolio".to_string())
-                .spawn_scoped(s, move || {
-                    self._trade_processor_curr(
-                        pos_recv_curr,
-                        curr_portfolio_sender,
-                        new_portfolio_recv,
-                    );
-                })
-                .unwrap();
-
-            let _ = thread::Builder::new()
-                .name("publish_thread".to_string())
-                .spawn_scoped(s, move || {
-                    self._publish_results(curr_portfolio_recv, results_topic);
-                })
-                .unwrap();
-        });
-    }
 }
 
 
-impl Decoder for Controller {
+impl<TT : PartialEq + BaseTrade + Clone> CalcController for Controller<TT> {
+    type TradeType = AOTrade;
+}
+
+
+impl<TT> Decoder for Controller<TT> {
 
     // converts the spark response into a trade value.
     fn _unwrap_pricing_results(&self, result_price: Response, metric: PricingMetric) -> PricingResults {
@@ -263,7 +168,21 @@ impl Decoder for Controller {
 }
 
 
-impl RestPricer for Controller {
+impl<TT : PartialEq + BaseTrade + Clone> TradeAggregation for Controller<TT> {
+    type TT = TT;
+
+    fn all_trades(&self) -> Vec<Self::TT> {
+        // TODO: IDK IF THIS IS RIGHT????
+        *self._all_trades.clone().lock().unwrap()
+    }
+
+    fn aggregated_trades(&self) -> AggregatedTrades {
+        *self._aggregated_trades.clone().lock().unwrap()
+    }
+}
+
+
+impl<TT: PartialEq + BaseTrade + Clone> RestPricer for Controller<TT> {
 
     /// pricing endpoints for valuing on the go
     fn _pricing_endpoint(&self, market_ : CurrNewMarket, metric: PricingMetric) -> String {
@@ -292,7 +211,7 @@ impl RestPricer for Controller {
 }
 
 
-impl RestPricerSpark for Controller {
+impl<TT> RestPricerSpark for Controller<TT> {
 
     /// compute the pricing endpoint for the rester service for
     /// a particular metric and market.
@@ -321,7 +240,7 @@ impl RestPricerSpark for Controller {
 }
 
 
-impl Streaming for Controller {
+impl<TT> Streaming for Controller<TT> {
     fn kafka_server_name(&self) -> String {
         self.kafka_server_name.clone()  // TODO: CHECK IF THIS CAN BE REMOVED HERE!!!
     }
@@ -332,7 +251,7 @@ impl Streaming for Controller {
 }
 
 
-impl PublishResults for Controller {
+impl<TT> PublishResults for Controller<TT> {
 
     fn metric(&self) -> PricingMetric {
         self.metric
@@ -340,11 +259,12 @@ impl PublishResults for Controller {
 }
 
 
-impl MktEventHandler for Controller {
+impl<TT> MktEventHandler for Controller<TT> {
 
     fn _handle_mkt_msg(
         &self,
         mkt_msg : &Message,
+        new_mkt_sender: Sender<MarketType>,
         mkt_msg_params: MktMsgParams,
     ) {
 
@@ -378,12 +298,12 @@ impl MktEventHandler for Controller {
             warn!("Parameters provided to _handle_mkt_msg are of the wrong type");
             return;
         };
-        let _ = ao_params.mkt_sender.send(market_obj); // send the market to new_market event
+        let _ = new_mkt_sender.send(market_obj); // send the market to new_market event
     }
 }
 
 
-impl MarketSwitching for Controller {
+impl<TT> MarketSwitching for Controller<TT> {
     /// switch markets on the trade api.
     fn _switch_markets(&self) {
         info!("Switching markets: current <- new.");
@@ -395,14 +315,14 @@ impl MarketSwitching for Controller {
 }
 
 
-impl BasicValue for Controller {
+impl<TT : PartialEq + BaseTrade + Clone> BasicValue for Controller<TT> {
 
     fn metric(&self) -> PricingMetric {
         self.metric
     }
 
     // prices the trade given the market spec & pricing metric.
-    fn _value_trade(&self, trade_id: u16, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
+    fn _value_trade(&self, trade_id: String, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
         debug!("VALUATION: Pricing trade: {}, market: {:?}", trade_id, market);
 
         // Create or update trades have to be evaluated, so we have to price them.

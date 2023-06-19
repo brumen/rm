@@ -19,13 +19,6 @@ pub type PortfolioInner = HashMap<String, f64>;
 #[derive(Debug, PartialEq, Serialize, Clone)]
 pub struct PortfolioType ( pub PortfolioInner );
 
-pub type TradeValue = PortfolioType;
-
-#[allow(non_snake_case)]
-pub fn TradeValue(data: HashMap<String, f64>) -> TradeValue {
-    PortfolioType(data)
-}
-
 
 ref_deref_trait!(PortfolioType, PortfolioInner);
 
@@ -131,7 +124,7 @@ impl From<&HashMap<String, f64>> for PortfolioType {
 
 
 // AggregatedTrades
-pub type AggregatedInner = HashMap<u16, f64>;
+pub type AggregatedInner = HashMap<String, f64>;
 
 #[derive(Debug, PartialEq)]
 pub struct AggregatedTrades ( pub AggregatedInner );
@@ -154,15 +147,15 @@ impl MulAssign<&AggregatedTrades> for PortfolioType {
     fn mul_assign(&mut self, rhs: &AggregatedTrades) {
         for (trade_id, trade_val) in self.iter_mut() {
 
-            if let Ok(tid) = trade_id.parse::<u16>() {
-                if let Some(trade_mult) = rhs.get(&tid) {
-                    *trade_val *= *trade_mult;
-                } else {
-                    warn!("Could not find the multiplying factor for {}", tid);
-                }
+            //if let Ok(tid) = trade_id.parse::<u16>() {
+            if let Some(trade_mult) = rhs.get(trade_id) {
+                *trade_val *= *trade_mult;
             } else {
-                warn!("Could not convert {:?} to u16", trade_id);
+                warn!("Could not find the multiplying factor for {}", trade_id);
             }
+            //} else {
+            //    warn!("Could not convert {:?} to u16", trade_id);
+            //}
         }
     }
 }
@@ -208,6 +201,31 @@ impl<TT: BaseTrade> AddAssign<TT> for AggregatedTrades {
 }
 
 
+impl<TT: BaseTrade> Add<TT> for AggregatedTrades {
+    type Output = AggregatedTrades;
+
+    fn add(self, rhs: TT) -> Self::Output {
+        let new_trade_id = rhs.id();
+        let new_trade_position = match rhs.direction() {
+            TradeDirection::Create => 1.,
+            TradeDirection::Delete => -1.,
+            _ => 0.,
+        };
+
+        if let Some(agg_pos) = self.get(&new_trade_id) {
+            *agg_pos += new_trade_position;
+            if *agg_pos == 0. {
+                let _ = self.remove(&new_trade_id);
+            }
+        } else {
+            self.insert(new_trade_id, new_trade_position);
+        }
+
+        self
+    }
+}
+
+
 // PV01Results
 pub type PV01Inner = HashMap<String, PortfolioType>;
 #[derive(Clone)]
@@ -219,15 +237,15 @@ impl MulAssign<&AggregatedTrades> for PV01Results {
     fn mul_assign(&mut self, rhs: &AggregatedTrades) {
         for (trade_id, trade_val) in self.iter_mut() {
 
-            if let Ok(tid) = trade_id.parse::<u16>() {
-                if let Some(trade_mult) = rhs.get(&tid) {
-                    *trade_val *= *trade_mult;
-                } else {
-                    warn!("Could not find the multiplying factor for {}", tid);
-                }
+            //if let Ok(tid) = trade_id.parse::<u16>() {
+            if let Some(trade_mult) = rhs.get(trade_id) {
+                *trade_val *= *trade_mult;
             } else {
-                warn!("Could not convert {:?} to u16", trade_id);
+                warn!("Could not find the multiplying factor for {}", trade_id);
             }
+            //} else {
+            //    warn!("Could not convert {:?} to u16", trade_id);
+            //}
         }
     }
 }
@@ -253,6 +271,14 @@ impl PV01Results {
     pub fn new() -> Self {
         Self(PV01Inner::new())
     }
+
+    // pub fn from_results(&mut self, results:
+    // let mut pv01 = PV01Results::new();
+    // for (trade_id, trade_result) in results_conv.unwrap().iter() {
+    //     let _ = pv01.insert((*trade_id.clone()).to_string(), PortfolioType::from(trade_result));
+    // }
+    // PricingResults::PV01(pv01)
+
 
     // aggregates the PV01 results into Portfoliotype, irrespective of trades.
     pub fn aggregate(self) -> PortfolioType {
@@ -328,15 +354,15 @@ impl MulAssign<&AggregatedTrades> for PricingResults {
                 // go over trades and multiply each one by a factor.
                 for (trade_id, trade_val) in pv01_results.iter_mut() {
 
-                    if let Ok(tid) = trade_id.parse::<u16>() {
-                        if let Some(trade_mult) = rhs.get(&tid) {
-                            *trade_val *= *trade_mult;
-                        } else {
-                            warn!("Could not find the multiplying factor for {}", tid);
-                        }
+                    //if let Ok(tid) = trade_id.parse::<u16>() {
+                    if let Some(trade_mult) = rhs.get(trade_id) {
+                        *trade_val *= *trade_mult;
                     } else {
-                        warn!("Could not convert {:?} to u16", trade_id);
+                        warn!("Could not find the multiplying factor for {}", trade_id);
                     }
+                    //} else {
+                    //    warn!("Could not convert {:?} to u16", trade_id);
+                    //}
                 }
 
             }
@@ -395,7 +421,7 @@ where
                         Ok(trade) => {
                             debug!("__construct_portfolio: sending trade {:?}", trade);
                             let _ = sender_new.send(trade.clone());
-                            let _ = sender_curr.send(trade.clone());
+                            let _ = sender_curr.send(trade);
                         },
                     }
                 }

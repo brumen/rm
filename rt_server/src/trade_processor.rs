@@ -14,6 +14,7 @@ use crate::portfolio::{
 };
 use crate::market::{MarketType, CurrNewMarket, };
 use crate::pricer::{BasicValue, PriceMultipleTrades,};
+use crate::trade::TradeAggregation;
 
 pub type PricingParams = HashMap<String, f64>;
 
@@ -27,17 +28,16 @@ pub trait MarketSwitching {
 /// Implements functionality of
 /// trade_processor_curr and trade_processor_new
 /// TT - mnemonic for trade type. for example trade
-pub trait RiskProcessors<TT> : BasicValue + MarketSwitching
-where
-    TT: Send + BaseTrade + Clone
+pub trait RiskProcessors : BasicValue + MarketSwitching
 {
+    //type TT: Send + BaseTrade + Clone;
 
     // augments the existing trades w/ new ones.
     // returns the number of updated trades.
     fn _find_initial_trades(
         &self,
-        trade_receiver: &Receiver<TT>,
-        existing_trades : &mut Vec<TT>,
+        trade_receiver: &Receiver<Self::TT>,
+        existing_trades : &mut Vec<Self::TT>,
         agg_trades: &mut AggregatedTrades,
         market_ : CurrNewMarket,
     ) -> u16 {
@@ -71,9 +71,9 @@ where
 
     fn _trade_processor_curr(
         &self,
-        trade_receiver: Receiver<TT>,
+        trade_receiver: Receiver<Self::TT>,
         curr_portfolio_sender: Sender<PortfolioType>,
-        new_portfolio_receiver: Receiver<(PortfolioType, Vec<TT>)>,
+        new_portfolio_receiver: Receiver<(PortfolioType, Vec<Self::TT>)>,
     );
 
     /// processes the trades on the new market.
@@ -81,27 +81,25 @@ where
     fn _trade_processor_new(
         &self,
         new_market_receiver: Receiver<MarketType>,
-        new_trade_receiver: Receiver<TT>,  // receiving new additional trades
-        new_portfolio_sender: Sender<(PortfolioType, Vec<TT>)>,  // results are sent here
+        new_trade_receiver: Receiver<Self::TT>,  // receiving new additional trades
+        new_portfolio_sender: Sender<(PortfolioType, Vec<Self::TT>)>,  // results are sent here
     );
 
 
 }
 
-impl<T, TT> RiskProcessors<TT> for T
+impl<T> RiskProcessors for T
 where
-    T: BasicValue + MarketSwitching + PriceMultipleTrades,
-    TT: Send + BaseTrade + PartialEq + Clone
+    T: BasicValue + MarketSwitching + PriceMultipleTrades + TradeAggregation,
 {
-
     fn _trade_processor_curr(
         &self,
-        trade_receiver: Receiver<TT>,
+        trade_receiver: Receiver<Self::TT>,
         curr_portfolio_sender: Sender<PortfolioType>,
-        new_portfolio_receiver: Receiver<(PortfolioType, Vec<TT>)>,
+        new_portfolio_receiver: Receiver<(PortfolioType, Vec<Self::TT>)>,
     ) {
-        let mut new_potential_portfolio : Option<(PortfolioType, Vec<TT>)>;
-        let mut all_trades : Vec<TT> = vec![];
+        let mut new_potential_portfolio : Option<(PortfolioType, Vec<Self::TT>)>;
+        let mut all_trades : Vec<Self::TT> = vec![];
         let mut agg_trades = AggregatedTrades::new();
         let mut nb_conseq_processed_trades : usize;  // number of trades which have been consequitively processed before refreshing to the new
         // market is switched.
@@ -119,9 +117,12 @@ where
             while let Ok(trade) = trade_receiver.try_recv() {
                 debug!("CURR: INSIDE");
                 if !all_trades.contains(&trade) {
-                    info!("CURR: Processing trade {}, dir {:?}", trade.id(), trade.direction());
-                    let trade_v = self._value_trade(trade.id(), CurrNewMarket::Current, self.metric());
-                    match trade.direction() {
+                    let trade_id = trade.id();
+                    let trade_direction = trade.direction();
+
+                    info!("CURR: Processing trade {}, dir {:?}", trade_id, trade_direction);
+                    let trade_v = self._value_trade(trade_id, CurrNewMarket::Current, self.metric());
+                    match trade_direction {
                         TradeDirection::Create => curr_portfolio += trade_v,
                         TradeDirection::Delete => curr_portfolio -= trade_v,
                         _ => {},
@@ -168,10 +169,10 @@ where
     fn _trade_processor_new(
         &self,
         new_market_receiver: Receiver<MarketType>,
-        new_trade_receiver: Receiver<TT>,  // receiving new additional trades
-        new_portfolio_sender: Sender<(PortfolioType, Vec<TT>)>,  // results are sent here
+        new_trade_receiver: Receiver<Self::TT>,  // receiving new additional trades
+        new_portfolio_sender: Sender<(PortfolioType, Vec<Self::TT>)>,  // results are sent here
     ) {
-        let mut all_trades : Vec<TT> = vec![];
+        let mut all_trades : Vec<Self::TT> = vec![];
         let mut agg_trades = AggregatedTrades::new();
         let mut new_portfolio = PortfolioType::new();
 
@@ -183,7 +184,7 @@ where
             debug!("NEW: Nb aggregated trades: {}", agg_trades.len());
 
             //let new_market_event = self._new_market_event(&new_market_receiver);
-            let new_market_event = <T as RiskProcessors<TT>>::_new_market_event(self, &new_market_receiver);
+            let new_market_event = <T as RiskProcessors>::_new_market_event(self, &new_market_receiver);
             if new_market_event {
                 info!("NEW: Working. {} trades", agg_trades.keys().len());
                 new_portfolio = self._price_trades(&agg_trades, CurrNewMarket::New, self.metric());
@@ -191,9 +192,11 @@ where
 
             // catch up any remaining trades
             while let Ok(trade) = new_trade_receiver.try_recv() {
-                info!("NEW: Processing trade {}, dir {:?}", trade.id(), trade.direction());
-                let trade_v = self._value_trade(trade.id(), CurrNewMarket::New, self.metric());
-                match trade.direction() {
+                let trade_id = trade.id();
+                let trade_direction = trade.direction();
+                info!("NEW: Processing trade {}, dir {:?}", trade_id, trade_direction);
+                let trade_v = self._value_trade(trade_id, CurrNewMarket::New, self.metric());
+                match trade_direction {
                     TradeDirection::Create => {new_portfolio += trade_v;},
                     TradeDirection::Delete => {new_portfolio -= trade_v;},
                     _ => {},

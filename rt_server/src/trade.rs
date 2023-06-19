@@ -6,7 +6,7 @@ use kafka::consumer::Message;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::ref_deref::TryFromRef;
+use crate::{ref_deref::TryFromRef, portfolio::AggregatedTrades};
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
@@ -16,25 +16,25 @@ pub enum TradeDirection {
     Update,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
-pub struct Trade {
-    pub trade_id: u16,
-    pub direction: TradeDirection,
-}
+// #[derive(Debug, Clone, PartialEq, Eq, Copy)]
+// pub struct Trade {
+//     pub trade_id: u16,
+//     pub direction: TradeDirection,
+// }
 
 pub trait BaseTrade {
-    fn id(&self) -> u16;
+    fn id(&self) -> String;
     fn direction(&self) -> TradeDirection;
 }
 
-impl BaseTrade for Trade {
-    fn id(&self) -> u16 {
-        self.trade_id
-    }
-    fn direction(&self) -> TradeDirection {
-        self.direction
-    }
-}
+// impl BaseTrade for Trade {
+//     fn id(&self) -> String {
+//         self.trade_id.to_string()
+//     }
+//     fn direction(&self) -> TradeDirection {
+//         self.direction
+//     }
+// }
 
 
 #[derive(Error, Debug)]
@@ -43,27 +43,6 @@ pub enum TradeError {
     CantConvertUtf8(#[from] std::str::Utf8Error),
     #[error("Cant convert to trade type")]
     CantConvertToTrade(#[from] serde_json::Error),
-}
-
-
-impl TryFromRef<Message<'_>> for Trade
-{
-    type Error = TradeError;
-
-    fn try_from_ref(value: &Message) -> Result<Self, Self::Error> {
-
-        let msg_utf = std::str::from_utf8(value.value)?;
-
-        // TODO: THIS IS OF COURSE WRONG!!!
-        let message_json = serde_json::from_str::<AOTrade>(msg_utf)?;
-
-        Ok(
-            Self {
-                trade_id: message_json.id(),
-                direction: message_json.direction(),
-            }
-        )
-    }
 }
 
 
@@ -76,8 +55,8 @@ pub struct LETFTrade {
 }
 
 impl BaseTrade for LETFTrade {
-    fn id(&self) -> u16 {
-        100  // TODO: OBVIOUSLY FIX HERE
+    fn id(&self) -> String {
+        self.trade_id.clone()  // TODO: FIX THIS LATER - MAYBE JUST A REF!!!
     }
 
     // TODO: THIS SHOULD BE FIXED.
@@ -99,12 +78,6 @@ impl std::cmp::PartialEq for LETFTrade {
 
 
 impl LETFTrade {
-
-    /// pricing the LETFTrade
-    pub fn price(&self, stock_value : f64) -> f64 {
-        // TODO: FIX THIS VALUE TO BE MORE REFLECTIVE.
-        stock_value
-    }
 
     /// produces the hedge of the LETF trade.
     /// stock_value : value of the stock that we are hedging LETF with.
@@ -148,7 +121,6 @@ impl TryFromRef<Message<'_>> for TradeTypes {
     fn try_from_ref(value: &Message) -> Result<Self, Self::Error> {
 
         let msg_utf = std::str::from_utf8(value.value)?;
-        debug!("__try_from_ref: {:?}", msg_utf);
 
         Ok(serde_json::from_str::<TradeTypes>(msg_utf)?)
     }
@@ -163,8 +135,8 @@ pub struct Future {
 }
 
 impl BaseTrade for Future {
-    fn id(&self) -> u16 {
-        100  // TODO: FIX THIS TO INFER IT FROM actual trade id
+    fn id(&self) -> String {
+        self.trade_id.clone()  // TODO: THIS SHOULD BE FIXED
     }
 
     // TODO: THIS SHOULD BE FIXED.
@@ -191,8 +163,8 @@ pub struct Cash {
 }
 
 impl BaseTrade for Cash {
-    fn id(&self) -> u16 {
-        100  // TODO: FIX THIS TO INFER IT FROM actual trade id
+    fn id(&self) -> String {
+        self.trade_id.clone()  // TODO: THIS SHOULD BE FIXED
     }
 
     // TODO: THIS SHOULD BE FIXED.
@@ -228,11 +200,11 @@ pub enum TradeTypes {
 
 
 impl BaseTrade for TradeTypes {
-    fn id(&self) -> u16 {
+    fn id(&self) -> String {
         match self {
-            TradeTypes::LETF(letf_trade) => 100, // TODO: OBVIOUSLY THIS IS WRONG
-            TradeTypes::Future(letf_future) => 100,
-            TradeTypes::Cash(cash) => 100,
+            TradeTypes::LETF(letf_trade) => letf_trade.id(),
+            TradeTypes::Future(letf_future) => letf_future.id(),
+            TradeTypes::Cash(cash) => cash.id(),
         }
     }
 
@@ -286,7 +258,7 @@ pub trait LETFTradeHandling {
 // }
 
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 struct Payload {
     op: String,
     after: AfterPosition,
@@ -294,33 +266,72 @@ struct Payload {
 }
 
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 struct AfterPosition {
     position_id: i64,
 }
 
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 struct BeforePosition {
     position_id: i64,
 }
 
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct AOTrade {
     payload: Payload,
 }
 
 
 impl BaseTrade for AOTrade {
-    fn id(&self) -> u16 {
-        self.payload.after.position_id as u16
+    fn id(&self) -> String {
+        self.payload.after.position_id.to_string()
     }
     fn direction(&self) -> TradeDirection {
         match self.payload.op.as_str() {
             "c" => TradeDirection::Create,
             "d" => TradeDirection::Delete,
             &_ => todo!(),
+        }
+    }
+}
+
+
+impl TryFromRef<Message<'_>> for AOTrade
+{
+    type Error = TradeError;
+
+    fn try_from_ref(value: &Message) -> Result<Self, Self::Error> {
+
+        let msg_utf = std::str::from_utf8(value.value)?;
+
+        Ok(serde_json::from_str::<AOTrade>(msg_utf)?)
+    }
+}
+
+
+/// trait describing trade aggregation and mainatanance
+pub trait TradeAggregation
+{
+    type TT: PartialEq + BaseTrade + Clone;
+
+    fn all_trades(&self) -> Vec<Self::TT>;
+    fn aggregated_trades(&self) -> AggregatedTrades;
+
+    fn add_trade(&self, trade: Self::TT) -> AggregatedTrades {
+        self.aggregated_trades() + trade.clone()
+    }
+
+    fn find_trade(&self, trade_id: String) -> Option<&Self::TT> {
+
+        let trade_pos = self.all_trades()
+            .iter()
+            .position(|&r| r.id() == trade_id );
+
+        match trade_pos {
+            Some(pos_idx) => self.all_trades().get(pos_idx),
+            None => None,
         }
     }
 }

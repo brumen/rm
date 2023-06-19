@@ -12,6 +12,7 @@ use crate::portfolio::{
     PortfolioType,
     AggregatedTrades,
 };
+use crate::trade::TradeAggregation;
 
 
 // which metric to compute
@@ -42,9 +43,9 @@ pub trait Decoder {
 }
 
 
-pub trait BasicValue {
+pub trait BasicValue : TradeAggregation {
     fn metric(&self) -> PricingMetric;
-    fn _value_trade(&self, trade_id: u16, market: CurrNewMarket, metric: PricingMetric) -> PricingResults;
+    fn _value_trade(&self, trade_id: String, market: CurrNewMarket, metric: PricingMetric) -> PricingResults;
 }
 
 
@@ -68,7 +69,7 @@ pub trait RestPricer : Decoder + BasicValue {
         let mut new_portfolio = PortfolioType::new();
 
         for (trade_id, trade_position) in agg_trades.iter() {
-            new_portfolio += self._value_trade(*trade_id, market_, metric) * (*trade_position);
+            new_portfolio += self._value_trade(trade_id.clone(), market_, metric) * (*trade_position);  // TODO: WITHOUT COPYING PLEASE????
         }
 
         new_portfolio
@@ -96,7 +97,7 @@ pub trait RestPricerSpark : Decoder {
         let all_trade_ids = ",".join(
             agg_trades
                 .keys()
-                .map(|trade_id: &u16| -> String {trade_id.to_string()} )
+//                .map(|trade_id: &u16| -> String {trade_id.to_string()} )
         );
 
         let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);

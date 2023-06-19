@@ -6,11 +6,12 @@ use kafka::producer::{Producer, Record, RequiredAcks};
 use std::collections::HashMap;
 use std::thread;
 use std::sync::{Arc, Mutex,};
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{channel, Sender, };
 
 use crate::trade::TradeTypes;
 use crate::streaming::Streaming;
-use crate::market::{MarketType, MktEventHandler, MktMsgParams, LETFP,};
+use crate::market::{MarketType, MktMsgParams, LETFP,};
+use crate::mkt_handler::MktEventHandler;
 use crate::ref_deref::TryFromRef;
 
 pub type PricingParams = HashMap<String, f64>;
@@ -91,25 +92,20 @@ impl LETFTrader {
             for ms in pos_listener_.poll().unwrap().iter() {
                 for m in ms.messages() {
 
-                    let trade_v = TradeTypes::try_from_ref(m);
-                    debug!("Procesing trade {:?}", trade_v);
+                    let trade_result = TradeTypes::try_from_ref(m);
 
-                    if trade_v.is_err() {
-                        continue;  // hope is lost for this trade, continue
-                    }
-
-                    let trade1 = match trade_v {
+                    let trade = match trade_result {
                         Ok(TradeTypes::LETF(trade_new)) => Some(trade_new),
                         _ => None,
                     };
 
-                    if trade1.is_none() {
+                    if trade.is_none() {
                         continue;
                     }
 
-                    let stock_mkt = self.curr_mkt.lock().expect("Could not lock the current market, weird");
-                    let trade = trade1.unwrap();
+                    let trade = trade.unwrap();
                     let stock_name = &trade.stock;
+                    let stock_mkt = self.curr_mkt.lock().expect("Could not lock the current market, weird");
                     let stock_value = stock_mkt.get(stock_name);
                     if stock_value.is_none() {  // returns empty hedge if it cant determine the stock value.
                         warn!("Can't find the value of stock {}", stock_name);
@@ -143,6 +139,7 @@ impl LETFTrader {
         results_topic: String, // publish the results topic
     ) {
 
+        let (mkt_sender, mkt_receiver) = channel::<MarketType>();
         // threads fail if any of them can not be created.
         thread::scope(|s| {
             let _ = thread::Builder::new()
@@ -157,6 +154,7 @@ impl LETFTrader {
                                 new_mkt_sender: useless_sender,
                             }
                         ),
+                        mkt_sender,
                     );
                 })
                 .unwrap();
@@ -190,6 +188,7 @@ impl MktEventHandler for LETFTrader {
     fn _handle_mkt_msg(
         &self,
         mkt_msg: &Message,
+        new_mkt_sender: Sender<MarketType>,
         mkt_params: MktMsgParams,
     ) {
 

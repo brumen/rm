@@ -9,7 +9,7 @@ use std::env::args;
 use std::thread;
 
 mod trade;
-use trade::TradeTypes;
+use trade::{AOTrade, TradeTypes,};
 
 mod encdec;
 mod portfolio;
@@ -30,6 +30,8 @@ mod trade_processor;
 mod rm_local;
 use rm_local::RTRMLocal;
 
+mod engine;
+mod mkt_handler;
 
 fn main() {
 
@@ -70,7 +72,7 @@ fn main_risk() {
     ).unwrap();
 
     // TODO: The topics should be read from config as well.
-    controller2.start (
+    controller2.start::<AOTrade> (
         "air_options.ao.option_positions".to_owned(),
         "mkt_events".to_owned(),
         "air_options.ao.results".to_owned(),
@@ -109,7 +111,7 @@ fn letf_risk() {
     ).unwrap();
 
     // TODO: The topics should be read from config as well.
-    rtrm_local.start::<TradeTypes> (
+    rtrm_local.start (
         "letf.results".to_owned(),
         "letf.mkt".to_owned(),
         "letf.risk".to_owned(),
