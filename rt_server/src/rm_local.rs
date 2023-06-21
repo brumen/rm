@@ -31,7 +31,7 @@ use crate::pricer::{
 };
 
 use crate::streaming::Streaming;
-use crate::trade::{LETFTrade, TradeTypes, TradeAggregation,};
+use crate::trade::{TradeTypes, TradeAggregation,};
 use crate::trade_processor::MarketSwitching;
 use crate::publish::PublishResults;
 
@@ -51,6 +51,8 @@ pub struct RTRMLocal {
     metric: PricingMetric,
     curr_market: Arc<Mutex<MarketType>>,
     new_market: Arc<Mutex<MarketType>>,
+    _all_trades: Arc<Mutex<Vec<TradeTypes>>>,
+    _aggregated_trades: Arc<Mutex<AggregatedTrades>>,
 }
 
 
@@ -76,6 +78,8 @@ impl RTRMLocal {
             metric,
             curr_market: Arc::new(Mutex::from(MarketType::new())),
             new_market: Arc::new(Mutex::from(MarketType::new())),
+            _all_trades: Arc::new(Mutex::new(Vec::<TradeTypes>::new())),
+            _aggregated_trades: Arc::new(Mutex::new(AggregatedTrades::new())),
         }
     }
 
@@ -102,16 +106,14 @@ impl RTRMLocal {
     }
 }
 
-//impl<TT: Send + std::fmt::Debug + Clone + for<'a> TryFromRef<Message<'a>>> CalcController<TT> for RTRMLocal {
-//}
 
 impl MarketSwitching for RTRMLocal {
     /// switch markets on the trade api.
     fn _switch_markets(&self) {
-        info!("Switching markets: current <- new.");
+        info!("_switch_markets: Switching markets: current <- new.");
 
-        let nm = self.new_market.lock().expect("Could not lock new market.");
-        **self.curr_market.lock().expect("Could not lock current market") = (*nm).clone();
+        let nm = self.new_market.lock().expect("_switch_markets: Could not lock new market.");
+        **self.curr_market.lock().expect("_switch_markets: Could not lock current market") = (*nm).clone();
     }
 
 }
@@ -121,12 +123,48 @@ impl TradeAggregation for RTRMLocal {
     type TT = TradeTypes;
 
     fn all_trades(&self) -> Vec<Self::TT> {
-        todo!()
+        // TODO: IDK IF THIS IS RIGHT????
+        // TODO: SHITTIEST WORK EVER
+        let mut new_trades = Vec::<Self::TT>::new();
+        for v in &*self._all_trades.lock().unwrap() {
+            new_trades.push(v.clone());
+        }
+
+        new_trades
+
     }
 
+    // fn aggregated_trades(&self) -> AggregatedTrades {
+
+    //     let mut new_agg_trades = AggregatedTrades::new();  //Vec::<Self::TT>::new();
+    //     for (agg_name, agg_val) in self._aggregated_trades.lock().unwrap().iter() {
+    //         new_agg_trades.insert(agg_name.clone(), *agg_val);
+    //     }
+
+    //     new_agg_trades
+
+    //     //*self._aggregated_trades.clone().lock().unwrap()
+    // }
+
+    /// constructs aggregated trades from all_trades.
     fn aggregated_trades(&self) -> AggregatedTrades {
-        todo!()
+
+        let mut new_agg_trades = AggregatedTrades::new();  //Vec::<Self::TT>::new();
+        for trade in &*self._all_trades.lock().unwrap() {
+            new_agg_trades.insert(trade.trade_name(), trade.amount());
+        }
+
+        new_agg_trades
+
+        //*self._aggregated_trades.clone().lock().unwrap()
     }
+
+
+    fn add_trade_mut(&self, trade: Self::TT) {
+        let all_trades = &mut *self._all_trades.lock().unwrap();
+        all_trades.push(trade);
+    }
+
 }
 
 
@@ -141,7 +179,7 @@ impl BasicValue for RTRMLocal {
 
         let trade = self.find_trade(trade_id);
 
-        // TODO: BETTER THIS
+        debug!("_value_trade: Valuing {:?}", trade);
         if trade.is_none() {
             match metric {
                 PricingMetric::PV => {
@@ -154,13 +192,19 @@ impl BasicValue for RTRMLocal {
             }
         }
 
+        let actual_trade = trade.unwrap();
+
+        let trade_name = actual_trade.trade_name();
+        debug!("_value trade: Trade name {:?}", trade_name);
+
         let stock_mkt_arc = match market {
             CurrNewMarket::Current => self.curr_market.lock(),
             CurrNewMarket::New => self.new_market.lock(),
         };
         let stock_mkt = stock_mkt_arc.expect("Could not lock the current market, weird");
 
-        let stock_value = trade.unwrap().price(&stock_mkt);
+        let stock_value = actual_trade.price(&stock_mkt);
+        debug!("_value_trade: Stock value {:?}", stock_value);
 
         if stock_value.is_none() {  // returns empty hedge if it cant determine the stock value.
             // TODO: THIS IS NOT RIGHT, IT'S NOT FAIR
@@ -180,7 +224,7 @@ impl BasicValue for RTRMLocal {
         // we have stock value, dont need more
         match metric {
             PricingMetric::PV =>
-                PricingResults::PV(PortfolioType::from([("FINISH THIS".to_string(), amount),])),
+                PricingResults::PV(PortfolioType::from([(trade_name, amount),])),
             PricingMetric::PV01 =>
                 // TODO: THIS IS WRONG, FIX IT!!!!
                 PricingResults::PV01(PV01Results::new()),
@@ -220,10 +264,10 @@ impl MktEventHandler for RTRMLocal {
             warn!("_handle_mkt_msg: New market !!!!");
             return;
         };
-        debug!("New real market obtained: {:?}", new_mkt_real);
-        debug!("MKT PARAMS: {:?}", mkt_params);
+        debug!("_handle_mkt_msg: New real market obtained: {:?}", new_mkt_real);
+        debug!("_handle_mkt_msg: Mkt params: {:?}", mkt_params);
         let MktMsgParams::LETFParams(new_quote_mkt) = mkt_params else {
-            warn!("Obtained a weird market element");  // TODO: THIS HAS TO BE FIXED.
+            warn!("_handle_mkt_msg: Obtained a weird market element");  // TODO: THIS HAS TO BE FIXED.
             return;
         };
 

@@ -214,6 +214,25 @@ pub enum TradeTypes {
     Cash(Cash),
 }
 
+impl TradeTypes {
+
+    pub fn trade_name(&self) -> String {
+        match self {
+            TradeTypes::LETF(ref letf_trade) => letf_trade.stock.clone(),
+            TradeTypes::Future(ref letf_future) => letf_future.stock.clone(),
+            TradeTypes::Cash(_) => "Cash".to_string(),
+        }
+    }
+
+    pub fn amount(&self) -> f64 {
+        match self {
+            TradeTypes::LETF(ref letf_trade) => letf_trade.amount,
+            TradeTypes::Future(ref letf_future) => letf_future.amount,
+            TradeTypes::Cash(letf_cash) => letf_cash.amount,
+        }
+    }
+}
+
 impl PriceTrade for TradeTypes {
     fn price(&self, market: &MarketType) -> Option<f64> {
         match self {
@@ -344,19 +363,21 @@ pub trait TradeAggregation
     fn all_trades(&self) -> Vec<Self::TT>;
     fn aggregated_trades(&self) -> AggregatedTrades;
 
+    fn add_trade_mut(&self, trade: Self::TT);
+
     fn add_trade(&self, trade: Self::TT) -> AggregatedTrades {
         self.aggregated_trades() + trade.clone()
     }
 
     fn find_trade(&self, trade_id: String) -> Option<Self::TT> {
 
-        let trade_pos = self.all_trades()
+        let all_trades = self.all_trades();
+        let trade_pos = all_trades
             .iter()
-            .position(|r| r.id() == trade_id );
+            .position(|r| r.id().eq(&trade_id) );
 
-        match trade_pos {
-            Some(pos_idx) => Some(self.all_trades().get(pos_idx).unwrap().clone()),
-            None => None,
-        }
+        debug!("find_trade: Trade id = {:?}, Trade position = {:?}", trade_id, trade_pos);
+
+        trade_pos.map(|pos_idx| self.all_trades().get(pos_idx).unwrap().clone())
     }
 }

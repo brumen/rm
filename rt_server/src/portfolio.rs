@@ -228,7 +228,7 @@ impl<TT: BaseTrade> Add<TT> for AggregatedTrades {
 
 // PV01Results
 pub type PV01Inner = HashMap<String, PortfolioType>;
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PV01Results ( pub PV01Inner );
 
 ref_deref_trait!(PV01Results, PV01Inner);
@@ -291,6 +291,7 @@ impl PV01Results {
 }
 
 
+#[derive(Debug)]
 pub enum PricingResults {
     PV(PortfolioType),
     PV01(PV01Results),

@@ -182,6 +182,11 @@ impl<TT : Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFr
 
     }
 
+    fn add_trade_mut(&self, trade: Self::TT) {
+        let all_trades = &mut *self._all_trades.lock().unwrap();
+        all_trades.push(trade);
+    }
+
     fn aggregated_trades(&self) -> AggregatedTrades {
 
         let mut new_agg_trades = AggregatedTrades::new();  //Vec::<Self::TT>::new();

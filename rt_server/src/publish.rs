@@ -25,15 +25,15 @@ pub trait PublishResults : Streaming {
             .unwrap();
 
         loop {
-            info!("PUBLISHING RESULTS");
+            info!("_publish_results: Publishing loop.");
             let curr_portfolio_raw = curr_portfolio_recv.recv();
             let curr_portfolio = match curr_portfolio_raw {
-                Ok(curr_mkt_actual) => {
-                    debug!("FOUND ACTUAL MARKET");
-                    curr_mkt_actual
+                Ok(curr_portfolio_actual) => {
+                    debug!("_publish_results: Found actual portfolio: {:?}", curr_portfolio_actual);
+                    curr_portfolio_actual
                 },
-                Err(_) => {
-                    debug!("COULD NOT PUBLISH ANYTHING");
+                Err(e) => {
+                    debug!("_publish_results: Error in publishing: {:?}", e);
                     continue;
                 },
             };
@@ -44,7 +44,7 @@ pub trait PublishResults : Streaming {
             let market_record = Record::from_value(&results_topic, curr_mkt_pv.as_bytes())
                 .with_partition(0);
 
-            info!("PUBLISHING: Publishing new portfolio w/ {} trades.", curr_portfolio.keys().len());
+            info!("_publish_results: Publishing new portfolio w/ {} trades.", curr_portfolio.keys().len());
             let _ = res_publisher.send(&market_record);
         }
     }

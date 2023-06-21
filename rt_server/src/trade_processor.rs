@@ -33,24 +33,39 @@ pub trait RiskProcessors : BasicValue + MarketSwitching
 
     // augments the existing trades w/ new ones.
     // returns the number of updated trades.
+    // fn _find_initial_trades(
+    //     &self,
+    //     trade_receiver: &Receiver<Self::TT>,
+    //     existing_trades : &mut Vec<Self::TT>,
+    //     agg_trades: &mut AggregatedTrades,
+    //     market_ : CurrNewMarket,
+    // ) -> u16 {
+    //     let mut nb_added_trades = 0;
+    //     while let Ok(trade) = trade_receiver.try_recv() {
+    //         info!("{:?} market: Getting trade {}", market_, trade.id());
+    //         // update aggregated trades and existing trades.
+    //         *agg_trades += trade.clone();
+    //         existing_trades.push(trade); // all trades just add the new one.
+    //         nb_added_trades += 1;
+    //     }
+
+    //     nb_added_trades
+    // }
+
     fn _find_initial_trades(
         &self,
         trade_receiver: &Receiver<Self::TT>,
-        existing_trades : &mut Vec<Self::TT>,
-        agg_trades: &mut AggregatedTrades,
-        market_ : CurrNewMarket,
     ) -> u16 {
         let mut nb_added_trades = 0;
         while let Ok(trade) = trade_receiver.try_recv() {
-            info!("{:?} market: Getting trade {}", market_, trade.id());
-            // update aggregated trades and existing trades.
-            *agg_trades += trade.clone();
-            existing_trades.push(trade); // all trades just add the new one.
+            info!("_find_initial_trades: Getting trade {}", trade.id());
+            self.add_trade_mut(trade);
             nb_added_trades += 1;
         }
 
         nb_added_trades
     }
+
 
     /// indicator if there is a new market present.
     /// consumes the new market events to come to the last one.
@@ -98,15 +113,16 @@ where
         new_portfolio_receiver: Receiver<(PortfolioType, Vec<Self::TT>)>,
     ) {
         let mut new_potential_portfolio : Option<(PortfolioType, Vec<Self::TT>)>;
-        let mut all_trades : Vec<Self::TT> = vec![];
-        let mut agg_trades = AggregatedTrades::new();
+        //let mut all_trades : Vec<Self::TT> = vec![];
+        //let mut agg_trades = AggregatedTrades::new();
         let mut nb_conseq_processed_trades : usize;  // number of trades which have been consequitively processed before refreshing to the new
         // market is switched.
         let max_number_trades = 20;  // TODO: FACTOR THIS OUT
 
         // compute the initial portfolio
-        let _ = self._find_initial_trades(&trade_receiver, &mut all_trades, &mut agg_trades, CurrNewMarket::Current);  // this updates all_trades
-        let mut curr_portfolio = self._price_trades(&agg_trades, CurrNewMarket::Current, self.metric());
+        let _ = self._find_initial_trades(&trade_receiver);  // this updates all_trades
+        //let mut curr_portfolio = self._price_trades(&agg_trades, CurrNewMarket::Current, self.metric());
+        let mut curr_portfolio = self._price_trades(&self.aggregated_trades(), CurrNewMarket::Current, self.metric());
         let _ = curr_portfolio_sender.send(curr_portfolio.clone());
 
         loop {
@@ -114,13 +130,15 @@ where
             // receive new trade to price on current market
             nb_conseq_processed_trades = 0;
             while let Ok(trade) = trade_receiver.try_recv() {
-                debug!("CURR: INSIDE");
-                if !all_trades.contains(&trade) {
+                debug!("_trade_processor_curr: Received good trade {:?}", trade);
+                //if !all_trades.contains(&trade) {
+                if !self.all_trades().contains(&trade) {
                     let trade_id = trade.id();
                     let trade_direction = trade.direction();
 
-                    info!("CURR: Processing trade {}, dir {:?}", trade_id, trade_direction);
+                    info!("_trade_processor_curr: Processing trade {}, dir {:?}", trade_id, trade_direction);
                     let trade_v = self._value_trade(trade_id, CurrNewMarket::Current, self.metric());
+                    info!("_trade_processor_curr: Trade value = {:?}", trade_v);
                     match trade_direction {
                         TradeDirection::Create => curr_portfolio += trade_v,
                         TradeDirection::Delete => curr_portfolio -= trade_v,
@@ -128,14 +146,16 @@ where
                     }
 
                     // update aggregated trades and all_trades.
-                    agg_trades += trade.clone();
-                    all_trades.push(trade); // all trades just add the new one.
+                    //agg_trades += trade.clone();
+                    //all_trades.push(trade); // all trades just add the new one.
+                    self.add_trade_mut(trade);
 
+                    debug!("_trade_processor_curr: Curr portfolio = {:?}", curr_portfolio);
                     let _ = curr_portfolio_sender.send(curr_portfolio.clone());
 
                     nb_conseq_processed_trades += 1;
                     if nb_conseq_processed_trades > max_number_trades {
-                        info!("CURR: Interrupting the trade processing.");
+                        info!("_trade_processor_curr: Interrupting trade processing.");
                         break;  // break out of this while
                     }
                 }
@@ -150,10 +170,12 @@ where
             if let Some((new_p, new_trades)) = new_potential_portfolio {
                 self._switch_markets();
                 let new_l = new_trades.len();
-                let all_l = all_trades.len();
+                //let all_l = all_trades.len();
+                let all_l = self.all_trades().len();
 
                 if new_l >= all_l {  // new processor is further ahead
-                    all_trades = new_trades;
+                    // TODO: THIS IS HERE DIFFICULT
+                    //all_trades = new_trades;
                     curr_portfolio = new_p;
                 } else if (new_l < all_l) && (new_l >= all_l - nb_conseq_processed_trades - 1) {  // new is not ahead, but we can still update.
                     curr_portfolio.extend(new_p.0.into_iter());
@@ -171,29 +193,34 @@ where
         new_trade_receiver: Receiver<Self::TT>,  // receiving new additional trades
         new_portfolio_sender: Sender<(PortfolioType, Vec<Self::TT>)>,  // results are sent here
     ) {
-        let mut all_trades : Vec<Self::TT> = vec![];
-        let mut agg_trades = AggregatedTrades::new();
+        //let mut all_trades : Vec<Self::TT> = vec![];
+        //let mut agg_trades = AggregatedTrades::new();
         let mut new_portfolio = PortfolioType::new();
 
         loop {
 
             // handling new trade event
-            let _ = self._find_initial_trades(&new_trade_receiver, &mut all_trades, &mut agg_trades, CurrNewMarket::New);
-            debug!("NEW: Nb all        trades: {}", all_trades.len());
-            debug!("NEW: Nb aggregated trades: {}", agg_trades.len());
+            let _ = self._find_initial_trades(&new_trade_receiver);
+            //debug!("_trade_processor_new: Nb all trades: {}", all_trades.len());
+            //debug!("_trade_processor_new: Nb aggregated trades: {}", agg_trades.len());
+            debug!("_trade_processor_new: Nb all trades: {}", self.all_trades().len());
+            debug!("_trade_processor_new: Nb aggregated trades: {}", self.aggregated_trades().len());
+
 
             //let new_market_event = self._new_market_event(&new_market_receiver);
             let new_market_event = <T as RiskProcessors>::_new_market_event(self, &new_market_receiver);
             if new_market_event {
-                info!("NEW: Working. {} trades", agg_trades.keys().len());
-                new_portfolio = self._price_trades(&agg_trades, CurrNewMarket::New, self.metric());
+                //info!("_trade_processor_new: Working. {} trades", agg_trades.keys().len());
+                //new_portfolio = self._price_trades(&agg_trades, CurrNewMarket::New, self.metric());
+                info!("_trade_processor_new: Working. {} trades", self.aggregated_trades().keys().len());
+                new_portfolio = self._price_trades(&self.aggregated_trades(), CurrNewMarket::New, self.metric());
             }
 
             // catch up any remaining trades
             while let Ok(trade) = new_trade_receiver.try_recv() {
                 let trade_id = trade.id();
                 let trade_direction = trade.direction();
-                info!("NEW: Processing trade {}, dir {:?}", trade_id, trade_direction);
+                info!("_trade_processor_new: Processing trade {}, dir {:?}", trade_id, trade_direction);
                 let trade_v = self._value_trade(trade_id, CurrNewMarket::New, self.metric());
                 match trade_direction {
                     TradeDirection::Create => {new_portfolio += trade_v;},
@@ -202,14 +229,15 @@ where
                 }
 
                 // update all_trades and agg_trades.
-                all_trades.push(trade.clone());
-                agg_trades += trade;
+                //all_trades.push(trade.clone());
+                //agg_trades += trade;
             }
 
             // decisions whether to publish the market or not.
             if new_market_event {
-                info!("NEW: Publishing portfolio. {} trades", new_portfolio.keys().len());
-                let _ = new_portfolio_sender.send((new_portfolio.clone(), all_trades.clone()));
+                info!("_trade_processor_new: Publishing portfolio. {} trades", new_portfolio.keys().len());
+                //let _ = new_portfolio_sender.send((new_portfolio.clone(), all_trades.clone()));
+                let _ = new_portfolio_sender.send((new_portfolio.clone(), self.all_trades().clone()));
             }
         }
     }
