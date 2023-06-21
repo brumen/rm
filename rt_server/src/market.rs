@@ -91,17 +91,17 @@ pub struct AOMktParams {
 #[derive(Debug, Clone)]
 pub struct LETFP {
     pub curr_mkt : Arc<Mutex<MarketType>>,
-    pub new_mkt_sender: Sender<MarketType>,
+    //pub new_mkt_sender: Sender<MarketType>,
 }
 
 
-#[derive(Debug, Clone)]
-pub struct AOStruct {
-    pub mkt_sender: Sender<MarketType>,
-}
+// #[derive(Debug, Clone)]
+// pub struct AOStruct {
+//     pub mkt_sender: Sender<MarketType>,
+// }
 
 #[derive(Debug, Clone)]
 pub enum MktMsgParams {
-    AOParams(AOStruct),
+    AOParams(),
     LETFParams(LETFP),
 }

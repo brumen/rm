@@ -7,6 +7,8 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{ref_deref::TryFromRef, portfolio::AggregatedTrades};
+use crate::pricer::PriceTrade;
+use crate::market::MarketType;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
@@ -16,25 +18,11 @@ pub enum TradeDirection {
     Update,
 }
 
-// #[derive(Debug, Clone, PartialEq, Eq, Copy)]
-// pub struct Trade {
-//     pub trade_id: u16,
-//     pub direction: TradeDirection,
-// }
 
 pub trait BaseTrade {
     fn id(&self) -> String;
     fn direction(&self) -> TradeDirection;
 }
-
-// impl BaseTrade for Trade {
-//     fn id(&self) -> String {
-//         self.trade_id.to_string()
-//     }
-//     fn direction(&self) -> TradeDirection {
-//         self.direction
-//     }
-// }
 
 
 #[derive(Error, Debug)]
@@ -76,6 +64,16 @@ impl std::cmp::PartialEq for LETFTrade {
     }
 }
 
+impl PriceTrade for LETFTrade {
+    fn price(&self, market: &MarketType) -> Option<f64> {
+
+        let stock = market.get(&self.stock);
+        match stock {
+            None => None,
+            Some(stock_v) => Some(stock_v * self.beta * self.amount - self.amount),
+        }
+    }
+}
 
 impl LETFTrade {
 
@@ -134,6 +132,18 @@ pub struct Future {
     pub amount: f64,
 }
 
+impl PriceTrade for Future {
+    fn price(&self, market: &MarketType) -> Option<f64> {
+
+        let stock = market.get(&self.stock);
+
+        match stock {
+            None => None,
+            Some(stock_v) => Some(stock_v * self.amount),
+        }
+    }
+}
+
 impl BaseTrade for Future {
     fn id(&self) -> String {
         self.trade_id.clone()  // TODO: THIS SHOULD BE FIXED
@@ -160,6 +170,12 @@ impl std::cmp::PartialEq for Future {
 pub struct Cash {
     pub trade_id: String,
     pub amount: f64,
+}
+
+impl PriceTrade for Cash {
+    fn price(&self, market: &MarketType) -> Option<f64> {
+        Some(self.amount)
+    }
 }
 
 impl BaseTrade for Cash {
@@ -198,6 +214,15 @@ pub enum TradeTypes {
     Cash(Cash),
 }
 
+impl PriceTrade for TradeTypes {
+    fn price(&self, market: &MarketType) -> Option<f64> {
+        match self {
+            TradeTypes::LETF(letf_trade) => letf_trade.price(market),
+            TradeTypes::Future(letf_fut) => letf_fut.price(market),
+            TradeTypes::Cash(letf_cash) => letf_cash.price(market),
+        }
+    }
+}
 
 impl BaseTrade for TradeTypes {
     fn id(&self) -> String {
@@ -314,7 +339,7 @@ impl TryFromRef<Message<'_>> for AOTrade
 /// trait describing trade aggregation and mainatanance
 pub trait TradeAggregation
 {
-    type TT: PartialEq + BaseTrade + Clone;
+    type TT: PartialEq + BaseTrade + Clone + Send + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>;
 
     fn all_trades(&self) -> Vec<Self::TT>;
     fn aggregated_trades(&self) -> AggregatedTrades;
@@ -323,14 +348,14 @@ pub trait TradeAggregation
         self.aggregated_trades() + trade.clone()
     }
 
-    fn find_trade(&self, trade_id: String) -> Option<&Self::TT> {
+    fn find_trade(&self, trade_id: String) -> Option<Self::TT> {
 
         let trade_pos = self.all_trades()
             .iter()
-            .position(|&r| r.id() == trade_id );
+            .position(|r| r.id() == trade_id );
 
         match trade_pos {
-            Some(pos_idx) => self.all_trades().get(pos_idx),
+            Some(pos_idx) => Some(self.all_trades().get(pos_idx).unwrap().clone()),
             None => None,
         }
     }

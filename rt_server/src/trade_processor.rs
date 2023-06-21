@@ -14,7 +14,6 @@ use crate::portfolio::{
 };
 use crate::market::{MarketType, CurrNewMarket, };
 use crate::pricer::{BasicValue, PriceMultipleTrades,};
-use crate::trade::TradeAggregation;
 
 pub type PricingParams = HashMap<String, f64>;
 
@@ -90,7 +89,7 @@ pub trait RiskProcessors : BasicValue + MarketSwitching
 
 impl<T> RiskProcessors for T
 where
-    T: BasicValue + MarketSwitching + PriceMultipleTrades + TradeAggregation,
+    T: BasicValue + MarketSwitching + PriceMultipleTrades,
 {
     fn _trade_processor_curr(
         &self,

@@ -10,7 +10,7 @@ use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, Message, };
 use std::ops::{Deref, DerefMut,};
 use crate::ref_deref_trait;
 use crate::ref_deref::TryFromRef;
-use crate::trade::{TradeDirection, BaseTrade, };
+use crate::trade::{TradeDirection, BaseTrade, TradeAggregation, };
 use crate::streaming::Streaming;
 
 
@@ -204,7 +204,7 @@ impl<TT: BaseTrade> AddAssign<TT> for AggregatedTrades {
 impl<TT: BaseTrade> Add<TT> for AggregatedTrades {
     type Output = AggregatedTrades;
 
-    fn add(self, rhs: TT) -> Self::Output {
+    fn add(mut self, rhs: TT) -> Self::Output {
         let new_trade_id = rhs.id();
         let new_trade_position = match rhs.direction() {
             TradeDirection::Create => 1.,
@@ -212,7 +212,7 @@ impl<TT: BaseTrade> Add<TT> for AggregatedTrades {
             _ => 0.,
         };
 
-        if let Some(agg_pos) = self.get(&new_trade_id) {
+        if let Some(agg_pos) = self.get_mut(&new_trade_id) {
             *agg_pos += new_trade_position;
             if *agg_pos == 0. {
                 let _ = self.remove(&new_trade_id);
@@ -372,29 +372,27 @@ impl MulAssign<&AggregatedTrades> for PricingResults {
 }
 
 
-pub trait PortfolioSender<TT> : Streaming
-where
-    TT: Send + Debug
+pub trait PortfolioSender : TradeAggregation
 {
     fn __construct_portfolio(
         &self,
-        sender_new: Sender<TT>,
-        sender_curr: Sender<TT>,
+        sender_new: Sender<Self::TT>,
+        sender_curr: Sender<Self::TT>,
         pos_topic: String,
     );
 }
 
 
-impl<T, TT> PortfolioSender<TT> for T
+impl<T> PortfolioSender for T
 where
-    T: Streaming,
-    TT: for<'a> TryFromRef<Message<'a>> + std::fmt::Debug + Send + Clone,
-    for<'a> <TT as TryFromRef<Message<'a>>>::Error: Debug,
+    T: Streaming + TradeAggregation,
+    //TT: for<'a> TryFromRef<Message<'a>> + std::fmt::Debug + Send + Clone,
+    //for<'a> <TT as TryFromRef<Message<'a>>>::Error: Debug,
 {
     fn __construct_portfolio(
         &self,
-        sender_new: Sender<TT>,
-        sender_curr: Sender<TT>,
+        sender_new: Sender<Self::TT>,
+        sender_curr: Sender<Self::TT>,
         pos_topic: String,
     ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
@@ -407,13 +405,12 @@ where
             .unwrap();
 
         loop {
-            //debug!("__construct_portfolio: running");
             for ms in pos_listener.poll().unwrap().iter() {
                 debug!("__construct_portfolio: got some messages");
                 for msg in ms.messages() {
                     debug!("__construct_portfolio: {:?}",  msg);
 
-                    match TT::try_from_ref(msg) {
+                    match Self::TT::try_from_ref(msg) {
                         Err(e) => {
                             warn!("__construct_portfolio: Problem w/ trade: {:?}", e);
                             continue;

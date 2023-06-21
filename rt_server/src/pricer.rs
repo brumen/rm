@@ -13,6 +13,7 @@ use crate::portfolio::{
     AggregatedTrades,
 };
 use crate::trade::TradeAggregation;
+use crate::market::MarketType;
 
 
 // which metric to compute
@@ -40,6 +41,11 @@ pub struct PricingStruct {
 
 pub trait Decoder {
     fn _unwrap_pricing_results(&self, result_price : Response, metric: PricingMetric) -> PricingResults;
+}
+
+
+pub trait PriceTrade {
+    fn price(&self, market: &MarketType) -> Option<f64>;
 }
 
 

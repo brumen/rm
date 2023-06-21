@@ -8,7 +8,6 @@ use std::sync::mpsc::Sender;
 use kafka::consumer::Message;
 use serde::Deserialize;
 
-use crate::engine::CalcController;
 use crate::portfolio::{
     PortfolioType,
     AggregatedTrades,
@@ -28,6 +27,7 @@ use crate::pricer::{
     PricingMetric,
     PriceMultipleTrades,
     BasicValue,
+    PriceTrade,
 };
 
 use crate::streaming::Streaming;
@@ -102,9 +102,8 @@ impl RTRMLocal {
     }
 }
 
-impl CalcController for RTRMLocal {
-    type TradeType = TradeTypes;
-}
+//impl<TT: Send + std::fmt::Debug + Clone + for<'a> TryFromRef<Message<'a>>> CalcController<TT> for RTRMLocal {
+//}
 
 impl MarketSwitching for RTRMLocal {
     /// switch markets on the trade api.
@@ -140,45 +139,48 @@ impl BasicValue for RTRMLocal {
     /// pricing the trade locally
     fn _value_trade(&self, trade_id: String, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
 
-        //let trade = self.all_trades();
+        let trade = self.find_trade(trade_id);
 
-        let amount = 100.;
-
-        // TODO: THIS IS WRONG, BUT WE'll JUST GO ALONG
-        let trade = LETFTrade {
-            trade_id,
-            stock: "AAPL".to_string(),
-            amount,
-            beta: 2.,
-        };
+        // TODO: BETTER THIS
+        if trade.is_none() {
+            match metric {
+                PricingMetric::PV => {
+                    return PricingResults::PV(PortfolioType::new()); //  from([("".to_string(), 0.),])),
+                },
+                PricingMetric::PV01 => {
+                // TODO: THIS IS WRONG, FIX IT!!!!
+                    return PricingResults::PV01(PV01Results::new());
+                }
+            }
+        }
 
         let stock_mkt_arc = match market {
             CurrNewMarket::Current => self.curr_market.lock(),
             CurrNewMarket::New => self.new_market.lock(),
         };
         let stock_mkt = stock_mkt_arc.expect("Could not lock the current market, weird");
-        let stock_name = &trade.stock;
-        let stock_value = stock_mkt.get(stock_name);
+
+        let stock_value = trade.unwrap().price(&stock_mkt);
+
         if stock_value.is_none() {  // returns empty hedge if it cant determine the stock value.
-            warn!("Can't find the value of stock {}", stock_name);
             // TODO: THIS IS NOT RIGHT, IT'S NOT FAIR
             match metric {
                 PricingMetric::PV => {
-                    return PricingResults::PV(PortfolioType::from([(stock_name.clone(), 0.),]));
+                    return PricingResults::PV(PortfolioType::new()); // from([(stock_name.clone(), 0.),]));
                 },
                 PricingMetric::PV01 => {
                     //return PricingResults::PV01(PortfolioType::from([(stock_name.clone(), 0.),]));
-
                     // TODO: THIS IS WRONG
                     return PricingResults::PV01(PV01Results::new());
                 },
             }
         }
 
+        let amount = stock_value.unwrap();
         // we have stock value, dont need more
         match metric {
             PricingMetric::PV =>
-                PricingResults::PV(PortfolioType::from([(stock_name.clone(), amount),])),
+                PricingResults::PV(PortfolioType::from([("FINISH THIS".to_string(), amount),])),
             PricingMetric::PV01 =>
                 // TODO: THIS IS WRONG, FIX IT!!!!
                 PricingResults::PV01(PV01Results::new()),
@@ -209,28 +211,30 @@ impl MktEventHandler for RTRMLocal {
     ) {
 
         let new_market = MarketType::try_from_ref(mkt_msg);
-        debug!("Got quote: {:?}", new_market);
+        debug!("_handle_mkt_msg: Got quote: {:?}", new_market);
         if new_market.is_err() {
             return;  // ignore the market message if it cant be decoded correctly.
         }
 
         let Ok(new_mkt_real) = new_market else {
-            warn!("New market !!!!");
+            warn!("_handle_mkt_msg: New market !!!!");
             return;
         };
-
-        info!("MKT PARAMS: {:?}", mkt_params);
+        debug!("New real market obtained: {:?}", new_mkt_real);
+        debug!("MKT PARAMS: {:?}", mkt_params);
         let MktMsgParams::LETFParams(new_quote_mkt) = mkt_params else {
             warn!("Obtained a weird market element");  // TODO: THIS HAS TO BE FIXED.
             return;
         };
 
+        debug!("_handle_mkt_msg: New quote is {:?}", new_quote_mkt);
         let mut curr_mkt_tmp = new_quote_mkt.curr_mkt.lock().unwrap();  // lock the current market
         for (new_quote, new_value) in new_mkt_real.iter() {
             curr_mkt_tmp.insert(new_quote.to_string(), *new_value);
         }
+        debug!("_handle_mkt_msg: Final market {:?}", curr_mkt_tmp);
         //let _ = new_quote_mkt.new_mkt_sender.send(*curr_mkt_tmp);  // TODO: FIX THIS HERE!!!
-        let _ = new_quote_mkt.new_mkt_sender.send(new_mkt_real);  // TODO: FIX THIS HERE!!!
+        let _ = new_mkt_sender.send(new_mkt_real);  // TODO: FIX THIS HERE!!!
     }
 }
 

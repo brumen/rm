@@ -9,7 +9,7 @@ use core::convert::From;
 use std::sync::{Arc, Mutex};
 
 use crate::market::MktMsgParams;
-use crate::trade::{AOTrade, TradeAggregation, BaseTrade, };
+use crate::trade::{TradeAggregation, BaseTrade, };
 use crate::portfolio::{
     PortfolioType,
     PricingResults,
@@ -36,7 +36,6 @@ use crate::pricer::{
 use crate::publish::PublishResults;
 use crate::streaming::Streaming;
 use crate::trade_processor::MarketSwitching;
-use crate::engine::CalcController;
 use crate::mkt_handler::MktEventHandler;
 
 pub type PricingParams = HashMap<String, f64>;
@@ -47,7 +46,7 @@ pub type PricingParams = HashMap<String, f64>;
 /// kafka_server_name: name of kafka server, like "localhost"
 /// kafka_port: port of kafka server, like 9092
 /// trader_pricer: name of the rester service, like localhost:5010
-pub struct Controller<TT> {
+pub struct Controller<TT: Sized> {
     pricing_params: PricingParams,
     kafka_server_name: String,
     kafka_port: i32,
@@ -130,9 +129,9 @@ impl<TT> Controller<TT> {
 }
 
 
-impl<TT : PartialEq + BaseTrade + Clone> CalcController for Controller<TT> {
-    type TradeType = AOTrade;
-}
+// TODO: THIS IS WRONG OVCIOUSLY
+//impl<TT : Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>> CalcController<TT> for Controller<TT>{
+//}
 
 
 impl<TT> Decoder for Controller<TT> {
@@ -168,21 +167,36 @@ impl<TT> Decoder for Controller<TT> {
 }
 
 
-impl<TT : PartialEq + BaseTrade + Clone> TradeAggregation for Controller<TT> {
+impl<TT : Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>> TradeAggregation for Controller<TT> {
     type TT = TT;
 
     fn all_trades(&self) -> Vec<Self::TT> {
         // TODO: IDK IF THIS IS RIGHT????
-        *self._all_trades.clone().lock().unwrap()
+        // TODO: SHITTIEST WORK EVER
+        let mut new_trades = Vec::<Self::TT>::new();
+        for v in &*self._all_trades.lock().unwrap() {
+            new_trades.push(v.clone());
+        }
+
+        new_trades
+
     }
 
     fn aggregated_trades(&self) -> AggregatedTrades {
-        *self._aggregated_trades.clone().lock().unwrap()
+
+        let mut new_agg_trades = AggregatedTrades::new();  //Vec::<Self::TT>::new();
+        for (agg_name, agg_val) in self._aggregated_trades.lock().unwrap().iter() {
+            new_agg_trades.insert(agg_name.clone(), *agg_val);
+        }
+
+        new_agg_trades
+
+        //*self._aggregated_trades.clone().lock().unwrap()
     }
 }
 
 
-impl<TT: PartialEq + BaseTrade + Clone> RestPricer for Controller<TT> {
+impl<TT: Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>> RestPricer for Controller<TT> {
 
     /// pricing endpoints for valuing on the go
     fn _pricing_endpoint(&self, market_ : CurrNewMarket, metric: PricingMetric) -> String {
@@ -294,10 +308,10 @@ impl<TT> MktEventHandler for Controller<TT> {
             }
         }
 
-        let MktMsgParams::AOParams(ao_params) = mkt_msg_params else {
-            warn!("Parameters provided to _handle_mkt_msg are of the wrong type");
-            return;
-        };
+        //let MktMsgParams::AOParams(ao_params) = mkt_msg_params else {
+        //    warn!("Parameters provided to _handle_mkt_msg are of the wrong type");
+        //    return;
+        //};
         let _ = new_mkt_sender.send(market_obj); // send the market to new_market event
     }
 }
@@ -315,7 +329,7 @@ impl<TT> MarketSwitching for Controller<TT> {
 }
 
 
-impl<TT : PartialEq + BaseTrade + Clone> BasicValue for Controller<TT> {
+impl<TT : Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>> BasicValue for Controller<TT> {
 
     fn metric(&self) -> PricingMetric {
         self.metric

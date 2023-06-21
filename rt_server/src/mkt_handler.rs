@@ -40,8 +40,8 @@ pub trait MktEventHandler : Streaming {
         loop {
             for mkt_msg_set in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
                 for mkt_msg in mkt_msg_set.messages() {
-                    debug!("Getting new markets from {mkt_topic}.");
-                    self._handle_mkt_msg(mkt_msg, new_mkt_sender, mkt_params.clone());
+                    debug!("_handle_mkt_events: Getting new markets from {mkt_topic}.");
+                    self._handle_mkt_msg(mkt_msg, new_mkt_sender.clone(), mkt_params.clone());
              }
                 let _ = mkt_listener_.consume_messageset(mkt_msg_set);
             }

@@ -7,14 +7,16 @@
 
 use std::env::args;
 use std::thread;
+use std::sync::{Arc, Mutex,};
 
 mod trade;
-use trade::{AOTrade, TradeTypes,};
+use trade::AOTrade;
 
 mod encdec;
 mod portfolio;
 mod pricer;
 mod market;
+use market::{LETFP, MarketType,};
 mod ref_deref;
 
 mod controller;
@@ -32,6 +34,9 @@ use rm_local::RTRMLocal;
 
 mod engine;
 mod mkt_handler;
+
+use crate::engine::CalcController;
+
 
 fn main() {
 
@@ -66,16 +71,17 @@ fn main_risk() {
     //let option_type = "ao".to_string();
     let config_file : String = args().nth(1).unwrap();
 
-    let controller2 = Controller::new_from_config(
+    let controller2 = Controller::<AOTrade>::new_from_config(
         config_file,
         //"/home/brumen/work/rm/configuration.yaml".to_owned(),
     ).unwrap();
 
     // TODO: The topics should be read from config as well.
-    controller2.start::<AOTrade> (
+    controller2.start (
         "air_options.ao.option_positions".to_owned(),
         "mkt_events".to_owned(),
         "air_options.ao.results".to_owned(),
+        market::MktMsgParams::AOParams(),
     );
 }
 
@@ -115,5 +121,10 @@ fn letf_risk() {
         "letf.results".to_owned(),
         "letf.mkt".to_owned(),
         "letf.risk".to_owned(),
+        market::MktMsgParams::LETFParams(
+            LETFP {
+                curr_mkt: Arc::new(Mutex::new(MarketType::new()))
+            }
+        ),
     );
 }

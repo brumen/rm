@@ -139,19 +139,18 @@ impl LETFTrader {
         results_topic: String, // publish the results topic
     ) {
 
-        let (mkt_sender, mkt_receiver) = channel::<MarketType>();
+        let (mkt_sender, _) = channel::<MarketType>();
         // threads fail if any of them can not be created.
         thread::scope(|s| {
             let _ = thread::Builder::new()
                 .name("handle_mkt_events".to_string())
                 .spawn_scoped(s, move || {
-                    let (useless_sender, _) = channel::<MarketType>();
+                    //let (useless_sender, _) = channel::<MarketType>();
                     self._handle_mkt_events(
                         mkt_topic,
                         MktMsgParams::LETFParams(
                             LETFP {
                                 curr_mkt: self.curr_mkt.clone(),
-                                new_mkt_sender: useless_sender,
                             }
                         ),
                         mkt_sender,

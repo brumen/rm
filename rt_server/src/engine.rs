@@ -1,31 +1,38 @@
-use kafka::consumer::Message;
 use std::collections::HashMap;
 use std::sync::mpsc::channel;
 use std::thread;
 
 use crate::market::MktMsgParams;
 use crate::mkt_handler::MktEventHandler;
-use crate::trade::BaseTrade;
-use crate::portfolio::{
-    PortfolioType,
-    PortfolioSender,
-};
+use crate::portfolio::{PortfolioType, PortfolioSender, };
 
 
 use crate::market::MarketType;
-use crate::ref_deref::TryFromRef;
 
 use crate::publish::PublishResults;
 use crate::trade_processor::RiskProcessors;
 
 pub type PricingParams = HashMap<String, f64>;
 
+use crate::trade::TradeAggregation;
+
+pub trait CalcController {
+    fn start (
+        &self,
+        pos_topic: String,     // position topic on kafka
+        mkt_topic: String,     // market topic
+        results_topic: String, // publish the results topic
+        mkt_params: MktMsgParams,
+    );
+}
 
 ///
 /// main function that starts the various threads.
 ///
-pub trait CalcController : RiskProcessors + MktEventHandler {
-    type TradeType : Send + std::fmt::Debug + Clone + BaseTrade + std::cmp::PartialEq + for<'a> TryFromRef<Message<'a>>;
+impl<T> CalcController for T
+where
+    T: Send + Sync + TradeAggregation + RiskProcessors + MktEventHandler + PublishResults + PortfolioSender,
+{
 
     fn start (
         &self,
@@ -35,13 +42,13 @@ pub trait CalcController : RiskProcessors + MktEventHandler {
         mkt_params: MktMsgParams,
     ) {
         // 2 trade senders, 1 for current market, 1 for new market.
-        let (pos_sender_curr, pos_recv_curr) = channel::<Self::TradeType>();
-        let (pos_sender_new, pos_recv_new) = channel::<Self::TradeType>();
+        let (pos_sender_curr, pos_recv_curr) = channel::<T::TT>();
+        let (pos_sender_new, pos_recv_new) = channel::<T::TT>();
         // events about the new market event
         let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
         // new & current market portfolio
         let (curr_portfolio_sender, curr_portfolio_recv) = channel::<PortfolioType>();
-        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, Vec<Self::TradeType>)>();
+        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, Vec<T::TT>)>();
 
         // threads fail if any of them can not be created.
         thread::scope(|s| {
