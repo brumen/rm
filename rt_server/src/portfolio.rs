@@ -446,9 +446,9 @@ mod portfolio_tests {
 
         let date_1 = Date::from_calendar_date(2023, Month::January, 10).unwrap();
         let date_2 = Date::from_calendar_date(2023, Month::February, 20).unwrap();
-        let date_3 = date_1.clone();
-        let date_4 = date_1.clone();
-        let date_5 = date_2.clone();
+        let _date_3 = date_1.clone();
+        let _date_4 = date_1.clone();
+        let _date_5 = date_2.clone();
         let mut portfolio_1 = PortfolioType::from([('1'.to_string(), 10.), ('2'.to_string(), 20.),]);
         let portfolio_2 = PortfolioType::from([('1'.to_string(), 20.),]);
         portfolio_1 += portfolio_2;

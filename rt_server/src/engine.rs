@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::mpsc::channel;
 use std::thread;
 
@@ -11,8 +10,6 @@ use crate::market::MarketType;
 
 use crate::publish::PublishResults;
 use crate::trade_processor::RiskProcessors;
-
-pub type PricingParams = HashMap<String, f64>;
 
 use crate::trade::TradeAggregation;
 

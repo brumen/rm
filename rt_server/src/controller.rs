@@ -279,10 +279,10 @@ impl<TT> MktEventHandler for Controller<TT> {
         &self,
         mkt_msg : &Message,
         new_mkt_sender: Sender<MarketType>,
-        mkt_msg_params: MktMsgParams,
+        _mkt_msg_params: MktMsgParams,
     ) {
 
-        let optional_mkt = MarketType::try_from_ref(&mkt_msg);
+        let optional_mkt = MarketType::try_from_ref(mkt_msg);
 
         if optional_mkt.is_err() {
             warn!("Could not conver the market message to the market type!");

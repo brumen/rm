@@ -1,4 +1,4 @@
-use log::debug;
+use log::{warn, debug,};
 use core::cmp::Eq;
 use serde_json::Value;
 use serde::{Serialize, Deserialize,};
@@ -67,16 +67,11 @@ impl std::cmp::PartialEq for LETFTrade {
 
 impl PriceTrade for LETFTrade {
     fn price(&self, market: &MarketType) -> Option<f64> {
-
         let stock = market.get(&self.stock);
-        match stock {
-            None => None,
-            Some(stock_v) => Some(stock_v * self.beta * self.amount - self.amount),
-        }
+        stock.map(|stock_v| stock_v * self.beta * self.amount - self.amount )
     }
 
-    fn pv01(&self, market: &MarketType) -> PV01Results {
-
+    fn pv01(&self, _market: &MarketType) -> PV01Results {
         let mut pv01_result = PV01Results::new();
         let _ = pv01_result.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.beta * self.amount),]));
 
@@ -88,15 +83,25 @@ impl LETFTrade {
 
     /// produces the hedge of the LETF trade.
     /// stock_value : value of the stock that we are hedging LETF with.
-    pub fn hedge(&self, stock_value : f64) -> Vec<LETFHedge> {
+    pub fn hedge(&self, market: &MarketType) -> Vec<LETFHedge> {
+
+        let stock_name = &self.stock;
+        let stock_value = market.get(stock_name);
+
+        if stock_value.is_none() {
+            warn!("hedge: Could not find {:?} in the market", stock_name);
+            return vec![]; // Cant do much w/ it.
+        }
+
+        let stock = stock_value.unwrap();
         let beta = self.beta;
         let amount = self.amount;
-        let exposure_amt = beta * amount * stock_value;
+        let exposure_amt = beta * amount * stock;
 
         vec![
             LETFHedge::Future( Future {
                 trade_id: Uuid::new_v4().to_string(),
-                stock: self.stock.clone(), //  stock_name,
+                stock: stock_name.clone(),
                 amount: exposure_amt,
             }),
             LETFHedge::Cash( Cash {
@@ -149,7 +154,7 @@ impl PriceTrade for Future {
         stock.map(|stock_v| stock_v * self.amount)
     }
 
-    fn pv01(&self, market: &MarketType) -> PV01Results {
+    fn pv01(&self, _market: &MarketType) -> PV01Results {
         let mut pv01_results = PV01Results::new();
         let _ =pv01_results.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.amount),]));
 
@@ -186,11 +191,11 @@ pub struct Cash {
 }
 
 impl PriceTrade for Cash {
-    fn price(&self, market: &MarketType) -> Option<f64> {
+    fn price(&self, _market: &MarketType) -> Option<f64> {
         Some(self.amount)
     }
 
-    fn pv01(&self, market: &MarketType) -> PV01Results {
+    fn pv01(&self, _market: &MarketType) -> PV01Results {
         PV01Results::new()
     }
 }

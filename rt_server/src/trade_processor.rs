@@ -1,21 +1,15 @@
 // Trait that implements the 2 market pricing
 
 use log::{info, debug,};
-use std::collections::HashMap;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender,};
 
 use crate::trade::{
     TradeDirection,
     BaseTrade,
 };
-use crate::portfolio::{
-    PortfolioType,
-    AggregatedTrades,
-};
+use crate::portfolio::PortfolioType;
 use crate::market::{MarketType, CurrNewMarket, };
 use crate::pricer::{BasicValue, PriceMultipleTrades,};
-
-pub type PricingParams = HashMap<String, f64>;
 
 
 pub trait MarketSwitching {
@@ -176,7 +170,7 @@ where
         loop {
 
             // handling new trade event
-            let _ = self._find_initial_trades(&new_trade_receiver);
+            //let _ = self._find_initial_trades(&new_trade_receiver);
             //debug!("_trade_processor_new: Nb all trades: {}", all_trades.len());
             //debug!("_trade_processor_new: Nb aggregated trades: {}", agg_trades.len());
             debug!("_trade_processor_new: Nb all trades: {}", self.all_trades().len());

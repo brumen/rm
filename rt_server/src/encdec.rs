@@ -5,7 +5,6 @@ use time::error::{Parse, Format};  // parse error
 
 pub enum DecoderError {
     Parse(Parse),
-    SplitError(String),
 }
 
 impl From<Parse> for DecoderError {
