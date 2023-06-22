@@ -6,7 +6,7 @@ use kafka::consumer::Message;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::portfolio::PV01Results;
+use crate::portfolio::{PV01Results, PortfolioType};
 use crate::{ref_deref::TryFromRef, portfolio::AggregatedTrades};
 use crate::pricer::PriceTrade;
 use crate::market::MarketType;
@@ -76,10 +76,11 @@ impl PriceTrade for LETFTrade {
     }
 
     fn pv01(&self, market: &MarketType) -> PV01Results {
-        let pv01 = PV01Results::new();
-        let _ = pv01.insert(self.trade_id, PortfolioType::from([self.trade_id, self.beta * self.amount);
 
-        pv01
+        let mut pv01_result = PV01Results::new();
+        let _ = pv01_result.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.beta * self.amount),]));
+
+        pv01_result
     }
 }
 
@@ -145,14 +146,14 @@ impl PriceTrade for Future {
 
         let stock = market.get(&self.stock);
 
-        match stock {
-            None => None,
-            Some(stock_v) => Some(stock_v * self.amount),
-        }
+        stock.map(|stock_v| stock_v * self.amount)
     }
 
     fn pv01(&self, market: &MarketType) -> PV01Results {
-        PV01Results::from(value) TTTT
+        let mut pv01_results = PV01Results::new();
+        let _ =pv01_results.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.amount),]));
+
+        pv01_results
     }
 }
 
@@ -190,7 +191,7 @@ impl PriceTrade for Cash {
     }
 
     fn pv01(&self, market: &MarketType) -> PV01Results {
-        todo!()
+        PV01Results::new()
     }
 }
 
@@ -255,6 +256,14 @@ impl PriceTrade for TradeTypes {
             TradeTypes::LETF(letf_trade) => letf_trade.price(market),
             TradeTypes::Future(letf_fut) => letf_fut.price(market),
             TradeTypes::Cash(letf_cash) => letf_cash.price(market),
+        }
+    }
+
+    fn pv01(&self, market: &MarketType) -> PV01Results {
+        match self {
+            TradeTypes::LETF(letf_trade) => letf_trade.pv01(market),
+            TradeTypes::Future(letf_fut) => letf_fut.pv01(market),
+            TradeTypes::Cash(letf_cash) => letf_cash.pv01(market),
         }
     }
 }

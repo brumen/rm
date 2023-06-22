@@ -26,32 +26,9 @@ pub trait MarketSwitching {
 
 /// Implements functionality of
 /// trade_processor_curr and trade_processor_new
-/// TT - mnemonic for trade type. for example trade
+/// TT: inherited from BasicValue, which is inherited from TradeAggregation
 pub trait RiskProcessors : BasicValue + MarketSwitching
 {
-    //type TT: Send + BaseTrade + Clone;
-
-    // augments the existing trades w/ new ones.
-    // returns the number of updated trades.
-    // fn _find_initial_trades(
-    //     &self,
-    //     trade_receiver: &Receiver<Self::TT>,
-    //     existing_trades : &mut Vec<Self::TT>,
-    //     agg_trades: &mut AggregatedTrades,
-    //     market_ : CurrNewMarket,
-    // ) -> u16 {
-    //     let mut nb_added_trades = 0;
-    //     while let Ok(trade) = trade_receiver.try_recv() {
-    //         info!("{:?} market: Getting trade {}", market_, trade.id());
-    //         // update aggregated trades and existing trades.
-    //         *agg_trades += trade.clone();
-    //         existing_trades.push(trade); // all trades just add the new one.
-    //         nb_added_trades += 1;
-    //     }
-
-    //     nb_added_trades
-    // }
-
     fn _find_initial_trades(
         &self,
         trade_receiver: &Receiver<Self::TT>,

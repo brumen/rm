@@ -192,28 +192,16 @@ impl BasicValue for RTRMLocal {
         let stock_value = actual_trade.price(&stock_mkt);
         debug!("_value_trade: Stock value {:?}", stock_value);
 
-        if stock_value.is_none() {  // returns empty hedge if it cant determine the stock value.
-            // TODO: THIS IS NOT RIGHT, IT'S NOT FAIR
-            match metric {
-                PricingMetric::PV => {
-                    return PricingResults::PV(PortfolioType::new()); // from([(stock_name.clone(), 0.),]));
-                },
-                PricingMetric::PV01 => {
-                    //return PricingResults::PV01(PortfolioType::from([(stock_name.clone(), 0.),]));
-                    // TODO: THIS IS WRONG
-                    return PricingResults::PV01(PV01Results::new());
-                },
-            }
-        }
-
-        let amount = stock_value.unwrap();
-        // we have stock value, dont need more
         match metric {
-            PricingMetric::PV =>
-                PricingResults::PV(PortfolioType::from([(trade_name, amount),])),
-            PricingMetric::PV01 =>
-                // TODO: THIS IS WRONG, FIX IT!!!!
-                PricingResults::PV01(PV01Results::new()),
+            PricingMetric::PV => {
+                let priced_trade = actual_trade.price(&stock_mkt);
+                if let Some(price_trade) = priced_trade {
+                    PricingResults::PV(PortfolioType::from([(actual_trade.trade_name(), price_trade),]))
+                } else {
+                    PricingResults::PV(PortfolioType::new())
+                }
+            },
+            PricingMetric::PV01 => PricingResults::PV01(actual_trade.pv01(&stock_mkt)),
         }
     }
 }
