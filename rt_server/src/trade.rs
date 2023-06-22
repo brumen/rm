@@ -6,6 +6,7 @@ use kafka::consumer::Message;
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::portfolio::PV01Results;
 use crate::{ref_deref::TryFromRef, portfolio::AggregatedTrades};
 use crate::pricer::PriceTrade;
 use crate::market::MarketType;
@@ -72,6 +73,13 @@ impl PriceTrade for LETFTrade {
             None => None,
             Some(stock_v) => Some(stock_v * self.beta * self.amount - self.amount),
         }
+    }
+
+    fn pv01(&self, market: &MarketType) -> PV01Results {
+        let pv01 = PV01Results::new();
+        let _ = pv01.insert(self.trade_id, PortfolioType::from([self.trade_id, self.beta * self.amount);
+
+        pv01
     }
 }
 
@@ -142,6 +150,10 @@ impl PriceTrade for Future {
             Some(stock_v) => Some(stock_v * self.amount),
         }
     }
+
+    fn pv01(&self, market: &MarketType) -> PV01Results {
+        PV01Results::from(value) TTTT
+    }
 }
 
 impl BaseTrade for Future {
@@ -175,6 +187,10 @@ pub struct Cash {
 impl PriceTrade for Cash {
     fn price(&self, market: &MarketType) -> Option<f64> {
         Some(self.amount)
+    }
+
+    fn pv01(&self, market: &MarketType) -> PV01Results {
+        todo!()
     }
 }
 
@@ -369,6 +385,10 @@ pub trait TradeAggregation
         self.aggregated_trades() + trade.clone()
     }
 
+    fn all_trade_names(&self) -> Vec<String> {
+        self.all_trades().iter().map(|t| t.id()).collect()
+    }
+
     fn find_trade(&self, trade_id: String) -> Option<Self::TT> {
 
         let all_trades = self.all_trades();
@@ -377,6 +397,7 @@ pub trait TradeAggregation
             .position(|r| r.id().eq(&trade_id) );
 
         debug!("find_trade: Trade id = {:?}, Trade position = {:?}", trade_id, trade_pos);
+        debug!("find_trade: all names = {:?}", self.all_trade_names());
 
         trade_pos.map(|pos_idx| self.all_trades().get(pos_idx).unwrap().clone())
     }

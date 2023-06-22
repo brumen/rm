@@ -129,11 +129,6 @@ impl<TT> Controller<TT> {
 }
 
 
-// TODO: THIS IS WRONG OVCIOUSLY
-//impl<TT : Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>> CalcController<TT> for Controller<TT>{
-//}
-
-
 impl<TT> Decoder for Controller<TT> {
 
     // converts the spark response into a trade value.

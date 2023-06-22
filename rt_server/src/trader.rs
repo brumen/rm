@@ -121,6 +121,10 @@ impl LETFTrader {
 
                         let _ = hedge_book.send(&hedge_record);
                     }
+                    let trade_itself = serde_json::ser::to_string(&trade).unwrap();
+                    let trade_itself_record = Record::from_value(&hedge_topic, trade_itself.as_bytes())
+                        .with_partition(0);
+                    let _ = hedge_book.send(&trade_itself_record);  // Trade itself is sent to the book.
                 }
                 let _ = pos_listener_.consume_messageset(ms); // TODO: FIX THIS ERROR HANDLING HERE
             }
@@ -191,17 +195,18 @@ impl MktEventHandler for LETFTrader {
         mkt_params: MktMsgParams,
     ) {
 
-        let new_market = MarketType::try_from_ref(&mkt_msg);
-        debug!("Got quote: {:?}", new_market);
+        let new_market = MarketType::try_from_ref(mkt_msg);
+        debug!("_handle_mkt_msg: Got market quote: {:?}", new_market);
         if new_market.is_err() {
             return;  // ignore the market message if it cant be decoded correctly.
         }
 
         let new_quote_mkt = new_market.unwrap();
         let MktMsgParams::LETFParams(letf_mkt) = mkt_params else {
-            warn!("Parameters provided to MktEventHandler are of wrong type");
+            warn!("_handle_mkt_msg: Parameters provided to MktEventHandler are of wrong type");
             return;
         };
+
         let mut curr_mkt_tmp = letf_mkt.curr_mkt.lock().unwrap();  // lock the current market
         for (new_quote, new_value) in new_quote_mkt.iter() {
             curr_mkt_tmp.insert(new_quote.to_string(), *new_value);

@@ -4,7 +4,7 @@ use std::{collections::HashMap, ops::SubAssign};
 use std::ops::{Add, AddAssign, Mul, MulAssign, };
 use serde::Serialize;
 use std::sync::mpsc::Sender;
-use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, Message, };
+use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, };
 
 
 use std::ops::{Deref, DerefMut,};
@@ -16,6 +16,7 @@ use crate::streaming::Streaming;
 
 pub type PortfolioInner = HashMap<String, f64>;
 
+/// PortfolioType is of form (trade_id, trade_pv)
 #[derive(Debug, PartialEq, Serialize, Clone)]
 pub struct PortfolioType ( pub PortfolioInner );
 
@@ -227,6 +228,7 @@ impl<TT: BaseTrade> Add<TT> for AggregatedTrades {
 
 
 // PV01Results
+/// PV01Results is of form (trade_id, (exposure, exposure_amt))
 pub type PV01Inner = HashMap<String, PortfolioType>;
 #[derive(Clone, Debug)]
 pub struct PV01Results ( pub PV01Inner );

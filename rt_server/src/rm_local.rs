@@ -134,31 +134,17 @@ impl TradeAggregation for RTRMLocal {
 
     }
 
-    // fn aggregated_trades(&self) -> AggregatedTrades {
-
-    //     let mut new_agg_trades = AggregatedTrades::new();  //Vec::<Self::TT>::new();
-    //     for (agg_name, agg_val) in self._aggregated_trades.lock().unwrap().iter() {
-    //         new_agg_trades.insert(agg_name.clone(), *agg_val);
-    //     }
-
-    //     new_agg_trades
-
-    //     //*self._aggregated_trades.clone().lock().unwrap()
-    // }
-
     /// constructs aggregated trades from all_trades.
+    /// TODO: THIS CANT BE CONSTRUCTED EVERY TIME AGAIN!!! FIX IT!!!
     fn aggregated_trades(&self) -> AggregatedTrades {
 
-        let mut new_agg_trades = AggregatedTrades::new();  //Vec::<Self::TT>::new();
+        let mut new_agg_trades = AggregatedTrades::new();
         for trade in &*self._all_trades.lock().unwrap() {
-            new_agg_trades.insert(trade.trade_name(), trade.amount());
+            new_agg_trades += trade.clone(); // TODO: TOO MUCH CLONING
         }
 
         new_agg_trades
-
-        //*self._aggregated_trades.clone().lock().unwrap()
     }
-
 
     fn add_trade_mut(&self, trade: Self::TT) {
         let all_trades = &mut *self._all_trades.lock().unwrap();
@@ -183,7 +169,7 @@ impl BasicValue for RTRMLocal {
         if trade.is_none() {
             match metric {
                 PricingMetric::PV => {
-                    return PricingResults::PV(PortfolioType::new()); //  from([("".to_string(), 0.),])),
+                    return PricingResults::PV(PortfolioType::new());
                 },
                 PricingMetric::PV01 => {
                 // TODO: THIS IS WRONG, FIX IT!!!!

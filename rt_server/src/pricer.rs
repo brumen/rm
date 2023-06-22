@@ -11,6 +11,7 @@ use crate::portfolio::{
     PricingResults,
     PortfolioType,
     AggregatedTrades,
+    PV01Results,
 };
 use crate::trade::TradeAggregation;
 use crate::market::MarketType;
@@ -46,6 +47,7 @@ pub trait Decoder {
 
 pub trait PriceTrade {
     fn price(&self, market: &MarketType) -> Option<f64>;
+    fn pv01(&self, market: &MarketType) -> PV01Results;
 }
 
 

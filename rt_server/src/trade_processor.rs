@@ -135,6 +135,7 @@ where
                 if !self.all_trades().contains(&trade) {
                     let trade_id = trade.id();
                     let trade_direction = trade.direction();
+                    self.add_trade_mut(trade.clone());  // TODO: FIX CLONING HERE!!
 
                     info!("_trade_processor_curr: Processing trade {}, dir {:?}", trade_id, trade_direction);
                     let trade_v = self._value_trade(trade_id, CurrNewMarket::Current, self.metric());
@@ -147,8 +148,6 @@ where
 
                     // update aggregated trades and all_trades.
                     //agg_trades += trade.clone();
-                    //all_trades.push(trade); // all trades just add the new one.
-                    self.add_trade_mut(trade);
 
                     debug!("_trade_processor_curr: Curr portfolio = {:?}", curr_portfolio);
                     let _ = curr_portfolio_sender.send(curr_portfolio.clone());

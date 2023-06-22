@@ -46,7 +46,7 @@ class LETFProducer(BaseProducer):
             for stock in self._stocks:
                 self._curr_stocks[stock] += random.gauss(mu=0., sigma=1.)  # add some random value
 
-            sleep(1.)
+            sleep(11.)
 
 
 class MarketService:

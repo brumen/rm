@@ -53,4 +53,4 @@ class LETFTradeProducer(BaseProducer):
 
             yield letf_position
 
-            sleep(5.)
+            sleep(10.)
