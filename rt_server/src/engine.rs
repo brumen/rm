@@ -3,15 +3,13 @@ use std::thread;
 
 use crate::market::MktMsgParams;
 use crate::mkt_handler::MktEventHandler;
-use crate::portfolio::{PortfolioType, PortfolioSender, };
-
-
+use crate::portfolio::PortfolioType;
+use crate::portfolio_sender::PortfolioSender;
 use crate::market::MarketType;
-
 use crate::publish::PublishResults;
 use crate::trade_processor::RiskProcessors;
-
 use crate::trade::TradeAggregation;
+
 
 pub trait CalcController {
     fn start (

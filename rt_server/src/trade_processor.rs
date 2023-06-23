@@ -144,10 +144,12 @@ where
                 let all_l = self.all_trades().len();
 
                 if new_l >= all_l {  // new processor is further ahead
+                    debug!("_trade_processor_curr: Switching market 1.");
                     // TODO: THIS IS HERE DIFFICULT
                     //all_trades = new_trades;
                     curr_portfolio = new_p;
                 } else if (new_l < all_l) && (new_l >= all_l - nb_conseq_processed_trades - 1) {  // new is not ahead, but we can still update.
+                    debug!("_trade_processor_curr: Switching market 2.");
                     curr_portfolio.extend(new_p.0.into_iter());
                 }
                 let _ = curr_portfolio_sender.send(curr_portfolio.clone());

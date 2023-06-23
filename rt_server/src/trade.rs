@@ -68,6 +68,7 @@ impl std::cmp::PartialEq for LETFTrade {
 impl PriceTrade for LETFTrade {
     fn price(&self, market: &MarketType) -> Option<f64> {
         let stock = market.get(&self.stock);
+        debug!("_price: Market = {:?}", market);
         stock.map(|stock_v| stock_v * self.beta * self.amount - self.amount )
     }
 
@@ -155,6 +156,7 @@ impl PriceTrade for Future {
     }
 
     fn pv01(&self, _market: &MarketType) -> PV01Results {
+        debug!("pv01: Future {:?}", _market);
         let mut pv01_results = PV01Results::new();
         let _ =pv01_results.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.amount),]));
 
@@ -411,7 +413,6 @@ pub trait TradeAggregation
             .position(|r| r.id().eq(&trade_id) );
 
         debug!("find_trade: Trade id = {:?}, Trade position = {:?}", trade_id, trade_pos);
-        debug!("find_trade: all names = {:?}", self.all_trade_names());
 
         trade_pos.map(|pos_idx| self.all_trades().get(pos_idx).unwrap().clone())
     }

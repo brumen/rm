@@ -195,13 +195,18 @@ impl BasicValue for RTRMLocal {
         match metric {
             PricingMetric::PV => {
                 let priced_trade = actual_trade.price(&stock_mkt);
+                debug!("_value_trade: Priced trade = {:?}", priced_trade);
                 if let Some(price_trade) = priced_trade {
                     PricingResults::PV(PortfolioType::from([(actual_trade.trade_name(), price_trade),]))
                 } else {
                     PricingResults::PV(PortfolioType::new())
                 }
             },
-            PricingMetric::PV01 => PricingResults::PV01(actual_trade.pv01(&stock_mkt)),
+
+            PricingMetric::PV01 => {
+                debug!("_value_trade: Priced trade = {:?}", actual_trade.pv01(&stock_mkt));
+                PricingResults::PV01(actual_trade.pv01(&stock_mkt))
+            },
         }
     }
 }
@@ -247,9 +252,15 @@ impl MktEventHandler for RTRMLocal {
 
         debug!("_handle_mkt_msg: New quote is {:?}", new_quote_mkt);
         let mut curr_mkt_tmp = new_quote_mkt.curr_mkt.lock().unwrap();  // lock the current market
+
+        let mut new_mkt_locked = self.curr_market.lock().unwrap();
+
         for (new_quote, new_value) in new_mkt_real.iter() {
             curr_mkt_tmp.insert(new_quote.to_string(), *new_value);
+
+            new_mkt_locked.insert(new_quote.to_string(), *new_value);
         }
+
         debug!("_handle_mkt_msg: Final market {:?}", curr_mkt_tmp);
         //let _ = new_quote_mkt.new_mkt_sender.send(*curr_mkt_tmp);  // TODO: FIX THIS HERE!!!
         let _ = new_mkt_sender.send(new_mkt_real);  // TODO: FIX THIS HERE!!!

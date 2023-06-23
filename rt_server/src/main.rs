@@ -35,6 +35,8 @@ use rm_local::RTRMLocal;
 mod engine;
 mod mkt_handler;
 
+mod portfolio_sender;
+
 use crate::engine::CalcController;
 
 
