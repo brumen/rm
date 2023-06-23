@@ -1,12 +1,13 @@
-use log::debug;
+use log::{warn, debug,};
 use core::cmp::Eq;
 use serde_json::Value;
 use serde::{Serialize, Deserialize,};
 use kafka::consumer::Message;
 use thiserror::Error;
 use uuid::Uuid;
+use std::sync::{Arc, Mutex,};
 
-use crate::portfolio::PV01Results;
+use crate::portfolio::{PV01Results, PortfolioType};
 use crate::{ref_deref::TryFromRef, portfolio::AggregatedTrades};
 use crate::pricer::PriceTrade;
 use crate::market::MarketType;
@@ -68,19 +69,16 @@ impl std::cmp::PartialEq for LETFTrade {
 
 impl PriceTrade for LETFTrade {
     fn price(&self, market: &MarketType) -> Option<f64> {
-
         let stock = market.get(&self.stock);
-        match stock {
-            None => None,
-            Some(stock_v) => Some(stock_v * self.beta * self.amount - self.amount),
-        }
+        debug!("_price: Market = {:?}", market);
+        stock.map(|stock_v| stock_v * self.beta * self.amount - self.amount )
     }
 
-    fn pv01(&self, market: &MarketType) -> PV01Results {
-        let pv01_results = PV01Results::new();
-        let _ = pv01_results.insert(self.trade_id, PortfolioType::from([(self.stock, self.beta * self.amount),]));
-	
-        pv01_results
+    fn pv01(&self, _market: &MarketType) -> PV01Results {
+        let mut pv01_result = PV01Results::new();
+        let _ = pv01_result.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.beta * self.amount),]));
+
+        pv01_result
     }
 }
 
@@ -88,15 +86,25 @@ impl LETFTrade {
 
     /// produces the hedge of the LETF trade.
     /// stock_value : value of the stock that we are hedging LETF with.
-    pub fn hedge(&self, stock_value : f64) -> Vec<LETFHedge> {
+    pub fn hedge(&self, market: &MarketType) -> Vec<LETFHedge> {
+
+        let stock_name = &self.stock;
+        let stock_value = market.get(stock_name);
+
+        if stock_value.is_none() {
+            warn!("hedge: Could not find {:?} in the market", stock_name);
+            return vec![]; // Cant do much w/ it.
+        }
+
+        let stock = stock_value.unwrap();
         let beta = self.beta;
         let amount = self.amount;
-        let exposure_amt = beta * amount * stock_value;
+        let exposure_amt = beta * amount * stock;
 
         vec![
             LETFHedge::Future( Future {
                 trade_id: Uuid::new_v4().to_string(),
-                stock: self.stock.clone(), //  stock_name,
+                stock: stock_name.clone(),
                 amount: exposure_amt,
             }),
             LETFHedge::Cash( Cash {
@@ -146,17 +154,23 @@ impl PriceTrade for Future {
 
         let stock = market.get(&self.stock);
 
-        match stock {
-            None => None,
-            Some(stock_v) => Some(stock_v * self.amount),
-        }
+        stock.map(|stock_v| stock_v * self.amount)
     }
 
+<<<<<<< HEAD
     fn pv01(&self, market: &MarketType) -> PV01Results {
        let pv01_results = PV01Results::new();
        let _ = pv01_results.insert(self.trade_id, PortfolioType::from([(self.stock, self.amount),]));
 
        pv01_results
+=======
+    fn pv01(&self, _market: &MarketType) -> PV01Results {
+        debug!("pv01: Future {:?}", _market);
+        let mut pv01_results = PV01Results::new();
+        let _ =pv01_results.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.amount),]));
+
+        pv01_results
+>>>>>>> master
     }
 }
 
@@ -189,12 +203,17 @@ pub struct Cash {
 }
 
 impl PriceTrade for Cash {
-    fn price(&self, market: &MarketType) -> Option<f64> {
+    fn price(&self, _market: &MarketType) -> Option<f64> {
         Some(self.amount)
     }
 
+<<<<<<< HEAD
     fn pv01(&self, market: &MarketType) -> PV01Results {
         PV01Results::new()  // no exposure to stocks. TODO: MAYBE IR exposure.
+=======
+    fn pv01(&self, _market: &MarketType) -> PV01Results {
+        PV01Results::new()
+>>>>>>> master
     }
 }
 
@@ -261,6 +280,7 @@ impl PriceTrade for TradeTypes {
             TradeTypes::Cash(letf_cash) => letf_cash.price(market),
         }
     }
+<<<<<<< HEAD
     
     fn pv01(&self, market: &MarketType) -> PV01Results {
         match self {                                                                                                                
@@ -269,6 +289,16 @@ impl PriceTrade for TradeTypes {
             TradeTypes::Cash(letf_cash) => letf_cash.pv01(market),
         }                                                                                                                           
     }                                                                                                                               
+=======
+
+    fn pv01(&self, market: &MarketType) -> PV01Results {
+        match self {
+            TradeTypes::LETF(letf_trade) => letf_trade.pv01(market),
+            TradeTypes::Future(letf_fut) => letf_fut.pv01(market),
+            TradeTypes::Cash(letf_cash) => letf_cash.pv01(market),
+        }
+    }
+>>>>>>> master
 }
 
 impl BaseTrade for TradeTypes {
@@ -388,28 +418,36 @@ pub trait TradeAggregation
 {
     type TT: PartialEq + BaseTrade + Clone + Send + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>;
 
-    fn all_trades(&self) -> Vec<Self::TT>;
-    fn aggregated_trades(&self) -> AggregatedTrades;
+    fn all_trades(&self) -> Arc<Mutex<Vec<Self::TT>>>;
+    fn aggregated_trades(&self) -> Arc<Mutex<AggregatedTrades>>;
 
+    // adds a trade to the list of all trades.
     fn add_trade_mut(&self, trade: Self::TT);
 
-    fn add_trade(&self, trade: Self::TT) -> AggregatedTrades {
-        self.aggregated_trades() + trade.clone()
-    }
+//    fn add_trade(&self, trade: Self::TT) -> AggregatedTrades {
+//        self.aggregated_trades() + trade.clone()
+//    }
 
     fn all_trade_names(&self) -> Vec<String> {
-        self.all_trades().iter().map(|t| t.id()).collect()
+
+        // TODO: IS IT RIGHT TO COLLECT AT THE END???
+        (*self.all_trades()
+            .lock()
+            .expect("Could not unlock all_trades"))
+            .iter()
+            .map(|t| t.id())
+            .collect()
     }
 
     fn find_trade(&self, trade_id: String) -> Option<Self::TT> {
 
-        let all_trades = self.all_trades();
-        let trade_pos = all_trades
+        let trade_pos = (*self.all_trades()
+                         .lock()
+                         .expect("Could not unlock all_trades"))
             .iter()
             .position(|r| r.id().eq(&trade_id) );
 
         debug!("find_trade: Trade id = {:?}, Trade position = {:?}", trade_id, trade_pos);
-        debug!("find_trade: all names = {:?}", self.all_trade_names());
 
         trade_pos.map(|pos_idx| self.all_trades().get(pos_idx).unwrap().clone())
     }

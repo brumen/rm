@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, Message, };
 use kafka::producer::{Producer, Record, RequiredAcks};
-use std::collections::HashMap;
 use std::thread;
 use std::sync::{Arc, Mutex,};
 use std::sync::mpsc::{channel, Sender, };
@@ -13,8 +12,6 @@ use crate::streaming::Streaming;
 use crate::market::{MarketType, MktMsgParams, LETFP,};
 use crate::mkt_handler::MktEventHandler;
 use crate::ref_deref::TryFromRef;
-
-pub type PricingParams = HashMap<String, f64>;
 
 
 /// LETF trader structure.
@@ -56,7 +53,7 @@ impl LETFTrader {
     pub fn new_from_config(config_file: String) -> Result<Self, Box<dyn std::error::Error>> {
 
         let config_f = std::fs::File::open(config_file).unwrap();
-        let config_map: RTConfig = serde_yaml::from_reader(config_f).unwrap();
+        let config_map: RTConfig = serde_yaml::from_reader(config_f)?;
 
         Ok(Self::new(
             config_map.kafka_server_name,
@@ -104,16 +101,9 @@ impl LETFTrader {
                     }
 
                     let trade = trade.unwrap();
-                    let stock_name = &trade.stock;
                     let stock_mkt = self.curr_mkt.lock().expect("Could not lock the current market, weird");
-                    let stock_value = stock_mkt.get(stock_name);
-                    if stock_value.is_none() {  // returns empty hedge if it cant determine the stock value.
-                        warn!("Can't find the value of stock {}", stock_name);
-                        continue;  // TODO: THIS IS WRONG HERE.
-                        //return vec![];
-                    }
 
-                    for trade_hedge in trade.hedge(*stock_value.unwrap()) {
+                    for trade_hedge in trade.hedge(&stock_mkt) {
                         let hedge_json = serde_json::ser::to_string(&trade_hedge).unwrap();
                         debug!("Processing hedge {}", hedge_json);
                         let hedge_record = Record::from_value(&hedge_topic, hedge_json.as_bytes())
@@ -121,7 +111,7 @@ impl LETFTrader {
 
                         let _ = hedge_book.send(&hedge_record);
                     }
-                    let trade_itself = serde_json::ser::to_string(&trade).unwrap();
+                    let trade_itself = serde_json::ser::to_string(&TradeTypes::LETF(trade)).unwrap();
                     let trade_itself_record = Record::from_value(&hedge_topic, trade_itself.as_bytes())
                         .with_partition(0);
                     let _ = hedge_book.send(&trade_itself_record);  // Trade itself is sent to the book.
@@ -191,7 +181,7 @@ impl MktEventHandler for LETFTrader {
     fn _handle_mkt_msg(
         &self,
         mkt_msg: &Message,
-        new_mkt_sender: Sender<MarketType>,
+        _new_mkt_sender: Sender<MarketType>,
         mkt_params: MktMsgParams,
     ) {
 

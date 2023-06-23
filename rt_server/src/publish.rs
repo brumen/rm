@@ -25,7 +25,7 @@ pub trait PublishResults : Streaming {
             .unwrap();
 
         loop {
-            info!("_publish_results: Publishing loop.");
+            debug!("_publish_results: Publishing loop.");
             let curr_portfolio_raw = curr_portfolio_recv.recv();
             let curr_portfolio = match curr_portfolio_raw {
                 Ok(curr_portfolio_actual) => {

@@ -1,21 +1,15 @@
 // Trait that implements the 2 market pricing
 
 use log::{info, debug,};
-use std::collections::HashMap;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender,};
 
 use crate::trade::{
     TradeDirection,
     BaseTrade,
 };
-use crate::portfolio::{
-    PortfolioType,
-    AggregatedTrades,
-};
+use crate::portfolio::PortfolioType;
 use crate::market::{MarketType, CurrNewMarket, };
 use crate::pricer::{BasicValue, PriceMultipleTrades,};
-
-pub type PricingParams = HashMap<String, f64>;
 
 
 pub trait MarketSwitching {
@@ -26,32 +20,9 @@ pub trait MarketSwitching {
 
 /// Implements functionality of
 /// trade_processor_curr and trade_processor_new
-/// TT - mnemonic for trade type. for example trade
+/// TT: inherited from BasicValue, which is inherited from TradeAggregation
 pub trait RiskProcessors : BasicValue + MarketSwitching
 {
-    //type TT: Send + BaseTrade + Clone;
-
-    // augments the existing trades w/ new ones.
-    // returns the number of updated trades.
-    // fn _find_initial_trades(
-    //     &self,
-    //     trade_receiver: &Receiver<Self::TT>,
-    //     existing_trades : &mut Vec<Self::TT>,
-    //     agg_trades: &mut AggregatedTrades,
-    //     market_ : CurrNewMarket,
-    // ) -> u16 {
-    //     let mut nb_added_trades = 0;
-    //     while let Ok(trade) = trade_receiver.try_recv() {
-    //         info!("{:?} market: Getting trade {}", market_, trade.id());
-    //         // update aggregated trades and existing trades.
-    //         *agg_trades += trade.clone();
-    //         existing_trades.push(trade); // all trades just add the new one.
-    //         nb_added_trades += 1;
-    //     }
-
-    //     nb_added_trades
-    // }
-
     fn _find_initial_trades(
         &self,
         trade_receiver: &Receiver<Self::TT>,
@@ -173,10 +144,12 @@ where
                 let all_l = self.all_trades().len();
 
                 if new_l >= all_l {  // new processor is further ahead
+                    debug!("_trade_processor_curr: Switching market 1.");
                     // TODO: THIS IS HERE DIFFICULT
                     //all_trades = new_trades;
                     curr_portfolio = new_p;
                 } else if (new_l < all_l) && (new_l >= all_l - nb_conseq_processed_trades - 1) {  // new is not ahead, but we can still update.
+                    debug!("_trade_processor_curr: Switching market 2.");
                     curr_portfolio.extend(new_p.0.into_iter());
                 }
                 let _ = curr_portfolio_sender.send(curr_portfolio.clone());
@@ -199,7 +172,7 @@ where
         loop {
 
             // handling new trade event
-            let _ = self._find_initial_trades(&new_trade_receiver);
+            //let _ = self._find_initial_trades(&new_trade_receiver);
             //debug!("_trade_processor_new: Nb all trades: {}", all_trades.len());
             //debug!("_trade_processor_new: Nb aggregated trades: {}", agg_trades.len());
             debug!("_trade_processor_new: Nb all trades: {}", self.all_trades().len());

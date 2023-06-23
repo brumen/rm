@@ -1,20 +1,15 @@
-use std::collections::HashMap;
 use std::sync::mpsc::channel;
 use std::thread;
 
 use crate::market::MktMsgParams;
 use crate::mkt_handler::MktEventHandler;
-use crate::portfolio::{PortfolioType, PortfolioSender, };
-
-
+use crate::portfolio::PortfolioType;
+use crate::portfolio_sender::PortfolioSender;
 use crate::market::MarketType;
-
 use crate::publish::PublishResults;
 use crate::trade_processor::RiskProcessors;
-
-pub type PricingParams = HashMap<String, f64>;
-
 use crate::trade::TradeAggregation;
+
 
 pub trait CalcController {
     fn start (

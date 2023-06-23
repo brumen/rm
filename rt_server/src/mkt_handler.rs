@@ -36,7 +36,7 @@ pub trait MktEventHandler : Streaming {
         .create()
         .unwrap();
 
-        debug!("Entering the _handle_mkt_events loop.");
+        debug!("_handle_mkt_events: Entering the _handle_mkt_events loop.");
         loop {
             for mkt_msg_set in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
                 for mkt_msg in mkt_msg_set.messages() {

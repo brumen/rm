@@ -122,33 +122,48 @@ impl TradeAggregation for RTRMLocal {
 
     type TT = TradeTypes;
 
-    fn all_trades(&self) -> Vec<Self::TT> {
+    fn all_trades(&self) -> Arc<Mutex<Vec<Self::TT>>> {
         // TODO: IDK IF THIS IS RIGHT????
         // TODO: SHITTIEST WORK EVER
-        let mut new_trades = Vec::<Self::TT>::new();
-        for v in &*self._all_trades.lock().unwrap() {
-            new_trades.push(v.clone());
-        }
+//        let mut new_trades = Vec::<Self::TT>::new();
+//        for v in &*self._all_trades.lock().unwrap() {
+//            new_trades.push(v.clone());
+//        }
+//
+//        new_trades
+        //
 
-        new_trades
-
+        self._all_trades
     }
 
     /// constructs aggregated trades from all_trades.
     /// TODO: THIS CANT BE CONSTRUCTED EVERY TIME AGAIN!!! FIX IT!!!
-    fn aggregated_trades(&self) -> AggregatedTrades {
+    fn aggregated_trades(&self) -> Arc<Mutex<AggregatedTrades>> {
+        self._aggregated_trades
 
-        let mut new_agg_trades = AggregatedTrades::new();
-        for trade in &*self._all_trades.lock().unwrap() {
-            new_agg_trades += trade.clone(); // TODO: TOO MUCH CLONING
-        }
+//        let mut new_agg_trades = AggregatedTrades::new();
+//        for trade in &*self._all_trades.lock().unwrap() {
+//            new_agg_trades += trade.clone(); // TODO: TOO MUCH CLONING
+//        }
 
-        new_agg_trades
+//        new_agg_trades
     }
 
     fn add_trade_mut(&self, trade: Self::TT) {
-        let all_trades = &mut *self._all_trades.lock().unwrap();
-        all_trades.push(trade);
+        (*self.all_trades()
+            .lock()
+         .expect("add_trade_mut: Could not unlock all trades."))
+            .push(trade.clone());
+
+        (*self.aggregated_trades()
+         .lock()
+         .expect("add_trade_mut: could not lock aggregated trades"))
+         += trade;
+
+        //let all_trades = &mut *self._all_trades.lock().unwrap();
+        //all_trades.push(trade);
+
+        // add it to aggregated trades as well.
     }
 
 }
@@ -192,28 +207,21 @@ impl BasicValue for RTRMLocal {
         let stock_value = actual_trade.price(&stock_mkt);
         debug!("_value_trade: Stock value {:?}", stock_value);
 
-        if stock_value.is_none() {  // returns empty hedge if it cant determine the stock value.
-            // TODO: THIS IS NOT RIGHT, IT'S NOT FAIR
-            match metric {
-                PricingMetric::PV => {
-                    return PricingResults::PV(PortfolioType::new()); // from([(stock_name.clone(), 0.),]));
-                },
-                PricingMetric::PV01 => {
-                    //return PricingResults::PV01(PortfolioType::from([(stock_name.clone(), 0.),]));
-                    // TODO: THIS IS WRONG
-                    return PricingResults::PV01(PV01Results::new());
-                },
-            }
-        }
-
-        let amount = stock_value.unwrap();
-        // we have stock value, dont need more
         match metric {
-            PricingMetric::PV =>
-                PricingResults::PV(PortfolioType::from([(trade_name, amount),])),
-            PricingMetric::PV01 =>
-                // TODO: THIS IS WRONG, FIX IT!!!!
-                PricingResults::PV01(PV01Results::new()),
+            PricingMetric::PV => {
+                let priced_trade = actual_trade.price(&stock_mkt);
+                debug!("_value_trade: Priced trade = {:?}", priced_trade);
+                if let Some(price_trade) = priced_trade {
+                    PricingResults::PV(PortfolioType::from([(actual_trade.trade_name(), price_trade),]))
+                } else {
+                    PricingResults::PV(PortfolioType::new())
+                }
+            },
+
+            PricingMetric::PV01 => {
+                debug!("_value_trade: Priced trade = {:?}", actual_trade.pv01(&stock_mkt));
+                PricingResults::PV01(actual_trade.pv01(&stock_mkt))
+            },
         }
     }
 }
@@ -259,9 +267,15 @@ impl MktEventHandler for RTRMLocal {
 
         debug!("_handle_mkt_msg: New quote is {:?}", new_quote_mkt);
         let mut curr_mkt_tmp = new_quote_mkt.curr_mkt.lock().unwrap();  // lock the current market
+
+        let mut new_mkt_locked = self.curr_market.lock().unwrap();
+
         for (new_quote, new_value) in new_mkt_real.iter() {
             curr_mkt_tmp.insert(new_quote.to_string(), *new_value);
+
+            new_mkt_locked.insert(new_quote.to_string(), *new_value);
         }
+
         debug!("_handle_mkt_msg: Final market {:?}", curr_mkt_tmp);
         //let _ = new_quote_mkt.new_mkt_sender.send(*curr_mkt_tmp);  // TODO: FIX THIS HERE!!!
         let _ = new_mkt_sender.send(new_mkt_real);  // TODO: FIX THIS HERE!!!
