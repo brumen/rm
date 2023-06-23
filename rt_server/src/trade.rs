@@ -5,6 +5,7 @@ use serde::{Serialize, Deserialize,};
 use kafka::consumer::Message;
 use thiserror::Error;
 use uuid::Uuid;
+use std::sync::{Arc, Mutex,};
 
 use crate::portfolio::{PV01Results, PortfolioType};
 use crate::{ref_deref::TryFromRef, portfolio::AggregatedTrades};
@@ -392,23 +393,32 @@ pub trait TradeAggregation
 {
     type TT: PartialEq + BaseTrade + Clone + Send + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>;
 
-    fn all_trades(&self) -> Vec<Self::TT>;
-    fn aggregated_trades(&self) -> AggregatedTrades;
+    fn all_trades(&self) -> Arc<Mutex<Vec<Self::TT>>>;
+    fn aggregated_trades(&self) -> Arc<Mutex<AggregatedTrades>>;
 
+    // adds a trade to the list of all trades.
     fn add_trade_mut(&self, trade: Self::TT);
 
-    fn add_trade(&self, trade: Self::TT) -> AggregatedTrades {
-        self.aggregated_trades() + trade.clone()
-    }
+//    fn add_trade(&self, trade: Self::TT) -> AggregatedTrades {
+//        self.aggregated_trades() + trade.clone()
+//    }
 
     fn all_trade_names(&self) -> Vec<String> {
-        self.all_trades().iter().map(|t| t.id()).collect()
+
+        // TODO: IS IT RIGHT TO COLLECT AT THE END???
+        (*self.all_trades()
+            .lock()
+            .expect("Could not unlock all_trades"))
+            .iter()
+            .map(|t| t.id())
+            .collect()
     }
 
     fn find_trade(&self, trade_id: String) -> Option<Self::TT> {
 
-        let all_trades = self.all_trades();
-        let trade_pos = all_trades
+        let trade_pos = (*self.all_trades()
+                         .lock()
+                         .expect("Could not unlock all_trades"))
             .iter()
             .position(|r| r.id().eq(&trade_id) );
 

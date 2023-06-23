@@ -122,33 +122,48 @@ impl TradeAggregation for RTRMLocal {
 
     type TT = TradeTypes;
 
-    fn all_trades(&self) -> Vec<Self::TT> {
+    fn all_trades(&self) -> Arc<Mutex<Vec<Self::TT>>> {
         // TODO: IDK IF THIS IS RIGHT????
         // TODO: SHITTIEST WORK EVER
-        let mut new_trades = Vec::<Self::TT>::new();
-        for v in &*self._all_trades.lock().unwrap() {
-            new_trades.push(v.clone());
-        }
+//        let mut new_trades = Vec::<Self::TT>::new();
+//        for v in &*self._all_trades.lock().unwrap() {
+//            new_trades.push(v.clone());
+//        }
+//
+//        new_trades
+        //
 
-        new_trades
-
+        self._all_trades
     }
 
     /// constructs aggregated trades from all_trades.
     /// TODO: THIS CANT BE CONSTRUCTED EVERY TIME AGAIN!!! FIX IT!!!
-    fn aggregated_trades(&self) -> AggregatedTrades {
+    fn aggregated_trades(&self) -> Arc<Mutex<AggregatedTrades>> {
+        self._aggregated_trades
 
-        let mut new_agg_trades = AggregatedTrades::new();
-        for trade in &*self._all_trades.lock().unwrap() {
-            new_agg_trades += trade.clone(); // TODO: TOO MUCH CLONING
-        }
+//        let mut new_agg_trades = AggregatedTrades::new();
+//        for trade in &*self._all_trades.lock().unwrap() {
+//            new_agg_trades += trade.clone(); // TODO: TOO MUCH CLONING
+//        }
 
-        new_agg_trades
+//        new_agg_trades
     }
 
     fn add_trade_mut(&self, trade: Self::TT) {
-        let all_trades = &mut *self._all_trades.lock().unwrap();
-        all_trades.push(trade);
+        (*self.all_trades()
+            .lock()
+         .expect("add_trade_mut: Could not unlock all trades."))
+            .push(trade.clone());
+
+        (*self.aggregated_trades()
+         .lock()
+         .expect("add_trade_mut: could not lock aggregated trades"))
+         += trade;
+
+        //let all_trades = &mut *self._all_trades.lock().unwrap();
+        //all_trades.push(trade);
+
+        // add it to aggregated trades as well.
     }
 
 }
