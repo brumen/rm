@@ -157,20 +157,12 @@ impl PriceTrade for Future {
         stock.map(|stock_v| stock_v * self.amount)
     }
 
-<<<<<<< HEAD
-    fn pv01(&self, market: &MarketType) -> PV01Results {
-       let pv01_results = PV01Results::new();
-       let _ = pv01_results.insert(self.trade_id, PortfolioType::from([(self.stock, self.amount),]));
-
-       pv01_results
-=======
     fn pv01(&self, _market: &MarketType) -> PV01Results {
         debug!("pv01: Future {:?}", _market);
         let mut pv01_results = PV01Results::new();
         let _ =pv01_results.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.amount),]));
 
         pv01_results
->>>>>>> master
     }
 }
 
@@ -207,13 +199,8 @@ impl PriceTrade for Cash {
         Some(self.amount)
     }
 
-<<<<<<< HEAD
-    fn pv01(&self, market: &MarketType) -> PV01Results {
-        PV01Results::new()  // no exposure to stocks. TODO: MAYBE IR exposure.
-=======
     fn pv01(&self, _market: &MarketType) -> PV01Results {
         PV01Results::new()
->>>>>>> master
     }
 }
 
@@ -280,16 +267,6 @@ impl PriceTrade for TradeTypes {
             TradeTypes::Cash(letf_cash) => letf_cash.price(market),
         }
     }
-<<<<<<< HEAD
-    
-    fn pv01(&self, market: &MarketType) -> PV01Results {
-        match self {                                                                                                                
-            TradeTypes::LETF(letf_trade) => letf_trade.pv01(market),                                                                
-            TradeTypes::Future(letf_fut) => letf_fut.pv01(market),                                                                  
-            TradeTypes::Cash(letf_cash) => letf_cash.pv01(market),
-        }                                                                                                                           
-    }                                                                                                                               
-=======
 
     fn pv01(&self, market: &MarketType) -> PV01Results {
         match self {
@@ -298,7 +275,6 @@ impl PriceTrade for TradeTypes {
             TradeTypes::Cash(letf_cash) => letf_cash.pv01(market),
         }
     }
->>>>>>> master
 }
 
 impl BaseTrade for TradeTypes {
