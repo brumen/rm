@@ -10,6 +10,7 @@ use crate::portfolio::PV01Results;
 use crate::{ref_deref::TryFromRef, portfolio::AggregatedTrades};
 use crate::pricer::PriceTrade;
 use crate::market::MarketType;
+use crate::portfolio::PortfolioType;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
@@ -76,10 +77,10 @@ impl PriceTrade for LETFTrade {
     }
 
     fn pv01(&self, market: &MarketType) -> PV01Results {
-        let pv01 = PV01Results::new();
-        let _ = pv01.insert(self.trade_id, PortfolioType::from([self.trade_id, self.beta * self.amount);
-
-        pv01
+        let pv01_results = PV01Results::new();
+        let _ = pv01_results.insert(self.trade_id, PortfolioType::from([(self.stock, self.beta * self.amount),]));
+	
+        pv01_results
     }
 }
 
@@ -152,7 +153,10 @@ impl PriceTrade for Future {
     }
 
     fn pv01(&self, market: &MarketType) -> PV01Results {
-        PV01Results::from(value) TTTT
+       let pv01_results = PV01Results::new();
+       let _ = pv01_results.insert(self.trade_id, PortfolioType::from([(self.stock, self.amount),]));
+
+       pv01_results
     }
 }
 
@@ -190,7 +194,7 @@ impl PriceTrade for Cash {
     }
 
     fn pv01(&self, market: &MarketType) -> PV01Results {
-        todo!()
+        PV01Results::new()  // no exposure to stocks. TODO: MAYBE IR exposure.
     }
 }
 
@@ -257,6 +261,14 @@ impl PriceTrade for TradeTypes {
             TradeTypes::Cash(letf_cash) => letf_cash.price(market),
         }
     }
+    
+    fn pv01(&self, market: &MarketType) -> PV01Results {
+        match self {                                                                                                                
+            TradeTypes::LETF(letf_trade) => letf_trade.pv01(market),                                                                
+            TradeTypes::Future(letf_fut) => letf_fut.pv01(market),                                                                  
+            TradeTypes::Cash(letf_cash) => letf_cash.pv01(market),
+        }                                                                                                                           
+    }                                                                                                                               
 }
 
 impl BaseTrade for TradeTypes {
