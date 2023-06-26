@@ -78,7 +78,7 @@ where
 impl<T, TT> RiskProcessors<TT> for T
 where
     T: BasicValue<TT> + MarketSwitching + PriceMultipleTrades<TT>,
-    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone
+    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone,
 {
     fn _trade_processor_curr(
         &self,
@@ -87,8 +87,7 @@ where
         new_portfolio_receiver: Receiver<(PortfolioType, usize)>,
     ) {
         let mut new_potential_portfolio : Option<(PortfolioType, usize)>;
-        let mut all_trades = TradeRep::new(); //Vec<Self::TT> = vec![];
-        //let mut agg_trades = AggregatedTrades::new();
+        let mut all_trades = TradeRep::new();
         let mut nb_conseq_processed_trades : usize;  // number of trades which have been consequitively processed before refreshing to the new
         // market is switched.
         let max_number_trades = 20;  // TODO: FACTOR THIS OUT
@@ -145,10 +144,8 @@ where
                 let all_l = all_trades.len();
 
                 if new_l >= all_l {  // new processor is further ahead
-                    debug!("_trade_processor_curr: Switching market 1.");
                     curr_portfolio = new_p;
                 } else if (new_l < all_l) && (new_l >= all_l - nb_conseq_processed_trades - 1) {  // new is not ahead, but we can still update.
-                    debug!("_trade_processor_curr: Switching market 2.");
                     curr_portfolio.extend(new_p.0.into_iter());
                 }
                 let _ = curr_portfolio_sender.send(curr_portfolio.clone());
@@ -165,12 +162,12 @@ where
         new_portfolio_sender: Sender<(PortfolioType, usize)>,  // results are sent here
     ) {
         let mut new_portfolio = PortfolioType::new();
+	let mut all_trades = TradeRep::<TT>::new();
 
         loop {
 
             // handling new trade event
-            //let _ = self._find_initial_trades(&new_trade_receiver);
-	    let mut all_trades = TradeRep::<TT>::new();
+            let _ = self._find_initial_trades(&new_trade_receiver, &mut all_trades);
             debug!("_trade_processor_new: Nb all trades: {}", all_trades.len());
 
             //let new_market_event = self._new_market_event(&new_market_receiver);
