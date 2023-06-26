@@ -105,11 +105,11 @@ impl LETFTrade {
             LETFHedge::Future( Future {
                 trade_id: Uuid::new_v4().to_string(),
                 stock: stock_name.clone(),
-                amount: exposure_amt,
+                amount: beta * amount,
             }),
             LETFHedge::Cash( Cash {
                 trade_id: Uuid::new_v4().to_string(),
-                amount : - exposure_amt
+                amount : exposure_amt
             }),
         ]
     }
@@ -158,9 +158,10 @@ impl PriceTrade for Future {
     }
 
     fn pv01(&self, _market: &MarketType) -> PV01Results {
+
         debug!("pv01: Future {:?}", _market);
         let mut pv01_results = PV01Results::new();
-        let _ =pv01_results.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.amount),]));
+        let _ = pv01_results.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.amount),]));
 
         pv01_results
     }
@@ -412,7 +413,7 @@ impl<TT> DerefMut for TradeRep<TT> {
 
 impl<TT> TradeRep<TT>
 where
-    TT: BaseTrade + PartialEq //Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>
+    TT: BaseTrade + PartialEq
 {
     pub fn new() -> Self {
 	    TradeRep(HashMap::<String, TT>::new())
@@ -441,11 +442,11 @@ where
     }
 
     pub fn all_trades_ref(&self) -> Vec<&TT> {
-	    self.values().into_iter().collect::<Vec<&TT>>()
+	self.values().into_iter().collect::<Vec<&TT>>()
     }
 
     pub fn contains(&self, trade: &TT) -> bool {
-	    self.all_trades_ref().contains(&trade)
+	self.all_trades_ref().contains(&trade)
     }
 }
 
