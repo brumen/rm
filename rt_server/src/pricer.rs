@@ -144,7 +144,7 @@ where
 pub trait PriceMultipleTrades<TT> {
     fn _price_trades(
         &self,
-	    trades: &[&TT],
+	trades: &[&TT],
         market_ : CurrNewMarket,
         metric: PricingMetric,
     ) -> PortfolioType;

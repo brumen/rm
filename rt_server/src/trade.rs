@@ -174,11 +174,11 @@ impl BaseTrade for Future {
 
     // TODO: THIS SHOULD BE FIXED.
     fn direction(&self) -> TradeDirection {
-        if self.amount >= 0. {
-            TradeDirection::Create  // TODO: THIS SHOULD OBVIOUSLY BE FIXED
-        } else {
-            TradeDirection::Delete
-        }
+        //if self.amount >= 0. {
+        TradeDirection::Create  // TODO: THIS SHOULD OBVIOUSLY BE FIXED
+        //} else {
+        //    TradeDirection::Delete
+        //}
     }
 }
 
@@ -212,11 +212,11 @@ impl BaseTrade for Cash {
 
     // TODO: THIS SHOULD BE FIXED.
     fn direction(&self) -> TradeDirection {
-        if self.amount >= 0. {
-            TradeDirection::Create  // TODO: THIS SHOULD OBVIOUSLY BE FIXED
-        } else {
-            TradeDirection::Delete
-        }
+        //if self.amount >= 0. {
+        TradeDirection::Create  // TODO: THIS SHOULD OBVIOUSLY BE FIXED
+        //} else {
+        //    TradeDirection::Delete
+        //}
     }
 }
 
@@ -240,6 +240,7 @@ pub enum TradeTypes {
     Future(Future),
     Cash(Cash),
 }
+
 
 impl TradeTypes {
 
