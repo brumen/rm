@@ -7,11 +7,12 @@ use crate::portfolio::PortfolioType;
 use crate::portfolio_sender::PortfolioSender;
 use crate::market::MarketType;
 use crate::publish::PublishResults;
+use crate::trade::BaseTrade;
 use crate::trade_processor::RiskProcessors;
-use crate::trade::TradeAggregation;
 
 
-pub trait CalcController {
+pub trait CalcController<TT> {
+     
     fn start (
         &self,
         pos_topic: String,     // position topic on kafka
@@ -24,11 +25,12 @@ pub trait CalcController {
 ///
 /// main function that starts the various threads.
 ///
-impl<T> CalcController for T
+impl<T, TT> CalcController<TT> for T
 where
-    T: Send + Sync + TradeAggregation + RiskProcessors + MktEventHandler + PublishResults + PortfolioSender,
+    T: Send + Sync + RiskProcessors<TT> + MktEventHandler + PublishResults + PortfolioSender<TT>,
+    TT: Clone + Send + BaseTrade + PartialEq + std::fmt::Debug 
 {
-
+    
     fn start (
         &self,
         pos_topic: String,     // position topic on kafka
@@ -37,13 +39,13 @@ where
         mkt_params: MktMsgParams,
     ) {
         // 2 trade senders, 1 for current market, 1 for new market.
-        let (pos_sender_curr, pos_recv_curr) = channel::<T::TT>();
-        let (pos_sender_new, pos_recv_new) = channel::<T::TT>();
+        let (pos_sender_curr, pos_recv_curr) = channel::<TT>();
+        let (pos_sender_new, pos_recv_new) = channel::<TT>();
         // events about the new market event
         let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
         // new & current market portfolio
         let (curr_portfolio_sender, curr_portfolio_recv) = channel::<PortfolioType>();
-        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, Vec<T::TT>)>();
+        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, usize)>();
 
         // threads fail if any of them can not be created.
         thread::scope(|s| {
@@ -61,15 +63,7 @@ where
                         mkt_topic,
                         mkt_params,
                         new_mkt_sender,
-                    )  // MktMsgParams::AOParams(AOStruct{mkt_sender: new_mkt_sender}))
-                        // LETF
-                    // MktMsgParams::LETFParams(
-                        //     LETFP {
-                        //         curr_mkt: Arc::clone(&self.curr_market),
-                        //         new_mkt_sender,
-                        //     }
-                        // )
-
+                    )
                 })
                 .unwrap();
 

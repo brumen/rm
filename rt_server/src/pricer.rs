@@ -13,7 +13,7 @@ use crate::portfolio::{
     AggregatedTrades,
     PV01Results,
 };
-use crate::trade::TradeAggregation;
+use crate::trade::BaseTrade;
 use crate::market::MarketType;
 
 
@@ -51,15 +51,16 @@ pub trait PriceTrade {
 }
 
 
-pub trait BasicValue : TradeAggregation {
+pub trait BasicValue<TT>
+{
     fn metric(&self) -> PricingMetric;
-    fn _value_trade(&self, trade_id: String, market: CurrNewMarket, metric: PricingMetric) -> PricingResults;
+    fn _value_trade(&self, trade: &TT, market: CurrNewMarket, metric: PricingMetric) -> PricingResults;
 }
 
 
 /// trait for implementing the pricer which comes from the REST service for the trade.
 ///
-pub trait RestPricer : Decoder + BasicValue {
+pub trait RestPricer<TT> : Decoder + BasicValue<TT> {
     // ip of the rest pricer, like localhost:5010
     fn _pricing_server(&self) -> String;
     // endpoint to use for pricing the trade (like pv_spark)
@@ -69,15 +70,15 @@ pub trait RestPricer : Decoder + BasicValue {
     /// those trades.
     fn _price_trades_sequentially(
         &self,
-        agg_trades: &AggregatedTrades,
+	trades: &[&TT],
         market_ : CurrNewMarket,
         metric : PricingMetric,
     ) -> PortfolioType {
 
         let mut new_portfolio = PortfolioType::new();
 
-        for (trade_id, trade_position) in agg_trades.iter() {
-            new_portfolio += self._value_trade(trade_id.clone(), market_, metric) * (*trade_position);  // TODO: WITHOUT COPYING PLEASE????
+        for trade in trades {
+            new_portfolio += self._value_trade(trade, market_, metric);
         }
 
         new_portfolio
@@ -86,7 +87,10 @@ pub trait RestPricer : Decoder + BasicValue {
 }
 
 
-pub trait RestPricerSpark : Decoder {
+pub trait RestPricerSpark<TT> : Decoder
+where
+    TT: BaseTrade
+{
     // server used by spark to price trades, like localhost:5010
     fn _pricing_server_spark(&self) -> String;
     // endpoint on the pricing server, like "price_spark_new"
@@ -95,17 +99,17 @@ pub trait RestPricerSpark : Decoder {
     // prices the trades on the spark
     fn _price_trades_on_spark(
         &self,
-        agg_trades: &AggregatedTrades,
-        pricing_client : &Client,
+	trades: &[&TT],
+	pricing_client : &Client,
         market_ : CurrNewMarket,
         metric : PricingMetric,
     ) -> PortfolioType {
 
         // joins all trades with commas, like 190,191,192
         let all_trade_ids = ",".join(
-            agg_trades
-                .keys()
-//                .map(|trade_id: &u16| -> String {trade_id.to_string()} )
+            trades
+                .iter()
+                .map(|trade| {trade.id()} )
         );
 
         let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
@@ -115,7 +119,7 @@ pub trait RestPricerSpark : Decoder {
             .post(format!("http://{}/{}", self._pricing_server_spark(), market_endpoint))
             .form(&HashMap::from([("trades", &all_trade_ids)]))
             .send();
-        info!("SPARK pricing took: {:?}", result_pricing_start.elapsed().as_secs_f32());
+        info!("_price_trades_on_spark: SPARK pricing took: {:?}", result_pricing_start.elapsed().as_secs_f32());
 
         // unwrap the result_pricing
         let mut priced_portfolio = match result_pricing {
@@ -126,7 +130,8 @@ pub trait RestPricerSpark : Decoder {
             },
         };
 
-        priced_portfolio *= agg_trades;  // fix the priced portfolio by the weights, aggregated trades.
+	// TODO: WHAT TO DO HERE????
+        //priced_portfolio *= agg_trades;  // fix the priced portfolio by the weights, aggregated trades.
 
         // let's do the aggregation here.
         match priced_portfolio {
@@ -137,30 +142,34 @@ pub trait RestPricerSpark : Decoder {
 }
 
 
-pub trait PriceMultipleTrades {
+pub trait PriceMultipleTrades<TT> {
     fn _price_trades(
         &self,
-        agg_trades: &AggregatedTrades,
+	trades: &[&TT],
         market_ : CurrNewMarket,
         metric: PricingMetric,
     ) -> PortfolioType;
 }
 
 // for every type that implements RestPricer & RestPricerSpark implement this as well.
-impl<T:RestPricerSpark + RestPricer> PriceMultipleTrades for T {
+impl<TT, T> PriceMultipleTrades<TT> for T
+where
+    T: RestPricerSpark<TT> + RestPricer<TT>,
+    TT: BaseTrade
+{
     fn _price_trades(
         &self,
-        agg_trades: &AggregatedTrades,
+	trades: &[&TT],
         market_ : CurrNewMarket,
         metric: PricingMetric,
     ) -> PortfolioType {
 
-        let nb_trades = agg_trades.keys().len();
+        let nb_trades = trades.len();
 
         if nb_trades > 30 {  // TODO: FACTOR THIS 30 out.
-            return self._price_trades_on_spark(agg_trades, &Client::new(), market_, metric);
+            return self._price_trades_on_spark(trades, &Client::new(), market_, metric);
         }
 
-        self._price_trades_sequentially(agg_trades, market_, metric)
+        self._price_trades_sequentially(trades, market_, metric)
     }
 }
