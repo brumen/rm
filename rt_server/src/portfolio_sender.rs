@@ -1,33 +1,32 @@
 use log::{warn, debug,};
 use std::sync::mpsc::Sender;
-use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, };
+use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, Message, };
 
 use crate::ref_deref::TryFromRef;
-use crate::trade::TradeAggregation;
 use crate::streaming::Streaming;
 
 
-pub trait PortfolioSender : TradeAggregation
+pub trait PortfolioSender<TT>
 {
     fn __construct_portfolio(
         &self,
-        sender_new: Sender<Self::TT>,
-        sender_curr: Sender<Self::TT>,
+        sender_new: Sender<TT>,
+        sender_curr: Sender<TT>,
         pos_topic: String,
     );
 }
 
 
-impl<T> PortfolioSender for T
+impl<T, TT> PortfolioSender<TT> for T
 where
-    T: Streaming + TradeAggregation,
-    //TT: for<'a> TryFromRef<Message<'a>> + std::fmt::Debug + Send + Clone,
-    //for<'a> <TT as TryFromRef<Message<'a>>>::Error: Debug,
+    T: Streaming,
+    TT: for<'a> TryFromRef<Message<'a>> + std::fmt::Debug + Send + Clone,
+    for<'a> <TT as TryFromRef<Message<'a>>>::Error: std::fmt::Debug,
 {
     fn __construct_portfolio(
         &self,
-        sender_new: Sender<Self::TT>,
-        sender_curr: Sender<Self::TT>,
+        sender_new: Sender<TT>,
+        sender_curr: Sender<TT>,
         pos_topic: String,
     ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
@@ -45,7 +44,7 @@ where
                 for msg in ms.messages() {
                     debug!("__construct_portfolio: {:?}",  msg);
 
-                    match Self::TT::try_from_ref(msg) {
+                    match TT::try_from_ref(msg) {
                         Err(e) => {
                             warn!("__construct_portfolio: Problem w/ trade: {:?}", e);
                             continue;

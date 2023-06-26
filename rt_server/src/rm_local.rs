@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex,};
 use std::sync::mpsc::Sender;
 use kafka::consumer::Message;
 use serde::Deserialize;
+use std::collections::hash_map::{Keys, Values,};
 
 use crate::portfolio::{
     PortfolioType,
@@ -31,7 +32,10 @@ use crate::pricer::{
 };
 
 use crate::streaming::Streaming;
-use crate::trade::{TradeTypes, TradeAggregation,};
+use crate::trade::{
+    TradeTypes,
+    TradeRep,
+};
 use crate::trade_processor::MarketSwitching;
 use crate::publish::PublishResults;
 
@@ -51,8 +55,6 @@ pub struct RTRMLocal {
     metric: PricingMetric,
     curr_market: Arc<Mutex<MarketType>>,
     new_market: Arc<Mutex<MarketType>>,
-    _all_trades: Arc<Mutex<Vec<TradeTypes>>>,
-    _aggregated_trades: Arc<Mutex<AggregatedTrades>>,
 }
 
 
@@ -78,8 +80,6 @@ impl RTRMLocal {
             metric,
             curr_market: Arc::new(Mutex::from(MarketType::new())),
             new_market: Arc::new(Mutex::from(MarketType::new())),
-            _all_trades: Arc::new(Mutex::new(Vec::<TradeTypes>::new())),
-            _aggregated_trades: Arc::new(Mutex::new(AggregatedTrades::new())),
         }
     }
 
@@ -118,84 +118,20 @@ impl MarketSwitching for RTRMLocal {
 
 }
 
-impl TradeAggregation for RTRMLocal {
 
-    type TT = TradeTypes;
-
-    fn all_trades(&self) -> Arc<Mutex<Vec<Self::TT>>> {
-        // TODO: IDK IF THIS IS RIGHT????
-        // TODO: SHITTIEST WORK EVER
-//        let mut new_trades = Vec::<Self::TT>::new();
-//        for v in &*self._all_trades.lock().unwrap() {
-//            new_trades.push(v.clone());
-//        }
-//
-//        new_trades
-        //
-
-        self._all_trades
-    }
-
-    /// constructs aggregated trades from all_trades.
-    /// TODO: THIS CANT BE CONSTRUCTED EVERY TIME AGAIN!!! FIX IT!!!
-    fn aggregated_trades(&self) -> Arc<Mutex<AggregatedTrades>> {
-        self._aggregated_trades
-
-//        let mut new_agg_trades = AggregatedTrades::new();
-//        for trade in &*self._all_trades.lock().unwrap() {
-//            new_agg_trades += trade.clone(); // TODO: TOO MUCH CLONING
-//        }
-
-//        new_agg_trades
-    }
-
-    fn add_trade_mut(&self, trade: Self::TT) {
-        (*self.all_trades()
-            .lock()
-         .expect("add_trade_mut: Could not unlock all trades."))
-            .push(trade.clone());
-
-        (*self.aggregated_trades()
-         .lock()
-         .expect("add_trade_mut: could not lock aggregated trades"))
-         += trade;
-
-        //let all_trades = &mut *self._all_trades.lock().unwrap();
-        //all_trades.push(trade);
-
-        // add it to aggregated trades as well.
-    }
-
-}
-
-
-impl BasicValue for RTRMLocal {
+impl BasicValue<TradeTypes> for RTRMLocal {
 
     fn metric(&self) -> PricingMetric {
         self.metric
     }
 
     /// pricing the trade locally
-    fn _value_trade(&self, trade_id: String, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
-
-        let trade = self.find_trade(trade_id);
+    //TODO: trade_id should be &String
+    fn _value_trade(&self, trade: &TradeTypes, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
 
         debug!("_value_trade: Valuing {:?}", trade);
-        if trade.is_none() {
-            match metric {
-                PricingMetric::PV => {
-                    return PricingResults::PV(PortfolioType::new());
-                },
-                PricingMetric::PV01 => {
-                // TODO: THIS IS WRONG, FIX IT!!!!
-                    return PricingResults::PV01(PV01Results::new());
-                }
-            }
-        }
 
-        let actual_trade = trade.unwrap();
-
-        let trade_name = actual_trade.trade_name();
+        let trade_name = trade.trade_name();
         debug!("_value trade: Trade name {:?}", trade_name);
 
         let stock_mkt_arc = match market {
@@ -204,23 +140,23 @@ impl BasicValue for RTRMLocal {
         };
         let stock_mkt = stock_mkt_arc.expect("Could not lock the current market, weird");
 
-        let stock_value = actual_trade.price(&stock_mkt);
+        let stock_value = trade.price(&stock_mkt);
         debug!("_value_trade: Stock value {:?}", stock_value);
 
         match metric {
             PricingMetric::PV => {
-                let priced_trade = actual_trade.price(&stock_mkt);
+                let priced_trade = trade.price(&stock_mkt);
                 debug!("_value_trade: Priced trade = {:?}", priced_trade);
                 if let Some(price_trade) = priced_trade {
-                    PricingResults::PV(PortfolioType::from([(actual_trade.trade_name(), price_trade),]))
+                    PricingResults::PV(PortfolioType::from([(trade.trade_name(), price_trade),]))
                 } else {
                     PricingResults::PV(PortfolioType::new())
                 }
             },
 
             PricingMetric::PV01 => {
-                debug!("_value_trade: Priced trade = {:?}", actual_trade.pv01(&stock_mkt));
-                PricingResults::PV01(actual_trade.pv01(&stock_mkt))
+                debug!("_value_trade: Priced trade = {:?}", trade.pv01(&stock_mkt));
+                PricingResults::PV01(trade.pv01(&stock_mkt))
             },
         }
     }
@@ -277,26 +213,25 @@ impl MktEventHandler for RTRMLocal {
         }
 
         debug!("_handle_mkt_msg: Final market {:?}", curr_mkt_tmp);
-        //let _ = new_quote_mkt.new_mkt_sender.send(*curr_mkt_tmp);  // TODO: FIX THIS HERE!!!
         let _ = new_mkt_sender.send(new_mkt_real);  // TODO: FIX THIS HERE!!!
     }
 }
 
 /// implements the pricing of multiple trades for every type T that implements _value_trade
 /// iterates over the trades.
-impl PriceMultipleTrades for RTRMLocal {
+impl PriceMultipleTrades<TradeTypes> for RTRMLocal {
     /// price multiple trades
     fn _price_trades(
         &self,
-        agg_trades: &AggregatedTrades,
+	trades: &[&TradeTypes],
         market_ : CurrNewMarket,
         metric: PricingMetric,
     ) -> PortfolioType {
         // iterate of the
         let mut new_portfolio = PortfolioType::new();
 
-        for (trade_id, trade_position) in agg_trades.iter() {
-            new_portfolio += self._value_trade(trade_id.clone(), market_, metric) * (*trade_position);  // TODO: WITHOUT CLONING
+        for trade in trades {
+            new_portfolio += self._value_trade(trade, market_, metric);
         }
 
         new_portfolio

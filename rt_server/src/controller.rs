@@ -9,7 +9,7 @@ use core::convert::From;
 use std::sync::{Arc, Mutex};
 
 use crate::market::MktMsgParams;
-use crate::trade::{TradeAggregation, BaseTrade, };
+use crate::trade::BaseTrade;
 use crate::portfolio::{
     PortfolioType,
     PricingResults,
@@ -37,6 +37,7 @@ use crate::publish::PublishResults;
 use crate::streaming::Streaming;
 use crate::trade_processor::MarketSwitching;
 use crate::mkt_handler::MktEventHandler;
+use crate::trade::TradeRep;
 
 pub type PricingParams = HashMap<String, f64>;
 
@@ -162,41 +163,10 @@ impl<TT> Decoder for Controller<TT> {
 }
 
 
-impl<TT : Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>> TradeAggregation for Controller<TT> {
-    type TT = TT;
-
-    fn all_trades(&self) -> Vec<Self::TT> {
-        // TODO: IDK IF THIS IS RIGHT????
-        // TODO: SHITTIEST WORK EVER
-        let mut new_trades = Vec::<Self::TT>::new();
-        for v in &*self._all_trades.lock().unwrap() {
-            new_trades.push(v.clone());
-        }
-
-        new_trades
-
-    }
-
-    fn add_trade_mut(&self, trade: Self::TT) {
-        let all_trades = &mut *self._all_trades.lock().unwrap();
-        all_trades.push(trade);
-    }
-
-    fn aggregated_trades(&self) -> AggregatedTrades {
-
-        let mut new_agg_trades = AggregatedTrades::new();  //Vec::<Self::TT>::new();
-        for (agg_name, agg_val) in self._aggregated_trades.lock().unwrap().iter() {
-            new_agg_trades.insert(agg_name.clone(), *agg_val);
-        }
-
-        new_agg_trades
-
-        //*self._aggregated_trades.clone().lock().unwrap()
-    }
-}
-
-
-impl<TT: Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>> RestPricer for Controller<TT> {
+impl<TT> RestPricer<TT> for Controller<TT>
+where
+    TT: Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>
+{
 
     /// pricing endpoints for valuing on the go
     fn _pricing_endpoint(&self, market_ : CurrNewMarket, metric: PricingMetric) -> String {
@@ -225,7 +195,10 @@ impl<TT: Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFro
 }
 
 
-impl<TT> RestPricerSpark for Controller<TT> {
+impl<TT> RestPricerSpark<TT> for Controller<TT>
+where
+    TT : Send + std::cmp::PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>> 
+{
 
     /// compute the pricing endpoint for the rester service for
     /// a particular metric and market.
@@ -329,15 +302,18 @@ impl<TT> MarketSwitching for Controller<TT> {
 }
 
 
-impl<TT : Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>> BasicValue for Controller<TT> {
+impl<TT> BasicValue<TT> for Controller<TT>
+where
+    TT : Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>
+{
 
     fn metric(&self) -> PricingMetric {
         self.metric
     }
 
     // prices the trade given the market spec & pricing metric.
-    fn _value_trade(&self, trade_id: String, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
-        debug!("VALUATION: Pricing trade: {}, market: {:?}", trade_id, market);
+    fn _value_trade(&self, trade: &TT, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
+        debug!("VALUATION: Pricing trade: {:?}, market: {:?}", trade, market);
 
         // Create or update trades have to be evaluated, so we have to price them.
         //"http://localhost:5010/pv/{trade_id}"
@@ -347,14 +323,14 @@ impl<TT : Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFr
                     "http://{}/{}/{}",
                     self._pricing_server(),
                     self._pricing_endpoint(market, metric),
-                    trade_id,
+                    trade.id(),
                 )
             );
 
         match result_pricing {
             Ok(result_price) => { self._unwrap_pricing_results(result_price, metric) },
             Err(e) => {
-                warn!("Trade {trade_id} could not price correctly: {}", e);
+                warn!("Trade {:?} could not price correctly: {}", trade.id(), e);
                 match metric {
                     PricingMetric::PV => {PricingResults::PV(PortfolioType::new())},
                     PricingMetric::PV01 => {PricingResults::PV01(PV01Results::new())},
