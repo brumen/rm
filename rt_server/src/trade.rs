@@ -105,7 +105,7 @@ impl LETFTrade {
             LETFHedge::Future( Future {
                 trade_id: Uuid::new_v4().to_string(),
                 stock: stock_name.clone(),
-                amount: beta * amount,
+                amount: - beta * amount,
             }),
             LETFHedge::Cash( Cash {
                 trade_id: Uuid::new_v4().to_string(),
