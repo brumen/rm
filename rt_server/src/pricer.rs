@@ -10,7 +10,6 @@ use crate::market::CurrNewMarket;
 use crate::portfolio::{
     PricingResults,
     PortfolioType,
-    AggregatedTrades,
     PV01Results,
 };
 use crate::trade::BaseTrade;

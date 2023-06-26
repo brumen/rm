@@ -5,17 +5,13 @@ use serde::{Serialize, Deserialize,};
 use kafka::consumer::Message;
 use thiserror::Error;
 use uuid::Uuid;
-use std::sync::{Arc, Mutex,};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut, };
-use std::collections::hash_map::{Values,};
 
 use crate::portfolio::{PV01Results, PortfolioType};
-use crate::ref_deref_trait;
-use crate::{ref_deref::TryFromRef, portfolio::AggregatedTrades};
+use crate::ref_deref::TryFromRef;
 use crate::pricer::PriceTrade;
 use crate::market::MarketType;
-use crate::portfolio::PortfolioType;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]

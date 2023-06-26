@@ -73,13 +73,14 @@ fn main_risk() {
     //let option_type = "ao".to_string();
     let config_file : String = args().nth(1).unwrap();
 
-    let controller2 = Controller::<AOTrade>::new_from_config(
+    let controller2 = Controller::new_from_config(
         config_file,
         //"/home/brumen/work/rm/configuration.yaml".to_owned(),
     ).unwrap();
 
     // TODO: The topics should be read from config as well.
-    controller2.start (
+    <Controller as CalcController<AOTrade>>::start (
+	&controller2,
         "air_options.ao.option_positions".to_owned(),
         "mkt_events".to_owned(),
         "air_options.ao.results".to_owned(),

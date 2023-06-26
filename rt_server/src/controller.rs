@@ -9,7 +9,7 @@ use core::convert::From;
 use std::sync::{Arc, Mutex};
 
 use crate::market::MktMsgParams;
-use crate::trade::BaseTrade;
+use crate::trade::{BaseTrade, AOTrade};
 use crate::portfolio::{
     PortfolioType,
     PricingResults,
@@ -37,7 +37,6 @@ use crate::publish::PublishResults;
 use crate::streaming::Streaming;
 use crate::trade_processor::MarketSwitching;
 use crate::mkt_handler::MktEventHandler;
-use crate::trade::TradeRep;
 
 pub type PricingParams = HashMap<String, f64>;
 
@@ -47,14 +46,12 @@ pub type PricingParams = HashMap<String, f64>;
 /// kafka_server_name: name of kafka server, like "localhost"
 /// kafka_port: port of kafka server, like 9092
 /// trader_pricer: name of the rester service, like localhost:5010
-pub struct Controller<TT: Sized> {
+pub struct Controller {
     pricing_params: PricingParams,
     kafka_server_name: String,
     kafka_port: i32,
     trade_pricer: String,
     metric: PricingMetric,
-    _all_trades: Arc<Mutex<Vec<TT>>>,
-    _aggregated_trades: Arc<Mutex<AggregatedTrades>>,
 }
 
 
@@ -73,7 +70,7 @@ pub struct RTConfig {
 
 
 // Controller is generic over MarketType type, which originally was (String, Date)
-impl<TT> Controller<TT> {
+impl Controller {
     pub fn new(
         pricing_params_: Option<PricingParams>,
         kafka_server_name: String,
@@ -87,14 +84,12 @@ impl<TT> Controller<TT> {
             None => PricingParams::new(),
         };
 
-        Controller::<TT> {
+        Controller {
             pricing_params: pricing_init,
             kafka_server_name,
             kafka_port,
             trade_pricer,
             metric,
-            _all_trades: Arc::new(Mutex::new(Vec::<TT>::new())),
-            _aggregated_trades: Arc::new(Mutex::new(AggregatedTrades::new())),
         }
     }
 
@@ -130,7 +125,7 @@ impl<TT> Controller<TT> {
 }
 
 
-impl<TT> Decoder for Controller<TT> {
+impl Decoder for Controller {
 
     // converts the spark response into a trade value.
     fn _unwrap_pricing_results(&self, result_price: Response, metric: PricingMetric) -> PricingResults {
@@ -163,7 +158,7 @@ impl<TT> Decoder for Controller<TT> {
 }
 
 
-impl<TT> RestPricer<TT> for Controller<TT>
+impl<TT> RestPricer<TT> for Controller
 where
     TT: Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>
 {
@@ -195,7 +190,7 @@ where
 }
 
 
-impl<TT> RestPricerSpark<TT> for Controller<TT>
+impl<TT> RestPricerSpark<TT> for Controller
 where
     TT : Send + std::cmp::PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>> 
 {
@@ -227,7 +222,7 @@ where
 }
 
 
-impl<TT> Streaming for Controller<TT> {
+impl Streaming for Controller {
     fn kafka_server_name(&self) -> String {
         self.kafka_server_name.clone()  // TODO: CHECK IF THIS CAN BE REMOVED HERE!!!
     }
@@ -238,7 +233,7 @@ impl<TT> Streaming for Controller<TT> {
 }
 
 
-impl<TT> PublishResults for Controller<TT> {
+impl PublishResults for Controller {
 
     fn metric(&self) -> PricingMetric {
         self.metric
@@ -246,7 +241,7 @@ impl<TT> PublishResults for Controller<TT> {
 }
 
 
-impl<TT> MktEventHandler for Controller<TT> {
+impl MktEventHandler for Controller {
 
     fn _handle_mkt_msg(
         &self,
@@ -290,7 +285,7 @@ impl<TT> MktEventHandler for Controller<TT> {
 }
 
 
-impl<TT> MarketSwitching for Controller<TT> {
+impl MarketSwitching for Controller {
     /// switch markets on the trade api.
     fn _switch_markets(&self) {
         info!("Switching markets: current <- new.");
@@ -302,7 +297,7 @@ impl<TT> MarketSwitching for Controller<TT> {
 }
 
 
-impl<TT> BasicValue<TT> for Controller<TT>
+impl<TT> BasicValue<TT> for Controller
 where
     TT : Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>
 {
@@ -321,8 +316,8 @@ where
             reqwest::blocking::get(
                 format!(
                     "http://{}/{}/{}",
-                    self._pricing_server(),
-                    self._pricing_endpoint(market, metric),
+                    <Controller as RestPricer<TT>>::_pricing_server(self),
+                    <Controller as RestPricer<TT>>::_pricing_endpoint(self, market, metric),
                     trade.id(),
                 )
             );
