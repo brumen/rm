@@ -19,4 +19,4 @@ from rm.trade_service import LETFTradeProducer
 
 
 letf_trade_producer = LETFTradeProducer(['AAPL', 'NVDA', ])
-letf_trade_producer.run()
+letf_trade_producer.run(sleep_between_publish=1.)

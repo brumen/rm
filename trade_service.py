@@ -34,7 +34,7 @@ class LETFTradeProducer(BaseProducer):
         self._stocks = stocks  # letf stocks which LETF position can be generated.
         self._beta = beta
 
-    def _value_to_publish(self):
+    def _value_to_publish(self, sleep_between_publish=11.):
         """ Keeps generating new fictitious market for stocks.
         """
 
@@ -53,4 +53,4 @@ class LETFTradeProducer(BaseProducer):
 
             yield letf_position
 
-            sleep(10.)
+            sleep(sleep_between_publish)

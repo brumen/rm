@@ -95,10 +95,10 @@ where
         // compute the initial portfolio
         let _ = self._find_initial_trades(&trade_receiver, &mut all_trades);  // this updates all_trades
         let mut curr_portfolio = self._price_trades(
-	    &all_trades.values().into_iter().collect::<Vec<&TT>>()[..],
-	    CurrNewMarket::Current,
-	    self.metric()
-	);
+	        &all_trades.all_trades_ref()[..],
+	        CurrNewMarket::Current,
+	        self.metric()
+	    );
         let _ = curr_portfolio_sender.send(curr_portfolio.clone());
 
         loop {
@@ -144,8 +144,10 @@ where
                 let all_l = all_trades.len();
 
                 if new_l >= all_l {  // new processor is further ahead
+                    info!("_trade_processor_curr: Switching curr_p <- new_p.");
                     curr_portfolio = new_p;
                 } else if (new_l < all_l) && (new_l >= all_l - nb_conseq_processed_trades - 1) {  // new is not ahead, but we can still update.
+                    info!("_trade_processor_curr: Extending the portfolio w/ new one");
                     curr_portfolio.extend(new_p.0.into_iter());
                 }
                 let _ = curr_portfolio_sender.send(curr_portfolio.clone());
@@ -175,10 +177,11 @@ where
             if new_market_event {
                 info!("_trade_processor_new: Working. {} trades", all_trades.keys().len());
                 new_portfolio = self._price_trades(
-		    &all_trades.all_trades_ref()[..],
-		    CurrNewMarket::New,
-		    self.metric()
-		);
+		            &all_trades.all_trades_ref()[..],
+		            CurrNewMarket::New,
+		            self.metric()
+		        );
+                info!("_trade_processor_new: Finished working!");
             }
 
             // catch up any remaining trades
@@ -187,6 +190,7 @@ where
                 let trade_direction = trade.direction();
                 info!("_trade_processor_new: Processing trade {}, dir {:?}", trade_id, trade_direction);
                 let trade_v = self._value_trade(&trade, CurrNewMarket::New, self.metric());
+                info!("_trade_processor_new: Finished processing trade");
                 match trade_direction {
                     TradeDirection::Create => {new_portfolio += trade_v;},
                     TradeDirection::Delete => {new_portfolio -= trade_v;},
@@ -199,7 +203,7 @@ where
 
             // decisions whether to publish the market or not.
             if new_market_event {
-                info!("_trade_processor_new: Publishing portfolio. {} trades", new_portfolio.keys().len());
+                info!("_trade_processor_new: Sending new portfolio to be published ({} trades).", new_portfolio.keys().len());
                 let _ = new_portfolio_sender.send((new_portfolio.clone(), all_trades.len()));
             }
         }

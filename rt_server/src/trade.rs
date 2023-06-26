@@ -22,7 +22,7 @@ pub enum TradeDirection {
 }
 
 
-pub trait BaseTrade {    
+pub trait BaseTrade {
     fn id(&self) -> String;
     fn direction(&self) -> TradeDirection;
 }
@@ -389,47 +389,6 @@ impl TryFromRef<Message<'_>> for AOTrade
 }
 
 
-/// trait describing trade aggregation and mainatanance
-// pub trait TradeAggregation
-// where
-// {
-//     type TT: PartialEq + BaseTrade + Clone + Send + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>;
-
-//     fn trade_rep(&self) -> TradeRep<Self::TT>;  // original representation.
-
-//     // adds a trade (consumes trade obviously)
-//     fn add_trade(&self, trade: Self::TT) {
-//         let trade_rep = self.trade_rep().add_trade(trade);
-//     }
-
-//     fn all_trades(&self) -> Vec<&Self::TT> {
-// 	let mut all_v = vec![];
-	
-// 	for trade in self.trade_rep().into_iter() {
-// 	    all_v.push(&trade)
-// 	}
-	
-// 	all_v
-//     }
-    
-//     fn aggregated_trades(&self) -> AggregatedTrades {
-// 	let mut agg_trades = AggregatedTrades::new();
-// 	for trade in self.trade_rep().into_iter() {
-// 	    // TODO: THIS IS OBVIOUSLY WRONG HERE
-// 	    agg_trades.insert(trade.id(), 100.);  //  trade.amount());
-// 	}
-
-// 	agg_trades
-//     }
-
-
-//     /// finds the trade in the trade collection
-//     fn find_trade(&self, trade_id: &String) -> Option<Self::TT> {
-// 	self.trade_rep().get(trade_id)
-//     }
-// }
-
-
 /// Internal representations of trades.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct TradeRep<TT> (
@@ -438,7 +397,7 @@ pub struct TradeRep<TT> (
 
 impl<TT> Deref for TradeRep<TT> {
     type Target = HashMap::<String, TT>;
-    
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -456,38 +415,37 @@ where
     TT: BaseTrade + PartialEq //Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>
 {
     pub fn new() -> Self {
-	TradeRep(HashMap::<String, TT>::new())
+	    TradeRep(HashMap::<String, TT>::new())
     }
 
     pub fn add_trade(&mut self, trade: TT) {
-	let trade_id = trade.id();
+	    let trade_id = trade.id();
 
-	// TODO: FIX THIS PART BELOW.
-	let trade_position = self.keys().position(|tradeid| tradeid.eq(&trade_id));
+	    // TODO: FIX THIS PART BELOW.
+	    let trade_position = self.keys().position(|tradeid| tradeid.eq(&trade_id));
 
-	if trade_position.is_none() {
-	    self.insert(trade_id, trade);
-	}
+	    if trade_position.is_none() {
+	        self.insert(trade_id, trade);
+	    }
     }
 
     pub fn get(&self, trade_id: &String) -> Option<TT> {
-	self.get(trade_id)
+	    self.get(trade_id)
     }
 
     pub fn all_trade_names(&self) -> Vec<String> {
-	
-        self.values()
-	    .into_iter()
+        self.all_trades_ref()
+            .into_iter()
             .map(|t| t.id())
             .collect()
     }
 
     pub fn all_trades_ref(&self) -> Vec<&TT> {
-	self.values().into_iter().collect::<Vec<&TT>>()
+	    self.values().into_iter().collect::<Vec<&TT>>()
     }
 
     pub fn contains(&self, trade: &TT) -> bool {
-	self.all_trades_ref().contains(&trade)
+	    self.all_trades_ref().contains(&trade)
     }
 }
 

@@ -20,4 +20,4 @@ from rm.market_service import LETFProducer
 
 # start the leveraged etf market producer
 letf_market = LETFProducer(['AAPL', 'NVDA', ])
-letf_market.run()
+letf_market.run(sleep_between_publish=.2)

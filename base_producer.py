@@ -42,14 +42,14 @@ class BaseProducer:
     def _serialize_msg(m):
         return json.dumps(m).encode('utf-8')
 
-    def _producer_thread(self, sleep_delay = 1.):
+    def _producer_thread(self, sleep_delay = 11.):
         """ Base producer thread.
 
         :param sleep_delay: delay before the next produced value.
 
         """
 
-        for value in self._value_to_publish():
+        for value in self._value_to_publish(sleep_between_publish=sleep_delay):
             print(f'Publishing value {value}.')
 
             self._mkt_producer.send(
@@ -57,25 +57,28 @@ class BaseProducer:
                 value=value
             )
 
-    def _value_to_publish(self):
+    def _value_to_publish(self, sleep_between_publish=None):
         """ Generator to generate new values.
+
+        :param sleep_between_publish: sleep between individual publishing.
         """
 
         raise NotImplementedError('Need to implement _value_to_publish')
 
 
-    def run(self) -> Thread:
+    def run(self, sleep_between_publish=11.) -> Thread:
         """ Runs the thread for market publishing
 
         2 threads are ran:
            1. _update_new_mkt_events: collects market events and updates the new market.
            2. _operate_markets: holds the current and new market, and switches between them.
 
+        :param sleep_between_publish: sleep between individual publishing events.
         returns: market events thread, switch market thread.
         """
 
         # market event topic reading thread
-        market_events = Thread(target=self._producer_thread)
+        market_events = Thread(target=self._producer_thread(sleep_delay=sleep_between_publish))
         market_events.start()
 
         return market_events

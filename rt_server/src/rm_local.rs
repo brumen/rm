@@ -7,13 +7,10 @@ use std::sync::{Arc, Mutex,};
 use std::sync::mpsc::Sender;
 use kafka::consumer::Message;
 use serde::Deserialize;
-use std::collections::hash_map::{Keys, Values,};
 
 use crate::portfolio::{
     PortfolioType,
-    AggregatedTrades,
     PricingResults,
-    PV01Results,
 };
 
 use crate::market::{
@@ -32,10 +29,7 @@ use crate::pricer::{
 };
 
 use crate::streaming::Streaming;
-use crate::trade::{
-    TradeTypes,
-    TradeRep,
-};
+use crate::trade::TradeTypes;
 use crate::trade_processor::MarketSwitching;
 use crate::publish::PublishResults;
 

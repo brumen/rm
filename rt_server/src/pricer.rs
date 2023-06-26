@@ -98,8 +98,8 @@ where
     // prices the trades on the spark
     fn _price_trades_on_spark(
         &self,
-	trades: &[&TT],
-	pricing_client : &Client,
+	    trades: &[&TT],
+	    pricing_client : &Client,
         market_ : CurrNewMarket,
         metric : PricingMetric,
     ) -> PortfolioType {
@@ -144,7 +144,7 @@ where
 pub trait PriceMultipleTrades<TT> {
     fn _price_trades(
         &self,
-	trades: &[&TT],
+	    trades: &[&TT],
         market_ : CurrNewMarket,
         metric: PricingMetric,
     ) -> PortfolioType;

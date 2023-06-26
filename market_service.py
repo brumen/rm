@@ -35,8 +35,10 @@ class LETFProducer(BaseProducer):
         # stocks are in the form of {stock_name: stock_value}, like {'APL': 150., 'NVA': 300.}
         self._curr_stocks : Dict[str, float] = {stock: 50. + stock_idx * 5 for stock_idx, stock in enumerate(self._stocks)}  # initial values
 
-    def _value_to_publish(self):
+    def _value_to_publish(self, sleep_between_publish=11.):
         """ Keeps generating new fictitious market for stocks.
+
+        :param sleep_between_publish: sleep time between individual publishes
         """
 
         while True:
@@ -46,7 +48,7 @@ class LETFProducer(BaseProducer):
             for stock in self._stocks:
                 self._curr_stocks[stock] += random.gauss(mu=0., sigma=1.)  # add some random value
 
-            sleep(11.)
+            sleep(sleep_between_publish)
 
 
 class MarketService:
