@@ -1,5 +1,5 @@
 use std::collections::{HashMap, hash_map::IntoIter,};
-use std::ops::{Deref, DerefMut, };
+use std::ops::{Deref, DerefMut, AddAssign,};
 use serde::{Serialize, Deserialize};
 use kafka::consumer::Message;
 
@@ -53,6 +53,18 @@ impl MarketType {
     }
 }
 
+
+impl AddAssign<&MarketType> for MarketType {
+
+    fn add_assign(&mut self, rhs: &MarketType) {
+
+	for (ticker, value) in rhs.iter() {
+	    let _ = self.insert(ticker.clone(), *value);
+	}
+    }
+}
+
+
 #[derive(Error, Debug)]
 pub enum MarketTypeError {
     #[error("Cant convert from utf messsage")]
@@ -81,6 +93,7 @@ pub enum CurrNewMarket {
     New,
 }
 
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AOMktParams {
@@ -91,14 +104,8 @@ pub struct AOMktParams {
 #[derive(Debug, Clone)]
 pub struct LETFP {
     pub curr_mkt : Arc<Mutex<MarketType>>,
-    //pub new_mkt_sender: Sender<MarketType>,
 }
 
-
-// #[derive(Debug, Clone)]
-// pub struct AOStruct {
-//     pub mkt_sender: Sender<MarketType>,
-// }
 
 #[derive(Debug, Clone)]
 pub enum MktMsgParams {

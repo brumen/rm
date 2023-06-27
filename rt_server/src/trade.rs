@@ -153,23 +153,24 @@ impl PriceTrade for Future {
     fn price(&self, market: &MarketType) -> Option<f64> {
 
         let stock = market.get(&self.stock);
-
+	debug!("_price: PriceTrade Future market: {:?}", market);
+	
         stock.map(|stock_v| stock_v * self.amount)
     }
 
     fn pv01(&self, _market: &MarketType) -> PV01Results {
 
-        debug!("pv01: Future {:?}", _market);
         let mut pv01_results = PV01Results::new();
         let _ = pv01_results.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.amount),]));
 
+	debug!("PriceTrade: pv01 Future: {:?}", pv01_results);
         pv01_results
     }
 }
 
 impl BaseTrade for Future {
     fn id(&self) -> String {
-        self.trade_id.clone()  // TODO: THIS SHOULD BE FIXED
+        self.trade_id.clone()  // TODO: FIX THIS HERE!!!
     }
 
     // TODO: THIS SHOULD BE FIXED.

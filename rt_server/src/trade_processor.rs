@@ -2,6 +2,7 @@
 
 use log::{info, debug,};
 use std::sync::mpsc::{Receiver, Sender,};
+use std::sync::{Arc,Mutex,};
 
 use crate::trade::{
     TradeDirection,
@@ -15,6 +16,8 @@ use crate::trade::TradeRep;
 pub trait MarketSwitching {
     /// switch markets on the trade api.
     fn _switch_markets(&self);
+    fn _curr_mkt(&self) -> Arc<Mutex<MarketType>>;
+    fn _new_mkt(&self) -> Arc<Mutex<MarketType>>;
 }
 
 
@@ -49,10 +52,16 @@ where
 
         // handling new market event - roll to the latest new market, ignore in between markets
         let mut new_market_event = false;
-        while new_market_receiver.try_recv().is_ok() {
+	let mut new_stock_mkt : MarketType = MarketType::new();
+
+        while let Ok(new_potential_mkt) = new_market_receiver.try_recv() {
             new_market_event = true;
+	    new_stock_mkt = new_potential_mkt;
+	    debug!("_new_market_event: Market = {:?}", new_stock_mkt);
         }
 
+	*self._curr_mkt().lock().expect("_new_market_event: Could not lock!") += &new_stock_mkt;
+	
         new_market_event
     }
 
@@ -165,7 +174,8 @@ where
     ) {
         let mut new_portfolio = PortfolioType::new();
 	let mut all_trades = TradeRep::<TT>::new();
-
+	let mut new_stock_mkt = MarketType::new();
+	
         loop {
 
             // handling new trade event
@@ -173,7 +183,11 @@ where
             debug!("_trade_processor_new: Nb all trades: {}", all_trades.len());
 
             //let new_market_event = self._new_market_event(&new_market_receiver);
-            let new_market_event = <T as RiskProcessors<TT>>::_new_market_event(self, &new_market_receiver);
+	    // new_market_event also updates the New market
+            let new_market_event = <T as RiskProcessors<TT>>::_new_market_event(
+		self,
+		&new_market_receiver,
+	    );
             if new_market_event {
                 info!("_trade_processor_new: Working. {} trades", all_trades.keys().len());
                 new_portfolio = self._price_trades(

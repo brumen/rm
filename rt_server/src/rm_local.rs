@@ -108,8 +108,17 @@ impl MarketSwitching for RTRMLocal {
 
         let nm = self.new_market.lock().expect("_switch_markets: Could not lock new market.");
         **self.curr_market.lock().expect("_switch_markets: Could not lock current market") = (*nm).clone();
+
+	debug!("_switch_markets: Curr market now: {:?}", nm);
     }
 
+    fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
+	self.curr_market.clone()
+    }
+
+    fn _new_mkt(&self) -> Arc<Mutex<MarketType>> {
+	self.new_market.clone()
+    }
 }
 
 
@@ -120,37 +129,32 @@ impl BasicValue<TradeTypes> for RTRMLocal {
     }
 
     /// pricing the trade locally
-    //TODO: trade_id should be &String
     fn _value_trade(&self, trade: &TradeTypes, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
 
         debug!("_value_trade: Valuing {:?}", trade);
 
         let trade_name = trade.trade_name();
-        debug!("_value trade: Trade name {:?}", trade_name);
-
         let stock_mkt_arc = match market {
             CurrNewMarket::Current => self.curr_market.lock(),
             CurrNewMarket::New => self.new_market.lock(),
         };
-        let stock_mkt = stock_mkt_arc.expect("Could not lock the current market, weird");
-
-        let stock_value = trade.price(&stock_mkt);
-        debug!("_value_trade: Stock value {:?}", stock_value);
+        let stock_mkt = stock_mkt_arc.expect("_value_trade: Could not lock the stock market object, weird");
 
         match metric {
             PricingMetric::PV => {
                 let priced_trade = trade.price(&stock_mkt);
-                debug!("_value_trade: Priced trade = {:?}", priced_trade);
+                debug!("_value_trade: PV trade value = {:?}", priced_trade);
                 if let Some(price_trade) = priced_trade {
-                    PricingResults::PV(PortfolioType::from([(trade.trade_name(), price_trade),]))
+                    PricingResults::PV(PortfolioType::from([(trade_name, price_trade),]))
                 } else {
                     PricingResults::PV(PortfolioType::new())
                 }
             },
 
             PricingMetric::PV01 => {
-                debug!("_value_trade: Priced trade = {:?}", trade.pv01(&stock_mkt));
-                PricingResults::PV01(trade.pv01(&stock_mkt))
+		let trade_pv01 = trade.pv01(&stock_mkt);
+		debug!("_value_trade: PV01 trade value = {:?}", trade_pv01);
+                PricingResults::PV01(trade_pv01)
             },
         }
     }
@@ -198,14 +202,8 @@ impl MktEventHandler for RTRMLocal {
         debug!("_handle_mkt_msg: New quote is {:?}", new_quote_mkt);
         let mut curr_mkt_tmp = new_quote_mkt.curr_mkt.lock().unwrap();  // lock the current market
 
-        let mut new_mkt_locked = self.curr_market.lock().unwrap();
-
-        for (new_quote, new_value) in new_mkt_real.iter() {
-            curr_mkt_tmp.insert(new_quote.to_string(), *new_value);
-
-            new_mkt_locked.insert(new_quote.to_string(), *new_value);
-        }
-
+	*self._curr_mkt().lock().expect("_handle_mkt_msg: Could not lock curr_mkt") += &curr_mkt_tmp;
+	
         debug!("_handle_mkt_msg: Final market {:?}", curr_mkt_tmp);
         let _ = new_mkt_sender.send(new_mkt_real);  // TODO: FIX THIS HERE!!!
     }

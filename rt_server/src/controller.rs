@@ -52,6 +52,8 @@ pub struct Controller {
     kafka_port: i32,
     trade_pricer: String,
     metric: PricingMetric,
+    curr_mkt: Arc<Mutex<MarketType>>,
+    new_mkt: Arc<Mutex<MarketType>>,
 }
 
 
@@ -90,6 +92,8 @@ impl Controller {
             kafka_port,
             trade_pricer,
             metric,
+	    curr_mkt: Arc::new(Mutex::new(MarketType::new())),
+	    new_mkt: Arc::new(Mutex::new(MarketType::new())),
         }
     }
 
@@ -293,6 +297,14 @@ impl MarketSwitching for Controller {
             "http://{}/switch_markets",
             self.trade_pricer
         ));
+    }
+
+    fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
+	self.curr_mkt.clone()
+    }
+
+    fn _new_mkt(&self) -> Arc<Mutex<MarketType>> {
+	self.new_mkt.clone()
     }
 }
 
