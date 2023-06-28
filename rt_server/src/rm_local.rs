@@ -132,7 +132,7 @@ impl BasicValue<TradeTypes> for RTRMLocal {
     fn _value_trade(&self, trade: &TradeTypes, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
 
         debug!("_value_trade: Valuing {:?}", trade);
-	info!("_value_trade: Curr mkt = {:?}", self._curr_mkt().lock().unwrap());
+	debug!("_value_trade: Curr mkt = {:?}", self._curr_mkt().lock().unwrap());
         let trade_name = trade.trade_name();
 	let new_mkt_l = self._new_mkt();
 	let new_stock_mkt = new_mkt_l.lock();
@@ -149,7 +149,6 @@ impl BasicValue<TradeTypes> for RTRMLocal {
 
 	let stock_mkt = stock_mkt_arc.expect("_value_trade: Could not lock the stock market object, weird");
 
-	info!("_value_trade: Market = {:?}", stock_mkt);
         match metric {
             PricingMetric::PV => {
                 let priced_trade = trade.price(&stock_mkt);

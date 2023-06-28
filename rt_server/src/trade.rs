@@ -71,12 +71,13 @@ impl PriceTrade for LETFTrade {
     fn price(&self, market: &MarketType) -> Option<f64> {
         let stock = market.get(&self.stock);
         debug!("_price: Market = {:?}", market);
-        stock.map(|stock_v| stock_v * self.beta * self.amount - self.amount )
+        stock.map(|stock_v| self.amount )
     }
 
     fn pv01(&self, _market: &MarketType) -> PV01Results {
         let mut pv01_result = PV01Results::new();
-        let _ = pv01_result.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.beta * self.amount),]));
+	let stock = _market.get(&self.stock).unwrap();
+        let _ = pv01_result.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.beta * self.amount/stock),]));
 
         pv01_result
     }
@@ -105,11 +106,11 @@ impl LETFTrade {
             LETFHedge::Future( Future {
                 trade_id: Uuid::new_v4().to_string(),
                 stock: stock_name.clone(),
-                amount: - beta * amount,
+                amount: - beta * amount / stock,
             }),
             LETFHedge::Cash( Cash {
                 trade_id: Uuid::new_v4().to_string(),
-                amount : exposure_amt
+                amount : (beta - 1.) * amount
             }),
         ]
     }
