@@ -7,7 +7,7 @@ use thiserror::Error;
 use uuid::Uuid;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut, };
-
+ 
 use crate::portfolio::{PV01Results, PortfolioType};
 use crate::ref_deref::TryFromRef;
 use crate::pricer::PriceTrade;
@@ -68,15 +68,26 @@ impl std::cmp::PartialEq for LETFTrade {
 }
 
 impl PriceTrade for LETFTrade {
+    
     fn price(&self, market: &MarketType) -> Option<f64> {
         let stock = market.get(&self.stock);
         debug!("_price: Market = {:?}", market);
-        stock.map(|stock_v| stock_v * self.beta * self.amount - self.amount )
+        stock.map(|stock_v| self.amount )
     }
 
-    fn pv01(&self, _market: &MarketType) -> PV01Results {
+    fn pv01(&self, market: &MarketType) -> PV01Results {
         let mut pv01_result = PV01Results::new();
-        let _ = pv01_result.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.beta * self.amount),]));
+
+	let stock = market.get(&self.stock);
+
+	match stock {
+	    None => {
+		warn!("Could not obtain {:?} from the market", stock);
+	    },
+	    Some(stock_v) => {
+		let _ = pv01_result.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.beta * self.amount / stock_v),]));		
+	    },
+	}
 
         pv01_result
     }
@@ -99,17 +110,16 @@ impl LETFTrade {
         let stock = stock_value.unwrap();
         let beta = self.beta;
         let amount = self.amount;
-        let exposure_amt = beta * amount * stock;
 
         vec![
             LETFHedge::Future( Future {
                 trade_id: Uuid::new_v4().to_string(),
                 stock: stock_name.clone(),
-                amount: - beta * amount,
+                amount: - beta * amount / stock,
             }),
             LETFHedge::Cash( Cash {
                 trade_id: Uuid::new_v4().to_string(),
-                amount : exposure_amt
+                amount : (beta - 1.) * amount
             }),
         ]
     }

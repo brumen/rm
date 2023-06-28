@@ -87,7 +87,7 @@ impl TryFromRef<Message<'_>> for MarketType {
 }
 
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum CurrNewMarket {
     Current,
     New,
