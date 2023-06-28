@@ -132,14 +132,24 @@ impl BasicValue<TradeTypes> for RTRMLocal {
     fn _value_trade(&self, trade: &TradeTypes, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
 
         debug!("_value_trade: Valuing {:?}", trade);
-
+	info!("_value_trade: Curr mkt = {:?}", self._curr_mkt().lock().unwrap());
         let trade_name = trade.trade_name();
-        let stock_mkt_arc = match market {
-            CurrNewMarket::Current => self.curr_market.lock(),
-            CurrNewMarket::New => self.new_market.lock(),
+	let new_mkt_l = self._new_mkt();
+	let new_stock_mkt = new_mkt_l.lock();
+	let curr_mkt_l = self._curr_mkt();
+	let curr_stock_mkt = curr_mkt_l.lock();
+	
+	let stock_mkt_arc;
+	
+	if market == CurrNewMarket::Current {
+	   stock_mkt_arc = curr_stock_mkt;
+	} else {
+            stock_mkt_arc = new_stock_mkt;
         };
-        let stock_mkt = stock_mkt_arc.expect("_value_trade: Could not lock the stock market object, weird");
 
+	let stock_mkt = stock_mkt_arc.expect("_value_trade: Could not lock the stock market object, weird");
+
+	info!("_value_trade: Market = {:?}", stock_mkt);
         match metric {
             PricingMetric::PV => {
                 let priced_trade = trade.price(&stock_mkt);
@@ -192,20 +202,9 @@ impl MktEventHandler for RTRMLocal {
             warn!("_handle_mkt_msg: New market !!!!");
             return;
         };
-        debug!("_handle_mkt_msg: New real market obtained: {:?}", new_mkt_real);
-        debug!("_handle_mkt_msg: Mkt params: {:?}", mkt_params);
-        let MktMsgParams::LETFParams(new_quote_mkt) = mkt_params else {
-            warn!("_handle_mkt_msg: Obtained a weird market element");  // TODO: THIS HAS TO BE FIXED.
-            return;
-        };
 
-        debug!("_handle_mkt_msg: New quote is {:?}", new_quote_mkt);
-        let mut curr_mkt_tmp = new_quote_mkt.curr_mkt.lock().unwrap();  // lock the current market
-
-	*self._curr_mkt().lock().expect("_handle_mkt_msg: Could not lock curr_mkt") += &curr_mkt_tmp;
-	
-        debug!("_handle_mkt_msg: Final market {:?}", curr_mkt_tmp);
-        let _ = new_mkt_sender.send(new_mkt_real);  // TODO: FIX THIS HERE!!!
+	*self._curr_mkt().lock().expect("_handle_mkt_msg: Could not lock curr_mkt") += &new_mkt_real;
+        let _ = new_mkt_sender.send(new_mkt_real);
     }
 }
 

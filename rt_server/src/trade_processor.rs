@@ -60,7 +60,7 @@ where
 	    debug!("_new_market_event: Market = {:?}", new_stock_mkt);
         }
 
-	*self._curr_mkt().lock().expect("_new_market_event: Could not lock!") += &new_stock_mkt;
+	*self._new_mkt().lock().expect("_new_market_event: Could not lock!") += &new_stock_mkt;
 	
         new_market_event
     }
