@@ -5,7 +5,8 @@
 // $env:OPENSSL_DIR = 'C:\Tools\vcpkg\installed\x64-windows-static'
 // $env:OPENSSL_STATIC = 'Yes'
 
-use std::env::args;
+//use std::env::args;
+
 use std::thread;
 use std::sync::{Arc, Mutex,};
 
@@ -34,7 +35,6 @@ use rm_local::RTRMLocal;
 
 mod engine;
 mod mkt_handler;
-
 mod portfolio_sender;
 
 use crate::engine::CalcController;
@@ -70,12 +70,12 @@ fn main_risk() {
     env_logger::init(); // Start w/ RUST_LOG=debug cargo r
 
     // let market_date = Date::from_calendar_date(2016, Month::January, 1).unwrap();
-    //let option_type = "ao".to_string();
-    let config_file : String = args().nth(1).unwrap();
-
+    // let option_type = "ao".to_string();
+    // let config_file : String = args().nth(1).unwrap();
+    let config_file = "/home/brumen/work/rm/configuration.yaml".to_owned();
+    
     let controller2 = Controller::new_from_config(
         config_file,
-        //"/home/brumen/work/rm/configuration.yaml".to_owned(),
     ).unwrap();
 
     // TODO: The topics should be read from config as well.
@@ -94,7 +94,7 @@ fn main_risk() {
 /// starts the trader portion of the Leveraged ETF.
 fn letf_trader() {
 
-    let config_file : String = "/home/brumen/work/rm/configs/configuration_letf_trader.yaml".to_owned();   //args().nth(1).unwrap();
+    let config_file : String = "/home/brumen/work/rm/configs/configuration_letf_trader.yaml".to_owned();
 
     let trader = LETFTrader::new_from_config(
         config_file,

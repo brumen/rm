@@ -68,16 +68,26 @@ impl std::cmp::PartialEq for LETFTrade {
 }
 
 impl PriceTrade for LETFTrade {
+    
     fn price(&self, market: &MarketType) -> Option<f64> {
         let stock = market.get(&self.stock);
         debug!("_price: Market = {:?}", market);
         stock.map(|stock_v| self.amount )
     }
 
-    fn pv01(&self, _market: &MarketType) -> PV01Results {
+    fn pv01(&self, market: &MarketType) -> PV01Results {
         let mut pv01_result = PV01Results::new();
-	let stock = _market.get(&self.stock).unwrap();
-        let _ = pv01_result.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.beta * self.amount/stock),]));
+
+	let stock = market.get(&self.stock);
+
+	match stock {
+	    None => {
+		warn!("Could not obtain {:?} from the market", stock);
+	    },
+	    Some(stock_v) => {
+		let _ = pv01_result.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.beta * self.amount / stock_v),]));		
+	    },
+	}
 
         pv01_result
     }
@@ -100,7 +110,6 @@ impl LETFTrade {
         let stock = stock_value.unwrap();
         let beta = self.beta;
         let amount = self.amount;
-        let exposure_amt = beta * amount * stock;
 
         vec![
             LETFHedge::Future( Future {
