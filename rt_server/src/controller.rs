@@ -102,7 +102,7 @@ impl Controller {
         config_file: String,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config_f = std::fs::File::open(config_file)?;
-        let config_map: RTConfig = serde_yaml::from_reader(config_f).unwrap();
+        let config_map: RTConfig = serde_yaml::from_reader(config_f)?;
 
         let controller_metric = if config_map.metric == *"PV" {
             PricingMetric::PV
