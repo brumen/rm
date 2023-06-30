@@ -164,17 +164,6 @@ impl MulAssign<f64> for PortfolioType {
     }
 }
 
-impl AggregatedTrades {
-    pub fn new() -> Self {
-        Self(AggregatedInner::new())
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.keys().len()
-
-    }
-}
-
 
 impl<TT: BaseTrade> AddAssign<TT> for AggregatedTrades {
     fn add_assign(&mut self, rhs: TT) {

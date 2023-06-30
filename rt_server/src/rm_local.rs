@@ -188,7 +188,7 @@ impl MktEventHandler for RTRMLocal {
         &self,
         mkt_msg: &Message,
         new_mkt_sender: Sender<MarketType>,
-        mkt_params: MktMsgParams,
+        _mkt_params: MktMsgParams,
     ) {
 
         let new_market = MarketType::try_from_ref(mkt_msg);

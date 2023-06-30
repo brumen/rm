@@ -174,7 +174,6 @@ where
     ) {
         let mut new_portfolio = PortfolioType::new();
 	let mut all_trades = TradeRep::<TT>::new();
-	let mut new_stock_mkt = MarketType::new();
 	
         loop {
 
@@ -182,14 +181,13 @@ where
             let _ = self._find_initial_trades(&new_trade_receiver, &mut all_trades);
             debug!("_trade_processor_new: Nb all trades: {}", all_trades.len());
 
-            //let new_market_event = self._new_market_event(&new_market_receiver);
-	    // new_market_event also updates the New market
+	    // new_market_event also updates the new market
             let new_market_event = <T as RiskProcessors<TT>>::_new_market_event(
 		self,
 		&new_market_receiver,
 	    );
             if new_market_event {
-                info!("_trade_processor_new: Working. {} trades", all_trades.keys().len());
+                info!("_trade_processor_new: Working on {} trades", all_trades.keys().len());
                 new_portfolio = self._price_trades(
 		            &all_trades.all_trades_ref()[..],
 		            CurrNewMarket::New,
@@ -200,9 +198,8 @@ where
 
             // catch up any remaining trades
             while let Ok(trade) = new_trade_receiver.try_recv() {
-                let trade_id = trade.id();
                 let trade_direction = trade.direction();
-                info!("_trade_processor_new: Processing trade {}, dir {:?}", trade_id, trade_direction);
+                info!("_trade_processor_new: Processing trade {}, dir {:?}", trade.id(), trade_direction);
                 let trade_v = self._value_trade(&trade, CurrNewMarket::New, self.metric());
                 info!("_trade_processor_new: Finished processing trade");
                 match trade_direction {

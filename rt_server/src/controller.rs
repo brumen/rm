@@ -9,12 +9,11 @@ use core::convert::From;
 use std::sync::{Arc, Mutex};
 
 use crate::market::MktMsgParams;
-use crate::trade::{BaseTrade, AOTrade};
+use crate::trade::BaseTrade;
 use crate::portfolio::{
     PortfolioType,
     PricingResults,
     PV01Results,
-    AggregatedTrades,
 };
 
 
@@ -102,7 +101,7 @@ impl Controller {
     pub fn new_from_config(
         config_file: String,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let config_f = std::fs::File::open(config_file).unwrap();
+        let config_f = std::fs::File::open(config_file)?;
         let config_map: RTConfig = serde_yaml::from_reader(config_f).unwrap();
 
         let controller_metric = if config_map.metric == *"PV" {

@@ -121,7 +121,7 @@ where
         info!("_price_trades_on_spark: SPARK pricing took: {:?}", result_pricing_start.elapsed().as_secs_f32());
 
         // unwrap the result_pricing
-        let mut priced_portfolio = match result_pricing {
+        let priced_portfolio = match result_pricing {
             Ok(result_price) => self._unwrap_pricing_results(result_price, metric),
             Err(e) => {
                 warn!("Trades could not price correctly: {}", e);
@@ -129,10 +129,7 @@ where
             },
         };
 
-	// TODO: WHAT TO DO HERE????
-        //priced_portfolio *= agg_trades;  // fix the priced portfolio by the weights, aggregated trades.
-
-        // let's do the aggregation here.
+        // let's do the aggregation here.  TODO: CHECK IF THIS IS NECESSARY
         match priced_portfolio {
             PricingResults::PV(portfolio) => portfolio,
             PricingResults::PV01(pv01_results) => pv01_results.aggregate()

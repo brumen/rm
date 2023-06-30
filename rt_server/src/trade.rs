@@ -69,27 +69,24 @@ impl std::cmp::PartialEq for LETFTrade {
 
 impl PriceTrade for LETFTrade {
     
-    fn price(&self, market: &MarketType) -> Option<f64> {
-        let stock = market.get(&self.stock);
-        debug!("_price: Market = {:?}", market);
-        stock.map(|stock_v| self.amount )
+    fn price(&self, _market: &MarketType) -> Option<f64> {
+	Some(self.amount)
     }
 
     fn pv01(&self, market: &MarketType) -> PV01Results {
-        let mut pv01_result = PV01Results::new();
-
 	let stock = market.get(&self.stock);
 
 	match stock {
 	    None => {
 		warn!("Could not obtain {:?} from the market", stock);
+		return PV01Results::new();
 	    },
 	    Some(stock_v) => {
-		let _ = pv01_result.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.beta * self.amount / stock_v),]));		
+		let mut pv01_result = PV01Results::new();
+		let _ = pv01_result.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.beta * self.amount / stock_v),]));
+		return pv01_result;
 	    },
 	}
-
-        pv01_result
     }
 }
 
@@ -433,8 +430,6 @@ where
 
     pub fn add_trade(&mut self, trade: TT) {
 	    let trade_id = trade.id();
-
-	    // TODO: FIX THIS PART BELOW.
 	    let trade_position = self.keys().position(|tradeid| tradeid.eq(&trade_id));
 
 	    if trade_position.is_none() {
@@ -442,10 +437,7 @@ where
 	    }
     }
 
-    pub fn get(&self, trade_id: &String) -> Option<TT> {
-	    self.get(trade_id)
-    }
-
+    /// returns all trade ids in the trade representation.
     pub fn all_trade_names(&self) -> Vec<String> {
         self.all_trades_ref()
             .into_iter()
@@ -453,10 +445,12 @@ where
             .collect()
     }
 
+    /// returns a vector of references to the representation. Used for reading.
     pub fn all_trades_ref(&self) -> Vec<&TT> {
 	self.values().into_iter().collect::<Vec<&TT>>()
     }
 
+    
     pub fn contains(&self, trade: &TT) -> bool {
 	self.all_trades_ref().contains(&trade)
     }
