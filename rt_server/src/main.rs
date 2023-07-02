@@ -42,37 +42,39 @@ use crate::engine::CalcController;
 
 fn main() {
 
-    // main_risk()
-
     env_logger::init();
 
-    thread::scope(|s| {
-        let _ = thread::Builder::new()
-            .name("letf_trader".to_string())
-            .spawn_scoped(s, move || {
-                letf_trader();
-            })
-            .unwrap();
+    main_risk();
 
-        let _ = thread::Builder::new()
-            .name("letf_risk".to_string())
-            .spawn_scoped(s, move || {
-                letf_risk();
-            })
-            .unwrap();
 
-    });
+
+
+    // thread::scope(|s| {
+    //     let _ = thread::Builder::new()
+    //         .name("letf_trader".to_string())
+    //         .spawn_scoped(s, move || {
+    //             letf_trader();
+    //         })
+    //         .unwrap();
+
+    //     let _ = thread::Builder::new()
+    //         .name("letf_risk".to_string())
+    //         .spawn_scoped(s, move || {
+    //             letf_risk();
+    //         })
+    //         .unwrap();
+
+    // });
 
 }
 
 #[allow(dead_code)]
 fn main_risk() {
-    env_logger::init(); // Start w/ RUST_LOG=debug cargo r
 
     // let market_date = Date::from_calendar_date(2016, Month::January, 1).unwrap();
     // let option_type = "ao".to_string();
     // let config_file : String = args().nth(1).unwrap();
-    let config_file = "/home/brumen/work/rm/configuration.yaml".to_owned();
+    let config_file = "/home/brumen/work/rm/configs/configuration.yaml".to_owned();
     
     let controller2 = Controller::new_from_config(
         config_file,

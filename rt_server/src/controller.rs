@@ -255,35 +255,30 @@ impl MktEventHandler for Controller {
 
         let optional_mkt = MarketType::try_from_ref(mkt_msg);
 
-        if optional_mkt.is_err() {
-            warn!("Could not conver the market message to the market type!");
-            return;
-        }
+	let market_obj = match optional_mkt {
+	    Err(e) => {
+		warn!("Error in converting the market object from json: {:?}", e);
+		return;
+	    },
+	    Ok(market_inside) => market_inside,
+	};
 
-        // optional_mkt is not None, we can unwrap.
-        let market_obj = optional_mkt.unwrap();
         let mkt_client_address = "http://localhost:5010/future_market";
-        let mkt_update_client = Client::new();
-        // update the market rester market_api
-        let market_posted = mkt_update_client
+        let market_posted = Client::new()  
             .post(format!("{0}", mkt_client_address))
             .json(&HashMap::from([("market", &market_obj)]))
             .send();
 
         match market_posted {
             Ok(_) => {
-                debug!("Market posted successfully.");
+                debug!("_handle_mkt_msg: Market posted successfully.");
             },
             _ => {
-                warn!("Could not post the market successfully. Ignoring last market.");
+                warn!("_handle_mkt_msg: Could not post the market successfully. Ignoring last market.");
             }
         }
 
-        //let MktMsgParams::AOParams(ao_params) = mkt_msg_params else {
-        //    warn!("Parameters provided to _handle_mkt_msg are of the wrong type");
-        //    return;
-        //};
-        let _ = new_mkt_sender.send(market_obj); // send the market to new_market event
+        let _ = new_mkt_sender.send(market_obj);
     }
 }
 
@@ -319,7 +314,7 @@ where
 
     // prices the trade given the market spec & pricing metric.
     fn _value_trade(&self, trade: &TT, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
-        debug!("VALUATION: Pricing trade: {:?}, market: {:?}", trade, market);
+        debug!("_value_trade: Pricing trade: {:?}, market: {:?}", trade, market);
 
         // Create or update trades have to be evaluated, so we have to price them.
         //"http://localhost:5010/pv/{trade_id}"

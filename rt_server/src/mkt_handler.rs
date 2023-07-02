@@ -1,10 +1,10 @@
 use log::debug;
-use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, Message, };
-
+use kafka::consumer::Message;
 use std::sync::mpsc::Sender;
 
 use crate::streaming::Streaming;
 use crate::market::{MarketType, MktMsgParams,};
+use crate::portfolio_sender::connect_with_retries;
 
 
 pub trait MktEventHandler : Streaming {
@@ -26,15 +26,12 @@ pub trait MktEventHandler : Streaming {
         mkt_params: MktMsgParams,
         new_mkt_sender: Sender<MarketType>,
     ) {
-        let mut mkt_listener_ = Consumer::from_hosts(vec![format!(
+	let bootstrap_servers = format!(
             "{}:{}",
             self.kafka_server_name(), self.kafka_port()
-        )])
-        .with_topic_partitions(mkt_topic.to_owned(), &[0])
-        .with_fallback_offset(FetchOffset::Earliest)
-        .with_offset_storage(GroupOffsetStorage::Kafka)
-        .create()
-        .unwrap();
+        );
+
+	let mut mkt_listener_ = connect_with_retries(&bootstrap_servers, &mkt_topic);
 
         debug!("_handle_mkt_events: Entering the _handle_mkt_events loop.");
         loop {

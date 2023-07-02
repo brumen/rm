@@ -1,8 +1,8 @@
 use log::{debug, warn, };
 use serde::{Deserialize, Serialize};
 
-use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, Message, };
-use kafka::producer::{Producer, Record, RequiredAcks};
+use kafka::consumer::Message;
+use kafka::producer::Record;
 use std::thread;
 use std::sync::{Arc, Mutex,};
 use std::sync::mpsc::{channel, Sender, };
@@ -12,7 +12,8 @@ use crate::streaming::Streaming;
 use crate::market::{MarketType, MktMsgParams, LETFP,};
 use crate::mkt_handler::MktEventHandler;
 use crate::ref_deref::TryFromRef;
-
+use crate::portfolio_sender::connect_with_retries;
+use crate::publish::connect_with_retries_producer;
 
 /// LETF trader structure.
 /// market_date: date when we are pricing.
@@ -69,21 +70,8 @@ impl LETFTrader {
         hedge_topic: String,
     ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name, self.kafka_port);
-
-        let mut pos_listener_ = Consumer::from_hosts(vec![format!(
-            "{}:{}",
-            self.kafka_server_name, self.kafka_port
-        )])
-            .with_topic_partitions(pos_topic, &[0])
-            .with_fallback_offset(FetchOffset::Earliest)
-            .with_offset_storage(GroupOffsetStorage::Kafka)
-            .create()
-            .unwrap();
-
-        let mut hedge_book = Producer::from_hosts(vec![bootstrap_servers,])
-            .with_required_acks(RequiredAcks::One)
-            .create()
-            .unwrap();
+        let mut pos_listener_ = connect_with_retries(&bootstrap_servers, &pos_topic);
+	let mut hedge_book = connect_with_retries_producer(&bootstrap_servers);
 
         loop {
             for ms in pos_listener_.poll().unwrap().iter() {
