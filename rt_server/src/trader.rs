@@ -116,18 +116,17 @@ impl LETFTrader {
     ///    2nd: handles position events and returns hedges.
     pub fn start(
         &self,
-        pos_topic: String,     // position topic on kafka
-        mkt_topic: String,     // market topic
+        pos_topic: String,
+        mkt_topic: String,
         results_topic: String, // publish the results topic
     ) {
 
         let (mkt_sender, _) = channel::<MarketType>();
-        // threads fail if any of them can not be created.
+
         thread::scope(|s| {
             let _ = thread::Builder::new()
                 .name("handle_mkt_events".to_string())
                 .spawn_scoped(s, move || {
-                    //let (useless_sender, _) = channel::<MarketType>();
                     self._handle_mkt_events(
                         mkt_topic,
                         MktMsgParams::LETFParams(
@@ -173,13 +172,17 @@ impl MktEventHandler for LETFTrader {
         mkt_params: MktMsgParams,
     ) {
 
-        let new_market = MarketType::try_from_ref(mkt_msg);
-        debug!("_handle_mkt_msg: Got market quote: {:?}", new_market);
-        if new_market.is_err() {
-            return;  // ignore the market message if it cant be decoded correctly.
-        }
-
-        let new_quote_mkt = new_market.unwrap();
+	let new_quote_mkt = match MarketType::try_from_ref(mkt_msg) {
+	    Err(e) => {
+		// ignore the market message if it cant be decoded correctly.
+		warn!("_handle_mkt_msg: New mkt message cant be decoded correctly: {e}");
+		return;
+	    },
+	    Ok(new_mkt_inner) => {
+		new_mkt_inner
+	    },
+	};
+	    
         let MktMsgParams::LETFParams(letf_mkt) = mkt_params else {
             warn!("_handle_mkt_msg: Parameters provided to MktEventHandler are of wrong type");
             return;

@@ -44,27 +44,24 @@ fn main() {
 
     env_logger::init();
 
-    main_risk();
+    //main_risk();
 
+    thread::scope(|s| {
+        let _ = thread::Builder::new()
+            .name("letf_trader".to_string())
+            .spawn_scoped(s, move || {
+                letf_trader();
+            })
+            .unwrap();
 
+        let _ = thread::Builder::new()
+            .name("letf_risk".to_string())
+            .spawn_scoped(s, move || {
+                letf_risk();
+            })
+            .unwrap();
 
-
-    // thread::scope(|s| {
-    //     let _ = thread::Builder::new()
-    //         .name("letf_trader".to_string())
-    //         .spawn_scoped(s, move || {
-    //             letf_trader();
-    //         })
-    //         .unwrap();
-
-    //     let _ = thread::Builder::new()
-    //         .name("letf_risk".to_string())
-    //         .spawn_scoped(s, move || {
-    //             letf_risk();
-    //         })
-    //         .unwrap();
-
-    // });
+    });
 
 }
 

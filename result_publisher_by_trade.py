@@ -306,3 +306,21 @@ class ResultPublisherRester(ResultPublisherBase):
             return np.array([])
 
         return np.array(list(results.get('PV', {}).items()))
+
+
+class ResultPublisherLETF(ResultPublisherKafka):
+
+    def _process_result(
+            self,
+            current_result: Optional[Dict[str, float]],
+            prev_result: Optional[Dict[str, float]],
+    ):
+        """ Processing the PV result.
+
+        :param result_dict: dictionary of results, the keys are PV, PV01, the computed requests. Value is a
+           dictionary of flight names, and values of that flight.
+        """
+
+            # self.curr_value = np.array([]) if result_dict is None else np.array(list(result_dict['PV'].items()))
+
+        return np.array([]) if current_result is None else np.array(list(sorted(current_result['PV'].items())))

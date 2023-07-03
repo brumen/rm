@@ -14,15 +14,12 @@ from rm.result_publisher_by_trade import (
     ResultPublisherKafkaPV_Useless,
     ResultPublisherKafkaPV_Useless2,
     ResultPublisherKafkaPV01_Useless,
+    ResultPublisherLETF,
 )
 
 
 def main(result_idx = 'PV'):
-    if result_idx == 'PV01':
-        rp = ResultPublisherKafkaPV01_Useless(metric='PV01',)
-    else:
-        rp = ResultPublisherKafkaPV_Useless(metric='PV',)  # TODO: both the class & metric are provided, no need for that.
-
+    rp = ResultPublisherLETF(server_port_topic=('localhost', 9092, 'letf.risk'))
     rp.start()
 
 
