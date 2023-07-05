@@ -76,8 +76,11 @@ impl PriceTrade for LETFTrade {
 	match stock_v {
 	    None => None,
 	    Some(stock_v_real) => {
-		let initial_stock = self.stock_value.unwrap();
-		Some(self.beta * self.amount * (stock_v_real / initial_stock - 1.))
+		match self.stock_value {
+		    None => None,
+		    Some(initial_stock) => 
+			Some(self.beta * self.amount * (stock_v_real / initial_stock - 1.)),
+		}
 	    }
 	}
     }
@@ -88,17 +91,24 @@ impl PriceTrade for LETFTrade {
 	match stock {
 	    None => {
 		warn!("Could not obtain {:?} from the market", stock);
-		return PV01Results::new();
+		PV01Results::new()
 	    },
-	    Some(stock_v) => {
-		let mut pv01_result = PV01Results::new();
-		let initial_stock = self.stock_value.unwrap();
-		let _ = pv01_result.insert(
-		    self.trade_id.clone(),
-		    PortfolioType::from([(self.stock.clone(), self.beta * self.amount / initial_stock),])
-		);
-		debug!("_pv01: LETF trade: {:?}", pv01_result);
-		return pv01_result;
+	    Some(_stock_v) => {
+		match self.stock_value {
+		    None => {
+			warn!("pv01: LETFTrade: could not find the initial stock value");
+			PV01Results::new()
+		    },
+		    Some(initial_stock) => {
+			let mut pv01_result = PV01Results::new();
+			let _ = pv01_result.insert(
+			    self.trade_id.clone(),
+			    PortfolioType::from([(self.stock.clone(), self.beta * self.amount / initial_stock),])
+			);
+			debug!("_pv01: LETF trade: {:?}", pv01_result);
+			pv01_result
+		    },
+		}
 	    },
 	}
     }
@@ -120,7 +130,7 @@ impl LETFTrade {
         }
 
         let stock = stock_value.unwrap();
-	self.stock_value = Some(*stock);
+	self.stock_value = Some(*stock);  // adding the actual value into the LETF
         let beta = self.beta;
         let amount = self.amount;
 
