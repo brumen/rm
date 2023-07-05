@@ -142,7 +142,7 @@ impl LETFTrade {
             }),
             LETFHedge::Cash( Cash {
                 trade_id: Uuid::new_v4().to_string(),
-                amount : (beta - 1.) * amount
+                amount : beta * amount
             }),
         ]
     }
