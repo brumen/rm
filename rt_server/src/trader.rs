@@ -88,7 +88,7 @@ impl LETFTrader {
                         continue;
                     }
 
-                    let trade = trade.unwrap();
+                    let mut trade = trade.unwrap();
                     let stock_mkt = self.curr_mkt.lock().expect("Could not lock the current market, weird");
 
                     for trade_hedge in trade.hedge(&stock_mkt) {

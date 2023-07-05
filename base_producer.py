@@ -66,7 +66,10 @@ class BaseProducer:
         raise NotImplementedError('Need to implement _value_to_publish')
 
 
-    def run(self, sleep_between_publish=11.) -> Thread:
+    def create_thread(self, sleep_between_publish=11.) -> Thread:
+        return Thread(target=self._producer_thread, kwargs = {'sleep_delay': sleep_between_publish})
+            
+    def run(self, sleep_between_publish=11.):
         """ Runs the thread for market publishing
 
         2 threads are ran:
@@ -78,7 +81,5 @@ class BaseProducer:
         """
 
         # market event topic reading thread
-        market_events = Thread(target=self._producer_thread(sleep_delay=sleep_between_publish))
+        market_events = self.create_thread(sleep_between_publish=sleep_between_publish)
         market_events.start()
-
-        return market_events

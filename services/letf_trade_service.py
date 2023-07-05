@@ -16,7 +16,15 @@ import sys
 sys.path.append('/home/brumen/work/')
 
 from rm.trade_service import LETFTradeProducer
+from rm.market_service import LETFProducer
 
 
-letf_trade_producer = LETFTradeProducer(['AAPL', 'NVDA', ])
-letf_trade_producer.run(sleep_between_publish=0.2)
+# start the leveraged etf market producer
+letf_market_producer = LETFProducer(['AAPL', 'NVDA', ])
+letf_trade_producer = LETFTradeProducer(['AAPL', 'NVDA', ], market_producer=letf_market_producer)
+
+market_thread = letf_market_producer.create_thread(sleep_between_publish=1.)
+trade_thread = letf_trade_producer.create_thread(sleep_between_publish=6.)
+
+market_thread.start()
+trade_thread.start()

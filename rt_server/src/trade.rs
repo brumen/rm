@@ -43,6 +43,7 @@ pub struct LETFTrade {
     pub stock: String,
     pub amount: f64,
     pub beta: f64,
+    pub stock_value: Option<f64>,
 }
 
 impl BaseTrade for LETFTrade {
@@ -69,8 +70,16 @@ impl std::cmp::PartialEq for LETFTrade {
 
 impl PriceTrade for LETFTrade {
     
-    fn price(&self, _market: &MarketType) -> Option<f64> {
-	Some(self.amount)
+    fn price(&self, market: &MarketType) -> Option<f64> {
+	let stock_v = market.get(&self.stock);
+	
+	match stock_v {
+	    None => None,
+	    Some(stock_v_real) => {
+		let initial_stock = self.stock_value.unwrap();
+		Some(self.beta * self.amount * (stock_v_real / initial_stock - 1.))
+	    }
+	}
     }
 
     fn pv01(&self, market: &MarketType) -> PV01Results {
@@ -83,18 +92,24 @@ impl PriceTrade for LETFTrade {
 	    },
 	    Some(stock_v) => {
 		let mut pv01_result = PV01Results::new();
-		let _ = pv01_result.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.beta * self.amount / stock_v),]));
+		let initial_stock = self.stock_value.unwrap();
+		let _ = pv01_result.insert(
+		    self.trade_id.clone(),
+		    PortfolioType::from([(self.stock.clone(), self.beta * self.amount / initial_stock),])
+		);
+		debug!("_pv01: LETF trade: {:?}", pv01_result);
 		return pv01_result;
 	    },
 	}
     }
 }
 
+
 impl LETFTrade {
 
     /// produces the hedge of the LETF trade.
     /// stock_value : value of the stock that we are hedging LETF with.
-    pub fn hedge(&self, market: &MarketType) -> Vec<LETFHedge> {
+    pub fn hedge(&mut self, market: &MarketType) -> Vec<LETFHedge> {
 
         let stock_name = &self.stock;
         let stock_value = market.get(stock_name);
@@ -105,6 +120,7 @@ impl LETFTrade {
         }
 
         let stock = stock_value.unwrap();
+	self.stock_value = Some(*stock);
         let beta = self.beta;
         let amount = self.amount;
 
@@ -119,20 +135,6 @@ impl LETFTrade {
                 amount : (beta - 1.) * amount
             }),
         ]
-    }
-}
-
-
-impl TryFromRef<Message<'_>> for LETFTrade
-{
-    type Error = TradeError;
-
-    fn try_from_ref(value: &Message) -> Result<Self, Self::Error> {
-
-        let msg_utf = std::str::from_utf8(value.value)?;
-        debug!("__try_from_ref: {:?}", msg_utf);
-
-        Ok(serde_json::from_str::<LETFTrade>(msg_utf)?)
     }
 }
 
@@ -170,7 +172,7 @@ impl PriceTrade for Future {
         let mut pv01_results = PV01Results::new();
         let _ = pv01_results.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.amount),]));
 
-	debug!("PriceTrade: pv01 Future: {:?}", pv01_results);
+	debug!("_pv01: PriceTrade: pv01 Future: {:?}", pv01_results);
         pv01_results
     }
 }
@@ -272,7 +274,16 @@ impl TradeTypes {
 impl PriceTrade for TradeTypes {
     fn price(&self, market: &MarketType) -> Option<f64> {
         match self {
-            TradeTypes::LETF(letf_trade) => letf_trade.price(market),
+            TradeTypes::LETF(letf_trade) => {
+		match letf_trade.stock_value {
+		    None => None,
+		    Some(initial_value) => {
+			let mut letf_new = letf_trade.clone();
+			letf_new.stock_value = Some(initial_value);  // TODO: HERE
+			letf_new.price(market)
+		    }
+		}
+	    }, 
             TradeTypes::Future(letf_fut) => letf_fut.price(market),
             TradeTypes::Cash(letf_cash) => letf_cash.price(market),
         }
@@ -280,7 +291,16 @@ impl PriceTrade for TradeTypes {
 
     fn pv01(&self, market: &MarketType) -> PV01Results {
         match self {
-            TradeTypes::LETF(letf_trade) => letf_trade.pv01(market),
+            TradeTypes::LETF(letf_trade) => {
+		match letf_trade.stock_value {
+		    None => PV01Results::new(),  // TODO: HERE
+		    Some(initial_value) => {
+			let mut letf_new = letf_trade.clone();
+			letf_new.stock_value = Some(initial_value);  // TODO: HERE
+			letf_new.pv01(market)
+		    }
+		}
+	    },
             TradeTypes::Future(letf_fut) => letf_fut.pv01(market),
             TradeTypes::Cash(letf_cash) => letf_cash.pv01(market),
         }
@@ -311,14 +331,10 @@ pub trait LETFTradeHandling {
 //
 // AO Trade here
 //
-
-
 //         // trade is not None, continue w/ this.
 //         let msg_payload = &msg_decoded["payload"];
 //         let event_type = &msg_payload["op"];
-
 //         debug!("Getting position: {:?}", msg_payload);
-
 //         match event_type.as_str() {
 //             Some("c") => {
 //                 let tid = msg_payload["after"]["position_id"].as_i64();
