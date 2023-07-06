@@ -64,6 +64,12 @@ impl AddAssign<&MarketType> for MarketType {
     }
 }
 
+impl<const N: usize> From<[(String, f64); N]> for MarketType {
+    fn from(arr: [(String, f64); N]) -> Self {
+	Self(MarketInner::from(arr))
+    }
+}
+
 
 #[derive(Error, Debug)]
 pub enum MarketTypeError {

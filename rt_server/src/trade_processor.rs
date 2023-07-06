@@ -116,15 +116,14 @@ where
             nb_conseq_processed_trades = 0;
 	    while let Ok(trade) = trade_receiver.try_recv() {
                 debug!("_trade_processor_curr: Received good trade {:?}", trade);
-                //if !all_trades.contains(&trade) {
                 if !all_trades.contains(&&trade) {
                     let trade_id = trade.id();
                     let trade_direction = trade.direction();
                     all_trades.add_trade(trade.clone());
 
-                    info!("_trade_processor_curr: Processing trade {}, dir {:?}", trade_id, trade_direction);
+                    debug!("_trade_processor_curr: Processing trade {}, dir {:?}", trade_id, trade_direction);
                     let trade_v = self._value_trade(&trade, CurrNewMarket::Current, self.metric());
-                    info!("_trade_processor_curr: Trade value = {:?}", trade_v);
+                    debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
                     match trade_direction {
                         TradeDirection::Create => curr_portfolio += trade_v,
                         TradeDirection::Delete => curr_portfolio -= trade_v,
@@ -136,8 +135,8 @@ where
 
                     nb_conseq_processed_trades += 1;
                     if nb_conseq_processed_trades > max_number_trades {
-                        info!("_trade_processor_curr: Interrupting trade processing.");
-                        break;  // break out of this while
+                        info!("_trade_processor_curr: Interrupting trade processing, reached max number of trades to process {}.", max_number_trades);
+                        break;
                     }
                 }
             }
