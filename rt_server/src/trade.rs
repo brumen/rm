@@ -129,6 +129,7 @@ impl LETFTrade {
             return vec![]; // Cant do much w/ it.
         }
 
+	let trade_id = self.id();
         let stock = stock_value.unwrap();
 	self.stock_value = Some(*stock);  // adding the actual value into the LETF
         let beta = self.beta;
@@ -136,12 +137,12 @@ impl LETFTrade {
 
         vec![
             LETFHedge::Future( Future {
-                trade_id: Uuid::new_v4().to_string(),
+                trade_id: (trade_id.parse::<i32>().unwrap() + 1).to_string(),   //Uuid::new_v4().to_string(),
                 stock: stock_name.clone(),
                 amount: - beta * amount / stock,
             }),
             LETFHedge::Cash( Cash {
-                trade_id: Uuid::new_v4().to_string(),
+                trade_id: (trade_id.parse::<i32>().unwrap() + 2).to_string(), // Uuid::new_v4().to_string(),
                 amount : beta * amount
             }),
         ]

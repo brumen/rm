@@ -2,22 +2,14 @@
 """
 
 import logging
-# IMPORTANT: This configuration _HAS_ to be here on top.
-logging.basicConfig(filename='/tmp/base_producer_service.log')
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-import datetime
-import random
 import json
 
-from typing import Optional, Dict, Tuple, Union, List
-from uuid import uuid4, UUID
+from typing import Tuple
 from threading import Thread
-from time import sleep
-from kafka import KafkaConsumer, TopicPartition, KafkaProducer
-from kafka.consumer.fetcher import ConsumerRecord
-from json import loads, dumps
+from kafka import KafkaProducer
+
+
+logger = logging.getLogger(__name__)
 
 
 class BaseProducer:
@@ -26,7 +18,11 @@ class BaseProducer:
 
     def __init__(
             self,
-            server_port_topic: Tuple[str, str, str] = ('localhost', 9092, 'letf.mkt', ),
+            server_port_topic: Tuple[str, str, str] = (
+                'localhost',
+                9092,
+                'letf.mkt',
+            ),
     ):
         server_name, port, mkt_topic = server_port_topic
         bootstrap_servers = f'{server_name}:{port}'
@@ -42,11 +38,10 @@ class BaseProducer:
     def _serialize_msg(m):
         return json.dumps(m).encode('utf-8')
 
-    def _producer_thread(self, sleep_delay = 11.):
+    def _producer_thread(self, sleep_delay=11.):
         """ Base producer thread.
 
         :param sleep_delay: delay before the next produced value.
-
         """
 
         for value in self._value_to_publish(sleep_between_publish=sleep_delay):
@@ -65,21 +60,28 @@ class BaseProducer:
 
         raise NotImplementedError('Need to implement _value_to_publish')
 
-
     def create_thread(self, sleep_between_publish=11.) -> Thread:
-        return Thread(target=self._producer_thread, kwargs = {'sleep_delay': sleep_between_publish})
-            
+        return Thread(
+            target=self._producer_thread,
+            kwargs={'sleep_delay': sleep_between_publish}
+        )
+
     def run(self, sleep_between_publish=11.):
         """ Runs the thread for market publishing
 
         2 threads are ran:
-           1. _update_new_mkt_events: collects market events and updates the new market.
-           2. _operate_markets: holds the current and new market, and switches between them.
+           1. _update_new_mkt_events: collects market events and updates
+                  the new market.
+           2. _operate_markets: holds the current and new market, and
+                  switches between them.
 
-        :param sleep_between_publish: sleep between individual publishing events.
+        :param sleep_between_publish: sleep between individual
+           publishing events.
         returns: market events thread, switch market thread.
         """
 
         # market event topic reading thread
-        market_events = self.create_thread(sleep_between_publish=sleep_between_publish)
+        market_events = self.create_thread(
+            sleep_between_publish=sleep_between_publish
+        )
         market_events.start()

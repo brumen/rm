@@ -29,7 +29,7 @@ use crate::pricer::{
 };
 
 use crate::streaming::Streaming;
-use crate::trade::TradeTypes;
+use crate::trade::{TradeTypes, BaseTrade, };
 use crate::trade_processor::MarketSwitching;
 use crate::publish::PublishResults;
 
@@ -133,7 +133,7 @@ impl BasicValue<TradeTypes> for RTRMLocal {
 
         debug!("_value_trade: Valuing {:?}", trade);
 	debug!("_value_trade: Curr mkt = {:?}", self._curr_mkt().lock().unwrap());
-        let trade_name = trade.trade_name();
+        let trade_name = trade.id();
 	let new_mkt_l = self._new_mkt();
 	let new_stock_mkt = new_mkt_l.lock();
 	let curr_mkt_l = self._curr_mkt();
@@ -152,7 +152,7 @@ impl BasicValue<TradeTypes> for RTRMLocal {
         match metric {
             PricingMetric::PV => {
                 let priced_trade = trade.price(&stock_mkt);
-                debug!("_value_trade: PV trade value = {:?}", priced_trade);
+                debug!("_value_trade: PV of {:?} = {:?}", trade_name, priced_trade);
                 if let Some(price_trade) = priced_trade {
                     PricingResults::PV(PortfolioType::from([(trade_name, price_trade),]))
                 } else {
@@ -162,7 +162,7 @@ impl BasicValue<TradeTypes> for RTRMLocal {
 
             PricingMetric::PV01 => {
 		let trade_pv01 = trade.pv01(&stock_mkt);
-		debug!("_value_trade: PV01 trade value = {:?}", trade_pv01);
+		debug!("_value_trade: PV01 of {:?} = {:?}", trade_name, trade_pv01);
                 PricingResults::PV01(trade_pv01)
             },
         }

@@ -1,15 +1,10 @@
 """ Service for market snapper.
 """
 
-import logging
-# IMPORTANT: This configuration _HAS_ to be here on top.
-logging.basicConfig(filename='/tmp/market_service.log')
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
 import datetime
 import random
 
+from logging import getLogger
 from typing import Optional, Dict, Tuple, Union, List
 from uuid import uuid4, UUID
 from threading import Thread
@@ -20,35 +15,7 @@ from json import loads, dumps
 
 from rm.base_producer import BaseProducer
 
-
-class LETFProducer(BaseProducer):
-
-    def __init__(
-            self,
-            stocks : List[str],
-            server_port_topic: Tuple[str, str, str] = ('localhost', 9092, 'letf.mkt'),
-    ):
-        super().__init__(server_port_topic)
-        self._stocks : List[str] = stocks
-
-        # intermediate state for stock values.
-        # stocks are in the form of {stock_name: stock_value}, like {'APL': 150., 'NVA': 300.}
-        self._curr_stocks : Dict[str, float] = {stock: 50. + stock_idx * 5 for stock_idx, stock in enumerate(self._stocks)}  # initial values
-
-    def _value_to_publish(self, sleep_between_publish=11.):
-        """ Keeps generating new fictitious market for stocks.
-
-        :param sleep_between_publish: sleep time between individual publishes
-        """
-
-        while True:
-
-            yield self._curr_stocks
-
-            for stock in self._stocks:
-                self._curr_stocks[stock] += random.gauss(mu=0., sigma=1.)  # add some random value
-
-            sleep(sleep_between_publish)
+logger = getLogger(__name__)
 
 
 class MarketService:

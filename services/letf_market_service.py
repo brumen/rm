@@ -7,17 +7,52 @@
     Market service publishes on mkt_events topic, mkt event is the uuid4 described above.
 """
 
-import logging
-logging.basicConfig(filename='/tmp/letf_market_service.log')
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
 import sys
+from logging import getLogger
+from typing import List, Tuple, Dict
+from numpy import random
+from time import sleep
+
+logger = getLogger(__name__)
 sys.path.append('/home/brumen/work/')
 
-from rm.market_service import LETFProducer
+from rm.base_producer import BaseProducer
 
 
-# start the leveraged etf market producer
-letf_market = LETFProducer(['AAPL', 'NVDA', ])
-letf_market.run(sleep_between_publish=5.)
+class LETFMarketProducer(BaseProducer):
+
+    def __init__(
+            self,
+            stocks: List[str],
+            server_port_topic: Tuple[str, str, str] = (
+                'localhost',
+                9092,
+                'letf.mkt',
+            ),
+    ):
+        super().__init__(server_port_topic)
+        self._stocks: List[str] = stocks
+
+        # intermediate state for stock values.
+        # stocks are in the form of {stock_name: stock_value},
+        # like {'APL': 150., 'NVA': 300.}
+        self._curr_stocks: Dict[str, float] = {
+            stock: 50. + stock_idx * 5
+            for stock_idx, stock in enumerate(self._stocks)
+        }  # initial values
+
+    def _value_to_publish(self, sleep_between_publish=11.):
+        """ Keeps generating new fictitious market for stocks.
+
+        :param sleep_between_publish: sleep time between individual publishes
+        """
+
+        while True:
+
+            yield self._curr_stocks
+
+            for stock in self._stocks:
+                # add some random value to the current stock values
+                self._curr_stocks[stock] += random.normal(loc=0., scale=1.)
+
+            sleep(sleep_between_publish)

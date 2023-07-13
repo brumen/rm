@@ -150,15 +150,20 @@ where
             if let Some((new_p, new_l)) = new_potential_portfolio {
                 self._switch_markets();
                 let all_l = all_trades.len();
+		let mut replace_curr_w_new = false;
 
                 if new_l >= all_l {  // new processor is further ahead
                     info!("_trade_processor_curr: Switching curr_p <- new_p.");
                     curr_portfolio = new_p;
+		    replace_curr_w_new = true;
                 } else if (new_l < all_l) && (new_l >= all_l - nb_conseq_processed_trades - 1) {  // new is not ahead, but we can still update.
                     info!("_trade_processor_curr: Extending the portfolio w/ new one");
                     curr_portfolio.extend(new_p.0.into_iter());
+		    replace_curr_w_new = true;
                 }
-                let _ = curr_portfolio_sender.send(curr_portfolio.clone());
+		if replace_curr_w_new {
+                    let _ = curr_portfolio_sender.send(curr_portfolio.clone());
+		}
             }
         }
     }
@@ -171,7 +176,6 @@ where
         new_trade_receiver: Receiver<TT>,  // receiving new additional trades
         new_portfolio_sender: Sender<(PortfolioType, usize)>,  // results are sent here
     ) {
-        let mut new_portfolio = PortfolioType::new();
 	let mut all_trades = TradeRep::<TT>::new();
 	
         loop {
@@ -185,34 +189,34 @@ where
 		self,
 		&new_market_receiver,
 	    );
+	    
             if new_market_event {
                 info!("_trade_processor_new: Working on {} trades", all_trades.keys().len());
-                new_portfolio = self._price_trades(
-		            &all_trades.all_trades_ref()[..],
-		            CurrNewMarket::New,
-		            self.metric()
-		        );
-                info!("_trade_processor_new: Finished working!");
-            }
+                let mut new_portfolio = self._price_trades(
+		    &all_trades.all_trades_ref()[..],
+		    CurrNewMarket::New,
+		    self.metric()
+		);
+                info!("_trade_processor_new: Finished processing bulk trades.");
 
-            // catch up any remaining trades
-            while let Ok(trade) = new_trade_receiver.try_recv() {
-                let trade_direction = trade.direction();
-                info!("_trade_processor_new: Processing trade {}, dir {:?}", trade.id(), trade_direction);
-                let trade_v = self._value_trade(&trade, CurrNewMarket::New, self.metric());
-                info!("_trade_processor_new: Finished processing trade");
-                match trade_direction {
-                    TradeDirection::Create => {new_portfolio += trade_v;},
-                    TradeDirection::Delete => {new_portfolio -= trade_v;},
-                    _ => {},
-                }
+		// catch up any remaining trades
+		while let Ok(trade) = new_trade_receiver.try_recv() {
+		    debug!("_trade_processor_new: Catching on remaining trades.");
+                    let trade_direction = trade.direction();
+                    info!("_trade_processor_new: Processing trade {}, dir {:?}", trade.id(), trade_direction);
+                    let trade_v = self._value_trade(&trade, CurrNewMarket::New, self.metric());
+                    info!("_trade_processor_new: Finished processing trade");
+                    match trade_direction {
+			TradeDirection::Create => {new_portfolio += trade_v;},
+			TradeDirection::Delete => {new_portfolio -= trade_v;},
+			_ => {},
+                    }
+		    
+                    // update all_trades and agg_trades.
+                    all_trades.add_trade(trade.clone());
+		}
 
-                // update all_trades and agg_trades.
-                all_trades.add_trade(trade.clone());
-            }
-
-            // decisions whether to publish the market or not.
-            if new_market_event {
+		// decisions whether to publish the market or not.
                 info!("_trade_processor_new: Sending new portfolio to be published ({} trades).", new_portfolio.keys().len());
                 let _ = new_portfolio_sender.send((new_portfolio.clone(), all_trades.len()));
             }

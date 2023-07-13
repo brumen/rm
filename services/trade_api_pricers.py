@@ -4,25 +4,22 @@
 """
 
 import logging
-# logging - THIS HAS TO BE HERE ON TOP.
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
 import datetime
-import logging
 import sys
 if '/home/brumen/work/' not in sys.path:
     sys.path.append('/home/brumen/work/')
 
 from json import loads
 from enum import Enum
-from requests import Response, get as requests_get
-from typing import List, Dict, Tuple, Any, Union, Generator, Optional
+from requests import get as requests_get
+from typing import List, Dict, Tuple, Any, Optional
 from pyspark import SparkContext, SparkConf
 from sqlalchemy.exc import OperationalError
 from functools import lru_cache
 from ao.trade import create_session, AOTrade, DeltaDict, AirOptionFlights
 from rm.market_service import AOMarketService
+
+logger = logging.getLogger(__name__)
 
 
 # default params are the default pricing parameters, more to come.
@@ -62,7 +59,9 @@ def construct_ao_trades(trade_ids: List[int]) -> List[AOTrade]:
     # session = common_session
 
     # TODO: CAN WE DO A GENERATOR HERE???
-    return session.query(AOTrade).filter(AOTrade.position_id.in_(trade_ids)).all()
+    return session.query(AOTrade)\
+                  .filter(AOTrade.position_id.in_(trade_ids))\
+                  .all()
 
 
 # trade with market
@@ -78,13 +77,16 @@ def _compute_trade_from_mkt(
     :param mkt_date: market date
     :param ao_trade: ao trade to be values.
     :param trade_direction: direction of the trade, 'c' for long, 'd' for short
-    :param market: market provided, a dictionary where keys are (flight_nb, flight_date), and values
+    :param market: market provided, a dictionary where keys
+            are (flight_nb, flight_date), and values
             are flight prices for that flight.
     :param ao_params: parameters for the risk/valuation of the trade.
-    :param default_price: default price if the flight could not be found in the market
+    :param default_price: default price if the flight could not be found in
+            the market
     :param nb_sim: number of simulations used in pricing.
     :returns: PV and PV01 of the trade.
-        PV is a dictionary of {'trade_id': float}, PV01 is the same type of dictionary
+        PV is a dictionary of {'trade_id': float}, PV01 is the same type
+        of dictionary
     """
 
     if ao_params is None:
@@ -106,7 +108,8 @@ def _compute_trade_from_mkt(
         # arr_date = Column(DateTime)
         # carrier = Column(String)
 
-        dep_date = flight.dep_date.date()  # this is datetime.datetime by default
+        # dep_date is datetime.datetime by default
+        dep_date = flight.dep_date.date()
         flight_id = flight.flight_id
         carrier = flight.carrier
         flight_nb = f'{carrier}{flight_id}'
@@ -169,11 +172,10 @@ def _set_spark_env() -> SparkContext:
     """
 
     spark_ctx = {'pyfile':
-        [
-            r'/home/brumen/work/work_ao.zip',
-            r'/home/brumen/work/work_rm.zip',
-        ] 
-    }
+                 [
+                     r'/home/brumen/work/work_ao.zip',
+                     r'/home/brumen/work/work_rm.zip',
+                 ]}
 
     spark_conf = SparkConf().setMaster('local[8]')
 
@@ -186,7 +188,7 @@ def _set_spark_env() -> SparkContext:
 
 
 def _value_trade_spark(
-    market_date_trade_id : Tuple[datetime.date, int]
+    market_date_trade_id: Tuple[datetime.date, int]
 ):
     """ Values the trades """
 
@@ -194,9 +196,12 @@ def _value_trade_spark(
 
     session = create_session()
     try:
-        trade = session.query(AOTrade).filter(AOTrade.position_id.in_([trade_id,])).all()
+        trade = session.query(AOTrade)\
+                       .filter(AOTrade.position_id.in_([trade_id, ]))\
+                       .all()
+
     except OperationalError as e:
-        logger.warn(f"Could not obtain {trade_id} correctly from DB.")
+        logger.warn(f"Could not obtain {trade_id} correctly from DB: {e}")
         return {}  # TODO: WRONG THIS IS WRONG
 
     #    trade = construct_ao_trades([trade_id,])
@@ -213,15 +218,17 @@ def _value_trade_spark(
     return _compute_trade_from_mkt(
         market_date,
         trade[0],
-        trade_direction = TradeDirection.LONG,
-        market = market_decoded,
-        ao_params = default_params,
-        session = session,
+        trade_direction=TradeDirection.LONG,
+        market=market_decoded,
+        ao_params=default_params,
+        session=session,
     ).get('PV', {})  # TODO: THIS SHOUDLD BE FIXED.
 
 
 # TODO: FIX THE RETURN ARGUMENTS OF THIS FUNCTION - THIS ONLY WORKS FOR PV.
-def _price_explicit_trade(trade_mkt_date_mkt_id : Tuple[AOTrade, datetime.date, chr, str]) -> Dict[str, float]:
+def _price_explicit_trade(
+        trade_mkt_date_mkt_id: Tuple[AOTrade,datetime.date, chr, str]
+) -> Dict[str, float]:
     """ Function to be sent to spark to price a trade.
     """
 
@@ -251,7 +258,7 @@ def price_trades(
         market_date: datetime.date,
         trade_ids: List[int],
         curr_new_mkt: chr,
-        metric : str = 'PV',
+        metric: str = 'PV',
 ) -> Dict[str, float]:
     """ Prices trades using the spark parallelization.
 
@@ -266,16 +273,26 @@ def price_trades(
 
     session = create_session()
     try:
-        trades : List[AOTrade]  = session.query(AOTrade).filter(AOTrade.position_id.in_(trade_ids)).all()
+        trades: List[AOTrade] = \
+            session.query(AOTrade)\
+                   .filter(AOTrade.position_id.in_(trade_ids))\
+                   .all()
+
     except OperationalError as e:
-        logger.warn(f"Could not obtain {trade_id} correctly from DB.")
+        logger.warn(f"Could not obtain trades correctly from DB: {e}")
+        logger.debug(f"Trades requested: {trade_ids}")
         return {}  # TODO: WRONG THIS IS WRONG
 
     for t in trades:
         t._aof(market_date)  # IMPORTANT: touching the trade. IMPORTANT
 
     trade_vals = sc\
-        .parallelize(zip([market_date] * nb_trades, trades, [curr_new_mkt,] * nb_trades, [metric,] * nb_trades))\
+        .parallelize(
+            zip([market_date] * nb_trades,
+                trades,
+                [curr_new_mkt, ] * nb_trades,
+                [metric, ] * nb_trades
+                ))\
         .map(_price_explicit_trade)\
         .collect()  # TODO: YOU CAN REDUCE THIS ON SPARK AS WELL
 

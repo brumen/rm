@@ -7,24 +7,24 @@
     Market service publishes on mkt_events topic, mkt event is the uuid4 described above.
 """
 
-import logging
-logging.basicConfig(filename='/tmp/letf_trade_service.log')
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
 import sys
+import logging
+logger = logging.getLogger(__name__)
+
 sys.path.append('/home/brumen/work/')
 
 from rm.trade_service import LETFTradeProducer
-from rm.market_service import LETFProducer
+from rm.services.letf_market_service import LETFMarketProducer
 
 
 # start the leveraged etf market producer
-letf_market_producer = LETFProducer(['AAPL', 'NVDA', ])
-letf_trade_producer = LETFTradeProducer(['AAPL', 'NVDA', ], market_producer=letf_market_producer)
+letf_market_producer = LETFMarketProducer(['AAPL', 'NVDA', ])
+letf_trade_producer = LETFTradeProducer(
+    ['AAPL', 'NVDA', ],
+)
 
-market_thread = letf_market_producer.create_thread(sleep_between_publish=1.)
-trade_thread = letf_trade_producer.create_thread(sleep_between_publish=6.)
+market_thread = letf_market_producer.create_thread(sleep_between_publish=10.)
+trade_thread = letf_trade_producer.create_thread(sleep_between_publish=1.)
 
 market_thread.start()
 trade_thread.start()
