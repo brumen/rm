@@ -71,7 +71,7 @@ impl std::cmp::PartialEq for LETFTrade {
 impl PriceTrade for LETFTrade {
 
     fn initial_pv(&self) -> Option<f64> {
-	self.stock_value
+	Some(0.)
     }
     
     fn price(&self, market: &MarketType) -> Option<f64> {
@@ -141,7 +141,7 @@ impl LETFTrade {
 
         vec![
             LETFHedge::Future( Future {
-		initial_val: Some(amount * stock),
+		initial_val: Some(-beta * amount),
                 trade_id: (trade_id.parse::<i32>().unwrap() + 1).to_string(),   //Uuid::new_v4().to_string(),
                 stock: stock_name.clone(),
                 amount: - beta * amount / stock,

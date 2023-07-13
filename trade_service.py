@@ -88,7 +88,7 @@ class LETFTradeProducer(BaseProducer):
                     'stock': letf_stock,
                     'amount': amount,
                     'beta': self._beta,
-                    'stock_value': self._mkt_producer.curr_stocks.get(letf_stock),  # None,
+                    'stock_value': None,
                 }
             }
 

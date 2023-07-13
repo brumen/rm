@@ -85,12 +85,11 @@ impl RTRMLocal {
         let config_f = std::fs::File::open(config_file).unwrap();
         let config_map: RTRMConfig = serde_yaml::from_reader(config_f).unwrap();
 
-        let controller_metric = if config_map.metric == *"PV" {
-            PricingMetric::PV
-        } else if config_map.metric == *"PV01" {
-            PricingMetric::PV01
-        } else {
-	    PricingMetric::PnL
+        let controller_metric = match config_map.metric.as_str() {
+	    "PV" => PricingMetric::PV,
+	    "PV01" => PricingMetric::PV01,
+	    "PnL" => PricingMetric::PnL,
+	    &_ => todo!(),
 	};
 
         Ok(RTRMLocal::new(
