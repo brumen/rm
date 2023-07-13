@@ -24,15 +24,15 @@ class BaseProducer:
                 'letf.mkt',
             ),
     ):
-        server_name, port, mkt_topic = server_port_topic
+        server_name, port, value_topic = server_port_topic
         bootstrap_servers = f'{server_name}:{port}'
 
-        self._mkt_producer = KafkaProducer(
+        self._value_producer = KafkaProducer(
             bootstrap_servers=bootstrap_servers,
             value_serializer=self._serialize_msg,
         )
 
-        self._mkt_producer_topic = mkt_topic
+        self._value_producer_topic = value_topic
 
     @staticmethod
     def _serialize_msg(m):
@@ -47,8 +47,8 @@ class BaseProducer:
         for value in self._value_to_publish(sleep_between_publish=sleep_delay):
             print(f'Publishing value {value}.')
 
-            self._mkt_producer.send(
-                self._mkt_producer_topic,
+            self._value_producer.send(
+                self._value_producer_topic,
                 value=value
             )
 

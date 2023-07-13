@@ -359,6 +359,6 @@ class ResultPublisherLETF(ResultPublisherKafka):
         """
 
         return np.array([]) if current_result is None \
-            else np.array(list(sorted(current_result['PV'].items(),
+            else np.array(list(sorted(current_result[self.metric].items(),
                                       key=lambda x: int(x[0])))
                           )

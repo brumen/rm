@@ -87,9 +87,11 @@ impl RTRMLocal {
 
         let controller_metric = if config_map.metric == *"PV" {
             PricingMetric::PV
-        } else {
+        } else if config_map.metric == *"PV01" {
             PricingMetric::PV01
-        };
+        } else {
+	    PricingMetric::PnL
+	};
 
         Ok(RTRMLocal::new(
             // pricing_params
@@ -165,6 +167,15 @@ impl BasicValue<TradeTypes> for RTRMLocal {
 		debug!("_value_trade: PV01 of {:?} = {:?}", trade_name, trade_pv01);
                 PricingResults::PV01(trade_pv01)
             },
+	    PricingMetric::PnL => {
+                let pnl_trade = trade.pnl(&stock_mkt);
+                debug!("_value_trade: PnL of {:?} = {:?}", trade_name, pnl_trade);
+                if let Some(pnl_trade_real) = pnl_trade {
+                    PricingResults::PV(PortfolioType::from([(trade_name, pnl_trade_real),]))
+                } else {
+                    PricingResults::PV(PortfolioType::new())
+                }
+	    }
         }
     }
 }

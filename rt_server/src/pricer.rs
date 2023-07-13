@@ -21,6 +21,7 @@ use crate::market::MarketType;
 pub enum PricingMetric {
     PV,
     PV01,
+    PnL,
 }
 
 impl fmt::Display for PricingMetric {
@@ -28,6 +29,7 @@ impl fmt::Display for PricingMetric {
         match self {
             PricingMetric::PV => write!(f, "PV"),
             PricingMetric::PV01 => write!(f, "PV01"),
+	    PricingMetric::PnL => write!(f, "PnL"),
         }
     }
 }
@@ -45,8 +47,19 @@ pub trait Decoder {
 
 
 pub trait PriceTrade {
+    fn initial_pv(&self) -> Option<f64>;
     fn price(&self, market: &MarketType) -> Option<f64>;
     fn pv01(&self, market: &MarketType) -> PV01Results;
+    fn pnl(&self, market: &MarketType) -> Option<f64> {
+	match self.initial_pv() {
+	    None => None,
+	    Some(initial_pv_val) =>
+		match self.price(market) {
+		    None => None,
+		    Some(curr_price) => Some(curr_price - initial_pv_val),
+		}
+	}	    
+    }
 }
 
 
@@ -131,8 +144,9 @@ where
 
         // let's do the aggregation here.  TODO: CHECK IF THIS IS NECESSARY
         match priced_portfolio {
-            PricingResults::PV(portfolio) => portfolio,
-            PricingResults::PV01(pv01_results) => pv01_results.aggregate()
+            PricingResults::PV(pv_portfolio) => pv_portfolio,
+            PricingResults::PV01(pv01_results) => pv01_results.aggregate(),
+	    PricingResults::PnL(pnl_portfolio) => pnl_portfolio,
         }
     }
 }

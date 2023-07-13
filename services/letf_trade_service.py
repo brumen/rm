@@ -21,6 +21,7 @@ from rm.services.letf_market_service import LETFMarketProducer
 letf_market_producer = LETFMarketProducer(['AAPL', 'NVDA', ])
 letf_trade_producer = LETFTradeProducer(
     ['AAPL', 'NVDA', ],
+    mkt_producer=letf_market_producer,
 )
 
 market_thread = letf_market_producer.create_thread(sleep_between_publish=10.)

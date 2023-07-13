@@ -223,15 +223,11 @@ impl MulAssign<&AggregatedTrades> for PV01Results {
     fn mul_assign(&mut self, rhs: &AggregatedTrades) {
         for (trade_id, trade_val) in self.iter_mut() {
 
-            //if let Ok(tid) = trade_id.parse::<u16>() {
             if let Some(trade_mult) = rhs.get(trade_id) {
                 *trade_val *= *trade_mult;
             } else {
-                warn!("Could not find the multiplying factor for {}", trade_id);
+                warn!("mul_assign: Could not find the multiplying factor for {}", trade_id);
             }
-            //} else {
-            //    warn!("Could not convert {:?} to u16", trade_id);
-            //}
         }
     }
 }
@@ -258,14 +254,6 @@ impl PV01Results {
         Self(PV01Inner::new())
     }
 
-    // pub fn from_results(&mut self, results:
-    // let mut pv01 = PV01Results::new();
-    // for (trade_id, trade_result) in results_conv.unwrap().iter() {
-    //     let _ = pv01.insert((*trade_id.clone()).to_string(), PortfolioType::from(trade_result));
-    // }
-    // PricingResults::PV01(pv01)
-
-
     // aggregates the PV01 results into Portfoliotype, irrespective of trades.
     pub fn aggregate(self) -> PortfolioType {
         let mut pv01_aggs = PortfolioType::new();
@@ -281,6 +269,7 @@ impl PV01Results {
 pub enum PricingResults {
     PV(PortfolioType),
     PV01(PV01Results),
+    PnL(PortfolioType),  // same as PV type
 }
 
 impl Mul<f64> for PricingResults {
@@ -291,6 +280,7 @@ impl Mul<f64> for PricingResults {
         match self {
             Self::PV(pv_result) => Self::PV(pv_result * rhs),
             Self::PV01(pv01_result) => Self::PV01(pv01_result * rhs),
+	    Self::PnL(pnl_results) => Self::PnL(pnl_results * rhs),
         }
     }
 }
@@ -308,6 +298,9 @@ impl AddAssign<PricingResults> for PortfolioType {
                     *self += trade_portf;
                 }
             },
+	    PricingResults::PnL(pnl_results) => {
+
+	    },
         }
     }
 }
@@ -326,6 +319,9 @@ impl SubAssign<PricingResults> for PortfolioType {
 
                 }
             },
+	    PricingResults::PnL(pnl_results) => {
+		*self -= pnl_results;
+	    }
         }
     }
 }
@@ -336,25 +332,20 @@ impl MulAssign<&AggregatedTrades> for PricingResults {
     fn mul_assign(&mut self, rhs: &AggregatedTrades) {
 
         match self {
-            PricingResults::PV(ref mut portfolio) => *portfolio *= rhs,
+            PricingResults::PV(ref mut pv_portfolio) => *pv_portfolio *= rhs,
             PricingResults::PV01(pv01_results) => {
                 // go over trades and multiply each one by a factor.
                 for (trade_id, trade_val) in pv01_results.iter_mut() {
 
-                    //if let Ok(tid) = trade_id.parse::<u16>() {
                     if let Some(trade_mult) = rhs.get(trade_id) {
                         *trade_val *= *trade_mult;
                     } else {
                         warn!("Could not find the multiplying factor for {}", trade_id);
                     }
-                    //} else {
-                    //    warn!("Could not convert {:?} to u16", trade_id);
-                    //}
                 }
-
-            }
+            },
+	    PricingResults::PnL(ref mut pnl_portfolio) => *pnl_portfolio *= rhs,	    
         }
-
     }
 }
 

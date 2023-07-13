@@ -1,9 +1,11 @@
 import logging
-logging.basicConfig(filename = '/tmp/rm_results_by_trade.log', level = logging.INFO)
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
 import sys
+logging.basicConfig(
+    filename='/tmp/rm_results_by_trade.log',
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
+
 sys.path.append('/home/brumen/work/')
 
 from rm.result_publisher_by_trade import (
@@ -18,9 +20,12 @@ from rm.result_publisher_by_trade import (
 )
 
 
-def main(result_idx = 'PV'):
-    rp = ResultPublisherLETF(server_port_topic=('localhost', 9092, 'letf.risk'))
+def main(result_idx='PV'):
+    rp = ResultPublisherLETF(
+        server_port_topic=('localhost', 9092, 'letf.risk'),
+        metric=result_idx,
+    )
     rp.start()
 
 
-main(result_idx = sys.argv[1])
+main(result_idx=sys.argv[1])

@@ -156,6 +156,7 @@ impl Decoder for Controller {
                 }
                 PricingResults::PV01(pv01)
             },
+	    PricingMetric::PnL => todo!(),
         }
     }
 }
@@ -182,6 +183,7 @@ where
                     CurrNewMarket::New => "pv01_new".to_string(),
                 }
             },
+	    PricingMetric::PnL => todo!(),
         }
     }
 
@@ -215,6 +217,7 @@ where
                     CurrNewMarket::New => "pv01_spark_new".to_string(),
                 }
             },
+	    PricingMetric::PnL => todo!(),
         }
     }
 
@@ -335,6 +338,7 @@ where
                 match metric {
                     PricingMetric::PV => {PricingResults::PV(PortfolioType::new())},
                     PricingMetric::PV01 => {PricingResults::PV01(PV01Results::new())},
+		    PricingMetric::PnL => todo!(),
                 }
             },
         }

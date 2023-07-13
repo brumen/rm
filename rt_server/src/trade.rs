@@ -69,6 +69,10 @@ impl std::cmp::PartialEq for LETFTrade {
 }
 
 impl PriceTrade for LETFTrade {
+
+    fn initial_pv(&self) -> Option<f64> {
+	self.stock_value
+    }
     
     fn price(&self, market: &MarketType) -> Option<f64> {
 	let stock_v = market.get(&self.stock);
@@ -137,6 +141,7 @@ impl LETFTrade {
 
         vec![
             LETFHedge::Future( Future {
+		initial_val: Some(amount * stock),
                 trade_id: (trade_id.parse::<i32>().unwrap() + 1).to_string(),   //Uuid::new_v4().to_string(),
                 stock: stock_name.clone(),
                 amount: - beta * amount / stock,
@@ -167,9 +172,14 @@ pub struct Future {
     pub trade_id: String,
     pub stock: String,
     pub amount: f64,
+    pub initial_val: Option<f64>,
 }
 
 impl PriceTrade for Future {
+    fn initial_pv(&self) -> Option<f64> {
+	self.initial_val
+    }
+
     fn price(&self, market: &MarketType) -> Option<f64> {
 
         let stock = market.get(&self.stock);
@@ -217,6 +227,10 @@ pub struct Cash {
 }
 
 impl PriceTrade for Cash {
+    fn initial_pv(&self) -> Option<f64> {
+	Some(self.amount)
+    }
+    
     fn price(&self, _market: &MarketType) -> Option<f64> {
         Some(self.amount)
     }
@@ -283,6 +297,14 @@ impl TradeTypes {
 }
 
 impl PriceTrade for TradeTypes {
+    fn initial_pv(&self) -> Option<f64> {
+	match self {
+            TradeTypes::LETF(letf_trade) => letf_trade.initial_pv(),
+            TradeTypes::Future(letf_fut) => letf_fut.initial_pv(),
+            TradeTypes::Cash(letf_cash) => letf_cash.initial_pv(),    
+	}
+    }
+
     fn price(&self, market: &MarketType) -> Option<f64> {
         match self {
             TradeTypes::LETF(letf_trade) => {

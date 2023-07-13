@@ -27,6 +27,7 @@ class LETFTradeProducer(BaseProducer):
                 'letf.positions',
             ),
             beta=2.,
+            mkt_producer=None,
     ):
         """ LETF trade producer.
         :param stocks: stocks relevant to the trade producer.
@@ -38,7 +39,8 @@ class LETFTradeProducer(BaseProducer):
         super().__init__(server_port_topic)
         self._stocks = stocks
         self._beta = beta
-
+        self._mkt_producer = mkt_producer
+        
         # also initialize the redis connector.
         #self._redis_cli = redis.Redis(
         #    host='localhost',
@@ -86,7 +88,7 @@ class LETFTradeProducer(BaseProducer):
                     'stock': letf_stock,
                     'amount': amount,
                     'beta': self._beta,
-                    'stock_value': None,
+                    'stock_value': self._mkt_producer.curr_stocks.get(letf_stock),  # None,
                 }
             }
 
