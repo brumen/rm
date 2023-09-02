@@ -5,6 +5,7 @@ use kafka::consumer::Message;
 
 use std::sync::mpsc::Sender;
 
+use std::default::Default;
 use std::sync::{Arc, Mutex,};
 use std::iter::IntoIterator;
 use thiserror::Error;
@@ -53,14 +54,20 @@ impl MarketType {
     }
 }
 
+// TODO: CHECK THIS STUFF HERE!!!
+impl Default for MarketType {
+    fn default() -> Self {
+        Self(MarketInner::new())
+    }
+}
 
 impl AddAssign<&MarketType> for MarketType {
 
     fn add_assign(&mut self, rhs: &MarketType) {
 
-	for (ticker, value) in rhs.iter() {
-	    let _ = self.insert(ticker.clone(), *value);
-	}
+	    for (ticker, value) in rhs.iter() {
+	        self.insert(ticker.clone(), *value);
+	    }
     }
 }
 

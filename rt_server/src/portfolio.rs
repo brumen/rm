@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use log::warn;
 use std::{collections::HashMap, ops::SubAssign};
-use std::ops::{Add, AddAssign, Mul, MulAssign, };
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, };
 use serde::Serialize;
 
 use std::ops::{Deref, DerefMut,};
@@ -272,6 +272,18 @@ pub enum PricingResults {
     PnL(PortfolioType),  // same as PV type
 }
 
+impl Neg for PricingResults {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        match self {
+            Self::PV(portfolio) => - portfolio,
+            Self::PV01(pv01_results) => - pv01_results,
+            Self::PnL(pnl_results) => - pnl_results,
+        }
+    }
+}
+
 impl Mul<f64> for PricingResults {
     type Output = Self;
 
@@ -282,6 +294,14 @@ impl Mul<f64> for PricingResults {
             Self::PV01(pv01_result) => Self::PV01(pv01_result * rhs),
 	    Self::PnL(pnl_results) => Self::PnL(pnl_results * rhs),
         }
+    }
+}
+
+impl Neg for PortfolioType {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        todo!()
     }
 }
 

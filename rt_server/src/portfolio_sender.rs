@@ -61,14 +61,14 @@ where
 }
 
 
-/// connects the consumer to Kafka 
-pub fn connect_with_retries(bootstrap_servers: &String, pos_topic: &String) -> Consumer {
+/// connects the consumer to Kafka
+pub fn connect_with_retries(bootstrap_servers: &str, pos_topic: &str) -> Consumer {
     let mut listener_connected = false;
     let mut eventual_listener = None;
 
     while !listener_connected {
-	match Consumer::from_hosts(vec![bootstrap_servers.clone(),])
-	    .with_topic_partitions(pos_topic.clone(), &[0])
+	match Consumer::from_hosts(vec![bootstrap_servers.to_owned(),])
+	    .with_topic_partitions(pos_topic.to_owned(), &[0])
 	    .with_fallback_offset(FetchOffset::Earliest)
 	    .with_offset_storage(GroupOffsetStorage::Kafka)
 	    .create() {

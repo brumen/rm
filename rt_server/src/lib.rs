@@ -1,4 +1,7 @@
+#![feature(async_fn_in_trait)]
+
 pub mod trade;
+pub mod ao_trade;
 pub mod encdec;
 pub mod portfolio;
 pub mod pricer;

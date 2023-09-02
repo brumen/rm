@@ -50,27 +50,27 @@ pub trait PublishResults : Streaming {
 }
 
 
-/// connects the consumer to Kafka 
-pub fn connect_with_retries_producer(bootstrap_servers: &String) -> Producer {
+/// connects the consumer to Kafka
+pub fn connect_with_retries_producer(bootstrap_servers: &str) -> Producer {
     let mut listener_connected = false;
     let mut eventual_listener = None;
 
     while !listener_connected {
 
-        match Producer::from_hosts(vec![bootstrap_servers.clone(),])
+        match Producer::from_hosts(vec![bootstrap_servers.to_owned(),])
             .with_required_acks(RequiredAcks::One)
             .create()
-	{
-	    Ok(pos_listener) => {
-		eventual_listener = Some(pos_listener);
-		listener_connected = true;
-	    },
-	    Err(e) => {
-		warn!("__construct_portfolio: listener is not connected, waiting 5 secs: {:?}", e);
-		sleep(Duration::new(5, 0));
-		eventual_listener = None;
-	    },
-	};
+	    {
+	        Ok(pos_listener) => {
+		        eventual_listener = Some(pos_listener);
+		        listener_connected = true;
+	        },
+	        Err(e) => {
+		        warn!("__construct_portfolio: listener is not connected, waiting 5 secs: {:?}", e);
+		        sleep(Duration::new(5, 0));
+		        eventual_listener = None;
+	        },
+	    };
     }
     eventual_listener.unwrap()
 }

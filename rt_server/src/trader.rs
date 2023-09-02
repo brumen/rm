@@ -71,7 +71,7 @@ impl LETFTrader {
     ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name, self.kafka_port);
         let mut pos_listener_ = connect_with_retries(&bootstrap_servers, &pos_topic);
-	let mut hedge_book = connect_with_retries_producer(&bootstrap_servers);
+	    let mut hedge_book = connect_with_retries_producer(&bootstrap_servers);
 
         loop {
             for ms in pos_listener_.poll().unwrap().iter() {

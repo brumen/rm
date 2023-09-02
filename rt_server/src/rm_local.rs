@@ -110,15 +110,15 @@ impl MarketSwitching for RTRMLocal {
         let nm = self.new_market.lock().expect("_switch_markets: Could not lock new market.");
         **self.curr_market.lock().expect("_switch_markets: Could not lock current market") = (*nm).clone();
 
-	debug!("_switch_markets: Curr market now: {:?}", nm);
+	    debug!("_switch_markets: Curr market now: {:?}", nm);
     }
 
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
-	self.curr_market.clone()
+	    self.curr_market.clone()
     }
 
     fn _new_mkt(&self) -> Arc<Mutex<MarketType>> {
-	self.new_market.clone()
+	    self.new_market.clone()
     }
 }
 
@@ -133,49 +133,26 @@ impl BasicValue<TradeTypes> for RTRMLocal {
     fn _value_trade(&self, trade: &TradeTypes, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
 
         debug!("_value_trade: Valuing {:?}", trade);
-	debug!("_value_trade: Curr mkt = {:?}", self._curr_mkt().lock().unwrap());
+	    debug!("_value_trade: Curr mkt = {:?}", self._curr_mkt().lock().unwrap());
         let trade_name = trade.id();
-	let new_mkt_l = self._new_mkt();
-	let new_stock_mkt = new_mkt_l.lock();
-	let curr_mkt_l = self._curr_mkt();
-	let curr_stock_mkt = curr_mkt_l.lock();
-	
-	let stock_mkt_arc;
-	
-	if market == CurrNewMarket::Current {
-	   stock_mkt_arc = curr_stock_mkt;
-	} else {
-            stock_mkt_arc = new_stock_mkt;
+	    let new_mkt_l = self._new_mkt();
+	    let new_stock_mkt = new_mkt_l.lock();
+	    let curr_mkt_l = self._curr_mkt();
+	    let curr_stock_mkt = curr_mkt_l.lock();
+
+        let stock_mkt_arc = match market {
+            CurrNewMarket::Current => curr_stock_mkt,
+            CurrNewMarket::New => new_stock_mkt,
         };
 
-	let stock_mkt = stock_mkt_arc.expect("_value_trade: Could not lock the stock market object, weird");
+	    let stock_mkt = stock_mkt_arc.expect("_value_trade: Could not lock the stock market object, weird");
 
-        match metric {
-            PricingMetric::PV => {
-                let priced_trade = trade.price(&stock_mkt);
-                debug!("_value_trade: PV of {:?} = {:?}", trade_name, priced_trade);
-                if let Some(price_trade) = priced_trade {
-                    PricingResults::PV(PortfolioType::from([(trade_name, price_trade),]))
-                } else {
-                    PricingResults::PV(PortfolioType::new())
-                }
-            },
+        trade.value_by_metric(trade.id(), metric, &stock_mkt)
+    }
 
-            PricingMetric::PV01 => {
-		let trade_pv01 = trade.pv01(&stock_mkt);
-		debug!("_value_trade: PV01 of {:?} = {:?}", trade_name, trade_pv01);
-                PricingResults::PV01(trade_pv01)
-            },
-	    PricingMetric::PnL => {
-                let pnl_trade = trade.pnl(&stock_mkt);
-                debug!("_value_trade: PnL of {:?} = {:?}", trade_name, pnl_trade);
-                if let Some(pnl_trade_real) = pnl_trade {
-                    PricingResults::PV(PortfolioType::from([(trade_name, pnl_trade_real),]))
-                } else {
-                    PricingResults::PV(PortfolioType::new())
-                }
-	    }
-        }
+    /// pricing the trade locally asynchronously
+    async fn _value_trade_a(&self, trade: &TradeTypes, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
+        self._value_trade(trade, market, metric)
     }
 }
 
@@ -212,7 +189,7 @@ impl MktEventHandler for RTRMLocal {
             return;
         };
 
-	*self._curr_mkt().lock().expect("_handle_mkt_msg: Could not lock curr_mkt") += &new_mkt_real;
+	    *self._curr_mkt().lock().expect("_handle_mkt_msg: Could not lock curr_mkt") += &new_mkt_real;
         let _ = new_mkt_sender.send(new_mkt_real);
     }
 }
@@ -223,7 +200,7 @@ impl PriceMultipleTrades<TradeTypes> for RTRMLocal {
     /// price multiple trades
     fn _price_trades(
         &self,
-	trades: &[&TradeTypes],
+	    trades: &[&TradeTypes],
         market_ : CurrNewMarket,
         metric: PricingMetric,
     ) -> PortfolioType {

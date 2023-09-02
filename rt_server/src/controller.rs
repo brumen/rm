@@ -2,7 +2,8 @@ use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 
 use kafka::consumer::Message;
-use reqwest::blocking::{Client, Response,};
+use reqwest;
+//use reqwest::blocking::{Client, Response,};
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 use core::convert::From;
@@ -24,11 +25,8 @@ use crate::market::{
 use crate::ref_deref::TryFromRef;
 
 use crate::pricer::{
-    BasicValue,
     PricingMetric,
     PricingStruct,
-    RestPricer,
-    RestPricerSpark,
     Decoder,
 };
 
@@ -128,106 +126,6 @@ impl Controller {
 }
 
 
-impl Decoder for Controller {
-
-    // converts the spark response into a trade value.
-    fn _unwrap_pricing_results(&self, result_price: Response, metric: PricingMetric) -> PricingResults {
-
-        match metric {
-            PricingMetric::PV => {
-                let results_conv = result_price.json::<HashMap<String, f64>>();
-
-                if results_conv.is_err() {
-                    return PricingResults::PV(PortfolioType::new())
-                }
-
-                PricingResults::PV(PortfolioType(results_conv.unwrap()))
-            },
-            PricingMetric::PV01 => {
-                let results_conv = result_price.json::<HashMap<String, HashMap<String, f64>>>();
-
-                if results_conv.is_err() {
-                    return PricingResults::PV01(PV01Results::new());
-                }
-
-                let mut pv01 = PV01Results::new();
-                for (trade_id, trade_result) in results_conv.unwrap().iter() {
-                    let _ = pv01.insert((*trade_id.clone()).to_string(), PortfolioType::from(trade_result));
-                }
-                PricingResults::PV01(pv01)
-            },
-	    PricingMetric::PnL => todo!(),
-        }
-    }
-}
-
-
-impl<TT> RestPricer<TT> for Controller
-where
-    TT: Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>
-{
-
-    /// pricing endpoints for valuing on the go
-    fn _pricing_endpoint(&self, market_ : CurrNewMarket, metric: PricingMetric) -> String {
-
-        match metric {
-            PricingMetric::PV => {
-                match market_ {
-                    CurrNewMarket::Current => "pv".to_string(),
-                    CurrNewMarket::New => "pv_new".to_string(),
-                }
-            },
-            PricingMetric::PV01 => {
-                match market_ {
-                    CurrNewMarket::Current => "pv01".to_string(),
-                    CurrNewMarket::New => "pv01_new".to_string(),
-                }
-            },
-	    PricingMetric::PnL => todo!(),
-        }
-    }
-
-    // server ip which prices the trades.
-    fn _pricing_server(&self) -> String {
-        "localhost:5010".to_string()
-    }
-
-}
-
-
-impl<TT> RestPricerSpark<TT> for Controller
-where
-    TT : Send + std::cmp::PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>> 
-{
-
-    /// compute the pricing endpoint for the rester service for
-    /// a particular metric and market.
-    fn _pricing_endpoint_spark(&self, market_ : CurrNewMarket, metric: PricingMetric) -> String {
-
-        match metric {
-            PricingMetric::PV => {
-                match market_ {
-                    CurrNewMarket::Current => "pv_spark".to_string(),
-                    CurrNewMarket::New => "pv_spark_new".to_string(),
-                }
-            },
-            PricingMetric::PV01 => {
-                match market_ {
-                    CurrNewMarket::Current => "pv01_spark".to_string(),
-                    CurrNewMarket::New => "pv01_spark_new".to_string(),
-                }
-            },
-	    PricingMetric::PnL => todo!(),
-        }
-    }
-
-    fn _pricing_server_spark(&self) -> String {
-        "localhost:5010".to_string()
-    }
-
-}
-
-
 impl Streaming for Controller {
     fn kafka_server_name(&self) -> String {
         self.kafka_server_name.clone()  // TODO: CHECK IF THIS CAN BE REMOVED HERE!!!
@@ -258,16 +156,17 @@ impl MktEventHandler for Controller {
 
         let optional_mkt = MarketType::try_from_ref(mkt_msg);
 
-	let market_obj = match optional_mkt {
-	    Err(e) => {
-		warn!("Error in converting the market object from json: {:?}", e);
-		return;
-	    },
-	    Ok(market_inside) => market_inside,
-	};
+	    let market_obj = match optional_mkt {
+	        Err(e) => {
+		        warn!("Error in converting the market object from json: {:?}", e);
+		        return;
+	        },
+	        Ok(market_inside) => market_inside,
+	    };
 
         let mkt_client_address = "http://localhost:5010/future_market";
-        let market_posted = Client::new()  
+        let client = reqwest::blocking::Client::new();  // TODO: THIS ALWAYS REPEATS!!!
+        let market_posted = client
             .post(format!("{0}", mkt_client_address))
             .json(&HashMap::from([("market", &market_obj)]))
             .send();
@@ -297,50 +196,10 @@ impl MarketSwitching for Controller {
     }
 
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
-	self.curr_mkt.clone()
+	    self.curr_mkt.clone()
     }
 
     fn _new_mkt(&self) -> Arc<Mutex<MarketType>> {
-	self.new_mkt.clone()
-    }
-}
-
-
-impl<TT> BasicValue<TT> for Controller
-where
-    TT : Send + PartialEq + BaseTrade + Clone + std::fmt::Debug + for<'a> TryFromRef<Message<'a>>
-{
-
-    fn metric(&self) -> PricingMetric {
-        self.metric
-    }
-
-    // prices the trade given the market spec & pricing metric.
-    fn _value_trade(&self, trade: &TT, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
-        debug!("_value_trade: Pricing trade: {:?}, market: {:?}", trade, market);
-
-        // Create or update trades have to be evaluated, so we have to price them.
-        //"http://localhost:5010/pv/{trade_id}"
-        let result_pricing =
-            reqwest::blocking::get(
-                format!(
-                    "http://{}/{}/{}",
-                    <Controller as RestPricer<TT>>::_pricing_server(self),
-                    <Controller as RestPricer<TT>>::_pricing_endpoint(self, market, metric),
-                    trade.id(),
-                )
-            );
-
-        match result_pricing {
-            Ok(result_price) => { self._unwrap_pricing_results(result_price, metric) },
-            Err(e) => {
-                warn!("Trade {:?} could not price correctly: {}", trade.id(), e);
-                match metric {
-                    PricingMetric::PV => {PricingResults::PV(PortfolioType::new())},
-                    PricingMetric::PV01 => {PricingResults::PV01(PV01Results::new())},
-		    PricingMetric::PnL => todo!(),
-                }
-            },
-        }
+	    self.new_mkt.clone()
     }
 }
