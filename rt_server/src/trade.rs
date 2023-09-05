@@ -70,10 +70,6 @@ impl std::cmp::PartialEq for LETFTrade {
 
 impl PriceTrade for LETFTrade {
 
-    fn additional_params(&self) -> Option<HashMap<String, String>> {
-        None
-    }
-
     fn initial_pv(&self) -> Option<f64> {
 	    Some(0.)
     }
@@ -175,9 +171,6 @@ pub struct Future {
 }
 
 impl PriceTrade for Future {
-    fn additional_params(&self) -> Option<HashMap<String, String>> {
-        None
-    }
 
     fn initial_pv(&self) -> Option<f64> {
 	    self.initial_val
@@ -300,9 +293,6 @@ impl TradeTypes {
 }
 
 impl PriceTrade for TradeTypes {
-    fn additional_params(&self) -> Option<HashMap<String, String>> {
-        None
-    }
 
     fn initial_pv(&self) -> Option<f64> {
 	    match self {
@@ -399,6 +389,7 @@ where
 	    TradeRep(HashMap::<String, TT>::new())
     }
 
+    // TODO: REWRITE THIS AS + operator
     pub fn add_trade(&mut self, trade: TT) {
 	    let trade_id = trade.id();
 	    let trade_position = self.keys().position(|tradeid| tradeid.eq(&trade_id));

@@ -7,6 +7,7 @@ use serde::Serialize;
 use std::ops::{Deref, DerefMut,};
 use crate::ref_deref_trait;
 use crate::trade::{TradeDirection, BaseTrade,};
+use crate::pricer::PricingMetric;
 
 
 pub type PortfolioInner = HashMap<String, f64>;
@@ -212,7 +213,7 @@ impl<TT: BaseTrade> Add<TT> for AggregatedTrades {
 
 
 // PV01Results
-/// PV01Results is of form (trade_id, (exposure, exposure_amt))
+/// PV01Results is of form (trade_id, (exposure_to, exposure_amt))
 pub type PV01Inner = HashMap<String, PortfolioType>;
 #[derive(Clone, Debug)]
 pub struct PV01Results ( pub PV01Inner );
@@ -249,6 +250,15 @@ impl Mul<f64> for PV01Results {
     }
 }
 
+impl Neg for PV01Results {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        todo!()
+    }
+}
+
+
 impl PV01Results {
     pub fn new() -> Self {
         Self(PV01Inner::new())
@@ -265,11 +275,30 @@ impl PV01Results {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PricingResults {
     PV(PortfolioType),
     PV01(PV01Results),
     PnL(PortfolioType),  // same as PV type
+}
+
+impl PricingResults {
+    pub fn new(metric: PricingMetric) -> Self {
+        match metric {
+            PricingMetric::PV => Self::PV(PortfolioType::new()),
+            PricingMetric::PV01 => Self::PV01(PV01Results::new()),
+            PricingMetric::PnL => Self::PnL(PortfolioType::new()),
+        }
+    }
+
+    // TODO: CHECK IF WE CAN DO THIS WITHOUT CLONING!!!
+    pub fn aggregate(&self) -> PortfolioType {
+        match self {
+            PricingResults::PV(pv) => (*pv).clone(),
+            PricingResults::PV01(pv01) => (*pv01).clone().aggregate(),
+            PricingResults::PnL(pnl) => (*pnl).clone(),
+        }
+    }
 }
 
 impl Neg for PricingResults {
@@ -277,9 +306,9 @@ impl Neg for PricingResults {
 
     fn neg(self) -> Self::Output {
         match self {
-            Self::PV(portfolio) => - portfolio,
-            Self::PV01(pv01_results) => - pv01_results,
-            Self::PnL(pnl_results) => - pnl_results,
+            Self::PV(portfolio) => Self::PV(-portfolio),
+            Self::PV01(pv01_results) => Self::PV01(-pv01_results),
+            Self::PnL(pnl_results) => Self::PnL(- pnl_results),
         }
     }
 }
@@ -305,6 +334,41 @@ impl Neg for PortfolioType {
     }
 }
 
+impl AddAssign<PricingResults> for PricingResults {
+    fn add_assign(&mut self, rhs: PricingResults) {
+
+        match rhs {
+            PricingResults::PV(pv_results) => {
+                *self += PricingResults::PV(pv_results);
+            },
+            PricingResults::PV01(pv01_results) => {
+                *self += PricingResults::PV01(pv01_results)
+            },
+	        PricingResults::PnL(pnl_results) => {
+                todo!()
+	        },
+        }
+    }
+}
+
+impl SubAssign<PricingResults> for PricingResults {
+    fn sub_assign(&mut self, rhs: PricingResults) {
+
+        match rhs {
+            PricingResults::PV(pv_results) => {
+                *self -= PricingResults::PV(pv_results);
+            },
+            PricingResults::PV01(pv01_results) => {
+                *self -= PricingResults::PV01(pv01_results)
+            },
+	        PricingResults::PnL(pnl_results) => {
+                todo!()
+	        },
+        }
+    }
+}
+
+
 impl AddAssign<PricingResults> for PortfolioType {
 
     fn add_assign(&mut self, rhs: PricingResults) {
@@ -318,9 +382,9 @@ impl AddAssign<PricingResults> for PortfolioType {
                     *self += trade_portf;
                 }
             },
-	    PricingResults::PnL(pnl_results) => {
-
-	    },
+	        PricingResults::PnL(pnl_results) => {
+                todo!()
+            },
         }
     }
 }

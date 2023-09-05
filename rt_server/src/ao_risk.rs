@@ -8,10 +8,11 @@
 
 //use std::env::args;
 
-use crate::trade::AOTrade;
+use crate::ao_trade::AOTrade;
 use crate::controller::Controller;
 use crate::engine::CalcController;
 use crate::market;
+use crate::pricer::{PricingMetric, MarketPricingOptions};
 
 
 pub fn ao_main_risk() {
@@ -21,16 +22,23 @@ pub fn ao_main_risk() {
     // let config_file : String = args().nth(1).unwrap();
     let config_file = "/home/brumen/work/rm/configs/configuration.yaml".to_owned();
 
-    let controller2 = Controller::new_from_config(
+    let controller = Controller::new_from_config(
         config_file,
     ).unwrap();
 
+    let market_pricing_options = MarketPricingOptions {
+        pricing_server: "localhost:9092".to_owned(),
+        pricing_endpoint: "pv".to_owned(),
+    };
+
     // TODO: The topics should be read from config as well.
     <Controller as CalcController<AOTrade>>::start (
-	&controller2,
+	&controller,
         "air_options.ao.option_positions".to_owned(),
         "mkt_events".to_owned(),
         "air_options.ao.results".to_owned(),
         market::MktMsgParams::AOParams(),
+        PricingMetric::PV,
+        &market_pricing_options,
     );
 }

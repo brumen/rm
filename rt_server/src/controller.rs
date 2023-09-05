@@ -32,7 +32,7 @@ use crate::pricer::{
 
 use crate::publish::PublishResults;
 use crate::streaming::Streaming;
-use crate::trade_processor::MarketSwitching;
+use crate::trade_processor::{MarketSwitching, TradeMarketDiscovery};
 use crate::mkt_handler::MktEventHandler;
 
 pub type PricingParams = HashMap<String, f64>;
@@ -203,3 +203,8 @@ impl MarketSwitching for Controller {
 	    self.new_mkt.clone()
     }
 }
+
+
+impl<TT> TradeMarketDiscovery<TT> for Controller
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade
+{ }

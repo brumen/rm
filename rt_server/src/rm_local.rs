@@ -23,8 +23,8 @@ use crate::ref_deref::TryFromRef;
 
 use crate::pricer::{
     PricingMetric,
-    PriceMultipleTrades,
-    BasicValue,
+//    PriceMultipleTrades,
+//    BasicValue,
     PriceTrade,
 };
 
@@ -123,38 +123,38 @@ impl MarketSwitching for RTRMLocal {
 }
 
 
-impl BasicValue<TradeTypes> for RTRMLocal {
+// impl BasicValue<TradeTypes> for RTRMLocal {
 
-    fn metric(&self) -> PricingMetric {
-        self.metric
-    }
+//     fn metric(&self) -> PricingMetric {
+//         self.metric
+//     }
 
-    /// pricing the trade locally
-    fn _value_trade(&self, trade: &TradeTypes, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
+//     /// pricing the trade locally
+//     fn _value_trade(&self, trade: &TradeTypes, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
 
-        debug!("_value_trade: Valuing {:?}", trade);
-	    debug!("_value_trade: Curr mkt = {:?}", self._curr_mkt().lock().unwrap());
-        let trade_name = trade.id();
-	    let new_mkt_l = self._new_mkt();
-	    let new_stock_mkt = new_mkt_l.lock();
-	    let curr_mkt_l = self._curr_mkt();
-	    let curr_stock_mkt = curr_mkt_l.lock();
+//         debug!("_value_trade: Valuing {:?}", trade);
+// 	    debug!("_value_trade: Curr mkt = {:?}", self._curr_mkt().lock().unwrap());
+//         let trade_name = trade.id();
+// 	    let new_mkt_l = self._new_mkt();
+// 	    let new_stock_mkt = new_mkt_l.lock();
+// 	    let curr_mkt_l = self._curr_mkt();
+// 	    let curr_stock_mkt = curr_mkt_l.lock();
 
-        let stock_mkt_arc = match market {
-            CurrNewMarket::Current => curr_stock_mkt,
-            CurrNewMarket::New => new_stock_mkt,
-        };
+//         let stock_mkt_arc = match market {
+//             CurrNewMarket::Current => curr_stock_mkt,
+//             CurrNewMarket::New => new_stock_mkt,
+//         };
 
-	    let stock_mkt = stock_mkt_arc.expect("_value_trade: Could not lock the stock market object, weird");
+// 	    let stock_mkt = stock_mkt_arc.expect("_value_trade: Could not lock the stock market object, weird");
 
-        trade.value_by_metric(trade.id(), metric, &stock_mkt)
-    }
+//         trade.value_by_metric(trade.id(), metric, &stock_mkt)
+//     }
 
-    /// pricing the trade locally asynchronously
-    async fn _value_trade_a(&self, trade: &TradeTypes, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
-        self._value_trade(trade, market, metric)
-    }
-}
+//     /// pricing the trade locally asynchronously
+//     async fn _value_trade_a(&self, trade: &TradeTypes, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
+//         self._value_trade(trade, market, metric)
+//     }
+// }
 
 
 impl Streaming for RTRMLocal {
@@ -196,24 +196,24 @@ impl MktEventHandler for RTRMLocal {
 
 /// implements the pricing of multiple trades for every type T that implements _value_trade
 /// iterates over the trades.
-impl PriceMultipleTrades<TradeTypes> for RTRMLocal {
-    /// price multiple trades
-    fn _price_trades(
-        &self,
-	    trades: &[&TradeTypes],
-        market_ : CurrNewMarket,
-        metric: PricingMetric,
-    ) -> PortfolioType {
-        // iterate of the
-        let mut new_portfolio = PortfolioType::new();
+// impl PriceMultipleTrades<TradeTypes> for RTRMLocal {
+//     /// price multiple trades
+//     fn _price_trades(
+//         &self,
+// 	    trades: &[&TradeTypes],
+//         market_ : CurrNewMarket,
+//         metric: PricingMetric,
+//     ) -> PortfolioType {
+//         // iterate of the
+//         let mut new_portfolio = PortfolioType::new();
 
-        for trade in trades {
-            new_portfolio += self._value_trade(trade, market_, metric);
-        }
+//         for trade in trades {
+//             new_portfolio += self._value_trade(trade, market_, metric);
+//         }
 
-        new_portfolio
-    }
-}
+//         new_portfolio
+//     }
+// }
 
 
 impl PublishResults for RTRMLocal {

@@ -21,12 +21,14 @@ mod trader;
 mod publish;
 mod streaming;
 mod trade_processor;
+//mod trade_processor_local;
 
 mod rm_local;
 mod engine;
+//mod engine_local;
 mod mkt_handler;
 mod portfolio_sender;
-mod letf_trader;
+//mod letf_trader;
 mod ao_risk;
 
 
@@ -34,6 +36,6 @@ fn main() {
 
     env_logger::init();  // TODO: CHECK IF THIS NEEDS TO BE DONE!!!
 
-    letf_trader::main_letf_trader();
-    // ao_risk::ao_main_risk();
+    //letf_trader::main_letf_trader();
+    ao_risk::ao_main_risk();
 }

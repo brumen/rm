@@ -1,4 +1,4 @@
-use log::warn;
+use log::{warn, error,};
 use serde::{Serialize, Deserialize,};
 use kafka::consumer::Message;
 use std::collections::HashMap;
@@ -46,28 +46,28 @@ use crate::trade::{TradeDirection, TradeError,};
 
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-struct _Payload {
+struct Payload {
     op: String,
-    after: _AfterPosition,
-    before: _BeforePosition,
+    after: AfterPosition,
+    before: BeforePosition,
 }
 
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-struct _AfterPosition {
+struct AfterPosition {
     position_id: i64,
 }
 
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-struct _BeforePosition {
+struct BeforePosition {
     position_id: i64,
 }
 
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct AOTrade {
-    payload: _Payload,
+    payload: Payload,
 }
 
 
@@ -154,16 +154,24 @@ impl PriceTradeAsync for AOTrade {
         let trade_id = self.id();
 
         let results_pricing = self._pricing_request(
-            pricing_options,
-            trade_id,
             PricingMetric::PV,
+            pricing_options,
         ).await;
 
         match results_pricing {
-            Ok(result_price) => self._unwrap_pricing_results(result_price, PricingMetric::PV),
+            Ok(result_price) => {
+                let unwrapped_price = self._unwrap_pricing_results_a(result_price, PricingMetric::PV).await;
+                if let PricingResults::PV(pv_result) = unwrapped_price {
+                    let result_keys : Vec<_> = pv_result.keys().into_iter().collect();
+                    pv_result.get(result_keys[0]).copied()
+                } else {
+                    error!("Remote pricing of {} didnt go right!", trade_id);
+                    None
+                }
+            },
             Err(e) => {
                 warn!("Trade {:?} could not price correctly: {}", trade_id, e);
-                PricingResults::PV(PortfolioType::new())
+                None
             }
         }
     }
@@ -171,16 +179,23 @@ impl PriceTradeAsync for AOTrade {
     async fn pv01(&self, pricing_options: &MarketPricingOptions) -> PV01Results {
         let trade_id = self.id();
         let results_pricing = self._pricing_request(
-            pricing_options,
-            trade_id,
             PricingMetric::PV01,
+            pricing_options,
         ).await;
 
         match results_pricing {
-            Ok(result_price) => self._unwrap_pricing_results(result_price, PricingMetric::PV01),
+            Ok(result_price) => {
+                let unwrapped_price = self._unwrap_pricing_results_a(result_price, PricingMetric::PV01).await;
+                if let PricingResults::PV01(pv01_result) = unwrapped_price {
+                    pv01_result
+                } else {
+                    error!("Remote PV01 of {} didnt go right", trade_id);
+                    PV01Results::new()  // TODO: THIS IS GARBAGE HERE
+                }
+            },
             Err(e) => {
                 warn!("Trade {:?} could not price correctly: {}", trade_id, e);
-                PricingResults::PV01(PV01Results::new())
+                PV01Results::new()
             }
         }
     }

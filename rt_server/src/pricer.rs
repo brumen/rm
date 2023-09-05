@@ -58,7 +58,7 @@ pub trait Decoder {
 }
 
 
-pub trait PriceTrade {
+pub trait PriceTrade : BaseTrade {
 
     fn initial_pv(&self) -> Option<f64>;
     fn price(&self, market: &MarketType) -> Option<f64>;
@@ -73,7 +73,13 @@ pub trait PriceTrade {
     }
 
     /// values the trade for a specific metric.
-    fn value_by_metric(&self, trade_name: String, metric: PricingMetric, market: &MarketType) -> PricingResults {
+    fn value_by_metric(
+        &self,
+        metric: PricingMetric,
+        market: &MarketType
+    ) -> PricingResults {
+
+        let trade_name = self.id();
 
         match metric {
             PricingMetric::PV => {
@@ -112,27 +118,35 @@ pub struct MarketPricingOptions {
 }
 
 /// ASynchronous version of the pricer. Used for REST pricer.
-pub trait PriceTradeAsync {
+pub trait PriceTradeAsync : BaseTrade {
+
+    fn _endpoint(
+        &self,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+    ) -> String {
+
+        let pricing_server = pricing_options.pricing_server.clone();  // TODO: THIS IS SHIT HERE!!
+        let pricing_endpoint = pricing_options.pricing_endpoint.clone();  // TODO: SHIT HERE AGAIN!!!
+
+        format!(
+            "http://{}/{}/{}/{}",
+            pricing_server,
+            pricing_endpoint,
+            metric,
+            self.id(),
+        )
+    }
 
     /// computes the pricing request.
     async fn _pricing_request(
         &self,
-        pricing_options: MarketPricingOptions,
-        trade_id: String,
-        pricing_metric: PricingMetric,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
     ) -> Result<reqwest::Response, reqwest::Error> {
 
-        let pricing_server = pricing_options.pricing_server;
-        let pricing_endpoint = pricing_options.pricing_endpoint;
-        let trade_id = self.id();
-
         reqwest::get(
-            format!(
-                "http://{}/{}/{}",
-                pricing_server,
-                pricing_endpoint,
-                trade_id,
-            )
+            self._endpoint(metric, pricing_options)
         ).await
     }
 
@@ -151,10 +165,11 @@ pub trait PriceTradeAsync {
     /// values the trade for a specific metric.
     async fn value_by_metric(
         &self,
-        trade_name: String,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
     ) -> PricingResults {
+
+        let trade_name = self.id();
 
         match metric {
             PricingMetric::PV => {

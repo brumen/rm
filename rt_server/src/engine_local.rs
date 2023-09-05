@@ -11,7 +11,8 @@ use crate::pricer::PricingMetric;
 use crate::publish::PublishResults;
 use crate::trade::BaseTrade;
 use crate::trade_processor::RiskProcessorsRemote;
-use crate::pricer::PriceTradeAsync;
+use crate::trade_processor_local::RiskProcessorsLocal;
+use crate::pricer::PriceTrade;
 
 
 pub trait CalcController<TT> {
@@ -27,10 +28,13 @@ pub trait CalcController<TT> {
 }
 
 
+///
+/// main function that starts the various threads.
+///
 impl<T, TT> CalcController<TT> for T
 where
-    T: Send + Sync + RiskProcessorsRemote<TT> + MktEventHandler + PublishResults + PortfolioSender<TT>,
-    TT: Clone + Send + BaseTrade + PartialEq + std::fmt::Debug + PriceTradeAsync,
+    T: Send + Sync + RiskProcessorsLocal<TT> + MktEventHandler + PublishResults + PortfolioSender<TT>,
+    TT: Clone + Send + BaseTrade + PartialEq + std::fmt::Debug + PriceTrade,
 {
     fn start(
         &self,
@@ -38,8 +42,6 @@ where
         mkt_topic: String,     // market topic
         results_topic: String, // publish the results topic
         mkt_params: MktMsgParams,
-        metric: PricingMetric,
-        pricing_options: &MarketPricingOptions,
     ) {
         // 2 trade senders, 1 for current market, 1 for new market.
         let (pos_sender_curr, pos_recv_curr) = channel::<TT>();
@@ -48,7 +50,7 @@ where
         let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
         // new & current market portfolio
         let (curr_portfolio_sender, curr_portfolio_recv) = channel::<PortfolioType>();
-        let (new_portfolio_sender, new_portfolio_recv) = channel::<PortfolioType>();
+        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, usize)>();
 
         // threads fail if any of them can not be created.
         thread::scope(|s| {
@@ -73,8 +75,6 @@ where
                         new_mkt_receiver,
                         pos_recv_new,
                         new_portfolio_sender,
-                        metric,
-                        pricing_options,
                     );
                 })
                 .unwrap();
@@ -86,8 +86,6 @@ where
                         pos_recv_curr,
                         curr_portfolio_sender,
                         new_portfolio_recv,
-                        metric,
-                        pricing_options,
                     );
                 })
                 .unwrap();
