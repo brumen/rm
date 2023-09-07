@@ -94,9 +94,11 @@ where
 
             let _ = thread::Builder::new()
                 .name("publish_thread".to_string())
-                .spawn_scoped(s, move || {
-                    self._publish_results(curr_portfolio_recv, results_topic);
-                })
+                .spawn_scoped(
+                    s,
+                    move || {
+                        self._publish_results(curr_portfolio_recv, results_topic);
+                    })
                 .unwrap();
         });
     }

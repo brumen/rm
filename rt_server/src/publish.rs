@@ -20,8 +20,7 @@ pub trait PublishResults : Streaming {
         results_topic: String,
     ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
-
-	let mut res_publisher = connect_with_retries_producer(&bootstrap_servers);
+	    let mut res_publisher = connect_with_retries_producer(&bootstrap_servers);
 
         loop {
             debug!("_publish_results: Publishing loop.");

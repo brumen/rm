@@ -1,7 +1,8 @@
-use log::{warn, error,};
+use log::{warn, error, debug,};
 use serde::{Serialize, Deserialize,};
 use kafka::consumer::Message;
 use std::collections::HashMap;
+use std::fmt::Display;
 
 use crate::portfolio::{PV01Results, PortfolioType};
 use crate::ref_deref::TryFromRef;
@@ -49,7 +50,7 @@ use crate::trade::{TradeDirection, TradeError,};
 struct Payload {
     op: String,
     after: AfterPosition,
-    before: BeforePosition,
+    before: Option<BeforePosition>,
 }
 
 
@@ -65,7 +66,7 @@ struct BeforePosition {
 }
 
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq )]
 pub struct AOTrade {
     payload: Payload,
 }
@@ -160,7 +161,11 @@ impl PriceTradeAsync for AOTrade {
 
         match results_pricing {
             Ok(result_price) => {
-                let unwrapped_price = self._unwrap_pricing_results_a(result_price, PricingMetric::PV).await;
+                let unwrapped_price = self._unwrap_pricing_results_a(
+                    result_price,
+                    PricingMetric::PV
+                ).await;
+
                 if let PricingResults::PV(pv_result) = unwrapped_price {
                     let result_keys : Vec<_> = pv_result.keys().into_iter().collect();
                     pv_result.get(result_keys[0]).copied()
@@ -222,7 +227,11 @@ impl TryFromRef<Message<'_>> for AOTrade
     fn try_from_ref(value: &Message) -> Result<Self, Self::Error> {
 
         let msg_utf = std::str::from_utf8(value.value)?;
+        debug!("try_from_ref: Message received: {}", msg_utf);
 
-        Ok(serde_json::from_str::<AOTrade>(msg_utf)?)
+        let msg_serialized = serde_json::from_str::<AOTrade>(msg_utf)?;
+        debug!("try_from_ref: Message serialized {:?}", msg_serialized);
+
+        Ok(msg_serialized)
     }
 }

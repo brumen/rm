@@ -26,20 +26,24 @@ pub trait MktEventHandler : Streaming {
         mkt_params: MktMsgParams,
         new_mkt_sender: Sender<MarketType>,
     ) {
-	let bootstrap_servers = format!(
+	    let bootstrap_servers = format!(
             "{}:{}",
             self.kafka_server_name(), self.kafka_port()
         );
 
-	let mut mkt_listener_ = connect_with_retries(&bootstrap_servers, &mkt_topic);
+	    let mut mkt_listener_ = connect_with_retries(&bootstrap_servers, &mkt_topic);
 
-        debug!("_handle_mkt_events: Entering the _handle_mkt_events loop.");
         loop {
+            debug!("_handle_mkt_events: Entering market event loop.");
             for mkt_msg_set in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
                 for mkt_msg in mkt_msg_set.messages() {
                     debug!("_handle_mkt_events: Getting new markets from {mkt_topic}.");
-                    self._handle_mkt_msg(mkt_msg, new_mkt_sender.clone(), mkt_params.clone());
-             }
+                    self._handle_mkt_msg(
+                        mkt_msg,
+                        new_mkt_sender.clone(),
+                        mkt_params.clone(),
+                    );
+                }
                 let _ = mkt_listener_.consume_messageset(mkt_msg_set);
             }
             mkt_listener_.commit_consumed().unwrap();

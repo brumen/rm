@@ -2,10 +2,9 @@
 """
 
 import datetime
-import random
 
 from logging import getLogger
-from typing import Optional, Dict, Tuple, Union, List
+from typing import Optional, Dict, Tuple, Union
 from uuid import uuid4, UUID
 from threading import Thread
 from time import sleep
@@ -13,7 +12,6 @@ from kafka import KafkaConsumer, TopicPartition, KafkaProducer
 from kafka.consumer.fetcher import ConsumerRecord
 from json import loads, dumps
 
-from rm.base_producer import BaseProducer
 
 logger = getLogger(__name__)
 
@@ -30,7 +28,7 @@ class MarketService:
             flights: Optional = None,
             time_interval: int = 5,
             server_port_topic: Tuple[str, str, str] = ('localhost', 9092, 'air_options.ao.flights_live', ),
-            mkt_events_topic: str = 'mkt_events',
+            mkt_events_topic: str = 'air_options.ao.mkt_events',
     ):
         """
 
@@ -68,7 +66,7 @@ class MarketService:
         """
 
         for msg in self.__mkt_listener:
-            logger.info(f'New market event.')
+            logger.info('New market event.')
             self.__new_market_updates.update(self._process_mkt_msg(msg))
 
     def _process_mkt_msg(self, msg: ConsumerRecord) -> Dict:
@@ -130,12 +128,18 @@ class MarketService:
             else:
                 sleep(sleep_delay)
 
-    def run(self, sleep_delay=5, testing_shift = (1., 1.)) -> Tuple[Thread, Thread]:
+    def run(
+            self,
+            sleep_delay=5,
+            testing_shift=(1., 1.)
+    ) -> Tuple[Thread, Thread]:
         """ Runs the threads for market operation.
 
         2 threads are ran:
-           1. _update_new_mkt_events: collects market events and updates the new market.
-           2. _operate_markets: holds the current and new market, and switches between them.
+           1. _update_new_mkt_events: collects market events and
+                  updates the new market.
+           2. _operate_markets: holds the current and new market, and
+                   switches between them.
 
         :params sleep_delay: sleep delay
         :params testing_shift: shift to multiply the markets with.
@@ -147,7 +151,13 @@ class MarketService:
         market_events.start()
 
         # market event topic reading thread
-        switch_markets = Thread(target=lambda : self._operate_markets(sleep_delay=sleep_delay, testing_shift=testing_shift))
+        switch_markets = Thread(
+            target=self._operate_markets,
+            kwargs={
+                'sleep_delay': sleep_delay,
+                'testing_shift': testing_shift,
+            }
+        )
         switch_markets.start()
 
         return market_events, switch_markets
@@ -157,7 +167,10 @@ class AOMarketService(MarketService):
     """ Market service with decode/encode features.
     """
 
-    def _process_mkt_msg(self, msg: ConsumerRecord) -> Dict[Tuple[str, datetime.date], float]:
+    def _process_mkt_msg(
+            self,
+            msg: ConsumerRecord
+    ) -> Dict[Tuple[str, datetime.date], float]:
         """ Snaps the market at a particular time.
 
         :param msg: message from kafka connect, in the form:
@@ -203,13 +216,17 @@ class AOMarketService(MarketService):
             flight_carrier = flight_info.get('carrier')
             flight_nb = flight_info.get('flight_nb')
             # TODO: below DAYS after 1970/1/1
-            flight_date = datetime.date(
-                1970, 1, 1) + datetime.timedelta(days=flight_info.get('dep_date'))
+            flight_date = datetime.date(1970, 1, 1) + \
+                datetime.timedelta(days=flight_info.get('dep_date'))
 
-            return {(f'{flight_carrier}{flight_nb}', flight_date): flight_info.get('price')}
+            return {(f'{flight_carrier}{flight_nb}', flight_date):
+                    flight_info.get('price')
+                    }
 
     @staticmethod
-    def encode_from_tuple(encode_d: Dict[Tuple[str, datetime.date], float]) -> Dict[str, float]:
+    def encode_from_tuple(
+            encode_d: Dict[Tuple[str, datetime.date], float]
+    ) -> Dict[str, float]:
         """ Encodes the dictionary of the form (str, datetime.date): float into a dictionary
             of Dict[str, float], by combining the str and datetime into a string.
 
@@ -221,7 +238,9 @@ class AOMarketService(MarketService):
                 for (flight_id, flight_date), flight_price in encode_d.items()}
 
     @staticmethod
-    def decode_to_tuple(enc_str_date: str) -> Union[None, Tuple[str, datetime.date]]:
+    def decode_to_tuple(
+            enc_str_date: str
+    ) -> Union[None, Tuple[str, datetime.date]]:
         """ Decodes the encoded (flight_id, flight_date) to this state.
 
         If the conversion fails, None is returned.
@@ -254,16 +273,23 @@ class AOMarketService(MarketService):
 
         latest_market_id, latest_market = self.latest_market
 
-        return dumps((str(latest_market_id), self.encode_from_tuple(latest_market)))
+        # return dumps((str(latest_market_id), self.encode_from_tuple(latest_market)))
+        return dumps(self.encode_from_tuple(latest_market))
 
     @classmethod
-    def decode_mkt_data(cls, encoded_mkt: Dict[str, float]) -> Dict[Tuple[str, datetime.date], float]:
+    def decode_mkt_data(
+            cls,
+            encoded_mkt: Dict[str, float],
+    ) -> Dict[Tuple[str, datetime.date], float]:
 
         return {cls.decode_to_tuple(encoded_nb_date): flight_price
                 for encoded_nb_date, flight_price in encoded_mkt.items()}
 
     @classmethod
-    def decode_mkt(cls, encoded_id_mkt: Tuple[UUID, Dict[str, float]]) -> Dict[Tuple[str, datetime.date], float]:
+    def decode_mkt(
+            cls,
+            encoded_id_mkt: Tuple[UUID, Dict[str, float]],
+    ) -> Dict[Tuple[str, datetime.date], float]:
         """ Decodes the encoded market w/ the encode_mkt function above.
 
         :param encoded_id_mkt: market_id, and encoded market as a tuple.

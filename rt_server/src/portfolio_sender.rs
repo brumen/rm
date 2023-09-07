@@ -37,10 +37,7 @@ where
 
         loop {
             for ms in position_listener.poll().unwrap().iter() {
-                debug!("__construct_portfolio: got some messages");
                 for msg in ms.messages() {
-                    debug!("__construct_portfolio: {:?}",  msg);
-
                     match TT::try_from_ref(msg) {
                         Err(e) => {
                             warn!("__construct_portfolio: Problem w/ trade: {:?}", e);

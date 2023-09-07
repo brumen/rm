@@ -35,7 +35,7 @@ pub fn ao_main_risk() {
     <Controller as CalcController<AOTrade>>::start (
 	&controller,
         "air_options.ao.option_positions".to_owned(),
-        "mkt_events".to_owned(),
+        "air_options.ao.mkt_events".to_owned(),
         "air_options.ao.results".to_owned(),
         market::MktMsgParams::AOParams(),
         PricingMetric::PV,

@@ -7,6 +7,11 @@ start proper server with:
 """
 
 import logging
+from typing import List, Dict, Any
+from markupsafe import escape
+from flask import Response, request
+from json import dumps, loads
+
 # IMPORTANT: This logging config MUST BE HERE ON TOP, OTHERWISE IT DOES NOT WORK
 logging.basicConfig(
     filename='/tmp/trade_pv_restr.log',
@@ -15,15 +20,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+
 import sys
 if '/home/brumen/work/' not in sys.path:
     sys.path.append('/home/brumen/work/')
 
-
-from typing import List, Dict, Tuple, Any, Union, Generator, Optional
-from markupsafe import escape
-from flask import Flask, Response, request
-from json import dumps, loads
 
 from ao.trade import AOTrade, DeltaDict, AirOptionFlights
 from rm.market_service import AOMarketService
@@ -39,10 +40,10 @@ from rm.services.trade_api_pricers import (
 
 from rm.services.market_api import (
     pv_rester,
-    mkt_date,
+    MKT_DATE,
     MARKET_TYPE,
-    market,
-    new_market,  # TODO: IS THIS RIGHT, DOES THE MARKET CHANGE
+    MARKET,
+    NEW_MARKET,  # TODO: IS THIS RIGHT, DOES THE MARKET CHANGE
 )
 
 
@@ -67,7 +68,7 @@ def trade_pv_market(
 
     for trade in trades:
         trade_pv: Dict[str, Any] = _compute_trade_from_mkt(
-            mkt_date,
+            MKT_DATE,
             trade,
             TradeDirection.LONG,
             market_,
@@ -88,7 +89,7 @@ def trade_pv(trade_id):
 
     trade_ids = extract_trade_ids(escape(trade_id))
 
-    return trade_pv_market(trade_ids, market)
+    return trade_pv_market(trade_ids, MARKET)
 
 
 @ pv_rester.route('/pv01/<trade_id>')
@@ -100,7 +101,7 @@ def trade_pv01(trade_id):
 
     trade_ids = extract_trade_ids(escape(trade_id))
 
-    return trade_pv_market(trade_ids, market, 'PV01')
+    return trade_pv_market(trade_ids, MARKET, 'PV01')
 
 
 @ pv_rester.route('/pv_new/<trade_id>')
@@ -112,7 +113,7 @@ def trade_pv_new(trade_id):
 
     trade_ids = extract_trade_ids(escape(trade_id))
 
-    return trade_pv_market(trade_ids, new_market)
+    return trade_pv_market(trade_ids, NEW_MARKET)
 
 
 @ pv_rester.route('/pv01_new/<trade_id>')
@@ -124,7 +125,7 @@ def trade_pv01_new(trade_id):
 
     trade_ids = extract_trade_ids(escape(trade_id))
 
-    return trade_pv_market(trade_ids, new_market, 'PV01')
+    return trade_pv_market(trade_ids, NEW_MARKET, 'PV01')
 
 
 @ pv_rester.route('/pv_spark', methods=['POST', ])
@@ -147,7 +148,7 @@ def trade_pv_spark() -> Response:
         return Response(dumps({}))
 
     # response of the priced trades
-    return Response(dumps(price_trades(mkt_date, trades, 'c')))
+    return Response(dumps(price_trades(MKT_DATE, trades, 'c')))
 
 
 @ pv_rester.route('/pv01_spark', methods=['POST', ])
@@ -170,7 +171,7 @@ def trade_pv01_spark() -> Response:
         return Response(dumps({}))
 
     # response of the priced trades
-    return Response(dumps(price_trades(mkt_date, trades, 'c', 'PV01', )))
+    return Response(dumps(price_trades(MKT_DATE, trades, 'c', 'PV01', )))
 
 
 @ pv_rester.route('/pv_spark_new', methods=['POST', ])
@@ -190,7 +191,7 @@ def trade_pv_spark_new() -> Response:
     if not trades:
         return Response(dumps({}))
 
-    priced_trades = price_trades(mkt_date, trades, 'n')
+    priced_trades = price_trades(MKT_DATE, trades, 'n')
     logger.info(f"PV01 {len(priced_trades.keys())} on NEW market using SPARK.")
 
     return Response(dumps(priced_trades))
@@ -213,7 +214,7 @@ def trade_pv01_spark_new() -> Response:
     if not trades:
         return Response(dumps({}))
 
-    priced_trades = price_trades(mkt_date, trades, 'n', 'PV01',)
+    priced_trades = price_trades(MKT_DATE, trades, 'n', 'PV01',)
     logger.info(f"PV01 {len(priced_trades.keys())} on NEW market using SPARK.")
 
     return Response(dumps(priced_trades))
@@ -244,4 +245,4 @@ def main():
 # IMPORTANT: this has to be called application, for mod_express
 application = pv_rester
 # UNCOMMENT IF TO RUN RESTER.
-main()
+#main()

@@ -154,14 +154,18 @@ impl MktEventHandler for Controller {
         _mkt_msg_params: MktMsgParams,
     ) {
 
+        debug!("_handle_mkt_msg: Entering routine!");
         let optional_mkt = MarketType::try_from_ref(mkt_msg);
 
 	    let market_obj = match optional_mkt {
 	        Err(e) => {
-		        warn!("Error in converting the market object from json: {:?}", e);
+		        warn!("_handle_mkt_msg: Error converting to market object from json: {:?}", e);
 		        return;
 	        },
-	        Ok(market_inside) => market_inside,
+	        Ok(market_inside) => {
+                debug!("_handle_mkt_msg: Market = {:?}", market_inside);
+                market_inside
+            },
 	    };
 
         let mkt_client_address = "http://localhost:5010/future_market";

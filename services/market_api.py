@@ -9,7 +9,7 @@ start proper server with:
 import datetime
 import sys
 from logging import getLogger
-from typing import List, Dict, Tuple, Any, Union, Generator, Optional
+from typing import List, Dict, Tuple, Any, Generator, Optional
 from flask import Flask, Response, request
 from json import dumps, loads
 
@@ -66,7 +66,7 @@ def get_market_date() -> Response:
     return Response(MKT_DATE.strftime("%Y%m%d"))
 
 
-@pv_rester.route('/market', methods=['GET', 'POST',])
+@pv_rester.route('/market', methods=['GET', 'POST', ])
 def get_market() -> Response:
     """ Returns the market type
     """
@@ -87,7 +87,7 @@ def get_market() -> Response:
     return Response("Updated CURRENT market.")
 
 
-@pv_rester.route('/new_market', methods=['GET', 'POST',])
+@pv_rester.route('/new_market', methods=['GET', 'POST', ])
 def get_new_market() -> Response:
     """ Storage for the new market.
     """

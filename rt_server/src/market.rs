@@ -1,3 +1,4 @@
+use log::{debug};
 use std::collections::{HashMap, hash_map::IntoIter,};
 use std::ops::{Deref, DerefMut, AddAssign,};
 use serde::{Serialize, Deserialize};
@@ -94,6 +95,7 @@ impl TryFromRef<Message<'_>> for MarketType {
 
         let msg_utf = std::str::from_utf8(value.value)?;
 
+        debug!("try_from_ref(MarketType): Msg = {:?}", msg_utf);
         Ok(serde_json::from_str::<MarketType>(msg_utf)?)
 
     }

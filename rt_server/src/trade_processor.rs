@@ -75,10 +75,6 @@ where
     TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade
 {
 
-    //fn _switch_markets(&self) {}
-
-    async fn _do_sth(&self) {}
-
     /// processes one trade in the inner loop of the trade_processor_curr
     /// adds it to the curr_portfolio
     async fn _process_trade(
@@ -112,6 +108,7 @@ where
             _ => {},
         }
 
+        debug!("_trade_processor_curr: Sending curr portfolio to publish.");
         let _ = curr_portfolio_sender.send(curr_portfolio.clone());
     }
 
@@ -132,8 +129,6 @@ where
                 debug!("_trade_processor_curr: Received good trade {:?}", trade);
                 if !all_trades.contains(&trade) {
                     all_trades.add_trade(trade.clone());
-                    //pool.spawn_ok(
-                    //self._do_sth();
                     self._process_trade(
                         &trade,
                         metric,
@@ -146,21 +141,7 @@ where
             }
         };
 
-        // let trade_tasks = async {
-        //     for _ in 0..9 {
-        //         self._process_trade(
-        //             &trade,
-        //             metric,
-        //             pricing_options,
-        //             curr_portfolio,
-        //             //curr_portfolio_sender,
-        //         )
-        //         //self._do_sth();
-        //     }
-        // };
         pool.run_until(trade_tasks);
-        //let _ = executor::block_on(trade_tasks);
-
     }
 
     fn _trade_processor_curr(
@@ -241,8 +222,6 @@ where
             let new_market_event = self._new_market_event(
 		        &new_market_receiver,
 	        );
-
-//            let new_market_event = true;
 
             if new_market_event {
                 info!("_trade_processor_new: Working on {} trades", all_trades.keys().len());
