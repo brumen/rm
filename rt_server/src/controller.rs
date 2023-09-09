@@ -1,5 +1,7 @@
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
+use futures::executor;
+use tokio;
 
 use kafka::consumer::Message;
 use reqwest;
@@ -10,11 +12,10 @@ use core::convert::From;
 use std::sync::{Arc, Mutex};
 
 use crate::market::MktMsgParams;
-use crate::trade::BaseTrade;
+use crate::trade::{BaseTrade, TradeDirection, };
 use crate::portfolio::{
     PortfolioType,
     PricingResults,
-    PV01Results,
 };
 
 
@@ -27,13 +28,16 @@ use crate::ref_deref::TryFromRef;
 use crate::pricer::{
     PricingMetric,
     PricingStruct,
-    Decoder,
+    MarketPricingOptions,
+    PriceTradeAsync,
 };
 
 use crate::publish::PublishResults;
 use crate::streaming::Streaming;
 use crate::trade_processor::{MarketSwitching, TradeMarketDiscovery};
 use crate::mkt_handler::MktEventHandler;
+use crate::trade_procs::{ProcessTradeAsync, RiskProcessors,};
+
 
 pub type PricingParams = HashMap<String, f64>;
 
@@ -212,3 +216,102 @@ impl MarketSwitching for Controller {
 impl<TT> TradeMarketDiscovery<TT> for Controller
 where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade
 { }
+
+impl<TT> ProcessTradeAsync<TT> for Controller
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade
+{
+    async fn _process_trade(
+        &self,
+        trade: &TT,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_portfolio: &mut PortfolioType,
+        curr_portfolio_sender: &Sender<PortfolioType>,
+        curr_new_mkt: CurrNewMarket,
+    ) {
+
+        let trade_id = trade.id();
+        let trade_direction = trade.direction();
+
+        // TODO: curr_new_mkt dependecy missing here!!!
+
+        debug!("_trade_processor_curr: Processing trade {}, dir {:?}", trade_id, trade_direction);
+        let trade_v = trade.value_by_metric(
+            metric,
+            pricing_options,
+        ).await;
+
+        debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
+        let trade_portf = match trade_v {
+            PricingResults::PV(pv) => pv,
+            PricingResults::PV01(pv01) => pv01.aggregate(),
+            PricingResults::PnL(pnl) => pnl,
+        };
+
+        match trade_direction {
+            TradeDirection::Create => *curr_portfolio += trade_portf,
+            TradeDirection::Delete => *curr_portfolio -= trade_portf,
+            _ => {},
+        }
+
+        let _ = curr_portfolio_sender.send(curr_portfolio.clone());
+    }
+}
+
+impl<TT> RiskProcessors<TT> for Controller
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade
+{
+    fn _run_computations(
+        &self,
+        trade_receiver: &std::sync::mpsc::Receiver<TT>,
+        all_trades: &mut crate::trade::TradeRep<TT>,
+        curr_portfolio: &mut PortfolioType,
+        metric: PricingMetric,
+        pricing_options: &crate::pricer::MarketPricingOptions,
+        curr_portfolio_sender: &Sender<PortfolioType>,
+        curr_new_mkt: CurrNewMarket,
+    ) {
+        //let pool = executor::ThreadPool::new().expect("Failed to build pool");
+        // let mut pool = executor::LocalPool::new(); // .expect("Failed to build pool");
+
+        let mut all_works = vec![];
+        while let Ok(trade) = trade_receiver.try_recv() {
+            debug!("_trade_processor_curr: Received good trade {:?}", trade);
+            if !all_trades.contains(&trade) {
+                all_trades.add_trade(trade.clone());
+                all_works.push(
+                    tokio::spawn(
+                        self._process_trade(
+                            &trade,
+                            metric,
+                            pricing_options,
+                            curr_portfolio,
+                            curr_portfolio_sender,
+                            curr_new_mkt,
+                        )
+                    )
+                );
+            }
+        }
+
+	    // let trade_tasks = async {
+        //     while let Ok(trade) = trade_receiver.try_recv() {
+        //         debug!("_trade_processor_curr: Received good trade {:?}", trade);
+        //         if !all_trades.contains(&trade) {
+        //             all_trades.add_trade(trade.clone());
+        //             self._process_trade(
+        //                 &trade,
+        //                 metric,
+        //                 pricing_options,
+        //                 curr_portfolio,
+        //                 curr_portfolio_sender,
+        //                 curr_new_mkt,
+        //             );
+        //             //);
+        //         }
+        //     }
+        // };
+
+        // pool.run_until(trade_tasks);
+    }
+}

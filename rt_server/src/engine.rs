@@ -10,7 +10,7 @@ use crate::pricer::MarketPricingOptions;
 use crate::pricer::PricingMetric;
 use crate::publish::PublishResults;
 use crate::trade::BaseTrade;
-use crate::trade_processor::RiskProcessorsRemote;
+use crate::trade_procs::RiskProcessors;
 use crate::pricer::PriceTradeAsync;
 
 
@@ -29,7 +29,7 @@ pub trait CalcController<TT> {
 
 impl<T, TT> CalcController<TT> for T
 where
-    T: Send + Sync + RiskProcessorsRemote<TT> + MktEventHandler + PublishResults + PortfolioSender<TT>,
+    T: Send + Sync + RiskProcessors<TT> + MktEventHandler + PublishResults + PortfolioSender<TT>,
     TT: Clone + Send + BaseTrade + PartialEq + std::fmt::Debug + PriceTradeAsync,
 {
     fn start(

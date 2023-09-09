@@ -2,7 +2,6 @@
 
 use log::{info, debug,};
 use std::sync::mpsc::{Receiver, Sender,};
-//use futures_channel::mpsc::{Receiver, Sender,};
 use std::sync::{Arc,Mutex,};
 use futures::executor;
 
@@ -12,7 +11,7 @@ use crate::trade::{
 };
 use crate::portfolio::PortfolioType;
 use crate::market::{MarketType, CurrNewMarket, };
-use crate::pricer::{PriceTrade, PriceTradeAsync, PricingMetric, MarketPricingOptions, };
+use crate::pricer::{PriceTradeAsync, PricingMetric, MarketPricingOptions, };
 use crate::trade::TradeRep;
 
 use crate::portfolio::PricingResults;
@@ -84,6 +83,7 @@ where
         pricing_options: &MarketPricingOptions,
         curr_portfolio: &mut PortfolioType,
         curr_portfolio_sender: &Sender<PortfolioType>,
+        curr_new_mkt: CurrNewMarket,
     ) {
 
         let trade_id = trade.id();
@@ -120,6 +120,7 @@ where
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_portfolio_sender: &Sender<PortfolioType>,
+        curr_new_mkt: CurrNewMarket,
     ) {
         //let pool = executor::ThreadPool::new().expect("Failed to build pool");
         let mut pool = executor::LocalPool::new(); // .expect("Failed to build pool");
@@ -135,6 +136,7 @@ where
                         pricing_options,
                         curr_portfolio,
                         curr_portfolio_sender,
+                        curr_new_mkt,
                     );
                     //);
                 }
@@ -169,6 +171,7 @@ where
                 metric,
                 pricing_options,
                 &curr_portfolio_sender,
+                CurrNewMarket::Current,
             );
 
             // receive new portfolio, replace current w/ new.
@@ -257,6 +260,7 @@ where
                     metric,
                     pricing_options,
                     &new_portfolio_sender,
+                    CurrNewMarket::New,
                 );
 
 		        // decisions whether to publish the market or not.
@@ -267,16 +271,3 @@ where
     }
 
 }
-
-
-//impl<T, TT> RiskProcessorsRemote<TT> for T
-//where
-//    T: MarketSwitching + TradeMarketDiscovery<TT>,  // + PriceMultipleTrades<TT>,
-//    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTradeAsync,
-//{ }
-
-impl<T, TT> RiskProcessorsRemote<TT> for T
-where
-    T: TradeMarketDiscovery<TT>,  // + PriceMultipleTrades<TT>,
-    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTradeAsync,
-{ }

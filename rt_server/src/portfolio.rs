@@ -344,7 +344,7 @@ impl AddAssign<PricingResults> for PricingResults {
             PricingResults::PV01(pv01_results) => {
                 *self += PricingResults::PV01(pv01_results)
             },
-	        PricingResults::PnL(pnl_results) => {
+	        PricingResults::PnL(_pnl_results) => {
                 todo!()
 	        },
         }
@@ -361,7 +361,7 @@ impl SubAssign<PricingResults> for PricingResults {
             PricingResults::PV01(pv01_results) => {
                 *self -= PricingResults::PV01(pv01_results)
             },
-	        PricingResults::PnL(pnl_results) => {
+	        PricingResults::PnL(_pnl_results) => {
                 todo!()
 	        },
         }
@@ -382,7 +382,7 @@ impl AddAssign<PricingResults> for PortfolioType {
                     *self += trade_portf;
                 }
             },
-	        PricingResults::PnL(pnl_results) => {
+	        PricingResults::PnL(_pnl_results) => {
                 todo!()
             },
         }

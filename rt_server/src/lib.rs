@@ -18,3 +18,4 @@ pub mod engine;
 //pub mod engine_local;
 pub mod mkt_handler;
 pub mod portfolio_sender;
+pub mod trade_procs;

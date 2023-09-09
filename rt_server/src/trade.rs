@@ -4,7 +4,6 @@ use serde_json::Value;
 use serde::{Serialize, Deserialize,};
 use kafka::consumer::Message;
 use thiserror::Error;
-use uuid::Uuid;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut, };
  

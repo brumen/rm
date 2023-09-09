@@ -2,13 +2,11 @@ use log::{warn, error, debug,};
 use serde::{Serialize, Deserialize,};
 use kafka::consumer::Message;
 use std::collections::HashMap;
-use std::fmt::Display;
 
 use crate::portfolio::{PV01Results, PortfolioType};
 use crate::ref_deref::TryFromRef;
 use crate::pricer::{Decoder, PricingMetric, PriceTradeAsync, MarketPricingOptions,};
 use crate::portfolio::PricingResults;
-use crate::market::{MarketType, CurrNewMarket,};
 use crate::trade::BaseTrade;
 use crate::trade::{TradeDirection, TradeError,};
 

@@ -4,15 +4,11 @@
 
 use log::{debug, info, warn};
 use std::sync::{Arc, Mutex,};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Sender, Receiver, };
 use kafka::consumer::Message;
 use serde::Deserialize;
 
-use crate::portfolio::{
-    PortfolioType,
-    PricingResults,
-};
-
+use crate::portfolio::PortfolioType;
 use crate::market::{
     MarketType,
     MktMsgParams,
@@ -23,16 +19,15 @@ use crate::ref_deref::TryFromRef;
 
 use crate::pricer::{
     PricingMetric,
-//    PriceMultipleTrades,
-//    BasicValue,
     PriceTrade,
+    MarketPricingOptions,
 };
 
 use crate::streaming::Streaming;
-use crate::trade::{TradeTypes, BaseTrade, };
-use crate::trade_processor::MarketSwitching;
+use crate::trade::{BaseTrade, TradeDirection, TradeRep};
+use crate::trade_processor::{MarketSwitching, TradeMarketDiscovery};
 use crate::publish::PublishResults;
-
+use crate::trade_procs::{ProcessTradeSync, RiskProcessors,};
 
 /// RTRM - Real time risk manager using local
 ///    local market and local pricing.
@@ -194,26 +189,80 @@ impl MktEventHandler for RTRMLocal {
     }
 }
 
-/// implements the pricing of multiple trades for every type T that implements _value_trade
-/// iterates over the trades.
-// impl PriceMultipleTrades<TradeTypes> for RTRMLocal {
-//     /// price multiple trades
-//     fn _price_trades(
-//         &self,
-// 	    trades: &[&TradeTypes],
-//         market_ : CurrNewMarket,
-//         metric: PricingMetric,
-//     ) -> PortfolioType {
-//         // iterate of the
-//         let mut new_portfolio = PortfolioType::new();
 
-//         for trade in trades {
-//             new_portfolio += self._value_trade(trade, market_, metric);
-//         }
+impl<TT> ProcessTradeSync<TT> for RTRMLocal
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTrade
+{
 
-//         new_portfolio
-//     }
-// }
+    fn _process_trade(
+        &self,
+        trade: &TT,
+        metric: PricingMetric,
+        _pricing_options: &MarketPricingOptions,
+        curr_portfolio: &mut PortfolioType,
+        curr_portfolio_sender: &Sender<PortfolioType>,
+        curr_new_mkt: CurrNewMarket,
+    ) {
+
+        let trade_id = trade.id();
+        let trade_direction = trade.direction();
+
+        let market = match curr_new_mkt {
+            CurrNewMarket::Current => self._curr_mkt(),
+            CurrNewMarket::New => self._new_mkt(),
+        };
+
+        debug!("_trade_processor_curr: Processing trade {}, dir {:?}", trade_id, trade_direction);
+        let trade_v = trade.value_by_metric(
+            metric,
+            &market.lock().unwrap(),
+        );
+
+        debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
+        match trade_direction {
+            TradeDirection::Create => *curr_portfolio += trade_v,
+            TradeDirection::Delete => *curr_portfolio -= trade_v,
+            TradeDirection::Update => todo!(),
+        }
+        let _ = curr_portfolio_sender.send(curr_portfolio.clone());  // TODO: CHECK THE CLONE !!!
+    }
+}
+
+impl<TT> TradeMarketDiscovery<TT> for RTRMLocal
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade
+{ }
+
+impl<TT> RiskProcessors<TT> for RTRMLocal
+where
+    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade,
+{
+
+    fn _run_computations(
+        &self,
+        trade_receiver: &Receiver<TT>,
+        all_trades: &mut TradeRep<TT>,
+        curr_portfolio: &mut PortfolioType,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_portfolio_sender: &Sender<PortfolioType>,
+        curr_new_mkt: CurrNewMarket,
+    ) {
+        while let Ok(trade) = trade_receiver.try_recv() {
+            debug!("_trade_processor_curr: Received good trade {:?}", trade);
+            if !all_trades.contains(&trade) {
+                all_trades.add_trade(trade.clone());
+                self._process_trade(
+                    &trade,
+                    metric,
+                    pricing_options,
+                    curr_portfolio,
+                    curr_portfolio_sender,
+                    curr_new_mkt,
+                );
+            }
+        }
+    }
+}
 
 
 impl PublishResults for RTRMLocal {

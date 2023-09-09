@@ -1,13 +1,9 @@
-use log::{warn, info, debug,};
+use log::debug;
 use std::fmt;
 use serde::{Deserialize, Serialize};
 //use reqwest::blocking::{Client, Response,};
 use reqwest;
-use std::time::Instant;
-use std::collections::HashMap;
-use string_join::Join;
 
-use crate::market::CurrNewMarket;
 use crate::portfolio::{
     PricingResults,
     PortfolioType,

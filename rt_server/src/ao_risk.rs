@@ -33,7 +33,7 @@ pub fn ao_main_risk() {
 
     // TODO: The topics should be read from config as well.
     <Controller as CalcController<AOTrade>>::start (
-	&controller,
+	    &controller,
         "air_options.ao.option_positions".to_owned(),
         "air_options.ao.mkt_events".to_owned(),
         "air_options.ao.results".to_owned(),
