@@ -10,39 +10,9 @@ use crate::portfolio::PricingResults;
 use crate::trade::BaseTrade;
 use crate::trade::{TradeDirection, TradeError,};
 
-//
-// AO Trade here
-//
-//         // trade is not None, continue w/ this.
-//         let msg_payload = &msg_decoded["payload"];
-//         let event_type = &msg_payload["op"];
-//         debug!("Getting position: {:?}", msg_payload);
-//         match event_type.as_str() {
-//             Some("c") => {
-//                 let tid = msg_payload["after"]["position_id"].as_i64();
-//                 return Some(Trade {
-//                     trade_id: tid.unwrap() as u16,
-//                     direction: TradeDirection::Create,
-//                 });
-//             }
-//             Some("d") => {
-//                 let tid = msg_payload["before"]["position_id"].as_i64();
-//                 return Some(Trade {
-//                     trade_id: tid.unwrap() as u16,
-//                     direction: TradeDirection::Delete,
-//                 });
-//             }
-//             _ => {
-//                 warn!("UNIMPLEMENTED. THIS SHOULD NOT HAPPEN. EXAMINE. ");
-//                 return Some(Trade {
-//                     trade_id: 189,
-//                     direction: TradeDirection::Create,
-//                 });
-//             }
-//         }
-//     }
-// }
 
+// structure of the AOTrade payload, possibly can be simplified.
+//
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 struct Payload {
@@ -72,7 +42,7 @@ pub struct AOTrade {
 
 impl Decoder for AOTrade {
 
-    // converts the spark response into a trade value.
+    /// converts the spark response into a trade value.
     fn _unwrap_pricing_results(
         &self,
         result_price: reqwest::blocking::Response,
@@ -231,5 +201,47 @@ impl TryFromRef<Message<'_>> for AOTrade
         debug!("try_from_ref: Message serialized {:?}", msg_serialized);
 
         Ok(msg_serialized)
+    }
+}
+
+
+// tests for AOTrade
+
+#[cfg(test)]
+mod ao_trade_tests {
+    use crate::{ao_trade::{BeforePosition, AfterPosition, Payload, AOTrade, PriceTradeAsync,}, pricer::MarketPricingOptions};
+    use crate::portfolio::PricingResults;
+    use crate::pricer::PricingMetric;
+
+    async fn ao_trade_1() {
+
+        let ao_trade = AOTrade {
+            payload: Payload {
+                op: "PV".to_owned(),
+                after: AfterPosition {
+                    position_id: 1,
+                },
+                before: Some(
+                    BeforePosition {
+                        position_id: 2,
+                    }
+                ),
+            }
+        };
+
+        let pricing_options = MarketPricingOptions {
+            pricing_endpoint: "pv".to_owned(),
+            pricing_server: "localhost:5010".to_owned(),
+        };
+
+        let res = ao_trade.price(&pricing_options).await;
+        let res2 = ao_trade.value_by_metric(
+            PricingMetric::PV,
+            &pricing_options,
+        ).await;
+
+        assert_eq!(res, Some(4.));
+        assert_eq!(res2, PricingResults::new(PricingMetric::PV));
+
     }
 }

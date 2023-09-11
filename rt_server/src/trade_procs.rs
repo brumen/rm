@@ -2,6 +2,7 @@
 
 use log::info;
 use std::sync::mpsc::{Receiver, Sender,};
+use std::sync::{Arc, Mutex,};
 
 use crate::trade::BaseTrade;
 use crate::portfolio::PortfolioType;
@@ -13,74 +14,45 @@ use crate::pricer::{
     MarketPricingOptions,
 };
 use crate::trade::TradeRep;
-
-use crate::portfolio::PricingResults;
-use crate::trade_processor::{MarketSwitching, TradeMarketDiscovery,};
+use crate::trade_processor::TradeMarketDiscovery;
 
 
 pub trait ProcessTradeSync<TT>
 where
-    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTrade
+    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTrade + std::marker::Send
 {
     fn _process_trade(
         &self,
-        trade: &TT,
+        trade: TT,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_portfolio: &mut PortfolioType,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
         curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     );
-
 }
+
 
 pub trait ProcessTradeAsync<TT>
 where
-    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade
+    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + std::marker::Send
 {
     async fn _process_trade(
         &self,
         trade: &TT,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_portfolio: &mut PortfolioType,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
         curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     );
 }
 
 
-// {
-
-//         let trade_id = trade.id();
-//         let trade_direction = trade.direction();
-
-//         let market = match curr_new_mkt {
-//             CurrNewMarket::Current => self._curr_mkt(),
-//             CurrNewMarket::New => self._new_mkt(),
-//         };
-
-//         debug!("_trade_processor_curr: Processing trade {}, dir {:?}", trade_id, trade_direction);
-//         let trade_v = trade.value_by_metric(
-//             metric,
-//             &market.lock().unwrap(),
-//         );
-
-//         debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
-//         match trade_direction {
-//             TradeDirection::Create => trade_v,
-//             TradeDirection::Delete => - trade_v,
-//             TradeDirection::Update => todo!(),
-//         }
-//     }
-
-// }
-
-
 /// Pricing engine for trades for remote pricing
 pub trait RiskProcessors<TT> : TradeMarketDiscovery<TT>
 where
-    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + BaseTrade
+    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + BaseTrade + std::marker::Send + std::marker::Sync
 {
 
     /// run computations reads on the trade receiver, computes the value of the
@@ -89,8 +61,8 @@ where
     fn _run_computations(
         &self,
         trade_receiver: &Receiver<TT>,
-        all_trades: &mut TradeRep<TT>,
-        curr_portfolio: &mut PortfolioType,
+        all_trades: Arc<Mutex<TradeRep<TT>>>,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_portfolio_sender: &Sender<PortfolioType>,
@@ -106,9 +78,9 @@ where
         pricing_options: &MarketPricingOptions,
     ) {
         let mut new_potential_portfolio : Option<PortfolioType>;
-        let mut all_trades = TradeRep::new();
+        let mut all_trades = Arc::new(Mutex::new(TradeRep::new()));
         let mut nb_conseq_processed_trades : usize;  // number of trades which have been consequitively processed before refreshing to the new
-        let mut curr_portfolio = PortfolioType::new();
+        let mut curr_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
 
         loop {
 
@@ -117,8 +89,8 @@ where
 
             self._run_computations(
                 &trade_receiver,
-                &mut all_trades,
-                &mut curr_portfolio,
+                all_trades.clone(),
+                curr_portfolio.clone(),
                 metric,
                 pricing_options,
                 &curr_portfolio_sender,
@@ -131,23 +103,26 @@ where
                 new_potential_portfolio = Some(new_portfolio);
             }
 
+            let mut curr_portf = curr_portfolio.lock().unwrap();
+            let mut all_trades_l = all_trades.lock().unwrap();
+
             if let Some(new_p) = new_potential_portfolio {
                 self._switch_markets();
-                let all_l = all_trades.len();
+                let all_l = all_trades_l.len();
 		        let mut replace_curr_w_new = false;
 
                 let new_l = new_p.len();  // TODO: CHECK IF THIS IS TRUE
                 if new_l >= all_l {  // new processor is further ahead
                     info!("_trade_processor_curr: Switching curr_p <- new_p.");
-                    curr_portfolio = new_p;
+                    *curr_portf = new_p;
 		            replace_curr_w_new = true;
                 } else if (new_l < all_l) && (new_l >= all_l - nb_conseq_processed_trades - 1) {  // new is not ahead, but we can still update.
                     info!("_trade_processor_curr: Extending the portfolio w/ new one");
-                    curr_portfolio.extend(new_p.0.into_iter());
+                    curr_portf.extend(new_p.0.into_iter());
 		            replace_curr_w_new = true;
                 }
 		        if replace_curr_w_new {
-                    let _ = curr_portfolio_sender.send(curr_portfolio.clone());
+                    let _ = curr_portfolio_sender.send(curr_portf.clone());
 		        }
             }
         }
@@ -164,7 +139,7 @@ where
         pricing_options: &MarketPricingOptions,
     ) {
 
-	    let mut all_trades = TradeRep::<TT>::new();
+	    let mut all_trades = Arc::new(Mutex::new(TradeRep::<TT>::new()));
 
         loop {
 
@@ -174,13 +149,13 @@ where
 	        );
 
             if new_market_event {
-                info!("_trade_processor_new: Working on {} trades", all_trades.keys().len());
+                //info!("_trade_processor_new: Working on {} trades", all_trades.keys().len());
 
-                let mut new_portfolio = PortfolioType::new();
+                let mut new_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
                 self._run_computations(
                     &new_trade_receiver,
-                    &mut all_trades,
-                    &mut new_portfolio,
+                    all_trades.clone(),
+                    new_portfolio.clone(),
                     metric,
                     pricing_options,
                     &new_portfolio_sender,
@@ -188,8 +163,8 @@ where
                 );
 
 		        // decisions whether to publish the market or not.
-                info!("_trade_processor_new: Sending new portfolio to be published ({} trades).", new_portfolio.keys().len());
-                let _ = new_portfolio_sender.send(new_portfolio.clone());
+                //info!("_trade_processor_new: Sending new portfolio to be published ({} trades).", new_portfolio.keys().len());
+                //let _ = new_portfolio_sender.send(new_portfolio.clone());
             }
         }
     }

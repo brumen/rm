@@ -12,7 +12,7 @@ use core::convert::From;
 use std::sync::{Arc, Mutex};
 
 use crate::market::MktMsgParams;
-use crate::trade::{BaseTrade, TradeDirection, };
+use crate::trade::{BaseTrade, TradeDirection, TradeRep,};
 use crate::portfolio::{
     PortfolioType,
     PricingResults,
@@ -218,14 +218,14 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade
 { }
 
 impl<TT> ProcessTradeAsync<TT> for Controller
-where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + std::marker::Send
 {
     async fn _process_trade(
         &self,
         trade: &TT,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_portfolio: &mut PortfolioType,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
         curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
@@ -249,68 +249,54 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         };
 
         match trade_direction {
-            TradeDirection::Create => *curr_portfolio += trade_portf,
-            TradeDirection::Delete => *curr_portfolio -= trade_portf,
+            TradeDirection::Create => *(curr_portfolio.lock().unwrap()) += trade_portf,
+            TradeDirection::Delete => *(curr_portfolio.lock().unwrap()) -= trade_portf,
             _ => {},
         }
 
-        let _ = curr_portfolio_sender.send(curr_portfolio.clone());
+        let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
     }
 }
 
 impl<TT> RiskProcessors<TT> for Controller
-where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + std::marker::Send + std::marker::Sync
 {
     fn _run_computations(
         &self,
         trade_receiver: &std::sync::mpsc::Receiver<TT>,
-        all_trades: &mut crate::trade::TradeRep<TT>,
-        curr_portfolio: &mut PortfolioType,
+        all_trades: Arc<Mutex<TradeRep<TT>>>,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
         metric: PricingMetric,
-        pricing_options: &crate::pricer::MarketPricingOptions,
+        pricing_options: &MarketPricingOptions,
         curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
         //let pool = executor::ThreadPool::new().expect("Failed to build pool");
         // let mut pool = executor::LocalPool::new(); // .expect("Failed to build pool");
 
-        let mut all_works = vec![];
         while let Ok(trade) = trade_receiver.try_recv() {
             debug!("_trade_processor_curr: Received good trade {:?}", trade);
-            if !all_trades.contains(&trade) {
-                all_trades.add_trade(trade.clone());
-                all_works.push(
-                    tokio::spawn(
-                        self._process_trade(
-                            &trade,
-                            metric,
-                            pricing_options,
-                            curr_portfolio,
-                            curr_portfolio_sender,
-                            curr_new_mkt,
-                        )
+
+            let mut all_trades_local = all_trades.lock().unwrap();
+            let new_trade = !all_trades_local.contains(&trade);
+            if new_trade {
+                all_trades_local.add_trade(trade.clone());
+            }
+            drop(all_trades_local);
+
+            if new_trade {
+                tokio::spawn(
+                    self._process_trade(
+                        &trade,
+                        metric,
+                        pricing_options,
+                        curr_portfolio,
+                        curr_portfolio_sender,
+                        curr_new_mkt,
                     )
                 );
             }
         }
-
-	    // let trade_tasks = async {
-        //     while let Ok(trade) = trade_receiver.try_recv() {
-        //         debug!("_trade_processor_curr: Received good trade {:?}", trade);
-        //         if !all_trades.contains(&trade) {
-        //             all_trades.add_trade(trade.clone());
-        //             self._process_trade(
-        //                 &trade,
-        //                 metric,
-        //                 pricing_options,
-        //                 curr_portfolio,
-        //                 curr_portfolio_sender,
-        //                 curr_new_mkt,
-        //             );
-        //             //);
-        //         }
-        //     }
-        // };
 
         // pool.run_until(trade_tasks);
     }

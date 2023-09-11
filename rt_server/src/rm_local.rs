@@ -118,40 +118,6 @@ impl MarketSwitching for RTRMLocal {
 }
 
 
-// impl BasicValue<TradeTypes> for RTRMLocal {
-
-//     fn metric(&self) -> PricingMetric {
-//         self.metric
-//     }
-
-//     /// pricing the trade locally
-//     fn _value_trade(&self, trade: &TradeTypes, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
-
-//         debug!("_value_trade: Valuing {:?}", trade);
-// 	    debug!("_value_trade: Curr mkt = {:?}", self._curr_mkt().lock().unwrap());
-//         let trade_name = trade.id();
-// 	    let new_mkt_l = self._new_mkt();
-// 	    let new_stock_mkt = new_mkt_l.lock();
-// 	    let curr_mkt_l = self._curr_mkt();
-// 	    let curr_stock_mkt = curr_mkt_l.lock();
-
-//         let stock_mkt_arc = match market {
-//             CurrNewMarket::Current => curr_stock_mkt,
-//             CurrNewMarket::New => new_stock_mkt,
-//         };
-
-// 	    let stock_mkt = stock_mkt_arc.expect("_value_trade: Could not lock the stock market object, weird");
-
-//         trade.value_by_metric(trade.id(), metric, &stock_mkt)
-//     }
-
-//     /// pricing the trade locally asynchronously
-//     async fn _value_trade_a(&self, trade: &TradeTypes, market: CurrNewMarket, metric: PricingMetric) -> PricingResults {
-//         self._value_trade(trade, market, metric)
-//     }
-// }
-
-
 impl Streaming for RTRMLocal {
     fn kafka_server_name(&self) -> String {
         self.kafka_server_name.clone()
@@ -191,15 +157,15 @@ impl MktEventHandler for RTRMLocal {
 
 
 impl<TT> ProcessTradeSync<TT> for RTRMLocal
-where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTrade
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTrade + std::marker::Send
 {
 
     fn _process_trade(
         &self,
-        trade: &TT,
+        trade: TT,
         metric: PricingMetric,
         _pricing_options: &MarketPricingOptions,
-        curr_portfolio: &mut PortfolioType,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
         curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
@@ -220,11 +186,12 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTra
 
         debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
         match trade_direction {
-            TradeDirection::Create => *curr_portfolio += trade_v,
-            TradeDirection::Delete => *curr_portfolio -= trade_v,
+            TradeDirection::Create => *(curr_portfolio.lock().unwrap()) += trade_v,
+            TradeDirection::Delete => *(curr_portfolio.lock().unwrap()) -= trade_v,
             TradeDirection::Update => todo!(),
         }
-        let _ = curr_portfolio_sender.send(curr_portfolio.clone());  // TODO: CHECK THE CLONE !!!
+        // TOOD: CHECK THIS CLONE HERE!!!
+        let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
     }
 }
 
@@ -234,14 +201,14 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade
 
 impl<TT> RiskProcessors<TT> for RTRMLocal
 where
-    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade,
+    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + std::marker::Send + std::marker::Sync
 {
 
     fn _run_computations(
         &self,
         trade_receiver: &Receiver<TT>,
-        all_trades: &mut TradeRep<TT>,
-        curr_portfolio: &mut PortfolioType,
+        all_trades: Arc<Mutex<TradeRep<TT>>>,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_portfolio_sender: &Sender<PortfolioType>,
@@ -249,13 +216,18 @@ where
     ) {
         while let Ok(trade) = trade_receiver.try_recv() {
             debug!("_trade_processor_curr: Received good trade {:?}", trade);
-            if !all_trades.contains(&trade) {
-                all_trades.add_trade(trade.clone());
+
+            let mut all_trades_lock = all_trades.lock().unwrap();
+            let trade_exists = all_trades_lock.contains(&trade);
+            all_trades_lock.add_trade(trade.clone());
+            drop(all_trades_lock);
+
+            if !trade_exists {
                 self._process_trade(
-                    &trade,
+                    trade,
                     metric,
                     pricing_options,
-                    curr_portfolio,
+                    curr_portfolio.clone(),
                     curr_portfolio_sender,
                     curr_new_mkt,
                 );

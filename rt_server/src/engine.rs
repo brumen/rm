@@ -30,7 +30,7 @@ pub trait CalcController<TT> {
 impl<T, TT> CalcController<TT> for T
 where
     T: Send + Sync + RiskProcessors<TT> + MktEventHandler + PublishResults + PortfolioSender<TT>,
-    TT: Clone + Send + BaseTrade + PartialEq + std::fmt::Debug + PriceTradeAsync,
+    TT: Clone + Send + BaseTrade + PartialEq + std::fmt::Debug + PriceTradeAsync + Sync,
 {
     fn start(
         &self,
