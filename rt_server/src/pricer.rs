@@ -177,7 +177,6 @@ pub trait PriceTradeAsync : BaseTrade {
                     PricingResults::PV(PortfolioType::new())
                 }
             },
-
             PricingMetric::PV01 => {
 		        let trade_pv01 = self.pv01(pricing_options).await;
 		        debug!("_value_trade: PV01 of {:?} = {:?}", trade_name, trade_pv01);

@@ -35,11 +35,11 @@ where
 
 pub trait ProcessTradeAsync<TT>
 where
-    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + std::marker::Send
+    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send
 {
     async fn _process_trade(
         &self,
-        trade: &TT,
+        trade: TT,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_portfolio: Arc<Mutex<PortfolioType>>,
@@ -52,7 +52,7 @@ where
 /// Pricing engine for trades for remote pricing
 pub trait RiskProcessors<TT> : TradeMarketDiscovery<TT>
 where
-    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + BaseTrade + std::marker::Send + std::marker::Sync
+    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + BaseTrade + Send + Sync
 {
 
     /// run computations reads on the trade receiver, computes the value of the

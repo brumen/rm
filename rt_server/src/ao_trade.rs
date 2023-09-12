@@ -15,28 +15,28 @@ use crate::trade::{TradeDirection, TradeError,};
 //
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-struct Payload {
-    op: String,
-    after: AfterPosition,
-    before: Option<BeforePosition>,
+pub struct Payload {
+    pub op: String,
+    pub after: AfterPosition,
+    pub before: Option<BeforePosition>,
 }
 
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-struct AfterPosition {
-    position_id: i64,
+pub struct AfterPosition {
+    pub position_id: i64,
 }
 
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-struct BeforePosition {
-    position_id: i64,
+pub struct BeforePosition {
+    pub position_id: i64,
 }
 
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq )]
 pub struct AOTrade {
-    payload: Payload,
+    pub payload: Payload,
 }
 
 
@@ -201,47 +201,5 @@ impl TryFromRef<Message<'_>> for AOTrade
         debug!("try_from_ref: Message serialized {:?}", msg_serialized);
 
         Ok(msg_serialized)
-    }
-}
-
-
-// tests for AOTrade
-
-#[cfg(test)]
-mod ao_trade_tests {
-    use crate::{ao_trade::{BeforePosition, AfterPosition, Payload, AOTrade, PriceTradeAsync,}, pricer::MarketPricingOptions};
-    use crate::portfolio::PricingResults;
-    use crate::pricer::PricingMetric;
-
-    async fn ao_trade_1() {
-
-        let ao_trade = AOTrade {
-            payload: Payload {
-                op: "PV".to_owned(),
-                after: AfterPosition {
-                    position_id: 1,
-                },
-                before: Some(
-                    BeforePosition {
-                        position_id: 2,
-                    }
-                ),
-            }
-        };
-
-        let pricing_options = MarketPricingOptions {
-            pricing_endpoint: "pv".to_owned(),
-            pricing_server: "localhost:5010".to_owned(),
-        };
-
-        let res = ao_trade.price(&pricing_options).await;
-        let res2 = ao_trade.value_by_metric(
-            PricingMetric::PV,
-            &pricing_options,
-        ).await;
-
-        assert_eq!(res, Some(4.));
-        assert_eq!(res2, PricingResults::new(PricingMetric::PV));
-
     }
 }

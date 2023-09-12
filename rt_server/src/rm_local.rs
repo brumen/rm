@@ -201,7 +201,7 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade
 
 impl<TT> RiskProcessors<TT> for RTRMLocal
 where
-    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + std::marker::Send + std::marker::Sync
+    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + Send + Sync
 {
 
     fn _run_computations(

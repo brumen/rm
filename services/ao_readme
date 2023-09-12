@@ -1,0 +1,21 @@
+#
+#
+
+Starting kafka:
+   in archive/software/kafka start:
+       ./start_kafka
+       ./start_kafka_connect
+
+Market script is:
+    services/ao_market_service.py - to start the market service for ao.
+
+The API script is: trade_api.py, single threaded can be spawned as:
+   python3 trade_api.py
+
+Deploying trade_api.py in multithreading:
+gunicorn -w 8 trade_api:application 
+(application is the flask application to be launched).
+Gunnicorn launches on a different port. 
+
+
+Start the controller in the rt_server folder.

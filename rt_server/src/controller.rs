@@ -1,13 +1,13 @@
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
-use futures::executor;
+use futures::{executor, future};
 use tokio;
 
 use kafka::consumer::Message;
 use reqwest;
 //use reqwest::blocking::{Client, Response,};
 use std::collections::HashMap;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Sender, Receiver, };
 use core::convert::From;
 use std::sync::{Arc, Mutex};
 
@@ -218,11 +218,11 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade
 { }
 
 impl<TT> ProcessTradeAsync<TT> for Controller
-where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + std::marker::Send
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send
 {
     async fn _process_trade(
         &self,
-        trade: &TT,
+        trade: TT,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_portfolio: Arc<Mutex<PortfolioType>>,
@@ -234,7 +234,6 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         let trade_direction = trade.direction();
 
         // TODO: curr_new_mkt dependecy missing here!!!
-
         debug!("_trade_processor_curr: Processing trade {}, dir {:?}", trade_id, trade_direction);
         let trade_v = trade.value_by_metric(
             metric,
@@ -259,11 +258,11 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
 }
 
 impl<TT> RiskProcessors<TT> for Controller
-where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + std::marker::Send + std::marker::Sync
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send + Sync
 {
     fn _run_computations(
         &self,
-        trade_receiver: &std::sync::mpsc::Receiver<TT>,
+        trade_receiver: &Receiver<TT>,
         all_trades: Arc<Mutex<TradeRep<TT>>>,
         curr_portfolio: Arc<Mutex<PortfolioType>>,
         metric: PricingMetric,
@@ -271,9 +270,10 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
-        //let pool = executor::ThreadPool::new().expect("Failed to build pool");
+        let pool = executor::ThreadPool::new().expect("Failed to build pool");
         // let mut pool = executor::LocalPool::new(); // .expect("Failed to build pool");
 
+        let mut trade_handles: Vec<_> = vec![];
         while let Ok(trade) = trade_receiver.try_recv() {
             debug!("_trade_processor_curr: Received good trade {:?}", trade);
 
@@ -285,12 +285,12 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
             drop(all_trades_local);
 
             if new_trade {
-                tokio::spawn(
+                trade_handles.push(
                     self._process_trade(
-                        &trade,
+                        trade.clone(),
                         metric,
                         pricing_options,
-                        curr_portfolio,
+                        curr_portfolio.clone(),
                         curr_portfolio_sender,
                         curr_new_mkt,
                     )
@@ -298,6 +298,11 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
             }
         }
 
-        // pool.run_until(trade_tasks);
+        // we have tasks in trade handles, run them all
+        let finished_futs = executor::block_on(async {
+            let result = future::join_all(trade_handles);
+            result.await
+        });
+
     }
 }
