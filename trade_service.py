@@ -3,12 +3,12 @@
 
 import random
 import numpy as np
-import redis
 from logging import getLogger
 
 from typing import Tuple, List
 from uuid import uuid4
 from time import sleep
+from kafka import KafkaProducer
 
 from rm.base_producer import BaseProducer
 
@@ -40,34 +40,6 @@ class LETFTradeProducer(BaseProducer):
         self._stocks = stocks
         self._beta = beta
         self._mkt_producer = mkt_producer
-        
-        # also initialize the redis connector.
-        #self._redis_cli = redis.Redis(
-        #    host='localhost',
-        #    port=6379,
-        #    decode_responses=True,
-        #)
-
-    # def _producer_thread(self, sleep_delay=11.):
-    #     """ Base producer thread.
-
-    #     :param sleep_delay: delay before the next produced value.
-    #     """
-
-    #     for letf_trade in self._value_to_publish(
-    #             sleep_between_publish=sleep_delay
-    #     ):
-    #         # value is of the dict form 'LETF': { ... params }
-    #         logger.debug(f'_producer_thread: Publishing letf_trade {letf_trade}.')
-
-    #         letf_inner = letf_trade['LETF']
-    #         # first publish this to 
-    #         self._redis_cli.set(letf_inner.id).value(letf_trade)
-
-    #         self._mkt_producer.send(
-    #             self._mkt_producer_topic,
-    #             value=letf_trade
-    #         )
 
     def _value_to_publish(self, sleep_between_publish=11.):
         """ Keeps generating new fictitious market for stocks.
@@ -95,4 +67,43 @@ class LETFTradeProducer(BaseProducer):
             yield letf_position
 
             trade_nb += 5
+            sleep(sleep_between_publish)
+
+
+class AOTradeProducer(BaseProducer):
+    """
+
+    """
+    def __init__(
+            self,
+            flight_ids: List[str] = [1, 2, 3],
+            server_port_topic: Tuple[str, str, str] = (
+                'localhost',
+                9092,
+                'air_options.ao.flights_live',
+            ),
+    ):
+        self.flight_ids = flight_ids
+
+        server_name, port, value_topic = server_port_topic
+        bootstrap_servers = f'{server_name}:{port}'
+
+        self._value_producer = KafkaProducer(
+            bootstrap_servers=bootstrap_servers,
+            value_serializer=self._serialize_msg,
+        )
+        self._value_producer_topic = value_topic
+
+    def _value_to_publish(self, sleep_between_publish=11.):
+
+        while True:
+
+            for flight in self.flight_ids:
+                letf_position = {
+                    'carrier_nb': flight,
+                    'price': 150.,
+                }
+
+                yield letf_position
+
             sleep(sleep_between_publish)

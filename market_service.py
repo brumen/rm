@@ -299,3 +299,56 @@ class AOMarketService(MarketService):
         _, encoded_mkt = encoded_id_mkt
 
         return cls.decode_mkt_data(encoded_mkt)
+
+
+class AOMarketServiceLocal(AOMarketService):
+    """ Market service with decode/encode features.
+    """
+
+    def _process_mkt_msg(
+            self,
+            msg: ConsumerRecord
+    ) -> Dict[Tuple[str, datetime.date], float]:
+        """ Snaps the market at a particular time.
+
+        :param msg: message from kafka connect, in the form:
+        {'before': None,
+         'after': {'as_of': 1511085283000,
+          'orig': 'EWR',
+          'dest': 'SFO',
+          'price': 547.8,
+          'flight_id': '11442-1712122029--31722-0-16216-1712130001',
+          'dep_date': 17512,
+          'dep_time': 73740000000,
+          'arr_date': 1513123260000,
+          'carrier': 'UA',
+          'flight_nb': '06',
+          'cabin_class': 'economy',
+          'flights_primary_id': 694},
+         'source': {'version': '1.3.1.Final',
+          'connector': 'mysql',
+          'name': 'air_options',
+          'ts_ms': 0,
+          'snapshot': 'last',
+          'db': 'ao',
+          'table': 'flights_live',
+          'server_id': 0,
+          'gtid': None,
+          'file': 'mysql-bin.000682',
+          'pos': 156,
+          'row': 0,
+          'thread': None,
+          'query': None},
+         'op': 'c',
+         'ts_ms': 1641993317788,
+         'transaction': None}
+
+        :returns: a tuple of flight_id, flight expiry, flight price
+        """
+
+        flight_info = loads(msg.value)
+        flight_carrier_nb = flight_info.get('carrier_nb')
+        flight_date: datetime.date = flight_info.get('dep_date')
+        flight_price = flight_info.get('price')
+
+        return {(flight_carrier_nb, flight_date): flight_price}

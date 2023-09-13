@@ -27,20 +27,20 @@ pub fn ao_main_risk() {
     ).unwrap();
 
     let market_pricing_options = MarketPricingOptions {
-        pricing_server: "localhost:9092".to_owned(),
+        //pricing_server: "localhost:9092".to_owned(),
+        pricing_server: "localhost:8000".to_owned(),
         pricing_endpoint: "pv".to_owned(),
     };
 
-
-
     // TODO: The topics should be read from config as well.
-    //<Controller as CalcController<AOTrade>>::start (
-	//    &controller,
-    //    "air_options.ao.option_positions".to_owned(),
-    //   "air_options.ao.mkt_events".to_owned(),
-   //     "air_options.ao.results".to_owned(),
-   //     market::MktMsgParams::AOParams(),
-   //     PricingMetric::PV,
-   //     &market_pricing_options,
-   // );
+    <Controller as CalcController<AOTrade>>::start (
+	   &controller,
+        "air_options.ao.option_positions".to_owned(),
+        "air_options.ao.mkt_events".to_owned(),
+        "air_options.ao.results".to_owned(),
+        market::MktMsgParams::AOParams(),
+        PricingMetric::PV,
+        &market_pricing_options,
+    );
+
 }
