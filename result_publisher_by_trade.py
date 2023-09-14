@@ -115,6 +115,7 @@ class ResultPublisherKafka(ResultPublisherBase):
             )
 
     def _process_result(
+            self,
             current_result: Optional[Dict[str, Any]],
             prev_result: Optional[Dict[str, Any]],
     ):
@@ -137,8 +138,16 @@ class ResultPublisherKafkaPV(ResultPublisherKafka):
            dictionary of flight names, and values of that flight.
         """
 
-        return np.array([]) if current_result is None \
-            else np.array(list(current_result[self.metric].items()))
+        if current_result is None:
+            return np.array([])
+
+        results = current_result[self.metric]
+        sort_results = np.array(sorted(results.items(),
+                                       key=lambda trade: int(trade[0])
+                                       )
+                                )
+
+        return sort_results
 
 
 class ResultPublisherKafkaPV_Useless(ResultPublisherKafka):
@@ -362,3 +371,7 @@ class ResultPublisherLETF(ResultPublisherKafka):
             else np.array(list(sorted(current_result[self.metric].items(),
                                       key=lambda x: int(x[0])))
                           )
+
+
+rp = ResultPublisherKafkaPV(metric='PV01')
+rp.start()
