@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use std::sync::mpsc::{Sender, Receiver, };
 use core::convert::From;
 use std::sync::{Arc, Mutex};
+use tokio::runtime;
+
 
 use crate::market::MktMsgParams;
 use crate::trade::{BaseTrade, TradeDirection, TradeRep,};
@@ -234,13 +236,13 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         let trade_direction = trade.direction();
 
         // TODO: curr_new_mkt dependecy missing here!!!
-        debug!("_trade_processor_curr: Processing trade {}, dir {:?}", trade_id, trade_direction);
+        debug!("_process_trade: Processing trade {}, dir {:?}", trade_id, trade_direction);
         let trade_v = trade.value_by_metric(
             metric,
             pricing_options,
         ).await;
 
-        debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
+        debug!("_process_trade: Trade value = {:?}", trade_v);
         let trade_portf = match trade_v {
             PricingResults::PV(pv) => pv,
             PricingResults::PV01(pv01) => pv01.aggregate(),
@@ -270,10 +272,34 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
-        let pool = executor::ThreadPool::new().expect("Failed to build pool");
+        //let pool = executor::ThreadPool::new().expect("Failed to build pool");
         // let mut pool = executor::LocalPool::new(); // .expect("Failed to build pool");
 
-        let mut trade_handles: Vec<_> = vec![];
+        let (num_tokio_worker_threads, max_tokio_blocking_threads) = (8, 512); // 512 is tokio's current default
+        let rt = runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_stack_size(8 * 1024 * 1024)
+            .worker_threads(num_tokio_worker_threads)
+            .max_blocking_threads(max_tokio_blocking_threads)
+            .build()
+            .unwrap();
+
+        // price all existsing trades in all_trades
+        let mut trade_handles = vec![];
+        for trade in all_trades.lock().unwrap().values() {
+            trade_handles.push(
+                self._process_trade(
+                    trade.clone(),
+                    metric,
+                    pricing_options,
+                    curr_portfolio.clone(),
+                    curr_portfolio_sender,
+                    curr_new_mkt,
+                )
+            );
+        }
+
+        //let mut trade_handles: Vec<_> = vec![];
         while let Ok(trade) = trade_receiver.try_recv() {
             debug!("_trade_processor_curr: Received good trade {:?}", trade);
 
@@ -299,7 +325,7 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         }
 
         // we have tasks in trade handles, run them all
-        let finished_futs = executor::block_on(async {
+        let finished_futs = rt.block_on(async {
             let result = future::join_all(trade_handles);
             result.await
         });

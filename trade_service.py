@@ -1,6 +1,7 @@
 """ Service for market snapper.
 """
 
+import datetime
 import random
 import numpy as np
 from logging import getLogger
@@ -101,6 +102,7 @@ class AOTradeProducer(BaseProducer):
             for flight in self.flight_ids:
                 letf_position = {
                     'carrier_nb': flight,
+                    'dep_date': datetime.date(2017, 5, 1).strftime('%Y%m%d'),
                     'price': 150.,
                 }
 

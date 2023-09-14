@@ -16,7 +16,7 @@ import sys
 sys.path.append('/home/brumen/work/')
 
 from flask import Flask, jsonify
-from rm.market_service import AOMarketService
+from rm.market_service import AOMarketService, AOMarketServiceLocal
 
 market_rester = Flask(__name__)
 market_rester.debug = True
@@ -24,8 +24,9 @@ market_rester.use_debugger = True
 
 
 # starting the service
-aom = AOMarketService(time_interval=1)
-aom.run(sleep_delay=5, testing_shift=(1., 5.))  # starts the publishing, non-blocking
+aom = AOMarketServiceLocal(time_interval=1)
+# starts the publishing, non-blocking
+aom.run(sleep_delay=0.2, testing_shift=(1., 5.))
 
 
 # @market_rester.route('/mkt/get_market')

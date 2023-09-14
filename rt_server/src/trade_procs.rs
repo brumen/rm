@@ -100,6 +100,7 @@ where
             // receive new portfolio, replace current w/ new.
             new_potential_portfolio = None;
             while let Ok(new_portfolio) = new_portfolio_receiver.try_recv() {
+                info!("_trade_processor_curr: New portfolio!");
                 new_potential_portfolio = Some(new_portfolio);
             }
 
@@ -149,7 +150,7 @@ where
 	        );
 
             if new_market_event {
-                //info!("_trade_processor_new: Working on {} trades", all_trades.keys().len());
+                info!("_trade_processor_new: New market event: Working on {} trades", all_trades.lock().unwrap().keys().len());
 
                 let mut new_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
                 self._run_computations(

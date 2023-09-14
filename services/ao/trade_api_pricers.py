@@ -16,8 +16,9 @@ from typing import List, Dict, Tuple, Any, Optional
 from pyspark import SparkContext, SparkConf
 from sqlalchemy.exc import OperationalError
 from functools import lru_cache
-from ao.trade import create_session, AOTrade, DeltaDict, AirOptionFlights
+from ao.trade import create_session, AOTrade, DeltaDict
 from rm.market_service import AOMarketService
+
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,12 @@ logger = logging.getLogger(__name__)
 default_params: Dict[str, Any] = {'default_price': 200., 'nb_sim': 500}
 
 # common_session = create_session()
+
+
+# common session, let's see
+# ao_db = 'mysql://brumen@localhost/ao'
+# ao_engine = create_engine(ao_db)
+# ao_session = sessionmaker(bind=ao_engine)
 
 
 class TradeDirection(Enum):
@@ -46,7 +53,7 @@ def extract_trade_ids(trades: str) -> List[int]:
     return [int(x) for x in trades.split(',')]
 
 
-def construct_ao_trades(trade_ids: List[int]) -> List[AOTrade]:
+def construct_ao_trades(trade_ids: List[int], session) -> List[AOTrade]:
     """ Constructs the AOTrades for the list of trade ids.
 
     :param trade_ids: list of trade ids for which AOTrades are created.
@@ -54,11 +61,13 @@ def construct_ao_trades(trade_ids: List[int]) -> List[AOTrade]:
     """
 
     # TODO: WHAT TO DO W/ THIS SESSION. THIS SESSION SI NOT NEEDED PERHAPS
-    session = create_session()
+    # session = create_session()
     # global common_session
     # session = common_session
 
-    # TODO: CAN WE DO A GENERATOR HERE???
+    # global ao_session
+
+    # with ao_session.begin() as session:
     return session.query(AOTrade)\
                   .filter(AOTrade.position_id.in_(trade_ids))\
                   .all()
@@ -89,55 +98,22 @@ def _compute_trade_from_mkt(
         of dictionary
     """
 
-    if ao_params is None:
-        default_price = default_params['default_price']
-        nb_sim = default_params['nb_sim']
-    else:
-        default_price = ao_params.get(
-            'default_price', default_params.get('default_price'))
-        nb_sim = ao_params.get('nb_sim', default_params.get('nb_sim'))
-
-    flights = []
-    for flight in ao_trade.flights:
-        # flight has the following attributes
-        # flight_id = Column(Integer, primary_key=True)
-        # flight_id_long = Column(String)
-        # orig = Column(String)
-        # dest = Column(String)
-        # dep_date = Column(DateTime)
-        # arr_date = Column(DateTime)
-        # carrier = Column(String)
-
-        # dep_date is datetime.datetime by default
-        dep_date = flight.dep_date.date()
-        flight_id = flight.flight_id
-        carrier = flight.carrier
-        flight_nb = f'{carrier}{flight_id}'
-        logger.debug(f'Processing flight nb: {flight_nb}')
-
-        if market is None:  # no idea about the market
-            found_prices = flight.prices  # prices found in the database
-            # find the last price, otherwise report a random price
-            mkt_price = found_prices[-1].price if found_prices else default_price
-
-        else:
-            mkt_price = market.get((flight_nb, dep_date))
-            if mkt_price is None:  # if market doesnt contain price
-                found_prices = flight.prices  # prices found in the database
-                # find the last price, otherwise report a random price
-                mkt_price = found_prices[-1].price if found_prices else default_price
-
-        flights.append((mkt_price, dep_date, flight_nb))
-
-    aof = AirOptionFlights(mkt_date, flights, ao_trade.strike)
+    aof = ao_trade.aof_market(mkt_date, market, ao_params)
+    nb_sim = ao_params['nb_sim']
 
     pv = aof.PV(nb_sim=nb_sim)
     pv01 = aof.PV01(nb_sim=nb_sim)
     trade_id = ao_trade.position_id
 
+    if trade_direction == TradeDirection.LONG:
+        return {
+            'PV': DeltaDict({trade_id: pv}),
+            'PV01': DeltaDict({trade_id: pv01}),
+        }
+
     return {
-        'PV': DeltaDict({trade_id: pv}) if trade_direction == TradeDirection.LONG else DeltaDict({trade_id: - pv}),
-        'PV01': DeltaDict({trade_id: pv01}) if trade_direction == TradeDirection.LONG else DeltaDict({trade_id: - pv01}),
+        'PV': DeltaDict({trade_id: - pv}),
+        'PV01': DeltaDict({trade_id: - pv01}),
     }
 
 

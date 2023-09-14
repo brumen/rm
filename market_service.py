@@ -348,7 +348,7 @@ class AOMarketServiceLocal(AOMarketService):
 
         flight_info = loads(msg.value)
         flight_carrier_nb = flight_info.get('carrier_nb')
-        flight_date: datetime.date = flight_info.get('dep_date')
+        flight_date: datetime.date = datetime.date(2017, 5, 1)  # flight_info.get('dep_date').strptime("%Y%m%d")
         flight_price = flight_info.get('price')
 
         return {(flight_carrier_nb, flight_date): flight_price}

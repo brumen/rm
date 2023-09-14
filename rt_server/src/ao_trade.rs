@@ -134,9 +134,15 @@ impl PriceTradeAsync for AOTrade {
                     PricingMetric::PV
                 ).await;
 
+                debug!("_price_ao_trade: Result = {:?}", unwrapped_price);
                 if let PricingResults::PV(pv_result) = unwrapped_price {
                     let result_keys : Vec<_> = pv_result.keys().into_iter().collect();
-                    pv_result.get(result_keys[0]).copied()
+                    // TODO: THIS IS GARBARGE
+                    if result_keys.len() == 0 {
+                        Some(0.)  // PortfolioType::new()
+                    } else {
+                        pv_result.get(result_keys[0]).copied()
+                    }
                 } else {
                     error!("Remote pricing of {} didnt go right!", trade_id);
                     None

@@ -125,13 +125,16 @@ pub trait PriceTradeAsync : BaseTrade {
         let pricing_server = pricing_options.pricing_server.clone();  // TODO: THIS IS SHIT HERE!!
         let pricing_endpoint = pricing_options.pricing_endpoint.clone();  // TODO: SHIT HERE AGAIN!!!
 
-        format!(
-            "http://{}/{}/{}/{}",
+        let pricing_request = format!(
+            "http://{}/{}/{}",
             pricing_server,
-            pricing_endpoint,
-            metric,
+            metric.to_string().to_lowercase(),
             self.id(),
-        )
+        );
+
+        debug!("_endpoint: {:?}", pricing_request);
+
+        pricing_request
     }
 
     /// computes the pricing request.

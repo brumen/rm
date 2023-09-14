@@ -7,9 +7,10 @@ start proper server with:
 """
 
 import logging
-from typing import List, Dict, Any
+import datetime
+from typing import List, Dict, Any, Tuple, Optional
 from markupsafe import escape
-from flask import Response, request
+from flask import Response, request, Flask
 from json import dumps, loads
 
 # IMPORTANT: This logging config MUST BE HERE ON TOP, OTHERWISE IT DOES NOT WORK
@@ -38,13 +39,32 @@ from rm.services.ao.trade_api_pricers import (
     price_trades,
 )
 
-from rm.services.ao.market_api import (
-    pv_rester,
-    MKT_DATE,
-    MARKET_TYPE,
-    MARKET,
-    NEW_MARKET,  # TODO: IS THIS RIGHT, DOES THE MARKET CHANGE
-)
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+
+# rester start
+pv_rester = Flask(__name__)
+pv_rester.debug = True
+pv_rester.use_debugger = True
+
+
+# GLOBAL VARIABLES.
+# TODO: Check if these globals can be removed.
+# market date
+MKT_DATE = datetime.date(2016, 7, 1)
+# market on which the trades are priced.
+MARKET_TYPE = Optional[Dict[Tuple[str, datetime.date], float]]
+ENCODED_MARKET_TYPE = Optional[Dict[str, float]]
+MARKET: MARKET_TYPE = {}  # current market
+NEW_MARKET: MARKET_TYPE = {}  # new market to price on.
+# future market, which will replace the new_market
+FUTURE_MARKET: MARKET_TYPE = {}
+
+
+ao_db = 'mysql://brumen@localhost/ao'
+ao_engine = create_engine(ao_db)
+ao_session = sessionmaker(bind=ao_engine)
 
 
 def trade_pv_market(
@@ -59,25 +79,28 @@ def trade_pv_market(
     :param metric: metric to compute, either 'PV' or 'PV01'.
     """
 
-    trades: List[AOTrade] = construct_ao_trades(trade_ids)
+    global ao_session
 
-    if not trades:
-        return {}
+    with ao_session.begin() as session:
+        trades: List[AOTrade] = construct_ao_trades(trade_ids, session)
 
-    result: Dict[int, float] = {}  # result pvs for every trade id
+        if not trades:
+            return {}
 
-    for trade in trades:
-        trade_pv: Dict[str, Any] = _compute_trade_from_mkt(
-            MKT_DATE,
-            trade,
-            TradeDirection.LONG,
-            market_,
-            default_params,  # TODO: A SERVICE FOR MANIPULATING PRICING PARAMS.
-        )
+        result: Dict[int, float] = {}  # result pvs for every trade id
 
-        result |= trade_pv[metric]
+        for trade in trades:
+            trade_pv: Dict[str, Any] = _compute_trade_from_mkt(
+                MKT_DATE,
+                trade,
+                TradeDirection.LONG,
+                market_,
+                default_params,  # TODO: A SERVICE FOR MANIPULATING PRICING PARAMS.
+            )
 
-    return result
+            result |= trade_pv[metric]
+
+        return result
 
 
 @ pv_rester.route('/pv/<trade_id>')
@@ -237,6 +260,107 @@ def present_results():
         yield result_dict
 
 
+@pv_rester.route('/market_date', methods=['GET', 'POST', ])
+def get_market_date() -> Response:
+    """ Getting/setting the market date.
+    """
+
+    global MKT_DATE
+    if request.method == 'GET':
+        return Response(MKT_DATE.strftime("%Y%m%d"))
+
+    # method is POST
+    # post request, change date, return the same date
+    new_mkt_date = request.form.get('market_date')
+    if new_mkt_date is None:
+        return Response(None)
+
+    MKT_DATE = datetime.datetime.strptime(
+        new_mkt_date, '%Y%m%d')  # 20230205  dates
+
+    return Response(MKT_DATE.strftime("%Y%m%d"))
+
+
+@pv_rester.route('/market', methods=['GET', 'POST', ])
+def get_market() -> Response:
+    """ Returns the market type
+    """
+
+    global MARKET
+    if request.method == 'GET':  # get method
+        return Response(dumps(AOMarketService.encode_from_tuple(MARKET)))
+
+    # post method
+    new_market = loads(request.data).get('market')
+    if new_market is None:
+        return Response(None)
+
+    decoded_new_mkt: Dict[Tuple[str, datetime.date],
+                          float] = AOMarketService.decode_mkt_data(new_market)
+    MARKET = decoded_new_mkt  # update the market.
+
+    return Response("Updated CURRENT market.")
+
+
+@pv_rester.route('/new_market', methods=['GET', 'POST', ])
+def get_new_market() -> Response:
+    """ Storage for the new market.
+    """
+
+    global NEW_MARKET
+    if request.method == 'GET':  # get method
+        return Response(dumps(AOMarketService.encode_from_tuple(NEW_MARKET)))
+
+    # post method
+    replace_new_market = loads(request.data).get('market')
+    if replace_new_market is None:
+        return Response(None)
+
+    decoded_replaced_new_mkt: Dict[Tuple[str, datetime.date], float] = \
+        AOMarketService.decode_mkt_data(replace_new_market)
+    NEW_MARKET = decoded_replaced_new_mkt  # update the market.
+
+    return Response("Updated NEW market.")
+
+
+@pv_rester.route('/future_market', methods=['GET', 'POST', ])
+def get_future_market() -> Response:
+    """ Storage for the future market. This market replaces the new market.
+    """
+
+    global FUTURE_MARKET
+    if request.method == 'GET':
+        return Response(
+            dumps(AOMarketService.encode_from_tuple(FUTURE_MARKET))
+        )
+
+    # post method
+    replace_future_market = loads(request.data).get('market')
+    if replace_future_market is None:
+        return Response(None)
+
+    decoded_replaced_future_mkt: Dict[Tuple[str, datetime.date], float] = \
+        AOMarketService.decode_mkt_data(replace_future_market)
+    FUTURE_MARKET = decoded_replaced_future_mkt  # update the market.
+
+    return Response("Updated NEW market.")
+
+
+@pv_rester.route('/switch_markets', methods=['GET', ])
+def switch_markets() -> Response:
+    """ Switches the following markets:
+        1. market <- new_market
+        2. new_market <- future_market
+    """
+
+    global MARKET, NEW_MARKET, FUTURE_MARKET
+
+    MARKET = NEW_MARKET
+    NEW_MARKET = FUTURE_MARKET
+
+    return Response('Replaced current/new markets')
+
+
 # pv rester start
 def main():
     pv_rester.run(port=5010)
@@ -245,4 +369,4 @@ def main():
 # IMPORTANT: this has to be called application, for mod_express
 application = pv_rester
 # UNCOMMENT IF TO RUN RESTER.
-main()
+# main()
