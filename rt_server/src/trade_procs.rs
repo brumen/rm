@@ -183,7 +183,7 @@ where
 	        );
 
             if new_market_event {
-                info!("_trade_processor_new: New market event: Working on {} trades", all_trades.lock().unwrap().keys().len());
+                info!("_trade_processor_new: New market event: Working on {} trades.", all_trades.lock().unwrap().keys().len());
 
                 let mut new_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
                 self._run_computations(

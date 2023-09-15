@@ -214,7 +214,17 @@ where
         curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
-        todo!()
+
+        for trade in all_trades.lock().unwrap().values() {
+            self._process_trade(
+                trade.clone(),
+                metric,
+                pricing_options,
+                curr_portfolio.clone(),
+                curr_portfolio_sender,
+                curr_new_mkt,
+            );
+        }
     }
 
     fn _new_trades(
@@ -227,7 +237,27 @@ where
         curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
-        todo!()
+        while let Ok(trade) = trade_receiver.try_recv() {
+            debug!("_trade_processor_curr: Received good trade {:?}", trade);
+
+            let mut all_trades_local = all_trades.lock().unwrap();
+            let new_trade = !all_trades_local.contains(&trade);
+            if new_trade {
+                all_trades_local.add_trade(trade.clone());
+            }
+            drop(all_trades_local);
+
+            if new_trade {
+                self._process_trade(
+                    trade.clone(),
+                    metric,
+                    pricing_options,
+                    curr_portfolio.clone(),
+                    curr_portfolio_sender,
+                    curr_new_mkt,
+                );
+            }
+        }
     }
 
     fn _run_computations(
