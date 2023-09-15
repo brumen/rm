@@ -204,6 +204,32 @@ where
     TT: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + Send + Sync
 {
 
+    fn _existing_trades(
+        &self,
+        trade_receiver: &Receiver<TT>,
+        all_trades: Arc<Mutex<TradeRep<TT>>>,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_portfolio_sender: &Sender<PortfolioType>,
+        curr_new_mkt: CurrNewMarket,
+    ) {
+        todo!()
+    }
+
+    fn _new_trades(
+        &self,
+        trade_receiver: &Receiver<TT>,
+        all_trades: Arc<Mutex<TradeRep<TT>>>,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_portfolio_sender: &Sender<PortfolioType>,
+        curr_new_mkt: CurrNewMarket,
+    ) {
+        todo!()
+    }
+
     fn _run_computations(
         &self,
         trade_receiver: &Receiver<TT>,

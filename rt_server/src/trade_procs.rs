@@ -15,6 +15,7 @@ use crate::pricer::{
 };
 use crate::trade::TradeRep;
 use crate::trade_processor::TradeMarketDiscovery;
+use tokio::runtime;
 
 
 pub trait ProcessTradeSync<TT>
@@ -69,6 +70,28 @@ where
         curr_new_mkt: CurrNewMarket,
     );
 
+    fn _existing_trades(
+        &self,
+        trade_receiver: &Receiver<TT>,
+        all_trades: Arc<Mutex<TradeRep<TT>>>,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_portfolio_sender: &Sender<PortfolioType>,
+        curr_new_mkt: CurrNewMarket,
+    );
+
+    fn _new_trades(
+        &self,
+        trade_receiver: &Receiver<TT>,
+        all_trades: Arc<Mutex<TradeRep<TT>>>,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_portfolio_sender: &Sender<PortfolioType>,
+        curr_new_mkt: CurrNewMarket,
+    );
+
     fn _trade_processor_curr(
         &self,
         trade_receiver: Receiver<TT>,
@@ -82,12 +105,22 @@ where
         let mut nb_conseq_processed_trades : usize;  // number of trades which have been consequitively processed before refreshing to the new
         let mut curr_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
 
+        self._existing_trades(
+            &trade_receiver,
+            all_trades.clone(),
+            curr_portfolio.clone(),
+            metric,
+            pricing_options,
+            &curr_portfolio_sender,
+            CurrNewMarket::Current,
+        );
+
         loop {
 
             // receive new trade to price on current market
             nb_conseq_processed_trades = 0;
 
-            self._run_computations(
+            self._new_trades(
                 &trade_receiver,
                 all_trades.clone(),
                 curr_portfolio.clone(),

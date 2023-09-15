@@ -262,7 +262,8 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
 impl<TT> RiskProcessors<TT> for Controller
 where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send + Sync
 {
-    fn _run_computations(
+
+    fn _existing_trades(
         &self,
         trade_receiver: &Receiver<TT>,
         all_trades: Arc<Mutex<TradeRep<TT>>>,
@@ -272,9 +273,6 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
-        //let pool = executor::ThreadPool::new().expect("Failed to build pool");
-        // let mut pool = executor::LocalPool::new(); // .expect("Failed to build pool");
-
         let (num_tokio_worker_threads, max_tokio_blocking_threads) = (8, 512); // 512 is tokio's current default
         let rt = runtime::Builder::new_multi_thread()
             .enable_all()
@@ -299,7 +297,106 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
             );
         }
 
-        //let mut trade_handles: Vec<_> = vec![];
+        // we have tasks in trade handles, run them all
+        let finished_futs = rt.block_on(async {
+            let result = future::join_all(trade_handles);
+            result.await
+        });
+
+    }
+
+    fn _new_trades(
+        &self,
+        trade_receiver: &Receiver<TT>,
+        all_trades: Arc<Mutex<TradeRep<TT>>>,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_portfolio_sender: &Sender<PortfolioType>,
+        curr_new_mkt: CurrNewMarket,
+    ) {
+        let (num_tokio_worker_threads, max_tokio_blocking_threads) = (8, 512); // 512 is tokio's current default
+        let rt = runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_stack_size(8 * 1024 * 1024)
+            .worker_threads(num_tokio_worker_threads)
+            .max_blocking_threads(max_tokio_blocking_threads)
+            .build()
+            .unwrap();
+
+        let mut trade_handles: Vec<_> = vec![];
+        while let Ok(trade) = trade_receiver.try_recv() {
+            debug!("_trade_processor_curr: Received good trade {:?}", trade);
+
+            let mut all_trades_local = all_trades.lock().unwrap();
+            let new_trade = !all_trades_local.contains(&trade);
+            if new_trade {
+                all_trades_local.add_trade(trade.clone());
+            }
+            drop(all_trades_local);
+
+            if new_trade {
+                trade_handles.push(
+                    self._process_trade(
+                        trade.clone(),
+                        metric,
+                        pricing_options,
+                        curr_portfolio.clone(),
+                        curr_portfolio_sender,
+                        curr_new_mkt,
+                    )
+                );
+            }
+        }
+
+        // we have tasks in trade handles, run them all
+        let finished_futs = rt.block_on(async {
+            let result = future::join_all(trade_handles);
+            result.await
+        });
+    }
+
+
+    fn _run_computations(
+        &self,
+        trade_receiver: &Receiver<TT>,
+        all_trades: Arc<Mutex<TradeRep<TT>>>,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_portfolio_sender: &Sender<PortfolioType>,
+        curr_new_mkt: CurrNewMarket,
+    ) {
+        //let pool = executor::ThreadPool::new().expect("Failed to build pool");
+        // let mut pool = executor::LocalPool::new(); // .expect("Failed to build pool");
+
+        let (num_tokio_worker_threads, max_tokio_blocking_threads) = (8, 512); // 512 is tokio's current default
+        let rt = runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_stack_size(8 * 1024 * 1024)
+            .worker_threads(num_tokio_worker_threads)
+            .max_blocking_threads(max_tokio_blocking_threads)
+            .build()
+            .unwrap();
+
+        debug!("_trade_processor_new: Running existing trades");
+        // price all existsing trades in all_trades
+        let mut trade_handles = vec![];
+        {
+            for trade in all_trades.lock().unwrap().values() {
+                trade_handles.push(
+                    self._process_trade(
+                        trade.clone(),
+                        metric,
+                        pricing_options,
+                        curr_portfolio.clone(),
+                        curr_portfolio_sender,
+                        curr_new_mkt,
+                    )
+                );
+            }
+        }
+
         while let Ok(trade) = trade_receiver.try_recv() {
             debug!("_trade_processor_curr: Received good trade {:?}", trade);
 
