@@ -57,6 +57,8 @@ pub struct Controller {
     metric: PricingMetric,
     curr_mkt: Arc<Mutex<MarketType>>,
     new_mkt: Arc<Mutex<MarketType>>,
+    async_rt: runtime::Runtime,
+//    mkt_client: reqwest::blocking::RequestBuilder,
 }
 
 
@@ -89,14 +91,29 @@ impl Controller {
             None => PricingParams::new(),
         };
 
+        let (num_tokio_worker_threads, max_tokio_blocking_threads) = (8, 512); // 512 is tokio's current default
+        let rt = runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_stack_size(8 * 1024 * 1024)
+            .worker_threads(num_tokio_worker_threads)
+            .max_blocking_threads(max_tokio_blocking_threads)
+            .build()
+            .unwrap();
+
+        // let mkt_client_address = "http://localhost:8000/future_market";
+        // let client = reqwest::blocking::Client::new();  // TODO: THIS ALWAYS REPEATS!!!
+        // let rb = client.post(format!("{0}", mkt_client_address));
+
         Controller {
             pricing_params: pricing_init,
             kafka_server_name,
             kafka_port,
             trade_pricer,
             metric,
-	    curr_mkt: Arc::new(Mutex::new(MarketType::new())),
-	    new_mkt: Arc::new(Mutex::new(MarketType::new())),
+	        curr_mkt: Arc::new(Mutex::new(MarketType::new())),
+	        new_mkt: Arc::new(Mutex::new(MarketType::new())),
+            async_rt: rt,
+ //           mkt_client: rb,
         }
     }
 
@@ -174,9 +191,10 @@ impl MktEventHandler for Controller {
             },
 	    };
 
-        let mkt_client_address = "http://localhost:5010/future_market";
-        let client = reqwest::blocking::Client::new();  // TODO: THIS ALWAYS REPEATS!!!
-        let market_posted = client
+        let mkt_client_address = "http://localhost:8000/future_market";
+        let market_posted = reqwest::blocking::Client::new()  // TODO: THIS ALWAYS REPEATS!!!
+        //let market_posted = client
+        //let market_posted = self.mkt_client
             .post(format!("{0}", mkt_client_address))
             .json(&HashMap::from([("market", &market_obj)]))
             .send();
@@ -273,14 +291,6 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
-        let (num_tokio_worker_threads, max_tokio_blocking_threads) = (8, 512); // 512 is tokio's current default
-        let rt = runtime::Builder::new_multi_thread()
-            .enable_all()
-            .thread_stack_size(8 * 1024 * 1024)
-            .worker_threads(num_tokio_worker_threads)
-            .max_blocking_threads(max_tokio_blocking_threads)
-            .build()
-            .unwrap();
 
         // price all existsing trades in all_trades
         let mut trade_handles = vec![];
@@ -298,7 +308,7 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         }
 
         // we have tasks in trade handles, run them all
-        let finished_futs = rt.block_on(async {
+        let finished_futs = self.async_rt.block_on(async {
             let result = future::join_all(trade_handles);
             result.await
         });
@@ -315,14 +325,6 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
-        let (num_tokio_worker_threads, max_tokio_blocking_threads) = (8, 512); // 512 is tokio's current default
-        let rt = runtime::Builder::new_multi_thread()
-            .enable_all()
-            .thread_stack_size(8 * 1024 * 1024)
-            .worker_threads(num_tokio_worker_threads)
-            .max_blocking_threads(max_tokio_blocking_threads)
-            .build()
-            .unwrap();
 
         let mut trade_handles: Vec<_> = vec![];
         while let Ok(trade) = trade_receiver.try_recv() {
@@ -350,7 +352,7 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         }
 
         // we have tasks in trade handles, run them all
-        let finished_futs = rt.block_on(async {
+        let finished_futs = self.async_rt.block_on(async {
             let result = future::join_all(trade_handles);
             result.await
         });
@@ -367,17 +369,6 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
-        //let pool = executor::ThreadPool::new().expect("Failed to build pool");
-        // let mut pool = executor::LocalPool::new(); // .expect("Failed to build pool");
-
-        let (num_tokio_worker_threads, max_tokio_blocking_threads) = (8, 512); // 512 is tokio's current default
-        let rt = runtime::Builder::new_multi_thread()
-            .enable_all()
-            .thread_stack_size(8 * 1024 * 1024)
-            .worker_threads(num_tokio_worker_threads)
-            .max_blocking_threads(max_tokio_blocking_threads)
-            .build()
-            .unwrap();
 
         debug!("_trade_processor_new: Running existing trades");
         // price all existsing trades in all_trades
@@ -422,7 +413,7 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         }
 
         // we have tasks in trade handles, run them all
-        let finished_futs = rt.block_on(async {
+        let finished_futs = self.async_rt.block_on(async {
             let result = future::join_all(trade_handles);
             result.await
         });
