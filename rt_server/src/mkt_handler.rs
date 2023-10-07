@@ -1,4 +1,5 @@
-use log::debug;
+//use log::debug;
+use tracing::{debug, info_span,};
 use kafka::consumer::Message;
 use std::sync::mpsc::Sender;
 
@@ -26,7 +27,8 @@ pub trait MktEventHandler : Streaming {
         mkt_params: MktMsgParams,
         new_mkt_sender: Sender<MarketType>,
     ) {
-	    let bootstrap_servers = format!(
+
+        let bootstrap_servers = format!(
             "{}:{}",
             self.kafka_server_name(), self.kafka_port()
         );
@@ -35,8 +37,16 @@ pub trait MktEventHandler : Streaming {
 
         loop {
             debug!("_handle_mkt_events: Entering market event loop.");
+
+
             for mkt_msg_set in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
                 for mkt_msg in mkt_msg_set.messages() {
+                    let _handle_mkt_msg_span = info_span!(
+                        "Handling raw message.",
+                    );
+
+                    _handle_mkt_msg_span.enter();
+
                     debug!("_handle_mkt_events: Getting new markets from {mkt_topic}.");
                     self._handle_mkt_msg(
                         mkt_msg,

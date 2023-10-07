@@ -14,7 +14,7 @@ use crate::market::MarketType;
 
 
 // which metric to compute
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum PricingMetric {
     PV,
     PV01,
@@ -108,6 +108,7 @@ pub trait PriceTrade : BaseTrade {
 }
 
 
+#[derive(Debug)]
 pub struct MarketPricingOptions {
     pub pricing_server: String,
     pub pricing_endpoint: String,

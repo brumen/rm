@@ -1,4 +1,4 @@
-use log::{debug, info, warn};
+use tracing::{debug, info, warn, info_span, Instrument};
 use serde::{Deserialize, Serialize};
 use futures::{executor, future};
 use tokio;
@@ -49,6 +49,7 @@ pub type PricingParams = HashMap<String, f64>;
 /// kafka_server_name: name of kafka server, like "localhost"
 /// kafka_port: port of kafka server, like 9092
 /// trader_pricer: name of the rester service, like localhost:5010
+#[derive(Debug)]
 pub struct Controller {
     pricing_params: PricingParams,
     kafka_server_name: String,
@@ -177,6 +178,10 @@ impl MktEventHandler for Controller {
         _mkt_msg_params: MktMsgParams,
     ) {
 
+        let _handle_msg_span = info_span!(
+            "Handling mkt message",
+        );
+
         debug!("_handle_mkt_msg: Entering routine!");
         let optional_mkt = MarketType::try_from_ref(mkt_msg);
 
@@ -240,6 +245,7 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade
 impl<TT> ProcessTradeAsync<TT> for Controller
 where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send
 {
+    #[tracing::instrument]
     async fn _process_trade(
         &self,
         trade: TT,
@@ -253,12 +259,19 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         let trade_id = trade.id();
         let trade_direction = trade.direction();
 
+        let _process_trade_span = info_span!(
+            "_process trade span",
+            %trade_id,
+        );
+
+        _process_trade_span.enter();
+
         // TODO: curr_new_mkt dependecy missing here!!!
-        debug!("_process_trade: Processing trade {}, dir {:?}", trade_id, trade_direction);
         let trade_v = trade.value_by_metric(
             metric,
             pricing_options,
-        ).await;
+        ).instrument(_process_trade_span)
+            .await;
 
         debug!("_process_trade: Trade value = {:?}", trade_v);
         let trade_portf = match trade_v {
@@ -281,6 +294,7 @@ impl<TT> RiskProcessors<TT> for Controller
 where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send + Sync
 {
 
+    #[tracing::instrument]
     fn _existing_trades(
         &self,
         trade_receiver: &Receiver<TT>,
@@ -315,6 +329,7 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
 
     }
 
+    #[tracing::instrument]
     fn _new_trades(
         &self,
         trade_receiver: &Receiver<TT>,
@@ -358,7 +373,7 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         });
     }
 
-
+    #[tracing::instrument]
     fn _run_computations(
         &self,
         trade_receiver: &Receiver<TT>,
@@ -370,7 +385,7 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         curr_new_mkt: CurrNewMarket,
     ) {
 
-        debug!("_trade_processor_new: Running existing trades");
+        debug!("_trade_processor_new: Running existing trades.");
         // price all existsing trades in all_trades
         let mut trade_handles = vec![];
         {
@@ -388,6 +403,7 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
             }
         }
 
+        // add new trades to the pipeline.
         while let Ok(trade) = trade_receiver.try_recv() {
             debug!("_trade_processor_curr: Received good trade {:?}", trade);
 
