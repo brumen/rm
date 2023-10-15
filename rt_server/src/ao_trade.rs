@@ -3,9 +3,15 @@ use serde::{Serialize, Deserialize,};
 use kafka::consumer::Message;
 use std::collections::HashMap;
 
+use crate::market::CurrNewMarket;
 use crate::portfolio::{PV01Results, PortfolioType};
 use crate::ref_deref::TryFromRef;
-use crate::pricer::{Decoder, PricingMetric, PriceTradeAsync, MarketPricingOptions,};
+use crate::pricer::{
+    Decoder,
+    PricingMetric,
+    PriceTradeAsync,
+    MarketPricingOptions,
+};
 use crate::portfolio::PricingResults;
 use crate::trade::BaseTrade;
 use crate::trade::{TradeDirection, TradeError,};
@@ -118,13 +124,18 @@ impl PriceTradeAsync for AOTrade {
         Some(0.)
     }
 
-    async fn price(&self, pricing_options: &MarketPricingOptions) -> Option<f64> {
+    async fn price(
+        &self,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+    ) -> Option<f64> {
 
         let trade_id = self.id();
 
         let results_pricing = self._pricing_request(
             PricingMetric::PV,
             pricing_options,
+            curr_new_mkt,
         ).await;
 
         match results_pricing {
@@ -155,11 +166,16 @@ impl PriceTradeAsync for AOTrade {
         }
     }
 
-    async fn pv01(&self, pricing_options: &MarketPricingOptions) -> PV01Results {
+    async fn pv01(
+        &self,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+    ) -> PV01Results {
         let trade_id = self.id();
         let results_pricing = self._pricing_request(
             PricingMetric::PV01,
             pricing_options,
+            curr_new_mkt,
         ).await;
 
         match results_pricing {
@@ -168,8 +184,8 @@ impl PriceTradeAsync for AOTrade {
                 if let PricingResults::PV01(pv01_result) = unwrapped_price {
                     pv01_result
                 } else {
-                    error!("Remote PV01 of {} didnt go right", trade_id);
-                    PV01Results::new()  // TODO: THIS IS GARBAGE HERE
+                    error!("pv01: Remote PV01 of {} didnt go right. Continuing w/o priced trade.", trade_id);
+                    PV01Results::new()
                 }
             },
             Err(e) => {

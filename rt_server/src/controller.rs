@@ -1,39 +1,44 @@
-use tracing::{debug, info, warn, info_span, Instrument};
+use tracing::{
+    debug,
+    info,
+    warn,
+    info_span,
+    debug_span,
+    Instrument,
+};
 use serde::{Deserialize, Serialize};
-use futures::{executor, future};
+use futures::future;
 use tokio;
 
 use kafka::consumer::Message;
 use reqwest;
-//use reqwest::blocking::{Client, Response,};
 use std::collections::HashMap;
 use std::sync::mpsc::{Sender, Receiver, };
 use core::convert::From;
 use std::sync::{Arc, Mutex};
 use tokio::runtime;
 
-
-use crate::market::MktMsgParams;
-use crate::trade::{BaseTrade, TradeDirection, TradeRep,};
+use crate::trade::{
+    BaseTrade,
+    TradeDirection,
+    TradeRep,
+};
 use crate::portfolio::{
     PortfolioType,
     PricingResults,
 };
-
-
 use crate::market::{
     MarketType,
     CurrNewMarket,
+    MktMsgParams,
 };
 use crate::ref_deref::TryFromRef;
-
 use crate::pricer::{
     PricingMetric,
     PricingStruct,
     MarketPricingOptions,
     PriceTradeAsync,
 };
-
 use crate::publish::PublishResults;
 use crate::streaming::Streaming;
 use crate::trade_processor::{MarketSwitching, TradeMarketDiscovery};
@@ -264,12 +269,13 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
             %trade_id,
         );
 
-        _process_trade_span.enter();
+        let _ = _process_trade_span.enter();
 
         // TODO: curr_new_mkt dependecy missing here!!!
         let trade_v = trade.value_by_metric(
             metric,
             pricing_options,
+            curr_new_mkt,
         ).instrument(_process_trade_span)
             .await;
 
@@ -297,7 +303,6 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
     #[tracing::instrument]
     fn _existing_trades(
         &self,
-        trade_receiver: &Receiver<TT>,
         all_trades: Arc<Mutex<TradeRep<TT>>>,
         curr_portfolio: Arc<Mutex<PortfolioType>>,
         metric: PricingMetric,
@@ -322,11 +327,10 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         }
 
         // we have tasks in trade handles, run them all
-        let finished_futs = self.async_rt.block_on(async {
+        let _finished_futs = self.async_rt.block_on(async {
             let result = future::join_all(trade_handles);
             result.await
         });
-
     }
 
     #[tracing::instrument]
@@ -367,7 +371,7 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         }
 
         // we have tasks in trade handles, run them all
-        let finished_futs = self.async_rt.block_on(async {
+        let _finished_futs = self.async_rt.block_on(async {
             let result = future::join_all(trade_handles);
             result.await
         });
@@ -429,7 +433,7 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         }
 
         // we have tasks in trade handles, run them all
-        let finished_futs = self.async_rt.block_on(async {
+        let _finished_futs = self.async_rt.block_on(async {
             let result = future::join_all(trade_handles);
             result.await
         });

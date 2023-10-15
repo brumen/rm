@@ -82,7 +82,7 @@ where
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_portfolio: &mut PortfolioType,
-        curr_portfolio_sender: &Sender<PortfolioType>,
+        // curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
 
@@ -93,6 +93,7 @@ where
         let trade_v = trade.value_by_metric(
             metric,
             pricing_options,
+            curr_new_mkt,
         ).await;
 
         debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
@@ -108,8 +109,8 @@ where
             _ => {},
         }
 
-        debug!("_trade_processor_curr: Sending curr portfolio to publish.");
-        let _ = curr_portfolio_sender.send(curr_portfolio.clone());
+        // debug!("_trade_processor_curr: Sending curr portfolio to publish.");
+        // let _ = curr_portfolio_sender.send(curr_portfolio.clone());
     }
 
     fn _run_computations(
@@ -135,15 +136,15 @@ where
                         metric,
                         pricing_options,
                         curr_portfolio,
-                        curr_portfolio_sender,
                         curr_new_mkt,
                     );
-                    //);
                 }
             }
         };
 
-        pool.run_until(trade_tasks);
+        pool.run_until(trade_tasks);  // after everything is computed, send the right portfolio.
+
+        let _ = curr_portfolio_sender.send(curr_portfolio.clone());
     }
 
     fn _trade_processor_curr(
@@ -217,10 +218,6 @@ where
 
         loop {
 
-            // handling new trade event
-            //let _ = self._find_initial_trades(&new_trade_receiver, &mut all_trades);
-            //debug!("_trade_processor_new: Nb all trades: {}", all_trades.len());
-
 	        // new_market_event also updates the new market
             let new_market_event = self._new_market_event(
 		        &new_market_receiver,
@@ -230,28 +227,7 @@ where
                 info!("_trade_processor_new: Working on {} trades", all_trades.keys().len());
 
                 let mut new_portfolio = PortfolioType::new();
-                //let mut new_portfolio = self._price_trades(
-		        //    &all_trades.all_trades_ref()[..],
-		        //    CurrNewMarket::New,
-		        //    self.metric()
-		        //);
                 info!("_trade_processor_new: Finished processing bulk trades.");
-
-		        // catch up any remaining trades
-		        //while let Ok(trade) = new_trade_receiver.try_recv() {
-		        //    debug!("_trade_processor_new: Catching on remaining trades.");
-                //    let trade_direction = trade.direction();
-                //    info!("_trade_processor_new: Processing trade {}, dir {:?}", trade.id(), trade_direction);
-                //    let trade_v = trade.value_by_metric(trade.id(), self.metric(), CurrMarketNew::New);
-                //    info!("_trade_processor_new: Finished processing trade");
-                //    match trade_direction {
-			    //        TradeDirection::Create => {new_portfolio += trade_v;},
-			    //        TradeDirection::Delete => {new_portfolio -= trade_v;},
-			    //         _ => {},
-                //    }
-                //    // update all_trades and agg_trades.
-                //    all_trades.add_trade(trade.clone());
-		        //}
 
                 self._run_computations(
                     &new_trade_receiver,

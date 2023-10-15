@@ -23,11 +23,10 @@ where
 {
     fn _process_trade(
         &self,
-        trade: TT,
+        trade: &TT,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_portfolio: Arc<Mutex<PortfolioType>>,
-        curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     );
 }
@@ -69,9 +68,11 @@ where
         curr_new_mkt: CurrNewMarket,
     );
 
+    /// computes the metric of the existing trades in
+    /// all_trades, on either the new or the current market
+    /// and updates the current_portfolio
     fn _existing_trades(
         &self,
-        trade_receiver: &Receiver<TT>,
         all_trades: Arc<Mutex<TradeRep<TT>>>,
         curr_portfolio: Arc<Mutex<PortfolioType>>,
         metric: PricingMetric,
@@ -100,12 +101,11 @@ where
         pricing_options: &MarketPricingOptions,
     ) {
         let mut new_potential_portfolio : Option<PortfolioType>;
-        let mut all_trades = Arc::new(Mutex::new(TradeRep::new()));
+        let all_trades = Arc::new(Mutex::new(TradeRep::new()));
         let mut nb_conseq_processed_trades : usize;  // number of trades which have been consequitively processed before refreshing to the new
-        let mut curr_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
+        let curr_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
 
         self._existing_trades(
-            &trade_receiver,
             all_trades.clone(),
             curr_portfolio.clone(),
             metric,
@@ -137,7 +137,7 @@ where
             }
 
             let mut curr_portf = curr_portfolio.lock().unwrap();
-            let mut all_trades_l = all_trades.lock().unwrap();
+            let all_trades_l = all_trades.lock().unwrap();
 
             if let Some(new_p) = new_potential_portfolio {
                 self._switch_markets();
@@ -172,7 +172,7 @@ where
         pricing_options: &MarketPricingOptions,
     ) {
 
-	    let mut all_trades = Arc::new(Mutex::new(TradeRep::<TT>::new()));
+	    let all_trades = Arc::new(Mutex::new(TradeRep::<TT>::new()));
 
         loop {
 
@@ -184,7 +184,7 @@ where
             if new_market_event {
                 info!("_trade_processor_new: New market event: Working on {} trades.", all_trades.lock().unwrap().keys().len());
 
-                let mut new_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
+                let new_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
                 self._run_computations(
                     &new_trade_receiver,
                     all_trades.clone(),

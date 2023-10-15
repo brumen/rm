@@ -23,3 +23,18 @@ Gunnicorn launches on a different port.
 
 
 Start the controller in the rt_server folder.
+    RUST_LOG=info cargo r > /tmp/ao 2>&1   # this will log messages & errors into /tmp/ao
+
+
+Kafka topics as follows:
+
+    Kafka server is by default on localhost:9092
+
+   - kafka folder: ~/archive/software/kafka/kafka-3.4.0-src/bin/
+   - list topics: ./kafka-topics.sh --list --boostrap-server localhost:9092
+   - list content on topic: ./kafka-console-consumer 
+   
+   -air_options.ao.mkt_events  - market events
+       sample events: {"UA160|20170501": 200.0, "UA150|20170501": 150.0, "UA155|20170501": 150.0}
+
+   - air_options.ao.results - results 

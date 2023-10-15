@@ -127,7 +127,7 @@ def trade_pv01(trade_id):
     return trade_pv_market(trade_ids, MARKET, 'PV01')
 
 
-@ pv_rester.route('/pv_new/<trade_id>')
+@ pv_rester.route('/pv/new/<trade_id>')
 def trade_pv_new(trade_id):
     """ Returns the PV of the trade.
             Trade can be either in the form of 200, or a list of trades,
@@ -139,7 +139,7 @@ def trade_pv_new(trade_id):
     return trade_pv_market(trade_ids, NEW_MARKET)
 
 
-@ pv_rester.route('/pv01_new/<trade_id>')
+@ pv_rester.route('/pv01/new/<trade_id>')
 def trade_pv01_new(trade_id):
     """ Returns the PV of the trade.
             Trade can be either in the form of 200, or a list of trades,
@@ -151,7 +151,7 @@ def trade_pv01_new(trade_id):
     return trade_pv_market(trade_ids, NEW_MARKET, 'PV01')
 
 
-@ pv_rester.route('/pv_spark', methods=['POST', ])
+@ pv_rester.route('/pv/spark', methods=['POST', ])
 def trade_pv_spark() -> Response:
     """ Returns the PV of the trades presented.
             Trade can be either in the form of 200, or a list of trades,
@@ -174,7 +174,7 @@ def trade_pv_spark() -> Response:
     return Response(dumps(price_trades(MKT_DATE, trades, 'c')))
 
 
-@ pv_rester.route('/pv01_spark', methods=['POST', ])
+@ pv_rester.route('/pv01/spark', methods=['POST', ])
 def trade_pv01_spark() -> Response:
     """ Returns the PV of the trades presented.
            Trade can be either in the form of 200, or a list of trades,
@@ -197,7 +197,7 @@ def trade_pv01_spark() -> Response:
     return Response(dumps(price_trades(MKT_DATE, trades, 'c', 'PV01', )))
 
 
-@ pv_rester.route('/pv_spark_new', methods=['POST', ])
+@ pv_rester.route('/pv/spark_new', methods=['POST', ])
 def trade_pv_spark_new() -> Response:
     """ Returns the PV of the trade.
             Trade can be either in the form of 200, or a list of trades,
@@ -220,7 +220,7 @@ def trade_pv_spark_new() -> Response:
     return Response(dumps(priced_trades))
 
 
-@ pv_rester.route('/pv01_spark_new', methods=['POST', ])
+@ pv_rester.route('/pv01/spark_new', methods=['POST', ])
 def trade_pv01_spark_new() -> Response:
     """ Returns the PV of the trade.
             Trade can be either in the form of 200, or a list of trades,
@@ -363,10 +363,10 @@ def switch_markets() -> Response:
 
 # pv rester start
 def main():
-    pv_rester.run(port=5010)
+    pv_rester.run(port=8000)
 
 
 # IMPORTANT: this has to be called application, for mod_express
 application = pv_rester
 # UNCOMMENT IF TO RUN RESTER.
-# main()
+main()

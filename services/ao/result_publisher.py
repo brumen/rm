@@ -22,7 +22,7 @@ from rm.result_publisher_by_trade import (
 
 def main(result_idx='PV'):
     rp = ResultPublisherLETF(
-        server_port_topic=('localhost', 9092, 'letf.risk'),
+        server_port_topic=('localhost', 9092, 'air_options.ao.results'),
         metric=result_idx,
     )
     rp.start()

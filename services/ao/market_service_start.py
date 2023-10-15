@@ -8,7 +8,7 @@
 """
 
 import logging
-logging.basicConfig(filename='/tmp/market_service_rester.log')
+# logging.basicConfig(filename='/tmp/market_service_rester.log')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 

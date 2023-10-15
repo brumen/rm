@@ -45,7 +45,7 @@ pub trait MktEventHandler : Streaming {
                         "Handling raw message.",
                     );
 
-                    _handle_mkt_msg_span.enter();
+                    let _ = _handle_mkt_msg_span.enter();
 
                     debug!("_handle_mkt_events: Getting new markets from {mkt_topic}.");
                     self._handle_mkt_msg(

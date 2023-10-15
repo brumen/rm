@@ -2,7 +2,7 @@
 //  Real time risk manager using local market & local pricing
 //
 
-use log::{debug, info, warn};
+use log::{debug, info, warn, error, };
 use std::sync::{Arc, Mutex,};
 use std::sync::mpsc::{Sender, Receiver, };
 use kafka::consumer::Message;
@@ -157,41 +157,46 @@ impl MktEventHandler for RTRMLocal {
 
 
 impl<TT> ProcessTradeSync<TT> for RTRMLocal
-where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTrade + std::marker::Send
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTrade + std::marker::Send + Sync
 {
-
+    /// processes the trade, by calculating the metric given
+    /// on either the current or the new market.
+    /// updates the curr_portfolio.
     fn _process_trade(
         &self,
-        trade: TT,
+        trade: &TT,
         metric: PricingMetric,
         _pricing_options: &MarketPricingOptions,
         curr_portfolio: Arc<Mutex<PortfolioType>>,
-        curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
-
-        let trade_id = trade.id();
-        let trade_direction = trade.direction();
 
         let market = match curr_new_mkt {
             CurrNewMarket::Current => self._curr_mkt(),
             CurrNewMarket::New => self._new_mkt(),
         };
 
-        debug!("_trade_processor_curr: Processing trade {}, dir {:?}", trade_id, trade_direction);
-        let trade_v = trade.value_by_metric(
-            metric,
-            &market.lock().unwrap(),
-        );
-
+        let trade_v = match market.lock() {
+            Ok(market_l) => {
+                trade.value_by_metric(
+                    metric,
+                    &market_l,
+                )
+            },
+            Err(e) => {
+                error!("_process_trade: Market was poisoned {:?}", e);
+                trade.value_by_metric(metric, &(MarketType::new()))
+            },
+        };
         debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
-        match trade_direction {
-            TradeDirection::Create => *(curr_portfolio.lock().unwrap()) += trade_v,
-            TradeDirection::Delete => *(curr_portfolio.lock().unwrap()) -= trade_v,
+
+        let mut curr_p = curr_portfolio.lock().unwrap();
+
+        match trade.direction() {
+            TradeDirection::Create => *curr_p += trade_v,
+            TradeDirection::Delete => *curr_p -= trade_v,
             TradeDirection::Update => todo!(),
         }
-        // TOOD: CHECK THIS CLONE HERE!!!
-        let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
     }
 }
 
@@ -206,7 +211,6 @@ where
 
     fn _existing_trades(
         &self,
-        trade_receiver: &Receiver<TT>,
         all_trades: Arc<Mutex<TradeRep<TT>>>,
         curr_portfolio: Arc<Mutex<PortfolioType>>,
         metric: PricingMetric,
@@ -217,14 +221,15 @@ where
 
         for trade in all_trades.lock().unwrap().values() {
             self._process_trade(
-                trade.clone(),
+                trade,
                 metric,
                 pricing_options,
                 curr_portfolio.clone(),
-                curr_portfolio_sender,
                 curr_new_mkt,
             );
         }
+
+        let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
     }
 
     fn _new_trades(
@@ -249,13 +254,15 @@ where
 
             if new_trade {
                 self._process_trade(
-                    trade.clone(),
+                    &trade,
                     metric,
                     pricing_options,
                     curr_portfolio.clone(),
-                    curr_portfolio_sender,
+                    // curr_portfolio_sender,
                     curr_new_mkt,
                 );
+
+                let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
             }
         }
     }
@@ -280,13 +287,15 @@ where
 
             if !trade_exists {
                 self._process_trade(
-                    trade,
+                    &trade,
                     metric,
                     pricing_options,
                     curr_portfolio.clone(),
-                    curr_portfolio_sender,
+                    //curr_portfolio_sender,
                     curr_new_mkt,
                 );
+
+                let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
             }
         }
     }

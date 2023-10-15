@@ -10,7 +10,7 @@ use crate::portfolio::{
     PV01Results,
 };
 use crate::trade::BaseTrade;
-use crate::market::MarketType;
+use crate::market::{MarketType, CurrNewMarket};
 
 
 // which metric to compute
@@ -121,17 +121,25 @@ pub trait PriceTradeAsync : BaseTrade {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
     ) -> String {
 
-        let pricing_server = pricing_options.pricing_server.clone();  // TODO: THIS IS SHIT HERE!!
-        let pricing_endpoint = pricing_options.pricing_endpoint.clone();  // TODO: SHIT HERE AGAIN!!!
-
-        let pricing_request = format!(
-            "http://{}/{}/{}",
-            pricing_server,
-            metric.to_string().to_lowercase(),
-            self.id(),
-        );
+        let pricing_request = match curr_new_mkt {
+            CurrNewMarket::Current =>
+                format!(
+                    "http://{}/{}/{}",
+                    &pricing_options.pricing_server,
+                    metric.to_string().to_lowercase(),
+                    self.id(),
+                ),
+            CurrNewMarket::New =>
+                format!(
+                    "http://{}/{}/new/{}",
+                    &pricing_options.pricing_server,
+                    metric.to_string().to_lowercase(),
+                    self.id(),
+                ),
+        };
 
         debug!("_endpoint: {:?}", pricing_request);
 
@@ -143,22 +151,35 @@ pub trait PriceTradeAsync : BaseTrade {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
     ) -> Result<reqwest::Response, reqwest::Error> {
 
         reqwest::get(
-            self._endpoint(metric, pricing_options)
+            self._endpoint(metric, pricing_options, curr_new_mkt)
         ).await
     }
 
     async fn initial_pv(&self) -> Option<f64>;
-    async fn price(&self, pricing_options: &MarketPricingOptions) -> Option<f64>;
-    async fn pv01(&self, pricing_options: &MarketPricingOptions) -> PV01Results;
+    async fn price(
+        &self,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+    ) -> Option<f64>;
+    async fn pv01(
+        &self,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+    ) -> PV01Results;
 
-    async fn pnl(&self, pricing_options: &MarketPricingOptions) -> Option<f64> {
+    async fn pnl(
+        &self,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+    ) -> Option<f64> {
 	    match self.initial_pv().await {
 	        None => None,
 	        Some(initial_pv_val) =>
-                self.price(pricing_options).await.map(|curr_price| curr_price - initial_pv_val)
+                self.price(pricing_options, curr_new_mkt).await.map(|curr_price| curr_price - initial_pv_val)
         }
     }
 
@@ -167,13 +188,14 @@ pub trait PriceTradeAsync : BaseTrade {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
     ) -> PricingResults {
 
         let trade_name = self.id();
 
         match metric {
             PricingMetric::PV => {
-                let priced_trade = self.price(pricing_options).await;
+                let priced_trade = self.price(pricing_options, curr_new_mkt).await;
                 debug!("_value_trade: PV of {:?} = {:?}", trade_name, priced_trade);
                 if let Some(price_trade) = priced_trade {
                     PricingResults::PV(PortfolioType::from([(trade_name, price_trade),]))
@@ -182,13 +204,13 @@ pub trait PriceTradeAsync : BaseTrade {
                 }
             },
             PricingMetric::PV01 => {
-		        let trade_pv01 = self.pv01(pricing_options).await;
+		        let trade_pv01 = self.pv01(pricing_options, curr_new_mkt).await;
 		        debug!("_value_trade: PV01 of {:?} = {:?}", trade_name, trade_pv01);
                 PricingResults::PV01(trade_pv01)
             },
 
             PricingMetric::PnL => {
-                let pnl_trade = self.pnl(pricing_options).await;
+                let pnl_trade = self.pnl(pricing_options, curr_new_mkt).await;
                 debug!("_value_trade: PnL of {:?} = {:?}", trade_name, pnl_trade);
                 if let Some(pnl_trade_real) = pnl_trade {
                     PricingResults::PV(PortfolioType::from([(trade_name, pnl_trade_real),]))
