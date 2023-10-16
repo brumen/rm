@@ -42,7 +42,7 @@ where
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_portfolio: Arc<Mutex<PortfolioType>>,
-        curr_portfolio_sender: &Sender<PortfolioType>,
+        // curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     );
 }

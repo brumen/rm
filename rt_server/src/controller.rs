@@ -202,9 +202,7 @@ impl MktEventHandler for Controller {
 	    };
 
         let mkt_client_address = "http://localhost:8000/future_market";
-        let market_posted = reqwest::blocking::Client::new()  // TODO: THIS ALWAYS REPEATS!!!
-        //let market_posted = client
-        //let market_posted = self.mkt_client
+        let market_posted = reqwest::blocking::Client::new()
             .post(format!("{0}", mkt_client_address))
             .json(&HashMap::from([("market", &market_obj)]))
             .send();
@@ -257,7 +255,7 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_portfolio: Arc<Mutex<PortfolioType>>,
-        curr_portfolio_sender: &Sender<PortfolioType>,
+        // curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
     ) {
 
@@ -271,7 +269,6 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
 
         let _ = _process_trade_span.enter();
 
-        // TODO: curr_new_mkt dependecy missing here!!!
         let trade_v = trade.value_by_metric(
             metric,
             pricing_options,
@@ -286,13 +283,14 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
             PricingResults::PnL(pnl) => pnl,
         };
 
+        let mut cp = curr_portfolio.lock().unwrap();
+
         match trade_direction {
-            TradeDirection::Create => *(curr_portfolio.lock().unwrap()) += trade_portf,
-            TradeDirection::Delete => *(curr_portfolio.lock().unwrap()) -= trade_portf,
+            TradeDirection::Create => *cp += trade_portf,
+            TradeDirection::Delete => *cp -= trade_portf,
             _ => {},
         }
 
-        let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
     }
 }
 
@@ -320,7 +318,6 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
                     metric,
                     pricing_options,
                     curr_portfolio.clone(),
-                    curr_portfolio_sender,
                     curr_new_mkt,
                 )
             );
@@ -331,6 +328,8 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
             let result = future::join_all(trade_handles);
             result.await
         });
+
+        let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
     }
 
     #[tracing::instrument]
@@ -363,7 +362,6 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
                         metric,
                         pricing_options,
                         curr_portfolio.clone(),
-                        curr_portfolio_sender,
                         curr_new_mkt,
                     )
                 );
@@ -375,6 +373,8 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
             let result = future::join_all(trade_handles);
             result.await
         });
+
+        let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
     }
 
     #[tracing::instrument]
@@ -392,19 +392,17 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
         debug!("_trade_processor_new: Running existing trades.");
         // price all existsing trades in all_trades
         let mut trade_handles = vec![];
-        {
-            for trade in all_trades.lock().unwrap().values() {
-                trade_handles.push(
-                    self._process_trade(
-                        trade.clone(),
-                        metric,
-                        pricing_options,
-                        curr_portfolio.clone(),
-                        curr_portfolio_sender,
-                        curr_new_mkt,
-                    )
-                );
-            }
+
+        for trade in all_trades.lock().unwrap().values() {
+            trade_handles.push(
+                self._process_trade(
+                    trade.clone(),
+                    metric,
+                    pricing_options,
+                    curr_portfolio.clone(),
+                    curr_new_mkt,
+                )
+            );
         }
 
         // add new trades to the pipeline.
@@ -425,7 +423,6 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
                         metric,
                         pricing_options,
                         curr_portfolio.clone(),
-                        curr_portfolio_sender,
                         curr_new_mkt,
                     )
                 );
@@ -438,5 +435,6 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Ba
             result.await
         });
 
+        let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
     }
 }

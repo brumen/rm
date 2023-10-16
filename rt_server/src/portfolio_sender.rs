@@ -33,7 +33,7 @@ where
     ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
 
-	let mut position_listener = connect_with_retries(&bootstrap_servers, &pos_topic);
+	    let mut position_listener = connect_with_retries(&bootstrap_servers, &pos_topic);
 
         loop {
             for ms in position_listener.poll().unwrap().iter() {

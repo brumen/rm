@@ -108,9 +108,6 @@ where
             TradeDirection::Delete => *curr_portfolio -= trade_portf,
             _ => {},
         }
-
-        // debug!("_trade_processor_curr: Sending curr portfolio to publish.");
-        // let _ = curr_portfolio_sender.send(curr_portfolio.clone());
     }
 
     fn _run_computations(
@@ -143,7 +140,6 @@ where
         };
 
         pool.run_until(trade_tasks);  // after everything is computed, send the right portfolio.
-
         let _ = curr_portfolio_sender.send(curr_portfolio.clone());
     }
 

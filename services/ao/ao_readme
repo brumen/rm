@@ -37,4 +37,6 @@ Kafka topics as follows:
    -air_options.ao.mkt_events  - market events
        sample events: {"UA160|20170501": 200.0, "UA150|20170501": 150.0, "UA155|20170501": 150.0}
 
-   - air_options.ao.results - results 
+   - air_options.ao.results - results of the PV, PV01, or PnL computations.
+
+   - air_options.ao.flights_live - flights

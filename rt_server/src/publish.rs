@@ -10,6 +10,8 @@ use crate::portfolio::PortfolioType;
 use crate::streaming::Streaming;
 
 
+/// publishes the results to the of the current portfolio
+/// to the results topic.
 pub trait PublishResults : Streaming {
 
     fn metric(&self) -> PricingMetric;
@@ -49,7 +51,8 @@ pub trait PublishResults : Streaming {
 }
 
 
-/// connects the consumer to Kafka
+/// connects the consumer to Kafka, retries every 5 seconds
+/// to try to establish connection.
 pub fn connect_with_retries_producer(bootstrap_servers: &str) -> Producer {
     let mut listener_connected = false;
     let mut eventual_listener = None;
