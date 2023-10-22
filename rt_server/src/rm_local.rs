@@ -8,7 +8,7 @@ use std::sync::mpsc::{Sender, Receiver, };
 use kafka::consumer::Message;
 use serde::Deserialize;
 
-use crate::portfolio::PortfolioType;
+use crate::portfolio::{PortfolioType, PricingResults, };
 use crate::market::{
     MarketType,
     MktMsgParams,
@@ -24,7 +24,7 @@ use crate::pricer::{
 };
 
 use crate::streaming::Streaming;
-use crate::trade::{BaseTrade, TradeDirection, TradeRep};
+use crate::trade::{BaseTrade, TradeDirection, TradeRep, TradeReduce, };
 use crate::trade_processor::{MarketSwitching, TradeMarketDiscovery};
 use crate::publish::PublishResults;
 use crate::trade_procs::{ProcessTradeSync, RiskProcessors,};
@@ -167,9 +167,9 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTra
         trade: &TT,
         metric: PricingMetric,
         _pricing_options: &MarketPricingOptions,
-        curr_portfolio: Arc<Mutex<PortfolioType>>,
+        //curr_portfolio: Arc<Mutex<PortfolioType>>,
         curr_new_mkt: CurrNewMarket,
-    ) {
+    ) -> PricingResults {
 
         let market = match curr_new_mkt {
             CurrNewMarket::Current => self._curr_mkt(),
@@ -190,115 +190,81 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTra
         };
         debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
 
-        let mut curr_p = curr_portfolio.lock().unwrap();
+        // let mut curr_p = curr_portfolio.lock().unwrap();
 
         match trade.direction() {
-            TradeDirection::Create => *curr_p += trade_v,
-            TradeDirection::Delete => *curr_p -= trade_v,
+            TradeDirection::Create => trade_v, // *curr_p += trade_v,
+            TradeDirection::Delete => - trade_v, //*curr_p -= trade_v,
             TradeDirection::Update => todo!(),
         }
     }
 }
 
 impl<TT> TradeMarketDiscovery<TT> for RTRMLocal
-where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + Send
 { }
 
 impl<TT> RiskProcessors<TT> for RTRMLocal
 where
-    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + Send + Sync
+    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + Send + Sync,
 {
 
-    fn _existing_trades(
+    fn _price_existing_trades(
         &self,
-        all_trades: Arc<Mutex<TradeRep<TT>>>,
-        curr_portfolio: Arc<Mutex<PortfolioType>>,
+        trade_receiver: &Receiver<TT>,
+        all_trades: Arc<Mutex<TradeRep<Self::ReductionType>>>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
-    ) {
+    ) -> PortfolioType {
+        let mut p = PortfolioType::new();
 
         for trade in all_trades.lock().unwrap().values() {
-            self._process_trade(
+            p += self._process_trade(
                 trade,
                 metric,
                 pricing_options,
-                curr_portfolio.clone(),
                 curr_new_mkt,
             );
         }
-
-        let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
+        p
+        //let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
     }
 
-    fn _new_trades(
+    fn _price_new_trades(
         &self,
+        curr_portfolio: &mut PortfolioType,
         trade_receiver: &Receiver<TT>,
-        all_trades: Arc<Mutex<TradeRep<TT>>>,
-        curr_portfolio: Arc<Mutex<PortfolioType>>,
+        all_trades: Arc<Mutex<TradeRep<Self::ReductionType>>>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
+        new_trades_sender: &Sender<PortfolioType>,
     ) {
+
         while let Ok(trade) = trade_receiver.try_recv() {
             debug!("_trade_processor_curr: Received good trade {:?}", trade);
 
             let mut all_trades_local = all_trades.lock().unwrap();
-            let new_trade = !all_trades_local.contains(&trade);
+            let new_trade = !all_trades_local.contains(&trade.id());
             if new_trade {
-                all_trades_local.add_trade(trade.clone());
+                self.add_trade(&trade.clone(), &mut all_trades_local);
             }
             drop(all_trades_local);
 
             if new_trade {
-                self._process_trade(
+                *curr_portfolio += self._process_trade(
                     &trade,
                     metric,
                     pricing_options,
-                    curr_portfolio.clone(),
-                    // curr_portfolio_sender,
                     curr_new_mkt,
                 );
 
-                let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
+                let _ = new_trades_sender.send(curr_portfolio.clone());
             }
         }
     }
 
-    fn _run_computations(
-        &self,
-        trade_receiver: &Receiver<TT>,
-        all_trades: Arc<Mutex<TradeRep<TT>>>,
-        curr_portfolio: Arc<Mutex<PortfolioType>>,
-        metric: PricingMetric,
-        pricing_options: &MarketPricingOptions,
-        curr_portfolio_sender: &Sender<PortfolioType>,
-        curr_new_mkt: CurrNewMarket,
-    ) {
-        while let Ok(trade) = trade_receiver.try_recv() {
-            debug!("_trade_processor_curr: Received good trade {:?}", trade);
-
-            let mut all_trades_lock = all_trades.lock().unwrap();
-            let trade_exists = all_trades_lock.contains(&trade);
-            all_trades_lock.add_trade(trade.clone());
-            drop(all_trades_lock);
-
-            if !trade_exists {
-                self._process_trade(
-                    &trade,
-                    metric,
-                    pricing_options,
-                    curr_portfolio.clone(),
-                    //curr_portfolio_sender,
-                    curr_new_mkt,
-                );
-
-                let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
-            }
-        }
-    }
 }
 
 
@@ -306,5 +272,14 @@ impl PublishResults for RTRMLocal {
 
     fn metric(&self) -> PricingMetric {
         self.metric
+    }
+}
+
+
+impl<TT: BaseTrade + Clone + Send> TradeReduce<TT> for RTRMLocal {
+    type ReductionType = TT;
+
+    fn reduce(&self, trade: &TT) -> Self::ReductionType {
+        trade.clone()
     }
 }

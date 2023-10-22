@@ -46,76 +46,7 @@ pub struct AOTrade {
 }
 
 
-impl Decoder for AOTrade {
-
-    /// converts the spark response into a trade value.
-    fn _unwrap_pricing_results(
-        &self,
-        result_price: reqwest::blocking::Response,
-        metric: PricingMetric,
-    ) -> PricingResults {
-
-        match metric {
-            PricingMetric::PV => {
-                let results_conv = result_price.json::<HashMap<String, f64>>();
-
-                if results_conv.is_err() {
-                    return PricingResults::PV(PortfolioType::new())
-                }
-
-                PricingResults::PV(PortfolioType(results_conv.unwrap()))
-            },
-            PricingMetric::PV01 => {
-                let results_conv = result_price.json::<HashMap<String, HashMap<String, f64>>>();
-
-                if results_conv.is_err() {
-                    return PricingResults::PV01(PV01Results::new());
-                }
-
-                let mut pv01 = PV01Results::new();
-                for (trade_id, trade_result) in results_conv.unwrap().iter() {
-                    let _ = pv01.insert((*trade_id.clone()).to_string(), PortfolioType::from(trade_result));
-                }
-                PricingResults::PV01(pv01)
-            },
-	    PricingMetric::PnL => todo!(),
-        }
-    }
-
-    async fn _unwrap_pricing_results_a(
-        &self,
-        result_price: reqwest::Response,
-        metric: PricingMetric,
-    ) -> PricingResults {
-
-        match metric {
-            PricingMetric::PV => {
-                let results_conv = result_price.json::<HashMap<String, f64>>().await;
-
-                if results_conv.is_err() {
-                    return PricingResults::PV(PortfolioType::new())
-                }
-
-                PricingResults::PV(PortfolioType(results_conv.unwrap()))
-            },
-            PricingMetric::PV01 => {
-                let results_conv = result_price.json::<HashMap<String, HashMap<String, f64>>>().await;
-
-                if results_conv.is_err() {
-                    return PricingResults::PV01(PV01Results::new());
-                }
-
-                let mut pv01 = PV01Results::new();
-                for (trade_id, trade_result) in results_conv.unwrap().iter() {
-                    let _ = pv01.insert((*trade_id.clone()).to_string(), PortfolioType::from(trade_result));
-                }
-                PricingResults::PV01(pv01)
-            },
-	        PricingMetric::PnL => todo!(),
-        }
-    }
-}
-
+impl Decoder for AOTrade {}
 
 
 impl PriceTradeAsync for AOTrade {

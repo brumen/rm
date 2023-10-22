@@ -7,9 +7,6 @@ use tracing::{
     Instrument,
 };
 use serde::{Deserialize, Serialize};
-use futures::future;
-use tokio;
-
 use kafka::consumer::Message;
 use reqwest;
 use std::collections::HashMap;
@@ -22,6 +19,7 @@ use crate::trade::{
     BaseTrade,
     TradeDirection,
     TradeRep,
+    TradeReduce,
 };
 use crate::portfolio::{
     PortfolioType,
@@ -38,6 +36,8 @@ use crate::pricer::{
     PricingStruct,
     MarketPricingOptions,
     PriceTradeAsync,
+    Decoder,
+    RestPricerSpark, self,
 };
 use crate::publish::PublishResults;
 use crate::streaming::Streaming;
@@ -64,7 +64,6 @@ pub struct Controller {
     curr_mkt: Arc<Mutex<MarketType>>,
     new_mkt: Arc<Mutex<MarketType>>,
     async_rt: runtime::Runtime,
-//    mkt_client: reqwest::blocking::RequestBuilder,
 }
 
 
@@ -80,6 +79,230 @@ pub struct RTConfig {
     pub metric: String,
 }
 
+
+impl Streaming for Controller {
+    fn kafka_server_name(&self) -> String {
+        self.kafka_server_name.clone()  // TODO: CHECK IF THIS CAN BE REMOVED HERE!!!
+    }
+
+    fn kafka_port(&self) -> i32 {
+        self.kafka_port
+    }
+}
+
+
+impl PublishResults for Controller {
+
+    fn metric(&self) -> PricingMetric {
+        self.metric
+    }
+}
+
+
+impl MktEventHandler for Controller {
+
+    fn _handle_mkt_msg(
+        &self,
+        mkt_msg : &Message,
+        new_mkt_sender: Sender<MarketType>,
+        _mkt_msg_params: MktMsgParams,
+    ) {
+
+        //let _handle_msg_span = info_span!(
+        //    "Handling mkt message",
+        //);
+
+        let optional_mkt = MarketType::try_from_ref(mkt_msg);
+
+	    let market_obj = match optional_mkt {
+	        Err(e) => {
+		        warn!("_handle_mkt_msg: Error converting to market object from json: {:?}", e);
+		        return;
+	        },
+	        Ok(market_inside) => {
+                debug!("_handle_mkt_msg: Market = {:?}", market_inside);
+                market_inside
+            },
+	    };
+
+        let mkt_client_address = "http://localhost:8000/future_market";
+        let market_posted = reqwest::blocking::Client::new()
+            .post(format!("{0}", mkt_client_address))
+            .json(&HashMap::from([("market", &market_obj)]))
+            .send();
+
+        match market_posted {
+            Ok(_) => {
+                debug!("_handle_mkt_msg: Market posted successfully.");
+            },
+            _ => {
+                warn!("_handle_mkt_msg: Could not post the market successfully. Ignoring last market.");
+            }
+        }
+
+        let _ = new_mkt_sender.send(market_obj);
+    }
+}
+
+
+impl MarketSwitching for Controller {
+    /// switch markets on the trade api.
+    fn _switch_markets(&self) {
+        info!("Switching markets: current <- new.");
+        let _ = reqwest::blocking::get(format!(
+            "http://{}/switch_markets",
+            self.trade_pricer
+        ));
+    }
+
+    fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
+	    self.curr_mkt.clone()
+    }
+
+    fn _new_mkt(&self) -> Arc<Mutex<MarketType>> {
+	    self.new_mkt.clone()
+    }
+}
+
+
+impl<TT> TradeMarketDiscovery<TT> for Controller
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade
+{ }
+
+
+// TradeReduce reduces the trade to empty,
+// we dont need any additional information from the trade.
+impl<TT:BaseTrade> TradeReduce<TT> for Controller {
+    type ReductionType = ();
+
+    fn reduce(&self, trade: &TT) {
+    }
+}
+
+impl<TT> ProcessTradeAsync<TT> for Controller
+where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send + Sync
+{
+
+    async fn _process_trade(
+        &self,
+        trade: &TT,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+    ) -> PortfolioType {
+
+        let trade_id = trade.id();
+        let trade_direction = trade.direction();
+
+        //let _process_trade_span = debug_span!(
+        //     "_process trade span",
+        //    %trade_id,
+        //);
+
+        //let _ = _process_trade_span.enter();
+
+        let trade_v = trade.value_by_metric(
+            metric,
+            pricing_options,
+            curr_new_mkt,
+        )//.instrument(_process_trade_span)
+            .await;
+
+        let trade_portf = match trade_v {
+            PricingResults::PV(pv) => pv,
+            PricingResults::PV01(pv01) => pv01.aggregate(),
+            PricingResults::PnL(pnl) => pnl,
+        };
+
+        // let mut cp = curr_portfolio.lock().unwrap();
+        //TradeDirection::Create => *cp += trade_portf,
+
+        match trade_direction {
+            TradeDirection::Create => trade_portf,
+            TradeDirection::Delete => - trade_portf,
+            _ => todo!(),
+        }
+    }
+}
+
+impl<TT> RiskProcessors<TT> for Controller
+where
+    TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send + Sync,
+{
+
+    #[tracing::instrument]
+    fn _price_existing_trades(
+        &self,
+        trade_receiver: &Receiver<TT>,
+        all_trades: Arc<Mutex<TradeRep<Self::ReductionType>>>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+    ) -> PortfolioType {
+
+        self._price_new_trades_spark(
+            trade_receiver,
+            all_trades,
+            metric,
+            pricing_options,
+            curr_new_mkt,
+        )
+    }
+
+    #[tracing::instrument]
+    fn _price_new_trades(
+        &self,
+        curr_portfolio: &mut PortfolioType,
+        trade_receiver: &Receiver<TT>,
+        all_trades: Arc<Mutex<TradeRep<Self::ReductionType>>>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+        new_trades_sender: &Sender<PortfolioType>,
+    ) {
+
+        self._price_new_trades_on_service(
+            curr_portfolio,
+            trade_receiver,
+            all_trades,
+            metric,
+            pricing_options,
+            curr_new_mkt,
+            new_trades_sender,
+        )
+    }
+}
+
+// implementation of decoder for results on the portfolio.
+impl Decoder for Controller {}
+
+impl<TT> RestPricerSpark<TT> for Controller
+where TT: PartialEq
+{
+    fn _pricing_server_spark(&self) -> String {
+        "localhost:8000/".to_owned()
+    }
+
+    fn _pricing_endpoint_spark(
+        &self,
+        market_ : CurrNewMarket,
+        metric: PricingMetric,
+    ) -> String {
+        let metric_str = match metric {
+            PricingMetric::PV => "pv".to_owned(),
+            PricingMetric::PV01 => "pv01".to_owned(),
+            _ => todo!(),
+        };
+
+        let market_str = match market_ {
+            CurrNewMarket::Current => "spark".to_owned(),
+            CurrNewMarket::New => "spark_new".to_owned(),
+        };
+
+
+        format!("{}/{}", metric_str, market_str)
+    }
+}
 
 
 // Controller is generic over MarketType type, which originally was (String, Date)
@@ -152,289 +375,117 @@ impl Controller {
             controller_metric,
         ))
     }
-}
 
 
-impl Streaming for Controller {
-    fn kafka_server_name(&self) -> String {
-        self.kafka_server_name.clone()  // TODO: CHECK IF THIS CAN BE REMOVED HERE!!!
-    }
-
-    fn kafka_port(&self) -> i32 {
-        self.kafka_port
-    }
-}
-
-
-impl PublishResults for Controller {
-
-    fn metric(&self) -> PricingMetric {
-        self.metric
-    }
-}
-
-
-impl MktEventHandler for Controller {
-
-    fn _handle_mkt_msg(
-        &self,
-        mkt_msg : &Message,
-        new_mkt_sender: Sender<MarketType>,
-        _mkt_msg_params: MktMsgParams,
-    ) {
-
-        let _handle_msg_span = info_span!(
-            "Handling mkt message",
-        );
-
-        debug!("_handle_mkt_msg: Entering routine!");
-        let optional_mkt = MarketType::try_from_ref(mkt_msg);
-
-	    let market_obj = match optional_mkt {
-	        Err(e) => {
-		        warn!("_handle_mkt_msg: Error converting to market object from json: {:?}", e);
-		        return;
-	        },
-	        Ok(market_inside) => {
-                debug!("_handle_mkt_msg: Market = {:?}", market_inside);
-                market_inside
-            },
-	    };
-
-        let mkt_client_address = "http://localhost:8000/future_market";
-        let market_posted = reqwest::blocking::Client::new()
-            .post(format!("{0}", mkt_client_address))
-            .json(&HashMap::from([("market", &market_obj)]))
-            .send();
-
-        match market_posted {
-            Ok(_) => {
-                debug!("_handle_mkt_msg: Market posted successfully.");
-            },
-            _ => {
-                warn!("_handle_mkt_msg: Could not post the market successfully. Ignoring last market.");
-            }
-        }
-
-        let _ = new_mkt_sender.send(market_obj);
-    }
-}
-
-
-impl MarketSwitching for Controller {
-    /// switch markets on the trade api.
-    fn _switch_markets(&self) {
-        info!("Switching markets: current <- new.");
-        let _ = reqwest::blocking::get(format!(
-            "http://{}/switch_markets",
-            self.trade_pricer
-        ));
-    }
-
-    fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
-	    self.curr_mkt.clone()
-    }
-
-    fn _new_mkt(&self) -> Arc<Mutex<MarketType>> {
-	    self.new_mkt.clone()
-    }
-}
-
-
-impl<TT> TradeMarketDiscovery<TT> for Controller
-where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade
-{ }
-
-impl<TT> ProcessTradeAsync<TT> for Controller
-where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send
-{
     #[tracing::instrument]
-    async fn _process_trade(
+    fn _price_existing_trades_on_spark<TR: PartialEq + std::fmt::Debug + Clone + pricer::PriceTradeAsync + Send + Sync> (
         &self,
-        trade: TT,
+        all_trades: Arc<Mutex<TradeRep<TR>>>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_portfolio: Arc<Mutex<PortfolioType>>,
-        // curr_portfolio_sender: &Sender<PortfolioType>,
         curr_new_mkt: CurrNewMarket,
-    ) {
+        curr_portfolio_sender: &Sender<PortfolioType>,
+    ) -> PortfolioType {
 
-        let trade_id = trade.id();
-        let trade_direction = trade.direction();
+        let mut curr_portfolio = PortfolioType::new();
 
-        let _process_trade_span = info_span!(
-            "_process trade span",
-            %trade_id,
+        // we have tasks in trade handles, run them all
+        let _finished_futs = self.async_rt.block_on(
+            async {
+                let all_trades_l = all_trades.lock().unwrap();
+
+                for trade in all_trades_l.values() {
+                    curr_portfolio  += self._process_trade(
+                        trade,
+                        metric,
+                        pricing_options,
+                        curr_new_mkt,
+                    ).await;
+                    let _ = curr_portfolio_sender.send(curr_portfolio.clone());
+                }
+            }
         );
 
-        let _ = _process_trade_span.enter();
+        curr_portfolio
+    }
 
-        let trade_v = trade.value_by_metric(
-            metric,
-            pricing_options,
+
+    #[tracing::instrument]
+    fn _price_new_trades_on_service<TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Send + Sync>(
+        &self,
+        curr_portfolio: &mut PortfolioType,
+        trade_receiver: &Receiver<TT>,
+        all_trades: Arc<Mutex<TradeRep<()>>>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+        new_trades_sender: &Sender<PortfolioType>,
+    ) {
+
+        self.async_rt.block_on ( async {
+            let mut trade_counter = 0;
+            while let Ok(trade) = trade_receiver.try_recv() {
+                trade_counter += 1;
+                if trade_counter > 20 {
+                    break;
+                }
+                let mut all_trades_local = all_trades.lock().unwrap();
+                info!("_ZZZ_: {:?}", all_trades_local.all_trade_names());
+                let new_trade = !all_trades_local.contains(&trade.id());
+                if new_trade {
+                    self.add_trade(&trade, &mut (*all_trades_local));
+                }
+
+                if new_trade {
+                    info!("_XXX: {:?}", trade);
+                    *curr_portfolio += self._process_trade(
+                        &trade,
+                        metric,
+                        pricing_options,
+                        curr_new_mkt,
+                    ).await;
+
+                    let _ = new_trades_sender.send(curr_portfolio.clone());
+                }
+            }
+        });
+    }
+
+    #[tracing::instrument]
+    fn _price_new_trades_spark<TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Send + Sync>(
+        &self,
+        trade_receiver: &Receiver<TT>,
+        all_trades: Arc<Mutex<TradeRep<()>>>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+    ) -> PortfolioType {
+
+        let mut all_trades_local = all_trades.lock().unwrap();
+        let new_trades = self._get_trades_from_recv(trade_receiver);
+        *all_trades_local += &new_trades;
+
+        let pricing_client = reqwest::blocking::Client::new();
+
+        self.price_trades_spark(
+	        &all_trades_local,
+	        &pricing_client,
             curr_new_mkt,
-        ).instrument(_process_trade_span)
-            .await;
-
-        debug!("_process_trade: Trade value = {:?}", trade_v);
-        let trade_portf = match trade_v {
-            PricingResults::PV(pv) => pv,
-            PricingResults::PV01(pv01) => pv01.aggregate(),
-            PricingResults::PnL(pnl) => pnl,
-        };
-
-        let mut cp = curr_portfolio.lock().unwrap();
-
-        match trade_direction {
-            TradeDirection::Create => *cp += trade_portf,
-            TradeDirection::Delete => *cp -= trade_portf,
-            _ => {},
-        }
-
-    }
-}
-
-impl<TT> RiskProcessors<TT> for Controller
-where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send + Sync
-{
-
-    #[tracing::instrument]
-    fn _existing_trades(
-        &self,
-        all_trades: Arc<Mutex<TradeRep<TT>>>,
-        curr_portfolio: Arc<Mutex<PortfolioType>>,
-        metric: PricingMetric,
-        pricing_options: &MarketPricingOptions,
-        curr_portfolio_sender: &Sender<PortfolioType>,
-        curr_new_mkt: CurrNewMarket,
-    ) {
-
-        // price all existsing trades in all_trades
-        let mut trade_handles = vec![];
-        for trade in all_trades.lock().unwrap().values() {
-            trade_handles.push(
-                self._process_trade(
-                    trade.clone(),
-                    metric,
-                    pricing_options,
-                    curr_portfolio.clone(),
-                    curr_new_mkt,
-                )
-            );
-        }
-
-        // we have tasks in trade handles, run them all
-        let _finished_futs = self.async_rt.block_on(async {
-            let result = future::join_all(trade_handles);
-            result.await
-        });
-
-        let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
+            metric
+        )
     }
 
-    #[tracing::instrument]
-    fn _new_trades(
+    fn _get_trades_from_recv<TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Send + Sync> (
         &self,
         trade_receiver: &Receiver<TT>,
-        all_trades: Arc<Mutex<TradeRep<TT>>>,
-        curr_portfolio: Arc<Mutex<PortfolioType>>,
-        metric: PricingMetric,
-        pricing_options: &MarketPricingOptions,
-        curr_portfolio_sender: &Sender<PortfolioType>,
-        curr_new_mkt: CurrNewMarket,
-    ) {
+    ) -> TradeRep<()> {
 
-        let mut trade_handles: Vec<_> = vec![];
+        let mut new_trades = TradeRep::<()>::new();
         while let Ok(trade) = trade_receiver.try_recv() {
-            debug!("_trade_processor_curr: Received good trade {:?}", trade);
-
-            let mut all_trades_local = all_trades.lock().unwrap();
-            let new_trade = !all_trades_local.contains(&trade);
-            if new_trade {
-                all_trades_local.add_trade(trade.clone());
-            }
-            drop(all_trades_local);
-
-            if new_trade {
-                trade_handles.push(
-                    self._process_trade(
-                        trade.clone(),
-                        metric,
-                        pricing_options,
-                        curr_portfolio.clone(),
-                        curr_new_mkt,
-                    )
-                );
-            }
+            self.add_trade(&trade, &mut new_trades);
         }
 
-        // we have tasks in trade handles, run them all
-        let _finished_futs = self.async_rt.block_on(async {
-            let result = future::join_all(trade_handles);
-            result.await
-        });
-
-        let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
+        new_trades
     }
 
-    #[tracing::instrument]
-    fn _run_computations(
-        &self,
-        trade_receiver: &Receiver<TT>,
-        all_trades: Arc<Mutex<TradeRep<TT>>>,
-        curr_portfolio: Arc<Mutex<PortfolioType>>,
-        metric: PricingMetric,
-        pricing_options: &MarketPricingOptions,
-        curr_portfolio_sender: &Sender<PortfolioType>,
-        curr_new_mkt: CurrNewMarket,
-    ) {
-
-        debug!("_trade_processor_new: Running existing trades.");
-        // price all existsing trades in all_trades
-        let mut trade_handles = vec![];
-
-        for trade in all_trades.lock().unwrap().values() {
-            trade_handles.push(
-                self._process_trade(
-                    trade.clone(),
-                    metric,
-                    pricing_options,
-                    curr_portfolio.clone(),
-                    curr_new_mkt,
-                )
-            );
-        }
-
-        // add new trades to the pipeline.
-        while let Ok(trade) = trade_receiver.try_recv() {
-            debug!("_trade_processor_curr: Received good trade {:?}", trade);
-
-            let mut all_trades_local = all_trades.lock().unwrap();
-            let new_trade = !all_trades_local.contains(&trade);
-            if new_trade {
-                all_trades_local.add_trade(trade.clone());
-            }
-            drop(all_trades_local);
-
-            if new_trade {
-                trade_handles.push(
-                    self._process_trade(
-                        trade.clone(),
-                        metric,
-                        pricing_options,
-                        curr_portfolio.clone(),
-                        curr_new_mkt,
-                    )
-                );
-            }
-        }
-
-        // we have tasks in trade handles, run them all
-        let _finished_futs = self.async_rt.block_on(async {
-            let result = future::join_all(trade_handles);
-            result.await
-        });
-
-        let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
-    }
 }

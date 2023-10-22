@@ -9,7 +9,7 @@ use crate::portfolio_sender::PortfolioSender;
 use crate::pricer::MarketPricingOptions;
 use crate::pricer::PricingMetric;
 use crate::publish::PublishResults;
-use crate::trade::BaseTrade;
+use crate::trade::{BaseTrade, TradeRep,};
 use crate::trade_procs::RiskProcessors;
 use crate::pricer::PriceTradeAsync;
 
@@ -31,6 +31,7 @@ impl<T, TT> CalcController<TT> for T
 where
     T: Send + Sync + RiskProcessors<TT> + MktEventHandler + PublishResults + PortfolioSender<TT>,
     TT: Clone + Send + BaseTrade + PartialEq + std::fmt::Debug + PriceTradeAsync + Sync,
+
 {
     fn start(
         &self,
@@ -48,7 +49,7 @@ where
         let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
         // new & current market portfolio
         let (curr_portfolio_sender, curr_portfolio_recv) = channel::<PortfolioType>();
-        let (new_portfolio_sender, new_portfolio_recv) = channel::<PortfolioType>();
+        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, TradeRep<T::ReductionType>)>();
 
         // threads fail if any of them can not be created.
         thread::scope(|s| {

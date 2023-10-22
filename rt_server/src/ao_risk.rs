@@ -21,20 +21,19 @@ pub fn ao_main_risk() {
     // let option_type = "ao".to_string();
     // let config_file : String = args().nth(1).unwrap();
     let config_file = "/home/brumen/work/rm/configs/configuration.yaml".to_owned();
-
-    let controller = Controller::new_from_config(
-        config_file,
-    ).unwrap();
-
     let market_pricing_options = MarketPricingOptions {
         //pricing_server: "localhost:9092".to_owned(),
         pricing_server: "localhost:8000".to_owned(),
         pricing_endpoint: "pv".to_owned(),
     };
 
+    let controller = Controller::new_from_config(
+        config_file,
+    ).unwrap();
+
     // TODO: The topics should be read from config as well.
     <Controller as CalcController<AOTrade>>::start (
-	   &controller,
+        &controller,
         "air_options.ao.option_positions".to_owned(),
         "air_options.ao.mkt_events".to_owned(),
         "air_options.ao.results".to_owned(),

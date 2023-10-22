@@ -3,7 +3,8 @@
     writes logs to /tmp/trade_pv_restr.log
 
 start proper server with:
-    mod_wsgi-express start-server services/trade_api.py --processes 4 --port 5010
+    mod_wsgi-express start-server services/trade_api.py
+        --processes 4 --port 5010
 """
 
 import logging
@@ -15,7 +16,6 @@ from json import dumps, loads
 
 # IMPORTANT: This logging config MUST BE HERE ON TOP, OTHERWISE IT DOES NOT WORK
 logging.basicConfig(
-    filename='/tmp/trade_pv_restr.log',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
@@ -37,6 +37,9 @@ from rm.services.ao.trade_api_pricers import (
     extract_trade_ids,
     TradeDirection,
     price_trades,
+    CurrNewMarket,
+    PriceMetric,
+    PRICING_SERVER_NAME,
 )
 
 from sqlalchemy import create_engine
@@ -70,7 +73,7 @@ ao_session = sessionmaker(bind=ao_engine)
 def trade_pv_market(
         trade_ids: List[int],
         market_: MARKET_TYPE,
-        metric: str = 'PV',
+        metric: PriceMetric = PriceMetric.PV,
 ):
     """ Prices the trades with ids on the market provided.
 
@@ -93,17 +96,18 @@ def trade_pv_market(
             trade_pv: Dict[str, Any] = _compute_trade_from_mkt(
                 MKT_DATE,
                 trade,
+                metric,
                 TradeDirection.LONG,
                 market_,
-                default_params,  # TODO: A SERVICE FOR MANIPULATING PRICING PARAMS.
+                default_params,
             )
 
-            result |= trade_pv[metric]
+            result |= trade_pv
 
         return result
 
 
-@ pv_rester.route('/pv/<trade_id>')
+@pv_rester.route('/pv/<trade_id>')
 def trade_pv(trade_id):
     """ Returns the PV of the trade.
            Trade can be either in the form of 200, or a list of trades,
@@ -115,7 +119,7 @@ def trade_pv(trade_id):
     return trade_pv_market(trade_ids, MARKET)
 
 
-@ pv_rester.route('/pv01/<trade_id>')
+@pv_rester.route('/pv01/<trade_id>')
 def trade_pv01(trade_id):
     """ Returns the PV of the trade.
             Trade can be either in the form of 200, or a list of trades,
@@ -124,10 +128,10 @@ def trade_pv01(trade_id):
 
     trade_ids = extract_trade_ids(escape(trade_id))
 
-    return trade_pv_market(trade_ids, MARKET, 'PV01')
+    return trade_pv_market(trade_ids, MARKET, PriceMetric.PV01)
 
 
-@ pv_rester.route('/pv/new/<trade_id>')
+@pv_rester.route('/pv/new/<trade_id>')
 def trade_pv_new(trade_id):
     """ Returns the PV of the trade.
             Trade can be either in the form of 200, or a list of trades,
@@ -139,7 +143,7 @@ def trade_pv_new(trade_id):
     return trade_pv_market(trade_ids, NEW_MARKET)
 
 
-@ pv_rester.route('/pv01/new/<trade_id>')
+@pv_rester.route('/pv01/new/<trade_id>')
 def trade_pv01_new(trade_id):
     """ Returns the PV of the trade.
             Trade can be either in the form of 200, or a list of trades,
@@ -148,10 +152,13 @@ def trade_pv01_new(trade_id):
 
     trade_ids = extract_trade_ids(escape(trade_id))
 
-    return trade_pv_market(trade_ids, NEW_MARKET, 'PV01')
+    return trade_pv_market(trade_ids, NEW_MARKET, PriceMetric.PV01)
 
 
-@ pv_rester.route('/pv/spark', methods=['POST', ])
+# to test this:
+# curl -X POST -F 'trades=189,190' localhost:8000/pv/spark
+
+@pv_rester.route('/pv/spark', methods=['POST', ])
 def trade_pv_spark() -> Response:
     """ Returns the PV of the trades presented.
             Trade can be either in the form of 200, or a list of trades,
@@ -171,10 +178,21 @@ def trade_pv_spark() -> Response:
         return Response(dumps({}))
 
     # response of the priced trades
-    return Response(dumps(price_trades(MKT_DATE, trades, 'c')))
+    return Response(
+        dumps(
+            price_trades(
+                MKT_DATE,
+                trades,
+                CurrNewMarket.CURRENT
+            )
+        )
+    )
 
 
-@ pv_rester.route('/pv01/spark', methods=['POST', ])
+# to test this:
+# curl -X POST -F 'trades=189,190' localhost:8000/pv/spark
+
+@pv_rester.route('/pv01/spark', methods=['POST', ])
 def trade_pv01_spark() -> Response:
     """ Returns the PV of the trades presented.
            Trade can be either in the form of 200, or a list of trades,
@@ -194,10 +212,19 @@ def trade_pv01_spark() -> Response:
         return Response(dumps({}))
 
     # response of the priced trades
-    return Response(dumps(price_trades(MKT_DATE, trades, 'c', 'PV01', )))
+    return Response(
+        dumps(
+            price_trades(
+                MKT_DATE,
+                trades,
+                CurrNewMarket.CURRENT,
+                PriceMetric.PV01,
+            )
+        )
+    )
 
 
-@ pv_rester.route('/pv/spark_new', methods=['POST', ])
+@pv_rester.route('/pv/spark_new', methods=['POST', ])
 def trade_pv_spark_new() -> Response:
     """ Returns the PV of the trade.
             Trade can be either in the form of 200, or a list of trades,
@@ -214,13 +241,13 @@ def trade_pv_spark_new() -> Response:
     if not trades:
         return Response(dumps({}))
 
-    priced_trades = price_trades(MKT_DATE, trades, 'n')
-    logger.info(f"PV01 {len(priced_trades.keys())} on NEW market using SPARK.")
+    priced_trades = price_trades(MKT_DATE, trades, CurrNewMarket.NEW)
+    logger.info(f"PV {len(priced_trades.keys())} on NEW market using SPARK.")
 
     return Response(dumps(priced_trades))
 
 
-@ pv_rester.route('/pv01/spark_new', methods=['POST', ])
+@pv_rester.route('/pv01/spark_new', methods=['POST', ])
 def trade_pv01_spark_new() -> Response:
     """ Returns the PV of the trade.
             Trade can be either in the form of 200, or a list of trades,
@@ -237,7 +264,12 @@ def trade_pv01_spark_new() -> Response:
     if not trades:
         return Response(dumps({}))
 
-    priced_trades = price_trades(MKT_DATE, trades, 'n', 'PV01',)
+    priced_trades = price_trades(
+        MKT_DATE,
+        trades,
+        CurrNewMarket.NEW,
+        PriceMetric.PV01,
+    )
     logger.info(f"PV01 {len(priced_trades.keys())} on NEW market using SPARK.")
 
     return Response(dumps(priced_trades))

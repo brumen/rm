@@ -120,6 +120,7 @@ class MarketService:
                 self.__new_market_id = uuid4()
                 self.__new_market_snap_time = datetime.datetime.now()
                 logger.info(f"_operate_markets: Market sent: {self.encode_mkt()}")
+                print("Sending message");
                 self.__mkt_producer.send(
                     self.__mkt_producer_topic,
                     value=bytearray(str(self.encode_mkt()), 'ascii'),

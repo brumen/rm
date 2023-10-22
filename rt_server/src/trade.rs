@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize,};
 use kafka::consumer::Message;
 use thiserror::Error;
 use std::collections::HashMap;
-use std::ops::{Deref, DerefMut, };
+use std::ops::{Deref, DerefMut, AddAssign, };
  
 use crate::portfolio::{PV01Results, PortfolioType};
 use crate::ref_deref::TryFromRef;
@@ -361,59 +361,72 @@ pub trait LETFTradeHandling {
 
 /// Internal representations of trades.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct TradeRep<TT> (
-    pub HashMap<String, TT>
+pub struct TradeRep<TR> (
+    pub HashMap<String, TR>
 );
 
-impl<TT> Deref for TradeRep<TT> {
-    type Target = HashMap::<String, TT>;
+impl<TR> Deref for TradeRep<TR> {
+    type Target = HashMap::<String, TR>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<TT> DerefMut for TradeRep<TT> {
+impl<TR> DerefMut for TradeRep<TR> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
 
-impl<TT> TradeRep<TT>
-where
-    TT: BaseTrade + PartialEq
+pub trait TradeReduce<TradeType>
+    where TradeType: BaseTrade
 {
-    pub fn new() -> Self {
-	    TradeRep(HashMap::<String, TT>::new())
-    }
+    type ReductionType: Send + Clone;
 
-    // TODO: REWRITE THIS AS + operator
-    pub fn add_trade(&mut self, trade: TT) {
+    fn reduce(&self, trade: &TradeType) -> Self::ReductionType;
+    fn add_trade(&self, trade: &TradeType, tr: &mut TradeRep<Self::ReductionType>) {
 	    let trade_id = trade.id();
-	    let trade_position = self.keys().position(|tradeid| tradeid.eq(&trade_id));
+	    let trade_position = tr.keys().position(|tradeid| tradeid.eq(&trade_id));
 
 	    if trade_position.is_none() {
-	        self.insert(trade_id, trade);
+	        tr.insert(trade_id, self.reduce(trade));
 	    }
-    }
-
-    /// returns all trade ids in the trade representation.
-    pub fn all_trade_names(&self) -> Vec<String> {
-        self.all_trades_ref()
-            .into_iter()
-            .map(|t| t.id())
-            .collect()
-    }
-
-    /// returns a vector of references to the representation. Used for reading.
-    pub fn all_trades_ref(&self) -> Vec<&TT> {
-	self.values().into_iter().collect::<Vec<&TT>>()
-    }
-
-    pub fn contains(&self, trade: &TT) -> bool {
-	self.all_trades_ref().contains(&trade)
     }
 }
 
+impl<TR> TradeRep<TR>
+where
+{
+    pub fn new() -> Self {
+	    Self(HashMap::<String, TR>::new())
+    }
 
+    /// returns all trade ids in the trade representation.
+    pub fn all_trade_names(&self) -> Vec<&String> {
+        self.keys().into_iter().collect::<Vec<&String>>()
+    }
+
+    /// returns a vector of references to the representation. Used for reading.
+    pub fn all_trades_ref(&self) -> Vec<&TR> {
+	    self.values().into_iter().collect::<Vec<&TR>>()
+    }
+
+    /// does trade representation contain trade_id
+    pub fn contains(&self, trade_id: &String) -> bool {
+	    self.keys().position(|tradeid| tradeid.eq(trade_id)).is_some()
+    }
+}
+
+impl<TR:Clone> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
+
+    fn add_assign(&mut self, other: &Self) {
+        for (trade_id, trade_value) in other.iter() {
+            match self.get(trade_id) {
+                None => {self.insert((*trade_id).clone(), (*trade_value).clone());},
+                Some(_) => {},
+            }
+        }
+    }
+}

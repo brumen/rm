@@ -44,7 +44,6 @@ pub trait PublishResults : Streaming {
             let market_record = Record::from_value(&results_topic, curr_mkt_pv.as_bytes())
                 .with_partition(0);
 
-            info!("_publish_results: Publishing new portfolio w/ {} trades.", curr_portfolio.keys().len());
             let _ = res_publisher.send(&market_record);
         }
     }

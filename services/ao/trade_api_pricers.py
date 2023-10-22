@@ -34,10 +34,22 @@ default_params: Dict[str, Any] = {'default_price': 200., 'nb_sim': 500}
 # ao_engine = create_engine(ao_db)
 # ao_session = sessionmaker(bind=ao_engine)
 
+PRICING_SERVER_NAME = 'http://localhost:8000'
+
+class CurrNewMarket(Enum):
+    CURRENT = 'c'
+    NEW = 'n'
+
 
 class TradeDirection(Enum):
     LONG = 'c'
     SHORT = 'd'
+
+
+class PriceMetric(Enum):
+    PV = 'pv'
+    PV01 = 'pv01'
+    PNL = 'pnl'
 
 
 def extract_trade_ids(trades: str) -> List[int]:
@@ -75,11 +87,12 @@ def construct_ao_trades(trade_ids: List[int], session) -> List[AOTrade]:
 
 # trade with market
 def _compute_trade_from_mkt(
-    mkt_date: datetime.date,
-    ao_trade: AOTrade,
-    trade_direction: TradeDirection = TradeDirection.LONG,
-    market: Optional[Dict[Tuple[str, datetime.date], float]] = None,
-    ao_params: Optional[Dict[str, Any]] = None,
+        mkt_date: datetime.date,
+        ao_trade: AOTrade,
+        metric: PriceMetric,
+        trade_direction: TradeDirection = TradeDirection.LONG,
+        market: Optional[Dict[Tuple[str, datetime.date], float]] = None,
+        ao_params: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, DeltaDict]:
     """ Computes the trade from the market provided.
 
@@ -101,25 +114,22 @@ def _compute_trade_from_mkt(
     aof = ao_trade.aof_market(mkt_date, market, ao_params)
     nb_sim = ao_params['nb_sim']
 
-    pv = aof.PV(nb_sim=nb_sim)
-    pv01 = aof.PV01(nb_sim=nb_sim)
     trade_id = ao_trade.position_id
+    if metric == PriceMetric.PV:
+        res = aof.PV(nb_sim=nb_sim)
+    else:
+        res = aof.PV01(nb_sim=nb_sim)
 
     if trade_direction == TradeDirection.LONG:
-        return {
-            'PV': DeltaDict({trade_id: pv}),
-            'PV01': DeltaDict({trade_id: pv01}),
-        }
+        return DeltaDict({trade_id: res})
 
-    return {
-        'PV': DeltaDict({trade_id: - pv}),
-        'PV01': DeltaDict({trade_id: - pv01}),
-    }
+    return DeltaDict({trade_id: -res})
 
 
 def _compute_trades_from_id(
         mkt_date: datetime.date,
         trade_ids: List[int],
+        metric: PriceMetric,
         trade_direction: TradeDirection = TradeDirection.LONG,
         market: Optional[Dict[Tuple[str, datetime.date], float]] = None,
         ao_params: Optional[Dict[str, Any]] = None,
@@ -136,6 +146,7 @@ def _compute_trades_from_id(
     return _compute_trade_from_mkt(
         mkt_date,
         trades[0],
+        metric,
         trade_direction=trade_direction,
         market=market,
         ao_params=ao_params,
@@ -163,10 +174,37 @@ def _set_spark_env() -> SparkContext:
     return sc
 
 
+def _get_market(
+        curr_new_mkt: CurrNewMarket,
+        pricing_server_name: str = PRICING_SERVER_NAME,
+) -> Dict:
+    """ Returns current or new market information
+        from the server request.
+
+    :param curr_new_mkt: indicator if new or existing market
+    :param pricing_server_name: name of the server where to
+       fetch the market.
+
+    :returns: dictionary indicating the market info
+    """
+
+    if curr_new_mkt == CurrNewMarket.CURRENT:
+        return requests_get(f'{pricing_server_name}/market')
+
+    return requests_get(f'{pricing_server_name}/new_market')
+
+
 def _value_trade_spark(
-    market_date_trade_id: Tuple[datetime.date, int]
+        market_date_trade_id: Tuple[datetime.date, int],
+        pricing_server_name: str = PRICING_SERVER_NAME,
 ):
-    """ Values the trades """
+    """ Values the trades
+
+    :param market_date_trade_id: a tuple of
+       market_date, trade_id, curr_new_mkt
+    :param pricing_server_name: name of the pricing server
+    :returns: TODO: WHAT DO WE GET HERE!!!
+    """
 
     market_date, trade_id, curr_new_mkt = market_date_trade_id
 
@@ -185,27 +223,34 @@ def _value_trade_spark(
         return {}
 
     # call the service for the market
-    if curr_new_mkt == 'c':
-        market = requests_get('http://localhost:5010/market')
-    else:
-        market = requests_get('http://localhost:5010/new_market')
-    market_decoded = AOMarketService.decode_mkt_data(loads(market.content))
+    market = _get_market(curr_new_mkt)
+
+    market_decoded = AOMarketService.decode_mkt_data(
+        loads(market.content)
+    )
 
     return _compute_trade_from_mkt(
         market_date,
         trade[0],
+        PriceMetric.PV,
         trade_direction=TradeDirection.LONG,
         market=market_decoded,
         ao_params=default_params,
         session=session,
-    ).get('PV', {})  # TODO: THIS SHOUDLD BE FIXED.
+    )
 
 
 # TODO: FIX THE RETURN ARGUMENTS OF THIS FUNCTION - THIS ONLY WORKS FOR PV.
 def _price_explicit_trade(
-        trade_mkt_date_mkt_id: Tuple[AOTrade,datetime.date, chr, str]
+        trade_mkt_date_mkt_id: Tuple[AOTrade, datetime.date, CurrNewMarket, PriceMetric, ],
+        server_name: str = PRICING_SERVER_NAME,
 ) -> Dict[str, float]:
     """ Function to be sent to spark to price a trade.
+
+    :param trade_mkt_date_mkt_id: a tuple of trade, market date, curr_new_mkt, metric
+    :param server_name: which server do we use to get market & new
+       market information.
+    :returns: dictionary of results, depending on the metric computed.
     """
 
     # metric = 'PV', 'PV01', ...
@@ -215,26 +260,26 @@ def _price_explicit_trade(
         return {}
 
     # call the service for the market
-    if curr_new_mkt == 'c':
-        market = requests_get('http://localhost:5010/market')
-    else:
-        market = requests_get('http://localhost:5010/new_market')
-    market_decoded = AOMarketService.decode_mkt_data(loads(market.content))
+    market = _get_market(curr_new_mkt)
+    market_decoded = AOMarketService.decode_mkt_data(
+        loads(market.content)
+    )
 
     return _compute_trade_from_mkt(
         market_date,
         trade,
-        trade_direction = TradeDirection.LONG,
-        market = market_decoded,
-        ao_params = default_params,
-    ).get(metric, {})  # TODO: THIS SHOUDLD BE FIXED.
+        metric,
+        trade_direction=TradeDirection.LONG,
+        market=market_decoded,
+        ao_params=default_params,
+    )
 
 
 def price_trades(
         market_date: datetime.date,
         trade_ids: List[int],
-        curr_new_mkt: chr,
-        metric: str = 'PV',
+        curr_new_mkt: CurrNewMarket,
+        metric: PriceMetric = PriceMetric.PV,
 ) -> Dict[str, float]:
     """ Prices trades using the spark parallelization.
 

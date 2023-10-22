@@ -1,10 +1,9 @@
 use std::fmt::Debug;
 use log::warn;
 use std::{collections::HashMap, ops::SubAssign};
-use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, };
+use std::ops::{Deref, DerefMut, Add, AddAssign, Mul, MulAssign, Neg, };
 use serde::Serialize;
 
-use std::ops::{Deref, DerefMut,};
 use crate::ref_deref_trait;
 use crate::trade::{TradeDirection, BaseTrade,};
 use crate::pricer::PricingMetric;
@@ -330,7 +329,12 @@ impl Neg for PortfolioType {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        todo!()
+        let mut res = Self::new();
+        for (trade_id, trade_val) in self.iter() {
+            res.insert(trade_id.clone(), -*trade_val);  // TODO: IMPROVE HERE!!!
+        }
+
+        res
     }
 }
 

@@ -4,15 +4,23 @@ kafka_console_cmd="/home/brumen/archive/software/kafka/kafka-3.4.0-src/bin/kafka
 server="--bootstrap-server localhost:9092 "
 
 if [ "$1" == "monitors" ]; then
-    gnome-terminal --tab -e "$kafka_console_cmd $server --topic air_options.ao.mkt_events" &
-    gnome-terminal --tab -e "$kafka_console_cmd $server --topic air_options.ao.results" &
-    gnome-terminal --tab -e "$kafka_console_cmd $server --topic air_options.ao.flights_live" &
-    gnome-terminal --tab -e "$kafka_console_cmd $server --topic air_options.ao.option_positions" &
+    gnome-terminal --tab -- $kafka_console_cmd $server --topic air_options.ao.mkt_events
+    gnome-terminal --tab -- $kafka_console_cmd $server --topic air_options.ao.results
+    gnome-terminal --tab -- $kafka_console_cmd $server --topic air_options.ao.flights_live
+    gnome-terminal --tab -- $kafka_console_cmd $server --topic air_options.ao.option_positions
 
 elif [ "$1" == "services" ]; then
-    gnome-terminal --tab -e "/home/brumen/archive/software/kafka/start_kafka"
-    gnome-terminal --tab -e "/home/brumen/archive/software/kafka/start_kafka_connect"
-    gnome-terminal --tab -e "python /home/brumen/work/rm/services/ao/trade_service.py"
-    gnome-terminal --tab -e "python /home/brumen/work/rm/services/ao/trade_api.py"
-    gnome-terminal --tab -e "python /home/brumen/work/rm/services/ao/market_service_start.py"
+    gnome-terminal --tab -- /home/brumen/archive/software/kafka/start_kafka
+    gnome-terminal --tab -- /home/brumen/archive/software/kafka/start_kafka_connect
+    gnome-terminal --tab -- python /home/brumen/work/rm/services/ao/trade_service.py
+    gnome-terminal --tab -- python /home/brumen/work/rm/services/ao/trade_api.py
+    gnome-terminal --tab -- python /home/brumen/work/rm/services/ao/market_service_start.py
+
+elif [ "$1" == "server" ]; then
+    gnome-terminal --tab -- RUST_LOG=info cargo
+
+elif [ "$1" == "trade_market" ]; then
+    gnome-terminal --tab -- python /home/brumen/work/rm/services/ao/trade_service.py
+    gnome-terminal --tab -- python /home/brumen/work/rm/services/ao/market_service_start.py
+
 fi
