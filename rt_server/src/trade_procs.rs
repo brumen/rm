@@ -3,7 +3,6 @@
 use log::info;
 use std::sync::mpsc::{Receiver, Sender,};
 use std::sync::{Arc, Mutex,};
-use std::ops::AddAssign;
 
 use crate::trade::BaseTrade;
 use crate::portfolio::{PortfolioType, PricingResults, };
@@ -14,7 +13,7 @@ use crate::pricer::{
     PricingMetric,
     MarketPricingOptions,
 };
-use crate::trade::{TradeRep, TradeReduce,};
+use crate::trade::TradeRep;
 use crate::trade_processor::TradeMarketDiscovery;
 
 
@@ -39,7 +38,7 @@ where
 {
     async fn _process_trade(
         &self,
-        trade: &TT,
+        trade: TT,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
@@ -117,8 +116,6 @@ where
                 &curr_portfolio_sender,
             );
 
-            // let _ = curr_portfolio_sender.send(curr_portfolio.clone());
-
             // receive new portfolio, replace current w/ new.
             new_potential_portfolio = None;
             while let Ok(new_portfolio) = new_portfolio_receiver.try_recv() {
@@ -126,7 +123,6 @@ where
                 new_potential_portfolio = Some(new_portfolio);
             }
 
-            //let mut curr_portf = curr_portfolio.lock().unwrap();
             let mut all_trades_l = all_trades.lock().unwrap();
 
             if let Some((new_p, new_trades)) = new_potential_portfolio {
@@ -134,19 +130,11 @@ where
                 let all_l = all_trades_l.len();
 		        let mut replace_curr_w_new = false;
 
-                let new_l = new_p.len();  // TODO: CHECK IF THIS IS TRUE
+                let new_l = new_p.len();
                 if new_l >= all_l {  // new processor is further ahead
                     info!("_trade_processor_curr: Switching curr_p <- new_p.");
                     curr_portfolio = new_p;
-
-                    //*all_trades_l += new_trades;
-                    for (trade_id, trade_val) in new_trades.iter() {
-                        //let l = (*trade_val).clone();
-                        //let mut v = *all_trades_l;
-                        (*all_trades_l).insert((*trade_id).clone(), (*trade_val).clone());
-                        //*all_trades_l.insert((*trade_id).clone(), (*trade_val).clone());
-                    }
-
+                    *all_trades_l += &new_trades;
 		            replace_curr_w_new = true;
                 } else if (new_l < all_l) && (new_l >= all_l - nb_conseq_processed_trades - 1) {  // new is not ahead, but we can still update.
                     info!("_trade_processor_curr: Extending the portfolio w/ new one");

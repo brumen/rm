@@ -38,7 +38,6 @@ pub fn ao_main_risk() {
         "air_options.ao.mkt_events".to_owned(),
         "air_options.ao.results".to_owned(),
         market::MktMsgParams::AOParams(),
-        PricingMetric::PV,
         &market_pricing_options,
     );
 

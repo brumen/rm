@@ -21,7 +21,6 @@ pub trait CalcController<TT> {
         mkt_topic: String,     // market topic
         results_topic: String, // publish the results topic
         mkt_params: MktMsgParams,
-        metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
     );
 }
@@ -39,9 +38,9 @@ where
         mkt_topic: String,     // market topic
         results_topic: String, // publish the results topic
         mkt_params: MktMsgParams,
-        metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
     ) {
+
         // 2 trade senders, 1 for current market, 1 for new market.
         let (pos_sender_curr, pos_recv_curr) = channel::<TT>();
         let (pos_sender_new, pos_recv_new) = channel::<TT>();
@@ -74,7 +73,7 @@ where
                         new_mkt_receiver,
                         pos_recv_new,
                         new_portfolio_sender,
-                        metric,
+                        self.metric(),
                         pricing_options,
                     );
                 })
@@ -87,7 +86,7 @@ where
                         pos_recv_curr,
                         curr_portfolio_sender,
                         new_portfolio_recv,
-                        metric,
+                        self.metric(),
                         pricing_options,
                     );
                 })

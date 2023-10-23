@@ -9,6 +9,7 @@ from uuid import uuid4, UUID
 from threading import Thread
 from time import sleep
 from kafka import KafkaConsumer, TopicPartition, KafkaProducer
+from kafka.errors import NoBrokersAvailable
 from kafka.consumer.fetcher import ConsumerRecord
 from json import loads, dumps
 
@@ -44,13 +45,33 @@ class MarketService:
 
         server_name, port, mkt_topic = server_port_topic
         server_port = f'{server_name}:{port}'
-        self.__mkt_listener = KafkaConsumer(bootstrap_servers=server_port)
+        while True:  # we need mkt listener
+            try:
+                self.__mkt_listener = KafkaConsumer(bootstrap_servers=server_port)
+                break
+            except NoBrokersAvailable as e:
+                logger.warn(
+                    f'No kafka broker on {server_port_topic}. Attempting in 5 secs: {e}'
+                )
+                sleep(5)
+
         self.__mkt_listener.assign(
             [TopicPartition(topic=mkt_topic, partition=0)])
         self.__mkt_listener.seek_to_beginning()
 
         # producer of market events
-        self.__mkt_producer = KafkaProducer(bootstrap_servers=server_port)
+        while True:
+            try:
+                self.__mkt_producer = KafkaProducer(
+                    bootstrap_servers=server_port
+                )
+                break
+            except NoBrokersAvailable as e:
+                logger.warn(
+                    f'No kafka broker on {server_port_topic}. Attempting in 5 secs: {e}'
+                )
+                sleep(5)
+
         self.__mkt_producer_topic = mkt_events_topic
 
         self.__prev_market = {}  # both markets are empty

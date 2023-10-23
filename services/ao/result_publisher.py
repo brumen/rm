@@ -1,9 +1,7 @@
 import logging
 import sys
-logging.basicConfig(
-    filename='/tmp/rm_results_by_trade.log',
-    level=logging.INFO,
-)
+
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 sys.path.append('/home/brumen/work/')
@@ -20,12 +18,40 @@ from rm.result_publisher_by_trade import (
 )
 
 
-def main(result_idx='PV'):
+def main_letf(result_idx='PV'):
     rp = ResultPublisherLETF(
-        server_port_topic=('localhost', 9092, 'air_options.ao.results'),
-        metric=result_idx,
+       server_port_topic=('localhost', 9092, 'air_options.ao.results'),
+       metric=result_idx,
     )
+
     rp.start()
 
 
-main(result_idx=sys.argv[1])
+def main_ao(result_idx='PV'):
+
+    server_port_topic = ('localhost', 9092, 'air_options.ao.results')
+
+    if result_idx == 'PV':
+        rp = ResultPublisherKafkaPV(
+            server_port_topic=server_port_topic,
+            metric=result_idx,
+        )
+
+    elif result_idx == 'PV01':
+        rp = ResultPublisherKafkaPV01(
+            server_port_topic=server_port_topic,
+            metric=result_idx,
+        )
+    else:
+        raise RuntimeError('Metric has to be either PV or PV01')
+
+    rp.start()
+
+
+if __name__ == '__main__':
+    if len(sys.argv) > 2:  # we have enought arguments
+        metric = sys.argv[1]
+    else:
+        metric = 'PV'
+
+    main_ao(result_idx=metric)

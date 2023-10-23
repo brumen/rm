@@ -14,7 +14,6 @@ from json        import loads
 from kafka       import KafkaConsumer
 from pandastable import Table
 
-logging.basicConfig(filename = '/tmp/rm_results_by_trade.log', level = logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -373,5 +372,5 @@ class ResultPublisherLETF(ResultPublisherKafka):
                           )
 
 
-rp = ResultPublisherKafkaPV(metric='PV01')
-rp.start()
+# rp = ResultPublisherKafkaPV(metric='PV01')
+# rp.start()

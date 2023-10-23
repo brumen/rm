@@ -193,8 +193,8 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTra
         // let mut curr_p = curr_portfolio.lock().unwrap();
 
         match trade.direction() {
-            TradeDirection::Create => trade_v, // *curr_p += trade_v,
-            TradeDirection::Delete => - trade_v, //*curr_p -= trade_v,
+            TradeDirection::Create => trade_v,
+            TradeDirection::Delete => - trade_v,
             TradeDirection::Update => todo!(),
         }
     }
@@ -228,7 +228,6 @@ where
             );
         }
         p
-        //let _ = curr_portfolio_sender.send(curr_portfolio.lock().unwrap().clone());
     }
 
     fn _price_new_trades(

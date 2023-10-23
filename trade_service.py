@@ -5,11 +5,13 @@ import datetime
 import random
 import numpy as np
 from logging import getLogger
+from time import sleep
 
 from typing import Tuple, List
 from uuid import uuid4
 from time import sleep
 from kafka import KafkaProducer
+from kafka.errors import NoBrokersAvailable
 
 from rm.base_producer import BaseProducer
 
@@ -89,11 +91,20 @@ class AOTradeProducer(BaseProducer):
         server_name, port, value_topic = server_port_topic
         bootstrap_servers = f'{server_name}:{port}'
 
-        self._value_producer = KafkaProducer(
-            bootstrap_servers=bootstrap_servers,
-            value_serializer=self._serialize_msg,
-        )
         self._value_producer_topic = value_topic
+
+        while True:
+            try:
+                self._value_producer = KafkaProducer(
+                    bootstrap_servers=bootstrap_servers,
+                    value_serializer=self._serialize_msg,
+                )
+                break
+            except NoBrokersAvailable as e:
+                logger.warn(
+                    f'No Kafka broker on {bootstrap_servers}. Attempting in 5 secs: {e}'
+                )
+                sleep(5)
 
     def _value_to_publish(self, sleep_between_publish=11.):
 

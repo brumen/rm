@@ -425,7 +425,7 @@ impl<TR:Clone> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
         for (trade_id, trade_value) in other.iter() {
             match self.get(trade_id) {
                 None => {self.insert((*trade_id).clone(), (*trade_value).clone());},
-                Some(_) => {},
+                Some(_) => {},  // dont do anything, potentially check
             }
         }
     }

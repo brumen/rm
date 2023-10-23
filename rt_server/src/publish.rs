@@ -1,4 +1,4 @@
-use log::{info, debug, warn,};
+use tracing::{info, debug, warn,};
 use kafka::producer::{Producer, Record, RequiredAcks,};
 use std::sync::mpsc::Receiver;
 use std::thread::sleep;
@@ -25,7 +25,6 @@ pub trait PublishResults : Streaming {
 	    let mut res_publisher = connect_with_retries_producer(&bootstrap_servers);
 
         loop {
-            debug!("_publish_results: Publishing loop.");
             let curr_portfolio_raw = curr_portfolio_recv.recv();
             let curr_portfolio = match curr_portfolio_raw {
                 Ok(curr_portfolio_actual) => {
