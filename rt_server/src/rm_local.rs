@@ -212,14 +212,14 @@ where
     fn _price_existing_trades(
         &self,
         trade_receiver: &Receiver<TT>,
-        all_trades: Arc<Mutex<TradeRep<Self::ReductionType>>>,
+        all_trades: &mut TradeRep<Self::ReductionType>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
     ) -> PortfolioType {
         let mut p = PortfolioType::new();
 
-        for trade in all_trades.lock().unwrap().values() {
+        for trade in all_trades.values() {
             p += self._process_trade(
                 trade,
                 metric,
@@ -234,22 +234,20 @@ where
         &self,
         curr_portfolio: &mut PortfolioType,
         trade_receiver: &Receiver<TT>,
-        all_trades: Arc<Mutex<TradeRep<Self::ReductionType>>>,
+        all_trades: &mut TradeRep<Self::ReductionType>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-        new_trades_sender: &Sender<PortfolioType>,
+        new_trades_sender: &Sender<(PortfolioType, TradeRep<Self::ReductionType>)>,
     ) {
 
         while let Ok(trade) = trade_receiver.try_recv() {
             debug!("_trade_processor_curr: Received good trade {:?}", trade);
 
-            let mut all_trades_local = all_trades.lock().unwrap();
-            let new_trade = !all_trades_local.contains(&trade.id());
+            let new_trade = !all_trades.contains(&trade.id());
             if new_trade {
-                self.add_trade(&trade.clone(), &mut all_trades_local);
+                self.add_trade(&trade.clone(), all_trades);
             }
-            drop(all_trades_local);
 
             if new_trade {
                 *curr_portfolio += self._process_trade(
@@ -259,7 +257,9 @@ where
                     curr_new_mkt,
                 );
 
-                let _ = new_trades_sender.send(curr_portfolio.clone());
+                let _ = new_trades_sender.send(
+                    (curr_portfolio.clone(), TradeRep(all_trades.clone()))
+                );
             }
         }
     }

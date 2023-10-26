@@ -1,5 +1,5 @@
 //use log::debug;
-use tracing::{debug, info_span,};
+use tracing::{debug, info_span, info, };
 use kafka::consumer::Message;
 use std::sync::mpsc::Sender;
 

@@ -16,9 +16,9 @@ pub trait PublishResults : Streaming {
 
     fn metric(&self) -> PricingMetric;
 
-    fn _publish_results(
+    fn _publish_results<TT>(
         &self,
-        curr_portfolio_recv: Receiver<PortfolioType>,
+        curr_portfolio_recv: Receiver<(PortfolioType, TT)>,
         results_topic: String,
     ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
@@ -27,12 +27,12 @@ pub trait PublishResults : Streaming {
         loop {
             let curr_portfolio_raw = curr_portfolio_recv.recv();
             let curr_portfolio = match curr_portfolio_raw {
-                Ok(curr_portfolio_actual) => {
+                Ok((curr_portfolio_actual, _)) => {
                     debug!("_publish_results: Found actual portfolio: {:?}", curr_portfolio_actual);
                     curr_portfolio_actual
                 },
                 Err(e) => {
-                    debug!("_publish_results: Error in publishing: {:?}", e);
+                    warn!("_publish_results: Error in publishing: {:?}", e);
                     continue;
                 },
             };
@@ -42,7 +42,6 @@ pub trait PublishResults : Streaming {
             // implements bytearray(str(dumps(self.curr_market)), ascii))
             let market_record = Record::from_value(&results_topic, curr_mkt_pv.as_bytes())
                 .with_partition(0);
-
             let _ = res_publisher.send(&market_record);
         }
     }

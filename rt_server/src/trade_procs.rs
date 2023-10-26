@@ -1,6 +1,6 @@
 // Trade processor interaction between current and new market.
 
-use log::info;
+use tracing::info;
 use std::sync::mpsc::{Receiver, Sender,};
 use std::sync::{Arc, Mutex,};
 
@@ -58,7 +58,7 @@ where
     fn _price_existing_trades(
         &self,
         trade_receiver: &Receiver<TT>,
-        all_trades: Arc<Mutex<TradeRep<Self::ReductionType>>>,
+        all_trades: &mut TradeRep<Self::ReductionType>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
@@ -70,11 +70,11 @@ where
         &self,
         curr_portfolio: &mut PortfolioType,
         trade_receiver: &Receiver<TT>,
-        all_trades: Arc<Mutex<TradeRep<Self::ReductionType>>>,
+        all_trades: &mut TradeRep<Self::ReductionType>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-        new_trades_sender: &Sender<PortfolioType>,
+        new_trades_sender: &Sender<(PortfolioType, TradeRep<Self::ReductionType>)>,
     );
 
     /// current trade processor, reads on
@@ -83,19 +83,19 @@ where
     fn _trade_processor_curr(
         &self,
         trade_receiver: Receiver<TT>,
-        curr_portfolio_sender: Sender<PortfolioType>,
+        curr_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::ReductionType>)>,
         new_portfolio_receiver: Receiver<(PortfolioType, TradeRep<Self::ReductionType>)>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
     ) {
         let mut new_potential_portfolio : Option<(PortfolioType, TradeRep<Self::ReductionType>)>;
-        let all_trades = Arc::new(Mutex::new(TradeRep::<Self::ReductionType>::new()));
-        let mut nb_conseq_processed_trades : usize;  // number of trades which have been consequitively processed before refreshing to the new
+        let mut all_trades = TradeRep::<Self::ReductionType>::new();
         let curr_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
 
+        info!("Pricing existing trades on CURRENT market");
         let mut curr_portfolio = self._price_existing_trades(
             &trade_receiver,
-            all_trades.clone(),
+            &mut all_trades,
             metric,
             pricing_options,
             CurrNewMarket::Current,
@@ -103,13 +103,10 @@ where
 
         loop {
 
-            // receive new trade to price on current market
-            nb_conseq_processed_trades = 0;
-
             self._price_new_trades(
                 &mut curr_portfolio,
                 &trade_receiver,
-                all_trades.clone(),
+                &mut all_trades,
                 metric,
                 pricing_options,
                 CurrNewMarket::Current,
@@ -119,30 +116,22 @@ where
             // receive new portfolio, replace current w/ new.
             new_potential_portfolio = None;
             while let Ok(new_portfolio) = new_portfolio_receiver.try_recv() {
-                info!("_trade_processor_curr: New portfolio!");
                 new_potential_portfolio = Some(new_portfolio);
             }
 
-            let mut all_trades_l = all_trades.lock().unwrap();
-
             if let Some((new_p, new_trades)) = new_potential_portfolio {
                 self._switch_markets();
-                let all_l = all_trades_l.len();
-		        let mut replace_curr_w_new = false;
 
-                let new_l = new_p.len();
+                let all_l = all_trades.len();
+                let new_l = new_trades.len();
+                info!("_trade_processor_curr: New trades: {} Curr trades: {}", new_l, all_l);
                 if new_l >= all_l {  // new processor is further ahead
-                    info!("_trade_processor_curr: Switching curr_p <- new_p.");
+                    info!("_trade_processor_curr: Switching curr_p <- new_p: {}", new_trades.len());
                     curr_portfolio = new_p;
-                    *all_trades_l += &new_trades;
-		            replace_curr_w_new = true;
-                } else if (new_l < all_l) && (new_l >= all_l - nb_conseq_processed_trades - 1) {  // new is not ahead, but we can still update.
-                    info!("_trade_processor_curr: Extending the portfolio w/ new one");
-                    curr_portfolio.extend(new_p.0.into_iter());
-		            replace_curr_w_new = true;
-                }
-		        if replace_curr_w_new {
-                    let _ = curr_portfolio_sender.send(curr_portfolio.clone());
+                    all_trades += &new_trades;
+                    let _ = curr_portfolio_sender.send(
+                        (curr_portfolio.clone(), TradeRep(all_trades.clone()))
+                    );
 		        }
             }
         }
@@ -159,7 +148,7 @@ where
         pricing_options: &MarketPricingOptions,
     ) {
 
-	    let all_trades = Arc::new(Mutex::new(TradeRep::<Self::ReductionType>::new()));
+	    let mut all_trades = TradeRep::<Self::ReductionType>::new();
 
         loop {
 
@@ -169,19 +158,19 @@ where
 	        );
 
             if new_market_event {
+                info!("Pricing existing trades on NEW market: {} trades", all_trades.len());
 
-                let new_portfolio = self._price_existing_trades(
+                // compute the existing trades on something fast, like spark
+                let mut new_portfolio = self._price_existing_trades(
                     &new_trade_receiver,
-                    all_trades.clone(),
+                    &mut all_trades,
                     metric,
                     pricing_options,
                     CurrNewMarket::New,
                 );
 
-                //let l = *(all_trades.lock().unwrap());
-                info!("_trade_processor_new: Pricing finished!");
                 let _ = new_portfolio_sender.send(
-                    (new_portfolio, TradeRep((all_trades.lock().unwrap()).clone()))
+                    (new_portfolio, TradeRep(all_trades.clone()))
                 );
             }
         }

@@ -27,7 +27,6 @@ where TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade {
     ) -> u16 {
         let mut nb_added_trades = 0;
         while let Ok(trade) = trade_receiver.try_recv() {
-            info!("_find_initial_trades: Getting trade {}", trade.id());
             self.add_trade(&trade, trades);
             nb_added_trades += 1;
         }
@@ -49,7 +48,6 @@ where TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade {
         while let Ok(new_potential_mkt) = new_market_receiver.try_recv() {
             new_market_event = true;
 	        new_stock_mkt = new_potential_mkt;
-	        debug!("_new_market_event: Market = {:?}", new_stock_mkt);
         }
 
 	    *self._new_mkt().lock().expect("_new_market_event: Could not lock!") += &new_stock_mkt;

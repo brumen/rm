@@ -7,7 +7,6 @@ use crate::mkt_handler::MktEventHandler;
 use crate::portfolio::PortfolioType;
 use crate::portfolio_sender::PortfolioSender;
 use crate::pricer::MarketPricingOptions;
-use crate::pricer::PricingMetric;
 use crate::publish::PublishResults;
 use crate::trade::{BaseTrade, TradeRep,};
 use crate::trade_procs::RiskProcessors;
@@ -47,7 +46,7 @@ where
         // events about the new market event
         let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
         // new & current market portfolio
-        let (curr_portfolio_sender, curr_portfolio_recv) = channel::<PortfolioType>();
+        let (curr_portfolio_sender, curr_portfolio_recv) = channel::<(PortfolioType, TradeRep<T::ReductionType>)>();
         let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, TradeRep<T::ReductionType>)>();
 
         // threads fail if any of them can not be created.
@@ -97,7 +96,10 @@ where
                 .spawn_scoped(
                     s,
                     move || {
-                        self._publish_results(curr_portfolio_recv, results_topic);
+                        self._publish_results(
+                            curr_portfolio_recv,
+                            results_topic
+                        );
                     })
                 .unwrap();
         });

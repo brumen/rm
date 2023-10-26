@@ -423,10 +423,7 @@ impl<TR:Clone> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
 
     fn add_assign(&mut self, other: &Self) {
         for (trade_id, trade_value) in other.iter() {
-            match self.get(trade_id) {
-                None => {self.insert((*trade_id).clone(), (*trade_value).clone());},
-                Some(_) => {},  // dont do anything, potentially check
-            }
+            self.insert((*trade_id).clone(), (*trade_value).clone());
         }
     }
 }
