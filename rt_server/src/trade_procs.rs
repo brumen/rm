@@ -164,9 +164,12 @@ where <Self as PortfolioSender>::TR: Clone
                     pricing_options,
                 );
 
+                info!("_trade_processor_new: New portfolio = {:?}", new_portfolio);
                 let _ = new_portfolio_sender.send(
                     (new_portfolio, all_batches)
                 );
+
+                let _ = new_publisher.send(true);
             }
         }
     }
@@ -187,12 +190,13 @@ where <Self as PortfolioSender>::TR: Clone
 
         while new_batch.len() > 0 {
 
-            portfolio += self._price_existing_trades(
+            let new_portfolio = self._price_existing_trades(
                 &new_batch,
                 metric,
                 pricing_options,
                 CurrNewMarket::New,
             );
+            portfolio += new_portfolio;
             all_batches += &new_batch;
 
             new_batch = self._get_trades_from_recv(&new_trade_receiver);

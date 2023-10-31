@@ -26,20 +26,24 @@ pub fn ao_main_risk() {
     let config_map: RTConfig = serde_yaml::from_reader(config_f).unwrap();
 
 
-    let market_pricing_options = MarketPricingOptions {
-        pricing_server: config_map.pricing_server.to_owned(), // "localhost:8000".to_owned(),
-        pricing_endpoint: config_map.metric.to_owned(),  //"pv".to_owned(),
-    };
 
     let controller = Controller::new_from_config(
         config_file,
     ).unwrap();
 
 
+    let position_topic = config_map.pos_topic.to_owned();  // "air_options.ao.option_positions"
+    let mkt_topic = config_map.mkt_topic.to_owned();  // "air_options.ao.mkt_events"
+    let results_topic = config_map.results_topic.to_owned();  // "air_options.ao.results"
+    let market_pricing_options = MarketPricingOptions {
+        pricing_server: config_map.pricing_server.to_owned(), // "localhost:8000"
+        pricing_endpoint: config_map.metric.to_owned(),  // "pv"
+    };
+
     controller.start(
-        config_map.pos_topic.to_owned(),  // "air_options.ao.option_positions".to_owned(),
-        config_map.mkt_topic.to_owned(),  //"air_options.ao.mkt_events".to_owned(),
-        config_map.results_topic.to_owned(), // "air_options.ao.results".to_owned(),
+        position_topic,
+        mkt_topic,
+        results_topic,
         market::MktMsgParams::AOParams(),
         &market_pricing_options,
     );

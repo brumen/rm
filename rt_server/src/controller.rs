@@ -255,21 +255,21 @@ impl RiskProcessors for Controller
 
         //if all_trades.len() > 20 {
             // send to spark.
-            self.price_trades_on_spark(
+            return self.price_trades_on_spark(
                 all_trades,
                 metric,
                 pricing_options,
                 curr_new_mkt,
             )
-        //} else {
-            // price them sequentially
-        //    self._price_new_trades_on_service_working(
-        //        all_trades,
-        //        metric,
-        //        pricing_options,
-        //        curr_new_mkt,
-        //    )
         //}
+
+        // price them sequentially
+        //self._price_new_trades_seq(
+        //    all_trades,
+        //    metric,
+        //    pricing_options,
+        //     curr_new_mkt,
+        //   )
     }
 
     #[tracing::instrument]

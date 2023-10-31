@@ -378,10 +378,19 @@ where
                     metric,
                 );
 
+                curr_portfolio += portfolio;
                 curr_trade_nb = 0;
-                curr_trade_rep += tr;
+                curr_trade_rep = TradeRep::<TR>::new();
             }
         }
+
+        // remaining part of trades
+        curr_portfolio += self.price_trades_spark(
+            &curr_trade_rep,
+            &pricing_client,
+            curr_new_mkt,
+            metric,
+        );
 
         curr_portfolio
     }
