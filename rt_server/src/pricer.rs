@@ -293,7 +293,7 @@ pub trait PriceTradeAsync : BaseTrade {
 /// pricing trades on spark
 pub trait RestPricerSpark<TR> : Decoder
 where
-    TR: PartialEq + Clone
+    TR: PartialEq + Clone + BaseTrade
 {
 
     // server used by spark to price trades, like localhost:5010
@@ -360,13 +360,13 @@ where
         let nb_trades = trades.len();
         let split_nb = 20;
 
-        let curr_trade_nb = 0;
+        let mut curr_trade_nb = 0;
         let mut curr_trade_rep = TradeRep::<TR>::new();
 
         let pricing_client = reqwest::blocking::Client::new();
 
-        for trade in trades.iter() {
-            curr_trade_rep += trade;
+        for (tid, tr) in trades.iter() {
+            curr_trade_rep += tr;
             curr_trade_nb += 1;
 
             if curr_trade_nb > split_nb {
@@ -379,7 +379,7 @@ where
                 );
 
                 curr_trade_nb = 0;
-                curr_trade_rep += trade;
+                curr_trade_rep += tr;
             }
         }
 

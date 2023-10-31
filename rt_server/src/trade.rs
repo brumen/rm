@@ -450,7 +450,7 @@ where
 
 }
 
-impl<TR:Clone> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
+impl<TR:Clone + BaseTrade> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
 
     fn add_assign(&mut self, other: &TradeRep<TR>) {
         for (trade_id, trade_value) in other.iter() {
@@ -468,11 +468,16 @@ impl<TR:Clone + BaseTrade> AddAssign<&TR> for TradeRep<TR> {
 
 
 
-impl<const N: usize, TR> From<[TR; N]> for TradeRep<TR> {
+impl<const N: usize, TR: BaseTrade> From<[TR; N]> for TradeRep<TR> {
 
     fn from(arr: [TR; N]) -> Self {
-        // TODO: HERE GENERATE Trade ids.
-        Self(HashMap::from(arr))
+        let mut hm = HashMap::with_capacity(N);
+        for tr in arr {
+            let trade_id = tr.id();
+            hm.insert(trade_id, tr);
+        }
+
+        Self(hm)
     }
 
 }

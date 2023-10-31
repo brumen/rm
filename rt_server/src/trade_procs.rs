@@ -104,13 +104,12 @@ where <Self as PortfolioSender>::TR: Clone
 
             self._price_new_trades(
                 &mut curr_portfolio,
-                //&trade_receiver,
+                &trade_receiver,
                 &mut all_trades,
                 metric,
                 pricing_options,
                 CurrNewMarket::Current,
                 &curr_portfolio_sender,
-                0, //actual_slowdown,
             );
 
             // receive new portfolio, replace current w/ new.
@@ -180,7 +179,7 @@ where <Self as PortfolioSender>::TR: Clone
         pricing_options: &MarketPricingOptions,
     ) -> (PortfolioType, TradeRep<Self::TR>) {
 
-        let portfolio = PortfolioType::new();
+        let mut portfolio = PortfolioType::new();
         let mut all_batches = TradeRep::<Self::TR>::new();
         let mut new_batch = self._get_trades_from_recv(
             &new_trade_receiver
@@ -204,7 +203,7 @@ where <Self as PortfolioSender>::TR: Clone
 
     fn _get_trades_from_recv (
         &self,
-        trade_receiver: &Receiver<(String, Self::TR)>,
+        trade_receiver: &Receiver<Self::TR>,
     ) -> TradeRep<Self::TR> {
 
         let mut new_trades = TradeRep::<Self::TR>::new();

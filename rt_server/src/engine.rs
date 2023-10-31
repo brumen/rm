@@ -46,8 +46,8 @@ where
     ) {
 
         // 2 trade senders, 1 for current market, 1 for new market.
-        let (pos_sender_curr, pos_recv_curr) = channel::<TradeRep<<T as PortfolioSender>::TR>>();
-        let (pos_sender_new, pos_recv_new) = channel::<TradeRep<<T as PortfolioSender>::TR>>();
+        let (pos_sender_curr, pos_recv_curr) = channel::<<T as PortfolioSender>::TR>();
+        let (pos_sender_new, pos_recv_new) = channel::<<T as PortfolioSender>::TR>();
         // events about the new market event
         let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
         // new & current market portfolio

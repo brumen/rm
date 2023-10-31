@@ -3,7 +3,7 @@ kafka_server_port: 9092
 mkt_topic: "air_options.ao.mkt_events"
 results_topic: "air_options.ao.results"
 pos_topic: "air_options.ao.option_positions"
-trade_pricer: "localhost:8001"
+trade_pricer: "localhost:8000"
 pricing_params:
     nb_sim: 5000
     default_price: 200.

@@ -284,7 +284,7 @@ impl RiskProcessors for Controller
         new_trades_sender: &Sender<(PortfolioType, TradeRep<Self::TR>)>,
     ) {
 
-        self._price_new_trades_on_service_working(
+        self._price_new_trades_seq (
             curr_portfolio,
             trade_receiver,
             all_trades,
@@ -293,6 +293,7 @@ impl RiskProcessors for Controller
             curr_new_mkt,
             new_trades_sender,
         )
+
     }
 }
 
@@ -408,7 +409,6 @@ impl Controller {
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
         new_trades_sender: &Sender<(PortfolioType, TradeRep<AOTradeRep>)>,
-        slowdown: u64,
     )
     // where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Send + Sync
     {
@@ -443,7 +443,7 @@ impl Controller {
     #[tracing::instrument]
     fn _price_new_trades_spark(
         &self,
-        trade_receiver: &Receiver<TradeRep<AOTradeRep>>,
+        trade_receiver: &Receiver<AOTradeRep>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
@@ -469,9 +469,9 @@ impl Controller {
 
     // gets trades from receiver and constructs a trade
     // representation from them.
-    fn _get_trades_from_recv<TR: Clone> (
+    fn _get_trades_from_recv<TR: Clone + BaseTrade> (
         &self,
-        trade_receiver: &Receiver<TradeRep<TR>>,
+        trade_receiver: &Receiver<TR>,
     ) -> TradeRep<TR> {
 
         let mut new_trades = TradeRep::<TR>::new();

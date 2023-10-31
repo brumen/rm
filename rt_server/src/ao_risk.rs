@@ -36,9 +36,7 @@ pub fn ao_main_risk() {
     ).unwrap();
 
 
-    // TODO: The topics should be read from config as well.
-    <Controller as CalcController<AOTrade>>::start (
-        &controller,
+    controller.start(
         config_map.pos_topic.to_owned(),  // "air_options.ao.option_positions".to_owned(),
         config_map.mkt_topic.to_owned(),  //"air_options.ao.mkt_events".to_owned(),
         config_map.results_topic.to_owned(), // "air_options.ao.results".to_owned(),

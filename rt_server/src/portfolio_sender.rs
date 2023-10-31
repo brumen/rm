@@ -1,4 +1,4 @@
-use log::{warn, debug,};
+use log::{warn, debug, info, };
 use std::sync::mpsc::{Sender, Receiver,};
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage, Message, };
 use std::thread::sleep;
@@ -59,17 +59,25 @@ where
             &pos_topic,
         );
 
-        let existing_trades = TradeRep::<Self::TR>::new();
+        let mut existing_trades = TradeRep::<Self::TR>::new();
 
         loop {
 
-            let resend = resend_existing.try_recv().unwrap();  // should we resend existing trades
-            if resend {
-                // fill sender_new with existing trades
-                for trade in existing_trades.iter() {
-                    // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
-                    let _ = sender_new.send(trade.clone());
-                }
+            let resend = resend_existing.try_recv();  // should we resend existing trades
+            match resend {
+                Ok(resend_val) => {
+                    info!("_construct_portfolio: Got a resend value {}", resend_val);
+                    if resend_val {
+                        // fill sender_new with existing trades
+                        for (tid, trade) in existing_trades.iter() {
+                            // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
+                            let _ = sender_new.send(trade.clone());
+                        }
+                    }
+                },
+                Err(tre) => {
+                    debug!("_construct_portfolio: resend channel problems: {:?}", tre);
+                },
             }
 
             for ms in position_listener.poll().unwrap().iter() {

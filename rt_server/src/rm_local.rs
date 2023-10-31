@@ -208,7 +208,7 @@ impl TradeMarketDiscovery for RTRMLocal
 
 impl RiskProcessors for RTRMLocal
 //where
-//    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + Send + Sync,
+//    Self::TR: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + Send + Sync,
 {
     fn _price_existing_trades(
         &self,
@@ -221,7 +221,7 @@ impl RiskProcessors for RTRMLocal
 
         for trade in all_trades.values() {
             p += self._process_trade(
-                trade,
+                (*trade).clone(),
                 metric,
                 pricing_options,
                 curr_new_mkt,
@@ -246,12 +246,12 @@ impl RiskProcessors for RTRMLocal
 
             let new_trade = !all_trades.contains(&trade.id());
             if new_trade {
-                all_trades += &trade;
+                *all_trades += &trade;
             }
 
             if new_trade {
                 *curr_portfolio += self._process_trade(
-                    &trade,
+                    trade,
                     metric,
                     pricing_options,
                     curr_new_mkt,
@@ -280,6 +280,6 @@ impl TradeReduce for RTRMLocal {
     type TradeType = TradeTypes;
 
     fn reduce(&self, trade: &Self::TradeType) -> Self::ReductionType {
-        *trade
+        (*trade).clone()
     }
 }
