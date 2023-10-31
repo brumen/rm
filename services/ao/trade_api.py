@@ -401,4 +401,4 @@ def main():
 # IMPORTANT: this has to be called application, for mod_express
 application = pv_rester
 # UNCOMMENT IF TO RUN RESTER.
-main()
+# main()

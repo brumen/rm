@@ -13,7 +13,9 @@ use crate::trade_procs::RiskProcessors;
 use crate::pricer::PriceTradeAsync;
 
 
-pub trait CalcController<TT> {
+pub trait CalcController {
+    //type TR;
+
     fn start(
         &self,
         pos_topic: String,     // position topic on kafka
@@ -25,12 +27,15 @@ pub trait CalcController<TT> {
 }
 
 
-impl<T, TT> CalcController<TT> for T
+impl<T> CalcController for T
 where
-    T: Send + Sync + RiskProcessors<TT> + MktEventHandler + PublishResults + PortfolioSender<TT>,
-    TT: Clone + Send + BaseTrade + PartialEq + std::fmt::Debug + PriceTradeAsync + Sync,
+    T: Send + Sync + RiskProcessors + MktEventHandler + PublishResults + PortfolioSender,
+    //TT: Clone + Send + BaseTrade + PartialEq + std::fmt::Debug + PriceTradeAsync + Sync,
 
 {
+    //type TR = <T as RiskProcessors>::TR;
+    //type TRR = <T as RiskProcessors>::TR;
+
     fn start(
         &self,
         pos_topic: String,     // position topic on kafka
@@ -41,20 +46,26 @@ where
     ) {
 
         // 2 trade senders, 1 for current market, 1 for new market.
-        let (pos_sender_curr, pos_recv_curr) = channel::<TT>();
-        let (pos_sender_new, pos_recv_new) = channel::<TT>();
+        let (pos_sender_curr, pos_recv_curr) = channel::<TradeRep<<T as PortfolioSender>::TR>>();
+        let (pos_sender_new, pos_recv_new) = channel::<TradeRep<<T as PortfolioSender>::TR>>();
         // events about the new market event
         let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
         // new & current market portfolio
-        let (curr_portfolio_sender, curr_portfolio_recv) = channel::<(PortfolioType, TradeRep<T::ReductionType>)>();
-        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, TradeRep<T::ReductionType>)>();
+        let (curr_portfolio_sender, curr_portfolio_recv) = channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>();
+        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>();
+        let (resend_sender, resend_recv) = channel::<bool>();
 
         // threads fail if any of them can not be created.
         thread::scope(|s| {
             let _ = thread::Builder::new()
                 .name("accepting_trades".to_string())
                 .spawn_scoped(s, move || {
-                    self.__construct_portfolio(pos_sender_new, pos_sender_curr, pos_topic);
+                    self.__construct_portfolio(
+                        pos_sender_new,
+                        pos_sender_curr,
+                        resend_recv,
+                        pos_topic,
+                    );
                 })
                 .unwrap();
 
@@ -72,6 +83,7 @@ where
                         new_mkt_receiver,
                         pos_recv_new,
                         new_portfolio_sender,
+                        resend_sender,
                         self.metric(),
                         pricing_options,
                     );

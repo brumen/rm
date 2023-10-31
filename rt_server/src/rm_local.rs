@@ -3,6 +3,7 @@
 //
 
 use log::{debug, info, warn, error, };
+use reqwest::Error;
 use std::sync::{Arc, Mutex,};
 use std::sync::mpsc::{Sender, Receiver, };
 use kafka::consumer::Message;
@@ -24,7 +25,7 @@ use crate::pricer::{
 };
 
 use crate::streaming::Streaming;
-use crate::trade::{BaseTrade, TradeDirection, TradeRep, TradeReduce, };
+use crate::trade::{BaseTrade, TradeDirection, TradeRep, TradeReduce, TradeTypes, };
 use crate::trade_processor::{MarketSwitching, TradeMarketDiscovery};
 use crate::publish::PublishResults;
 use crate::trade_procs::{ProcessTradeSync, RiskProcessors,};
@@ -156,15 +157,15 @@ impl MktEventHandler for RTRMLocal {
 }
 
 
-impl<TT> ProcessTradeSync<TT> for RTRMLocal
-where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTrade + std::marker::Send + Sync
+impl<TR> ProcessTradeSync<TR> for RTRMLocal
+where TR: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTrade + std::marker::Send + Sync
 {
     /// processes the trade, by calculating the metric given
     /// on either the current or the new market.
     /// updates the curr_portfolio.
     fn _process_trade(
         &self,
-        trade: &TT,
+        trade: TR,
         metric: PricingMetric,
         _pricing_options: &MarketPricingOptions,
         //curr_portfolio: Arc<Mutex<PortfolioType>>,
@@ -192,27 +193,26 @@ where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTra
 
         // let mut curr_p = curr_portfolio.lock().unwrap();
 
-        match trade.direction() {
-            TradeDirection::Create => trade_v,
-            TradeDirection::Delete => - trade_v,
-            TradeDirection::Update => todo!(),
-        }
+        trade_v
+        //match trade.direction() {
+         //   TradeDirection::Create => trade_v,
+         //   TradeDirection::Delete => - trade_v,
+         //   TradeDirection::Update => todo!(),
+        //}
     }
 }
 
-impl<TT> TradeMarketDiscovery<TT> for RTRMLocal
-where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + Send
+impl TradeMarketDiscovery for RTRMLocal
+//where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + Send
 { }
 
-impl<TT> RiskProcessors<TT> for RTRMLocal
-where
-    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + Send + Sync,
+impl RiskProcessors for RTRMLocal
+//where
+//    TT: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + Send + Sync,
 {
-
     fn _price_existing_trades(
         &self,
-        trade_receiver: &Receiver<TT>,
-        all_trades: &mut TradeRep<Self::ReductionType>,
+        all_trades: &TradeRep<Self::TR>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
@@ -233,12 +233,12 @@ where
     fn _price_new_trades(
         &self,
         curr_portfolio: &mut PortfolioType,
-        trade_receiver: &Receiver<TT>,
-        all_trades: &mut TradeRep<Self::ReductionType>,
+        trade_receiver: &Receiver<Self::TR>,
+        all_trades: &mut TradeRep<Self::TR>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-        new_trades_sender: &Sender<(PortfolioType, TradeRep<Self::ReductionType>)>,
+        new_trades_sender: &Sender<(PortfolioType, TradeRep<Self::TR>)>,
     ) {
 
         while let Ok(trade) = trade_receiver.try_recv() {
@@ -246,7 +246,7 @@ where
 
             let new_trade = !all_trades.contains(&trade.id());
             if new_trade {
-                self.add_trade(&trade.clone(), all_trades);
+                all_trades += &trade;
             }
 
             if new_trade {
@@ -275,10 +275,11 @@ impl PublishResults for RTRMLocal {
 }
 
 
-impl<TT: BaseTrade + Clone + Send> TradeReduce<TT> for RTRMLocal {
-    type ReductionType = TT;
+impl TradeReduce for RTRMLocal {
+    type ReductionType = TradeTypes;
+    type TradeType = TradeTypes;
 
-    fn reduce(&self, trade: &TT) -> Self::ReductionType {
-        trade.clone()
+    fn reduce(&self, trade: &Self::TradeType) -> Self::ReductionType {
+        *trade
     }
 }

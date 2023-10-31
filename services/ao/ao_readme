@@ -15,6 +15,11 @@ Market script is:
 The API script is: trade_api.py, single threaded can be spawned as:
    python3 services/ao/trade_api.py
 
+   # single server:
+      python trade_api_single.py
+   # multuple threads:  - launches on 8000
+      ./trade_api_multi  - launches on 8001
+
 Deploying trade_api.py in multithreading:
 gunicorn -w 8 trade_api:application 
 

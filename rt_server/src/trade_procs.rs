@@ -1,5 +1,6 @@
 // Trade processor interaction between current and new market.
 
+use reqwest::Error;
 use tracing::info;
 use std::sync::mpsc::{Receiver, Sender,};
 use std::sync::{Arc, Mutex,};
@@ -15,30 +16,30 @@ use crate::pricer::{
 };
 use crate::trade::TradeRep;
 use crate::trade_processor::TradeMarketDiscovery;
+use crate::portfolio_sender::PortfolioSender;
 
 
-pub trait ProcessTradeSync<TT>
-where
-    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTrade + std::marker::Send
+pub trait ProcessTradeSync<TR>
+//where
+//    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTrade + std::marker::Send
 {
     fn _process_trade(
         &self,
-        trade: &TT,
+        trade: TR,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        //curr_portfolio: Arc<Mutex<PortfolioType>>,
         curr_new_mkt: CurrNewMarket,
     ) -> PricingResults;
 }
 
 
-pub trait ProcessTradeAsync<TT>
-where
-    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send + Sync
+pub trait ProcessTradeAsync<TR>
+//where
+//    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send + Sync
 {
     async fn _process_trade(
         &self,
-        trade: TT,
+        trade: TR,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
@@ -47,18 +48,17 @@ where
 
 
 /// Pricing engine for trades for remote pricing
-pub trait RiskProcessors<TT> : TradeMarketDiscovery<TT>
-where
-    TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + Send + Sync,
+pub trait RiskProcessors : TradeMarketDiscovery + PortfolioSender
+// where
+//     TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + Send + Sync,
+where <Self as PortfolioSender>::TR: Clone
 {
-    //type TR: PartialEq + std::fmt::Debug;
     /// computes the metric of the existing trades in
     /// all_trades, on either the new or the current market
     /// and updates the current_portfolio
     fn _price_existing_trades(
         &self,
-        trade_receiver: &Receiver<TT>,
-        all_trades: &mut TradeRep<Self::ReductionType>,
+        all_trades: &TradeRep<Self::TR>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
@@ -69,12 +69,12 @@ where
     fn _price_new_trades(
         &self,
         curr_portfolio: &mut PortfolioType,
-        trade_receiver: &Receiver<TT>,
-        all_trades: &mut TradeRep<Self::ReductionType>,
+        trade_receiver: &Receiver<Self::TR>,
+        all_trades: &mut TradeRep<Self::TR>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-        new_trades_sender: &Sender<(PortfolioType, TradeRep<Self::ReductionType>)>,
+        new_trades_sender: &Sender<(PortfolioType, TradeRep<Self::TR>)>,
     );
 
     /// current trade processor, reads on
@@ -82,20 +82,19 @@ where
     /// and updates the curr_portfolio_sender.
     fn _trade_processor_curr(
         &self,
-        trade_receiver: Receiver<TT>,
-        curr_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::ReductionType>)>,
-        new_portfolio_receiver: Receiver<(PortfolioType, TradeRep<Self::ReductionType>)>,
+        trade_receiver: Receiver<Self::TR>,
+        curr_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::TR>)>,
+        new_portfolio_receiver: Receiver<(PortfolioType, TradeRep<Self::TR>)>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
     ) {
-        let mut new_potential_portfolio : Option<(PortfolioType, TradeRep<Self::ReductionType>)>;
-        let mut all_trades = TradeRep::<Self::ReductionType>::new();
+        let mut new_potential_portfolio : Option<(PortfolioType, TradeRep<Self::TR>)>;
+        let mut all_trades = TradeRep::<Self::TR>::new();
         let curr_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
 
         info!("Pricing existing trades on CURRENT market");
         let mut curr_portfolio = self._price_existing_trades(
-            &trade_receiver,
-            &mut all_trades,
+            &all_trades,
             metric,
             pricing_options,
             CurrNewMarket::Current,
@@ -105,12 +104,13 @@ where
 
             self._price_new_trades(
                 &mut curr_portfolio,
-                &trade_receiver,
+                //&trade_receiver,
                 &mut all_trades,
                 metric,
                 pricing_options,
                 CurrNewMarket::Current,
                 &curr_portfolio_sender,
+                0, //actual_slowdown,
             );
 
             // receive new portfolio, replace current w/ new.
@@ -132,7 +132,7 @@ where
                     let _ = curr_portfolio_sender.send(
                         (curr_portfolio.clone(), TradeRep(all_trades.clone()))
                     );
-		        }
+                }
             }
         }
     }
@@ -142,13 +142,12 @@ where
     fn _trade_processor_new(
         &self,
         new_market_receiver: Receiver<MarketType>,
-        new_trade_receiver: Receiver<TT>,  // receiving new additional trades
-        new_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::ReductionType>)>,  // results are sent here
+        new_trade_receiver: Receiver<Self::TR>,  // receiving new additional trades
+        new_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::TR>)>,  // results are sent here
+        new_publisher: Sender<bool>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
     ) {
-
-	    let mut all_trades = TradeRep::<Self::ReductionType>::new();
 
         loop {
 
@@ -158,21 +157,63 @@ where
 	        );
 
             if new_market_event {
-                info!("Pricing existing trades on NEW market: {} trades", all_trades.len());
+                info!("_trade_processor_new: Pricing existing trades on NEW market.");
 
-                // compute the existing trades on something fast, like spark
-                let mut new_portfolio = self._price_existing_trades(
+                let (new_portfolio, all_batches) = self._new_processor_trade_loop(
                     &new_trade_receiver,
-                    &mut all_trades,
                     metric,
                     pricing_options,
-                    CurrNewMarket::New,
                 );
 
                 let _ = new_portfolio_sender.send(
-                    (new_portfolio, TradeRep(all_trades.clone()))
+                    (new_portfolio, all_batches)
                 );
             }
         }
     }
+
+    /// loop untill all the trade are exhausted on the receiver
+    fn _new_processor_trade_loop(
+        &self,
+        new_trade_receiver: &Receiver<Self::TR>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+    ) -> (PortfolioType, TradeRep<Self::TR>) {
+
+        let portfolio = PortfolioType::new();
+        let mut all_batches = TradeRep::<Self::TR>::new();
+        let mut new_batch = self._get_trades_from_recv(
+            &new_trade_receiver
+        );
+
+        while new_batch.len() > 0 {
+
+            portfolio += self._price_existing_trades(
+                &new_batch,
+                metric,
+                pricing_options,
+                CurrNewMarket::New,
+            );
+            all_batches += &new_batch;
+
+            new_batch = self._get_trades_from_recv(&new_trade_receiver);
+        }
+
+        (portfolio, all_batches)
+    }
+
+    fn _get_trades_from_recv (
+        &self,
+        trade_receiver: &Receiver<(String, Self::TR)>,
+    ) -> TradeRep<Self::TR> {
+
+        let mut new_trades = TradeRep::<Self::TR>::new();
+
+        for trade in trade_receiver.try_iter() {
+            new_trades += &trade;
+        }
+
+        new_trades
+    }
+
 }

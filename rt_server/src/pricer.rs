@@ -1,7 +1,7 @@
 use tracing::{debug, warn, info};
 use std::fmt;
 use serde::{Deserialize, Serialize};
-use reqwest;
+use reqwest::{self, Error};
 use std::collections::HashMap;
 use string_join::Join;
 
@@ -293,7 +293,7 @@ pub trait PriceTradeAsync : BaseTrade {
 /// pricing trades on spark
 pub trait RestPricerSpark<TR> : Decoder
 where
-    TR: PartialEq
+    TR: PartialEq + Clone
 {
 
     // server used by spark to price trades, like localhost:5010
@@ -340,42 +340,83 @@ where
 	        PricingResults::PnL(pnl_portfolio) => pnl_portfolio,
         }
     }
+
+    /// similar to price_trades_spark,
+    ///   just that it only limits to spark application to
+    ///   a certain number of trades, and it repeats the spark
+    ///   application
+    fn price_trades_on_spark(
+        &self,
+        trades: &TradeRep<TR>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+    ) -> PortfolioType
+    //where TR: PartialEq + std::fmt::Debug + Clone + pricer::PriceTradeAsync + Send + Sync
+    {
+
+        let mut curr_portfolio = PortfolioType::new();
+
+        let nb_trades = trades.len();
+        let split_nb = 20;
+
+        let curr_trade_nb = 0;
+        let mut curr_trade_rep = TradeRep::<TR>::new();
+
+        let pricing_client = reqwest::blocking::Client::new();
+
+        for trade in trades.iter() {
+            curr_trade_rep += trade;
+            curr_trade_nb += 1;
+
+            if curr_trade_nb > split_nb {
+                // do the computation
+                let portfolio = self.price_trades_spark(
+                    &curr_trade_rep,
+                    &pricing_client,
+                    curr_new_mkt,
+                    metric,
+                );
+
+                curr_trade_nb = 0;
+                curr_trade_rep += trade;
+            }
+        }
+
+        curr_portfolio
+    }
+
+
+    // prices the trades on the spark
+    fn price_trades_spark_2(
+        &self,
+	    trades: &TradeRep<TR>,
+	    pricing_client : &reqwest::blocking::Client,
+        market_ : CurrNewMarket,
+        metric : PricingMetric,
+    ) -> Result<PortfolioType, Error> {
+
+        // joins all trades with commas, like 190,191,192
+        let all_trade_ids = ",".join(trades.all_trade_names());
+        let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
+        let market_endpoint = pricing_endpoint_spark.as_str();
+        let result_pricing = pricing_client
+            .post(format!("http://{}/{}", self._pricing_server_spark(), market_endpoint))
+            .form(&HashMap::from([("trades", &all_trade_ids)]))
+            .send()?;
+
+        // unwrap the result_pricing
+        let priced_portfolio = self._unwrap_pricing_results(result_pricing, metric);
+
+        // let's do the aggregation here
+        Ok(
+            match priced_portfolio {
+                PricingResults::PV(pv_portfolio) => pv_portfolio,
+                PricingResults::PV01(pv01_results) => pv01_results.aggregate(),
+	            PricingResults::PnL(pnl_portfolio) => pnl_portfolio,
+            }
+        )
+    }
+
+
 }
-
-
-// pub trait PriceMultipleTrades<TT> {
-//     fn _price_trades(
-//         &self,
-// 	    trades: &[&TT],
-//         market_ : CurrNewMarket,
-//         metric: PricingMetric,
-//     ) -> PortfolioType;
-// }
-
-// // for every type that implements RestPricer & RestPricerSpark implement this as well.
-// impl<TT, T> PriceMultipleTrades<TT> for T
-// where
-//     T: RestPricerSpark<TT> + RestPricer<TT>,
-//     TT: BaseTrade
-// {
-//     fn _price_trades(
-//         &self,
-// 	    trades: &[&TT],
-//         market_ : CurrNewMarket,
-//         metric: PricingMetric,
-//     ) -> PortfolioType {
-
-//         let nb_trades = trades.len();
-
-//         if nb_trades > 30 {  // TODO: FACTOR THIS 30 out.
-//             return self._price_trades_on_spark(
-//                 trades,
-//                 &reqwest::blocking::Client::new(),
-//                 market_,
-//                 metric,
-//             );
-//         }
-
-//         self._price_trades_sequentially(trades, market_, metric)
-//     }
-// }

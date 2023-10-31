@@ -9,8 +9,9 @@ use std::ops::{Deref, DerefMut, AddAssign, };
  
 use crate::portfolio::{PV01Results, PortfolioType};
 use crate::ref_deref::TryFromRef;
-use crate::pricer::PriceTrade;
+use crate::pricer::{PriceTrade, PriceTradeAsync, };
 use crate::market::MarketType;
+use crate::ref_deref_trait;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
@@ -357,6 +358,35 @@ pub trait LETFTradeHandling {
 }
 
 
+pub type TradeTypesInner = TradeTypes;
+pub struct TradeTypesRep (pub TradeTypesInner);
+
+ref_deref_trait!(TradeTypesRep, TradeTypesInner);
+
+impl BaseTrade for TradeTypesRep {
+    fn id(&self) -> String {
+        self.id()
+    }
+
+    fn direction(&self) -> TradeDirection {
+        TradeDirection::Create
+    }
+}
+
+
+impl PriceTrade for TradeTypesRep {
+    fn initial_pv(&self) -> Option<f64> {
+        Some(0.)
+    }
+
+    fn price(&self, market: &MarketType) -> Option<f64> {
+        self.price(market)
+    }
+    fn pv01(&self, market: &MarketType) -> PV01Results {
+        self.pv01(market)
+    }
+}
+
 
 
 /// Internal representations of trades.
@@ -380,20 +410,20 @@ impl<TR> DerefMut for TradeRep<TR> {
 }
 
 
-pub trait TradeReduce<TradeType>
-    where TradeType: BaseTrade
-{
-    type ReductionType: Send + Clone;
+pub trait TradeReduce {
+    type TradeType : BaseTrade;
+    type ReductionType: Send + Clone + BaseTrade;
 
-    fn reduce(&self, trade: &TradeType) -> Self::ReductionType;
-    fn add_trade(&self, trade: &TradeType, tr: &mut TradeRep<Self::ReductionType>) {
-	    let trade_id = trade.id();
-	    let trade_position = tr.keys().position(|tradeid| tradeid.eq(&trade_id));
+    fn reduce(&self, trade: &Self::TradeType) -> Self::ReductionType;
 
-	    if trade_position.is_none() {
-	        tr.insert(trade_id, self.reduce(trade));
-	    }
-    }
+    // fn add_trade(&self, trade: &Self::TradeType, tr: &mut TradeRep<Self::ReductionType>) {
+	//     let trade_id = trade.id();
+	//     let trade_position = tr.keys().position(|tradeid| tradeid.eq(&trade_id));
+
+	//     if trade_position.is_none() {
+	//         tr.insert(trade_id, self.reduce(trade));
+	//     }
+    // }
 }
 
 impl<TR> TradeRep<TR>
@@ -417,13 +447,32 @@ where
     pub fn contains(&self, trade_id: &String) -> bool {
 	    self.keys().position(|tradeid| tradeid.eq(trade_id)).is_some()
     }
+
 }
 
 impl<TR:Clone> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
 
-    fn add_assign(&mut self, other: &Self) {
+    fn add_assign(&mut self, other: &TradeRep<TR>) {
         for (trade_id, trade_value) in other.iter() {
             self.insert((*trade_id).clone(), (*trade_value).clone());
         }
     }
+}
+
+impl<TR:Clone + BaseTrade> AddAssign<&TR> for TradeRep<TR> {
+
+    fn add_assign(&mut self, other: &TR) {
+        self.insert(other.id().clone(), other.clone());
+    }
+}
+
+
+
+impl<const N: usize, TR> From<[TR; N]> for TradeRep<TR> {
+
+    fn from(arr: [TR; N]) -> Self {
+        // TODO: HERE GENERATE Trade ids.
+        Self(HashMap::from(arr))
+    }
+
 }

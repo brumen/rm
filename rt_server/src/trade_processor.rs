@@ -17,22 +17,23 @@ pub trait MarketSwitching {
 }
 
 
-pub trait TradeMarketDiscovery<TT> : MarketSwitching + TradeReduce<TT>
-where TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade {
+pub trait TradeMarketDiscovery : MarketSwitching {
+//where TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade {
 
-    fn _find_initial_trades(
-        &self,
-        trade_receiver: &Receiver<TT>,
-	    trades: &mut TradeRep<<Self as TradeReduce<TT>>::ReductionType>
-    ) -> u16 {
-        let mut nb_added_trades = 0;
-        while let Ok(trade) = trade_receiver.try_recv() {
-            self.add_trade(&trade, trades);
-            nb_added_trades += 1;
-        }
 
-        nb_added_trades
-    }
+    // fn _find_initial_trades(
+    //     &self,
+    //     trade_receiver: &Receiver<TradeRep<TR>>,
+	//     trades: &mut TradeRep<<Self as TradeReduce>::ReductionType>
+    // ) -> u16 {
+    //     let mut nb_added_trades = 0;
+    //     while let Ok(trade) = trade_receiver.try_recv() {
+    //         self.add_trade(&trade, trades);
+    //         nb_added_trades += 1;
+    //     }
+
+    //     nb_added_trades
+    // }
 
     /// indicator if there is a new market present.
     /// consumes the new market events to come to the last one.
