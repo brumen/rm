@@ -1,2 +1,5 @@
 kafka_server_name: "localhost"
 kafka_server_port: 9092
+positions_topic: "letf.positions"
+mkt_topic: "letf.mkt"
+results_topic: "letf.results"

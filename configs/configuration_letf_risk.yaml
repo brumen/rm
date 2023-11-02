@@ -1,3 +1,7 @@
 kafka_server_name: "localhost"
 kafka_server_port: 9092
 metric: "PnL"
+results_topic: "letf.results"
+mkt_topic: "letf.mkt"
+risk_topic: "letf.risk"
+positions_topic: "letf.positions"

@@ -198,7 +198,7 @@ where TR: PriceTradeAsync + BaseTrade
 {
     async fn _process_trade(
         &self,
-        trade: TR,
+        trade: &TR,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
@@ -364,7 +364,6 @@ impl Controller {
 	        curr_mkt: Arc::new(Mutex::new(MarketType::new())),
 	        new_mkt: Arc::new(Mutex::new(MarketType::new())),
             async_rt: rt,
- //           mkt_client: rb,
         }
     }
 
@@ -423,9 +422,8 @@ impl Controller {
                     }
                     *all_trades += &trade;
 
-                    //let (tid, tr) = trade;
                     *curr_portfolio += self._process_trade(
-                        trade,
+                        &trade,
                         metric,
                         pricing_options,
                         curr_new_mkt,
@@ -440,6 +438,8 @@ impl Controller {
     }
 
 
+    /// price trades that are coming on the trade receiver on
+    /// spark, by doing repeated loops
     #[tracing::instrument]
     fn _price_new_trades_spark(
         &self,

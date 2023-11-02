@@ -33,9 +33,6 @@ where
     //TT: Clone + Send + BaseTrade + PartialEq + std::fmt::Debug + PriceTradeAsync + Sync,
 
 {
-    //type TR = <T as RiskProcessors>::TR;
-    //type TRR = <T as RiskProcessors>::TR;
-
     fn start(
         &self,
         pos_topic: String,     // position topic on kafka

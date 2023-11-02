@@ -30,8 +30,11 @@ pub struct LETFTrader {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RTConfig {
-    kafka_server_name: String,
-    kafka_server_port: i32,
+    pub kafka_server_name: String,
+    pub kafka_server_port: i32,
+    pub positions_topic: String,
+    pub mkt_topic: String,
+    pub results_topic: String,
 }
 
 
@@ -162,6 +165,7 @@ impl Streaming for LETFTrader {
     }
 }
 
+
 impl MktEventHandler for LETFTrader {
 
     /// updates the local market variable.
@@ -172,17 +176,17 @@ impl MktEventHandler for LETFTrader {
         mkt_params: MktMsgParams,
     ) {
 
-	let new_quote_mkt = match MarketType::try_from_ref(mkt_msg) {
-	    Err(e) => {
-		// ignore the market message if it cant be decoded correctly.
-		warn!("_handle_mkt_msg: New mkt message cant be decoded correctly: {e}");
-		return;
-	    },
-	    Ok(new_mkt_inner) => {
-		new_mkt_inner
-	    },
-	};
-	    
+	    let new_quote_mkt = match MarketType::try_from_ref(mkt_msg) {
+	        Err(e) => {
+		        // ignore the market message if it cant be decoded correctly.
+		        warn!("_handle_mkt_msg: New mkt message cant be decoded correctly: {e}");
+		        return;
+	        },
+	        Ok(new_mkt_inner) => {
+		        new_mkt_inner
+	        },
+	    };
+
         let MktMsgParams::LETFParams(letf_mkt) = mkt_params else {
             warn!("_handle_mkt_msg: Parameters provided to MktEventHandler are of wrong type");
             return;

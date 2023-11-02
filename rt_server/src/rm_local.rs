@@ -53,6 +53,10 @@ pub struct RTRMConfig {
     pub kafka_server_name: String,
     pub kafka_server_port: i32,
     pub metric: String,
+    pub results_topic: String,
+    pub mkt_topic: String,
+    pub risk_topic: String,
+    pub positions_topic: String,
 }
 
 
@@ -165,10 +169,9 @@ where TR: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTra
     /// updates the curr_portfolio.
     fn _process_trade(
         &self,
-        trade: TR,
+        trade: &TR,
         metric: PricingMetric,
         _pricing_options: &MarketPricingOptions,
-        //curr_portfolio: Arc<Mutex<PortfolioType>>,
         curr_new_mkt: CurrNewMarket,
     ) -> PricingResults {
 
@@ -191,14 +194,11 @@ where TR: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTra
         };
         debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
 
-        // let mut curr_p = curr_portfolio.lock().unwrap();
-
-        trade_v
-        //match trade.direction() {
-         //   TradeDirection::Create => trade_v,
-         //   TradeDirection::Delete => - trade_v,
-         //   TradeDirection::Update => todo!(),
-        //}
+        match trade.direction() {
+            TradeDirection::Create => trade_v,
+            TradeDirection::Delete => - trade_v,
+            TradeDirection::Update => todo!(),
+        }
     }
 }
 
@@ -221,7 +221,7 @@ impl RiskProcessors for RTRMLocal
 
         for trade in all_trades.values() {
             p += self._process_trade(
-                (*trade).clone(),
+                trade,
                 metric,
                 pricing_options,
                 curr_new_mkt,
@@ -251,7 +251,7 @@ impl RiskProcessors for RTRMLocal
 
             if new_trade {
                 *curr_portfolio += self._process_trade(
-                    trade,
+                    &trade,
                     metric,
                     pricing_options,
                     curr_new_mkt,
@@ -263,12 +263,10 @@ impl RiskProcessors for RTRMLocal
             }
         }
     }
-
 }
 
 
 impl PublishResults for RTRMLocal {
-
     fn metric(&self) -> PricingMetric {
         self.metric
     }

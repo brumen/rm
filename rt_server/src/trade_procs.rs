@@ -25,7 +25,7 @@ pub trait ProcessTradeSync<TR>
 {
     fn _process_trade(
         &self,
-        trade: TR,
+        trade: &TR,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
@@ -39,7 +39,7 @@ pub trait ProcessTradeAsync<TR>
 {
     async fn _process_trade(
         &self,
-        trade: TR,
+        trade: &TR,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
