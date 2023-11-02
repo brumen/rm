@@ -37,6 +37,6 @@ fn main() {
 
     env_logger::init();  // TODO: CHECK IF THIS NEEDS TO BE DONE!!!
 
-    //letf_trader::main_letf_trader();
-    ao_risk::ao_main_risk();
+    letf_trader::main_letf_trader();
+    //ao_risk::ao_main_risk();
 }

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 sys.path.append('/home/brumen/work/')
 
 from rm.trade_service import LETFTradeProducer
-from rm.services.letf_market_service import LETFMarketProducer
+from rm.services.letf.letf_market_service import LETFMarketProducer
 
 
 # start the leveraged etf market producer
@@ -24,7 +24,7 @@ letf_trade_producer = LETFTradeProducer(
     mkt_producer=letf_market_producer,
 )
 
-market_thread = letf_market_producer.create_thread(sleep_between_publish=10.)
+market_thread = letf_market_producer.create_thread(sleep_between_publish=0.2)
 trade_thread = letf_trade_producer.create_thread(sleep_between_publish=1.)
 
 market_thread.start()

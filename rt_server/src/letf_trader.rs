@@ -54,9 +54,9 @@ fn letf_trader() {
     let config_map: RTConfig = serde_yaml::from_reader(config_trader_f).unwrap();
 
     trader.start (
-        config_map.positions_topic,  //"letf.positions".to_owned(),
-        config_map.mkt_topic,  //"letf.mkt".to_owned(),
-        config_map.results_topic,  // "letf.results".to_owned(),
+        config_map.positions_topic,
+        config_map.mkt_topic,
+        config_map.results_topic,
     );
 
 }
@@ -81,10 +81,9 @@ fn letf_risk() {
 
 
     rtrm_local.start (
-        config_map.positions_topic,
-        config_map.mkt_topic,  // "letf.mkt".to_owned(),
-        //config_map.risk_topic, // "letf.risk".to_owned(),
-        config_map.results_topic,  // "letf.results".to_owned(),
+        config_map.results_topic,
+        config_map.mkt_topic,
+        config_map.risk_topic,
         market::MktMsgParams::LETFParams(
             LETFP {
                 curr_mkt: Arc::new(Mutex::new(MarketType::new()))
