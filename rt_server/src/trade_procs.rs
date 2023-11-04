@@ -5,23 +5,21 @@ use tracing::info;
 use std::sync::mpsc::{Receiver, Sender,};
 use std::sync::{Arc, Mutex,};
 
-use crate::trade::BaseTrade;
 use crate::portfolio::{PortfolioType, PricingResults, };
-use crate::market::{MarketType, CurrNewMarket};
+use crate::market::{
+    MarketType,
+    CurrNewMarket,
+    TradeMarketDiscovery,
+};
 use crate::pricer::{
-    PriceTrade,
-    PriceTradeAsync,
     PricingMetric,
     MarketPricingOptions,
 };
 use crate::trade::TradeRep;
-use crate::trade_processor::TradeMarketDiscovery;
 use crate::portfolio_sender::PortfolioSender;
 
 
 pub trait ProcessTradeSync<TR>
-//where
-//    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTrade + std::marker::Send
 {
     fn _process_trade(
         &self,
@@ -34,8 +32,6 @@ pub trait ProcessTradeSync<TR>
 
 
 pub trait ProcessTradeAsync<TR>
-//where
-//    TT:  PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send + Sync
 {
     async fn _process_trade(
         &self,
@@ -49,8 +45,6 @@ pub trait ProcessTradeAsync<TR>
 
 /// Pricing engine for trades for remote pricing
 pub trait RiskProcessors : TradeMarketDiscovery + PortfolioSender
-// where
-//     TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + Send + Sync,
 where <Self as PortfolioSender>::TR: Clone
 {
     /// computes the metric of the existing trades in

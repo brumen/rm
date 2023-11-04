@@ -35,6 +35,8 @@ use crate::market::{
     MarketType,
     CurrNewMarket,
     MktMsgParams,
+    MarketSwitching,
+    TradeMarketDiscovery,
 };
 use crate::ref_deref::TryFromRef;
 use crate::pricer::{
@@ -47,7 +49,6 @@ use crate::pricer::{
 };
 use crate::publish::PublishResults;
 use crate::streaming::Streaming;
-use crate::trade_processor::{MarketSwitching, TradeMarketDiscovery};
 use crate::mkt_handler::MktEventHandler;
 use crate::trade_procs::{ProcessTradeAsync, RiskProcessors,};
 

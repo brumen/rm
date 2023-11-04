@@ -1,10 +1,9 @@
 use log::{debug};
 use std::collections::{HashMap, hash_map::IntoIter,};
 use std::ops::{Deref, DerefMut, AddAssign,};
+use std::sync::mpsc::{Receiver, Sender,};
 use serde::{Serialize, Deserialize};
 use kafka::consumer::Message;
-
-use std::sync::mpsc::Sender;
 
 use std::default::Default;
 use std::sync::{Arc, Mutex,};
@@ -126,4 +125,40 @@ pub struct LETFP {
 pub enum MktMsgParams {
     AOParams(),
     LETFParams(LETFP),
+}
+
+
+/// trait that deals with when we switch from
+/// current market to new market.
+pub trait MarketSwitching {
+    /// switch markets on the trade api.
+    fn _switch_markets(&self);
+    fn _curr_mkt(&self) -> Arc<Mutex<MarketType>>;
+    fn _new_mkt(&self) -> Arc<Mutex<MarketType>>;
+}
+
+/// trait that detects new events and potentially skips some.
+pub trait TradeMarketDiscovery : MarketSwitching {
+
+    /// indicator if there is a new market present.
+    /// consumes the new market events to come to the last one.
+    fn _new_market_event(
+        &self,
+        new_market_receiver: &Receiver<MarketType>,
+    ) -> bool {
+
+        // handling new market event - roll to the latest new market, ignore in between markets
+        let mut new_market_event = false;
+	    let mut new_stock_mkt : MarketType = MarketType::new();
+
+        while let Ok(new_potential_mkt) = new_market_receiver.try_recv() {
+            new_market_event = true;
+	        new_stock_mkt = new_potential_mkt;
+        }
+
+	    *self._new_mkt().lock().expect("_new_market_event: Could not lock!") += &new_stock_mkt;
+
+        new_market_event
+    }
+
 }

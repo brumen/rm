@@ -3,7 +3,6 @@
 //
 
 use log::{debug, info, warn, error, };
-use reqwest::Error;
 use std::sync::{Arc, Mutex,};
 use std::sync::mpsc::{Sender, Receiver, };
 use kafka::consumer::Message;
@@ -14,6 +13,8 @@ use crate::market::{
     MarketType,
     MktMsgParams,
     CurrNewMarket,
+    MarketSwitching,
+    TradeMarketDiscovery,
 };
 use crate::mkt_handler::MktEventHandler;
 use crate::ref_deref::TryFromRef;
@@ -26,7 +27,6 @@ use crate::pricer::{
 
 use crate::streaming::Streaming;
 use crate::trade::{BaseTrade, TradeDirection, TradeRep, TradeReduce, TradeTypes, };
-use crate::trade_processor::{MarketSwitching, TradeMarketDiscovery};
 use crate::publish::PublishResults;
 use crate::trade_procs::{ProcessTradeSync, RiskProcessors,};
 

@@ -432,7 +432,7 @@ impl MulAssign<&AggregatedTrades> for PricingResults {
                     }
                 }
             },
-	    PricingResults::PnL(ref mut pnl_portfolio) => *pnl_portfolio *= rhs,	    
+	        PricingResults::PnL(ref mut pnl_portfolio) => *pnl_portfolio *= rhs,
         }
     }
 }

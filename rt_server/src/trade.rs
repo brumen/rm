@@ -186,7 +186,10 @@ impl PriceTrade for Future {
 
     fn pv01(&self, _market: &MarketType) -> PV01Results {
         let mut pv01_results = PV01Results::new();
-        let _ = pv01_results.insert(self.trade_id.clone(), PortfolioType::from([(self.stock.clone(), self.amount),]));
+        let _ = pv01_results.insert(
+            self.trade_id.clone(),
+            PortfolioType::from([(self.stock.clone(), self.amount),])
+        );
 	    debug!("_pv01: PriceTrade: pv01 Future: {:?}", pv01_results);
 
         pv01_results
@@ -415,15 +418,6 @@ pub trait TradeReduce {
     type ReductionType: Send + Clone + BaseTrade;
 
     fn reduce(&self, trade: &Self::TradeType) -> Self::ReductionType;
-
-    // fn add_trade(&self, trade: &Self::TradeType, tr: &mut TradeRep<Self::ReductionType>) {
-	//     let trade_id = trade.id();
-	//     let trade_position = tr.keys().position(|tradeid| tradeid.eq(&trade_id));
-
-	//     if trade_position.is_none() {
-	//         tr.insert(trade_id, self.reduce(trade));
-	//     }
-    // }
 }
 
 impl<TR> TradeRep<TR>
