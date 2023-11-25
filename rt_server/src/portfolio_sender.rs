@@ -88,7 +88,7 @@ where
                             continue;
                         },
                         Ok(trade) => {
-                            debug!("__construct_portfolio: sending trade {:?}", trade);
+                            info!("__construct_portfolio: sending trade {:?}", trade);
 
                             // add trades to trade_reduce
                             let tr = self.reduce(&trade);

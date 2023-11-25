@@ -81,6 +81,7 @@ where <Self as PortfolioSender>::TR: Clone
         new_portfolio_receiver: Receiver<(PortfolioType, TradeRep<Self::TR>)>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
+        accepted_sender: Sender<bool>,
     ) {
         let mut new_potential_portfolio : Option<(PortfolioType, TradeRep<Self::TR>)>;
         let mut all_trades = TradeRep::<Self::TR>::new();
@@ -96,6 +97,10 @@ where <Self as PortfolioSender>::TR: Clone
 
         loop {
 
+            info!(
+                "_trade_processor_curr: Curr nb trades: {}.",
+                all_trades.len(),
+            );
             self._price_new_trades(
                 &mut curr_portfolio,
                 &trade_receiver,
@@ -117,14 +122,18 @@ where <Self as PortfolioSender>::TR: Clone
 
                 let all_l = all_trades.len();
                 let new_l = new_trades.len();
-                info!("_trade_processor_curr: New trades: {} Curr trades: {}", new_l, all_l);
+                info!("_trade_processor_curr: New trades sent: {}. Curr trades: {}", new_l, all_l);
                 if new_l >= all_l {  // new processor is further ahead
                     info!("_trade_processor_curr: Switching curr_p <- new_p: {}", new_trades.len());
                     curr_portfolio = new_p;
                     all_trades += &new_trades;
+                    let _ = accepted_sender.send(true);
                     let _ = curr_portfolio_sender.send(
                         (curr_portfolio.clone(), TradeRep(all_trades.clone()))
                     );
+                } else {
+                    info!("_trade_processor_curr: New portfolio behind old one, not switching.");
+                    let _ = accepted_sender.send(false);
                 }
             }
         }
@@ -138,6 +147,7 @@ where <Self as PortfolioSender>::TR: Clone
         new_trade_receiver: Receiver<Self::TR>,  // receiving new additional trades
         new_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::TR>)>,  // results are sent here
         new_publisher: Sender<bool>,
+        accepted_recv: Receiver<bool>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
     ) {
@@ -148,11 +158,12 @@ where <Self as PortfolioSender>::TR: Clone
             let new_market_event = self._new_market_event(
 		        &new_market_receiver,
 	        );
+            info!("_trade_processor_new: Getting new market: {}.", new_market_event);
 
             if new_market_event {
                 info!("_trade_processor_new: Pricing existing trades on NEW market.");
 
-                let (new_portfolio, all_batches) = self._new_processor_trade_loop(
+                let (mut new_portfolio, mut all_batches) = self._new_processor_trade_loop(
                     &new_trade_receiver,
                     metric,
                     pricing_options,
@@ -160,11 +171,37 @@ where <Self as PortfolioSender>::TR: Clone
 
                 info!("_trade_processor_new: New portfolio = {:?}", new_portfolio);
                 let _ = new_portfolio_sender.send(
-                    (new_portfolio, all_batches)
+                    (new_portfolio.clone(), TradeRep(all_batches.clone()))
                 );
 
-                let _ = new_publisher.send(true);
+                let nb_attempts = 5;  // try 5 times before aborting and starting on a new market
+                let mut curr_attempt = 0;
+
+                while curr_attempt < nb_attempts {
+                    if let Ok(accepted_real) = accepted_recv.try_recv() {
+                        if accepted_real {
+                            let _ = new_publisher.send(true);
+                            break;
+                        } else {
+                            // attempt with the newest batch
+                            let (new_portfolio_inner, all_batches_inner) = self._new_processor_trade_loop(
+                                &new_trade_receiver,
+                                metric,
+                                pricing_options,
+                            );
+                            new_portfolio += new_portfolio_inner;
+                            all_batches += &all_batches_inner;
+                            let _ = new_portfolio_sender.send(
+                                (new_portfolio.clone(), TradeRep(all_batches.clone()))
+                            );
+                            curr_attempt += 1;
+                        }
+                    }
+                }
+            } else {
+                info!("_trade_processor_new: No new market. Looping.");
             }
+
         }
     }
 

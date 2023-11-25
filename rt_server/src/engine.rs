@@ -51,6 +51,7 @@ where
         let (curr_portfolio_sender, curr_portfolio_recv) = channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>();
         let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>();
         let (resend_sender, resend_recv) = channel::<bool>();
+        let (accept_sender, accept_recv) = channel::<bool>();
 
         // threads fail if any of them can not be created.
         thread::scope(|s| {
@@ -81,6 +82,7 @@ where
                         pos_recv_new,
                         new_portfolio_sender,
                         resend_sender,
+                        accept_recv,
                         self.metric(),
                         pricing_options,
                     );
@@ -96,6 +98,7 @@ where
                         new_portfolio_recv,
                         self.metric(),
                         pricing_options,
+                        accept_sender,
                     );
                 })
                 .unwrap();

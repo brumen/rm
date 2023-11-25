@@ -36,7 +36,7 @@ pub trait MktEventHandler : Streaming {
 	    let mut mkt_listener_ = connect_with_retries(&bootstrap_servers, &mkt_topic);
 
         loop {
-            debug!("_handle_mkt_events: Entering market event loop.");
+            info!("_handle_mkt_events: Entering market event loop.");
 
 
             for mkt_msg_set in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
@@ -47,7 +47,7 @@ pub trait MktEventHandler : Streaming {
 
                     //let _ = _handle_mkt_msg_span.enter();
 
-                    debug!("_handle_mkt_events: Getting new markets from {mkt_topic}.");
+                    info!("_handle_mkt_events: Getting new markets from {mkt_topic}.");
                     self._handle_mkt_msg(
                         mkt_msg,
                         new_mkt_sender.clone(),
