@@ -7,11 +7,10 @@
 
 //use std::env::args;
 
-use crate::ao_trade::AOTrade;
 use crate::controller::{Controller, RTConfig, };
 use crate::engine::CalcController;
 use crate::market;
-use crate::pricer::{PricingMetric, MarketPricingOptions};
+use crate::pricer::MarketPricingOptions;
 
 
 pub fn ao_main_risk() {

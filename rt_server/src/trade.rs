@@ -9,7 +9,7 @@ use std::ops::{Deref, DerefMut, AddAssign, };
  
 use crate::portfolio::{PV01Results, PortfolioType};
 use crate::ref_deref::TryFromRef;
-use crate::pricer::{PriceTrade, PriceTradeAsync, };
+use crate::pricer::PriceTrade;
 use crate::market::MarketType;
 use crate::ref_deref_trait;
 

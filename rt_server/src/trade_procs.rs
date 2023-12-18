@@ -1,6 +1,5 @@
 // Trade processor interaction between current and new market.
 
-use reqwest::Error;
 use tracing::info;
 use std::sync::mpsc::{Receiver, Sender,};
 use std::sync::{Arc, Mutex,};
