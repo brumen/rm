@@ -2,6 +2,8 @@ use log::{warn, error, debug,};
 use std::ops::{Deref, DerefMut, };
 use serde::{Serialize, Deserialize,};
 use kafka::consumer::Message;
+use std::future::Future;
+use std::marker::Sync;
 
 use crate::market::CurrNewMarket;
 use crate::portfolio::PV01Results;
@@ -50,84 +52,87 @@ pub struct AOTrade {
 impl Decoder for AOTrade {}
 
 
-impl<T: BaseTrade + Decoder> PriceTradeAsync for T {
+impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
 
-    async fn initial_pv(&self) -> Option<f64> {
-        Some(0.)
+    fn initial_pv(&self) -> impl Future<Output=Option<f64>> + Send {
+	async {
+            Some(0.)
+	}
     }
 
-    async fn price(
+    fn price(
         &self,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> Option<f64> {
+    ) -> impl Future<Output=Option<f64>> + Send {
+	async move {
+            let trade_id = self.id();
 
-        let trade_id = self.id();
+            let results_pricing = self._pricing_request(
+		PricingMetric::PV,
+		pricing_options,
+		curr_new_mkt,
+            ).await;
 
-        let results_pricing = self._pricing_request(
-            PricingMetric::PV,
-            pricing_options,
-            curr_new_mkt,
-        ).await;
+            match results_pricing {
+		Ok(result_price) => {
+                    let unwrapped_price = self._unwrap_pricing_results_a(
+			result_price,
+			PricingMetric::PV
+                    ).await;
 
-        match results_pricing {
-            Ok(result_price) => {
-                let unwrapped_price = self._unwrap_pricing_results_a(
-                    result_price,
-                    PricingMetric::PV
-                ).await;
-
-                debug!("_price_ao_trade: Result = {:?}", unwrapped_price);
-                if let PricingResults::PV(pv_result) = unwrapped_price {
-                    let result_keys : Vec<_> = pv_result.keys().into_iter().collect();
-                    // TODO: THIS IS GARBARGE
-                    if result_keys.len() == 0 {
-                        Some(0.)  // PortfolioType::new()
+                    debug!("_price_ao_trade: Result = {:?}", unwrapped_price);
+                    if let PricingResults::PV(pv_result) = unwrapped_price {
+			let result_keys : Vec<_> = pv_result.keys().into_iter().collect();
+			// TODO: THIS IS GARBARGE
+			if result_keys.len() == 0 {
+                            Some(0.)  // PortfolioType::new()
+			} else {
+                            pv_result.get(result_keys[0]).copied()
+			}
                     } else {
-                        pv_result.get(result_keys[0]).copied()
+			error!("Remote pricing of {} didnt go right!", trade_id);
+			None
                     }
-                } else {
-                    error!("Remote pricing of {} didnt go right!", trade_id);
+		},
+		Err(e) => {
+                    warn!("Trade {:?} could not price correctly: {}", trade_id, e);
                     None
-                }
-            },
-            Err(e) => {
-                warn!("Trade {:?} could not price correctly: {}", trade_id, e);
-                None
+		}
             }
-        }
+	}
     }
 
-    async fn pv01(
+    fn pv01(
         &self,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> PV01Results {
-        let trade_id = self.id();
-        let results_pricing = self._pricing_request(
-            PricingMetric::PV01,
-            pricing_options,
-            curr_new_mkt,
-        ).await;
-
-        match results_pricing {
-            Ok(result_price) => {
-                let unwrapped_price = self._unwrap_pricing_results_a(result_price, PricingMetric::PV01).await;
-                if let PricingResults::PV01(pv01_result) = unwrapped_price {
-                    pv01_result
-                } else {
-                    error!("pv01: Remote PV01 of {} didnt go right. Continuing w/o priced trade.", trade_id);
+    ) -> impl Future<Output=PV01Results> + Send {
+	async move {
+            let trade_id = self.id();
+            let results_pricing = self._pricing_request(
+		PricingMetric::PV01,
+		pricing_options,
+		curr_new_mkt,
+            ).await;
+	    
+            match results_pricing {
+		Ok(result_price) => {
+                    let unwrapped_price = self._unwrap_pricing_results_a(result_price, PricingMetric::PV01).await;
+                    if let PricingResults::PV01(pv01_result) = unwrapped_price {
+			pv01_result
+                    } else {
+			error!("pv01: Remote PV01 of {} didnt go right. Continuing w/o priced trade.", trade_id);
+			PV01Results::new()
+                    }
+		},
+		Err(e) => {
+                    warn!("Trade {:?} could not price correctly: {}", trade_id, e);
                     PV01Results::new()
-                }
-            },
-            Err(e) => {
-                warn!("Trade {:?} could not price correctly: {}", trade_id, e);
-                PV01Results::new()
+		}
             }
-        }
+	}
     }
-
-
 }
 
 

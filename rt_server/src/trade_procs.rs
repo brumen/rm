@@ -1,9 +1,8 @@
 // Trade processor interaction between current and new market.
-
-use reqwest::Error;
 use tracing::info;
 use std::sync::mpsc::{Receiver, Sender,};
 use std::sync::{Arc, Mutex,};
+use std::future::Future;
 
 use crate::portfolio::{PortfolioType, PricingResults, };
 use crate::market::{
@@ -33,13 +32,13 @@ pub trait ProcessTradeSync<TR>
 
 pub trait ProcessTradeAsync<TR>
 {
-    async fn _process_trade(
+    fn _process_trade(
         &self,
         trade: &TR,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> PortfolioType;
+    ) -> impl Future<Output=PortfolioType> + Send;
 }
 
 

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use reqwest::{self, Error};
 use std::collections::HashMap;
 use string_join::Join;
+use std::future::Future;
 
 use crate::portfolio::{
     PricingResults,
@@ -78,40 +79,41 @@ pub trait Decoder {
         }
     }
 
-    async fn _unwrap_pricing_results_a(
+    fn _unwrap_pricing_results_a(
         &self,
         result_price: reqwest::Response,
         metric: PricingMetric,
-    ) -> PricingResults {
+    ) -> impl Future<Output=PricingResults> + Send {
+	async move {
+            match metric {
 
-        match metric {
+		PricingMetric::PV => {
+                    let results_conv = result_price.json::<HashMap<String, f64>>().await;
 
-            PricingMetric::PV => {
-                let results_conv = result_price.json::<HashMap<String, f64>>().await;
+                    if results_conv.is_err() {
+			return PricingResults::PV(PortfolioType::new())
+                    }
 
-                if results_conv.is_err() {
-                    return PricingResults::PV(PortfolioType::new())
-                }
+                    PricingResults::PV(PortfolioType(results_conv.unwrap()))
+		},
 
-                PricingResults::PV(PortfolioType(results_conv.unwrap()))
-            },
+		PricingMetric::PV01 => {
+                    let results_conv = result_price.json::<HashMap<String, HashMap<String, f64>>>().await;
 
-            PricingMetric::PV01 => {
-                let results_conv = result_price.json::<HashMap<String, HashMap<String, f64>>>().await;
+                    if results_conv.is_err() {
+			return PricingResults::PV01(PV01Results::new());
+                    }
 
-                if results_conv.is_err() {
-                    return PricingResults::PV01(PV01Results::new());
-                }
-
-                let mut pv01 = PV01Results::new();
-                for (trade_id, trade_result) in results_conv.unwrap().iter() {
-                    let _ = pv01.insert((*trade_id.clone()).to_string(), PortfolioType::from(trade_result));
-                }
-                PricingResults::PV01(pv01)
-            },
+                    let mut pv01 = PV01Results::new();
+                    for (trade_id, trade_result) in results_conv.unwrap().iter() {
+			let _ = pv01.insert((*trade_id.clone()).to_string(), PortfolioType::from(trade_result));
+                    }
+                    PricingResults::PV01(pv01)
+		},
 
 	        PricingMetric::PnL => todo!(),
-        }
+            }
+	}
     }
 }
 
@@ -214,78 +216,90 @@ pub trait PriceTradeAsync : BaseTrade {
     }
 
     /// computes the pricing request.
-    async fn _pricing_request(
+    fn _pricing_request(
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> Result<reqwest::Response, reqwest::Error> {
-
-        reqwest::get(
-            self._endpoint(metric, pricing_options, curr_new_mkt)
-        ).await
+    ) -> impl Future<Output=Result<reqwest::Response, reqwest::Error>> + Send
+    where Self: Sync
+    {
+	async move {
+            reqwest::get(
+		self._endpoint(metric, pricing_options, curr_new_mkt)
+            ).await
+	}
     }
 
-    async fn initial_pv(&self) -> Option<f64>;
-    async fn price(
-        &self,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
-    ) -> Option<f64>;
-    async fn pv01(
-        &self,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
-    ) -> PV01Results;
+    fn initial_pv(&self) -> impl Future<Output=Option<f64>> + Send;
 
-    async fn pnl(
+    fn price(
         &self,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> Option<f64> {
+    ) -> impl Future<Output=Option<f64>> + Send;
+
+    fn pv01(
+        &self,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+    ) -> impl Future<Output=PV01Results> + Send;
+
+    fn pnl(
+        &self,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+    ) -> impl Future<Output=Option<f64>> + Send
+    where Self: Sync {
+	async move {
 	    match self.initial_pv().await {
 	        None => None,
 	        Some(initial_pv_val) =>
                 self.price(pricing_options, curr_new_mkt).await.map(|curr_price| curr_price - initial_pv_val)
-        }
+            }
+	}
     }
 
     /// values the trade for a specific metric.
-    async fn value_by_metric(
+    fn value_by_metric(
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> PricingResults {
+    ) -> impl Future<Output=PricingResults> + Send
+	where Self: Sync
+    {
 
-        let trade_name = self.id();
+	async move {
+            let trade_name = self.id();
 
-        match metric {
-            PricingMetric::PV => {
-                let priced_trade = self.price(pricing_options, curr_new_mkt).await;
-                debug!("_value_trade: PV of {:?} = {:?}", trade_name, priced_trade);
-                if let Some(price_trade) = priced_trade {
-                    PricingResults::PV(PortfolioType::from([(trade_name, price_trade),]))
-                } else {
-                    PricingResults::PV(PortfolioType::new())
-                }
-            },
-            PricingMetric::PV01 => {
-		        let trade_pv01 = self.pv01(pricing_options, curr_new_mkt).await;
-		        debug!("_value_trade: PV01 of {:?} = {:?}", trade_name, trade_pv01);
-                PricingResults::PV01(trade_pv01)
-            },
+            match metric {
+		PricingMetric::PV => {
+                    let priced_trade = self.price(pricing_options, curr_new_mkt).await;
+                    debug!("_value_trade: PV of {:?} = {:?}", trade_name, priced_trade);
+                    if let Some(price_trade) = priced_trade {
+			PricingResults::PV(PortfolioType::from([(trade_name, price_trade),]))
+                    } else {
+			PricingResults::PV(PortfolioType::new())
+                    }
+		},
+		PricingMetric::PV01 => {
+		    let trade_pv01 = self.pv01(pricing_options, curr_new_mkt).await;
+		    debug!("_value_trade: PV01 of {:?} = {:?}", trade_name, trade_pv01);
+                    PricingResults::PV01(trade_pv01)
+		},
 
-            PricingMetric::PnL => {
-                let pnl_trade = self.pnl(pricing_options, curr_new_mkt).await;
-                debug!("_value_trade: PnL of {:?} = {:?}", trade_name, pnl_trade);
-                if let Some(pnl_trade_real) = pnl_trade {
-                    PricingResults::PV(PortfolioType::from([(trade_name, pnl_trade_real),]))
-                } else {
-                    PricingResults::PV(PortfolioType::new())
-                }
-	        }
-        }
+		PricingMetric::PnL => {
+                    let pnl_trade = self.pnl(pricing_options, curr_new_mkt).await;
+                    debug!("_value_trade: PnL of {:?} = {:?}", trade_name, pnl_trade);
+                    if let Some(pnl_trade_real) = pnl_trade {
+			PricingResults::PV(PortfolioType::from([(trade_name, pnl_trade_real),]))
+                    } else {
+			PricingResults::PV(PortfolioType::new())
+                    }
+		}
+            }
+	}
     }
 }
 

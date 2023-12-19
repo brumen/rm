@@ -15,7 +15,8 @@ use std::sync::mpsc::{Sender, Receiver, };
 use core::convert::From;
 use std::sync::{Arc, Mutex};
 use tokio::runtime;
-
+use std::future::Future;
+use std::marker::Sync;
 
 use crate::ao_trade::{
     AOTrade,
@@ -195,49 +196,50 @@ impl TradeReduce for Controller {
 
 impl<TR> ProcessTradeAsync<TR> for Controller
 //where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send + Sync
-where TR: PriceTradeAsync + BaseTrade
+where TR: PriceTradeAsync + BaseTrade + Sync
 {
-    async fn _process_trade(
+    fn _process_trade(
         &self,
         trade: &TR,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> PortfolioType {
+    ) -> impl Future<Output=PortfolioType> + Send {
+	async move {
+            let trade_id = trade.id();
+            // let trade_direction = tr.direction();
 
-        let trade_id = trade.id();
-        // let trade_direction = tr.direction();
+            //let _process_trade_span = debug_span!(
+            //     "_process trade span",
+            //    %trade_id,
+            //);
 
-        //let _process_trade_span = debug_span!(
-        //     "_process trade span",
-        //    %trade_id,
-        //);
+            // let _ = _process_trade_span.enter();
 
-        // let _ = _process_trade_span.enter();
+            let trade_v = trade.value_by_metric(
+		metric,
+		pricing_options,
+		curr_new_mkt,
+            ) //.instrument(_process_trade_span)
+		.await;
 
-        let trade_v = trade.value_by_metric(
-            metric,
-            pricing_options,
-            curr_new_mkt,
-        ) //.instrument(_process_trade_span)
-            .await;
+            let trade_portf = match trade_v {
+		PricingResults::PV(pv) => pv,
+		PricingResults::PV01(pv01) => pv01.aggregate(),
+		PricingResults::PnL(pnl) => pnl,
+            };
 
-        let trade_portf = match trade_v {
-            PricingResults::PV(pv) => pv,
-            PricingResults::PV01(pv01) => pv01.aggregate(),
-            PricingResults::PnL(pnl) => pnl,
-        };
+            trade_portf
 
-        trade_portf
+            // let mut cp = curr_portfolio.lock().unwrap();
+            //TradeDirection::Create => *cp += trade_portf,
 
-        // let mut cp = curr_portfolio.lock().unwrap();
-        //TradeDirection::Create => *cp += trade_portf,
-
-        //match trade_direction {
-        //    TradeDirection::Create => trade_portf,
-        //    TradeDirection::Delete => - trade_portf,
-        //    _ => todo!(),
-        //}
+            //match trade_direction {
+            //    TradeDirection::Create => trade_portf,
+            //    TradeDirection::Delete => - trade_portf,
+            //    _ => todo!(),
+            //}
+	}
     }
 }
 
