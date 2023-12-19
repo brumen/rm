@@ -8,9 +8,8 @@ use crate::portfolio::PortfolioType;
 use crate::portfolio_sender::PortfolioSender;
 use crate::pricer::MarketPricingOptions;
 use crate::publish::PublishResults;
-use crate::trade::{BaseTrade, TradeRep,};
+use crate::trade::TradeRep;
 use crate::trade_procs::RiskProcessors;
-use crate::pricer::PriceTradeAsync;
 
 
 pub trait CalcController {
@@ -30,8 +29,6 @@ pub trait CalcController {
 impl<T> CalcController for T
 where
     T: Send + Sync + RiskProcessors + MktEventHandler + PublishResults + PortfolioSender,
-    //TT: Clone + Send + BaseTrade + PartialEq + std::fmt::Debug + PriceTradeAsync + Sync,
-
 {
     fn start(
         &self,

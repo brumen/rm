@@ -1,4 +1,3 @@
-use futures::future::join_all;
 use tracing::{
     debug,
     info,
@@ -9,7 +8,7 @@ use tracing::{
 };
 use serde::{Deserialize, Serialize};
 use kafka::consumer::Message;
-use reqwest::{self, Error};
+//use reqwest::{self, Error};
 use std::collections::HashMap;
 use std::sync::mpsc::{Sender, Receiver, };
 use core::convert::From;
