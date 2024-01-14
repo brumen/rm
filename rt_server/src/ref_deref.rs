@@ -19,7 +19,6 @@ macro_rules! ref_deref_trait {
     };
 }
 
-
 // ( $x:ty, $y:ty, $generic:tt ) => {
 //     impl<$generic> Deref for $x<$generic> {
 //         type Target = $y<$generic>;
@@ -35,11 +34,10 @@ macro_rules! ref_deref_trait {
 //     }
 // };
 
+pub trait TryFromRef<T: Sized> {
+    type Error: Debug;
 
-pub trait TryFromRef<T : Sized> {
-    type Error : Debug;
-
-    fn try_from_ref (value: &T) -> Result<Self, Self::Error>
+    fn try_from_ref(value: &T) -> Result<Self, Self::Error>
     where
-        Self : Sized + Debug;
+        Self: Sized + Debug;
 }
