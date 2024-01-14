@@ -1,36 +1,33 @@
-use std::fmt::Debug;
 use log::warn;
-use std::{collections::HashMap, ops::SubAssign};
-use std::ops::{Deref, DerefMut, Add, AddAssign, Mul, MulAssign, Neg, };
 use serde::Serialize;
+use std::fmt::Debug;
+use std::ops::{Add, AddAssign, Deref, DerefMut, Mul, MulAssign, Neg};
+use std::{collections::HashMap, ops::SubAssign};
 
-use crate::ref_deref_trait;
-use crate::trade::{TradeDirection, BaseTrade,};
 use crate::pricer::PricingMetric;
-
+use crate::ref_deref_trait;
+use crate::trade::{BaseTrade, TradeDirection};
 
 pub type PortfolioInner = HashMap<String, f64>;
 
 /// PortfolioType is of form (trade_id, trade_pv)
 #[derive(Debug, PartialEq, Serialize, Clone)]
-pub struct PortfolioType ( pub PortfolioInner );
-
+pub struct PortfolioType(pub PortfolioInner);
 
 ref_deref_trait!(PortfolioType, PortfolioInner);
-
 
 impl Add for PortfolioType {
     type Output = PortfolioType;
 
-    fn add(self, other_portfolio : PortfolioType) -> Self::Output {
-
+    fn add(self, other_portfolio: PortfolioType) -> Self::Output {
         let mut new_portfolio = PortfolioInner::new();
-        new_portfolio.extend((*self).clone());  // TODO: Can this be done w/o copying.
+        new_portfolio.extend((*self).clone()); // TODO: Can this be done w/o copying.
 
         for (trade_id, trade_value) in other_portfolio.iter() {
             if let Some(self_value) = new_portfolio.get_mut(trade_id) {
                 *self_value += *trade_value;
-            } else {  // not found in
+            } else {
+                // not found in
                 new_portfolio.insert((*trade_id).clone(), *trade_value);
             }
         }
@@ -38,15 +35,15 @@ impl Add for PortfolioType {
     }
 }
 
-
 impl SubAssign for PortfolioType {
     fn sub_assign(&mut self, rhs: Self) {
         // negate the values of
         for (trade_id, trade_value) in rhs.iter() {
             if let Some(self_value) = self.get_mut(trade_id) {
                 *self_value -= *trade_value;
-            } else {  // None
-                self.insert((*trade_id).clone(), - *trade_value);
+            } else {
+                // None
+                self.insert((*trade_id).clone(), -*trade_value);
             }
         }
     }
@@ -57,7 +54,8 @@ impl AddAssign<PortfolioType> for PortfolioType {
         for (trade_id, trade_value) in other.iter() {
             if let Some(self_value) = self.get_mut(trade_id) {
                 *self_value += *trade_value;
-            } else {  // None
+            } else {
+                // None
                 self.insert((*trade_id).clone(), *trade_value);
             }
         }
@@ -65,12 +63,12 @@ impl AddAssign<PortfolioType> for PortfolioType {
 }
 
 impl AddAssign<&PortfolioType> for PortfolioType {
-
     fn add_assign(&mut self, other: &Self) {
         for (trade_id, trade_value) in other.iter() {
             if let Some(self_value) = self.get_mut(trade_id) {
                 *self_value += *trade_value;
-            } else {  // None
+            } else {
+                // None
                 self.insert((*trade_id).clone(), *trade_value);
             }
         }
@@ -78,18 +76,17 @@ impl AddAssign<&PortfolioType> for PortfolioType {
 }
 
 impl SubAssign<&PortfolioType> for PortfolioType {
-
     fn sub_assign(&mut self, other: &Self) {
         for (trade_id, trade_value) in other.iter() {
             if let Some(self_value) = self.get_mut(trade_id) {
                 *self_value -= *trade_value;
-            } else {  // None
-                self.insert((*trade_id).clone(), - *trade_value);
+            } else {
+                // None
+                self.insert((*trade_id).clone(), -*trade_value);
             }
         }
     }
 }
-
 
 impl PortfolioType {
     pub fn new() -> Self {
@@ -109,7 +106,8 @@ impl From<&HashMap<String, f64>> for PortfolioType {
         for (trade_id, trade_value) in other_portfolio.iter() {
             if let Some(self_value) = new_portf.get_mut(trade_id) {
                 *self_value += *trade_value;
-            } else {  // not found in
+            } else {
+                // not found in
                 new_portf.insert((*trade_id).clone(), *trade_value);
             }
         }
@@ -118,12 +116,11 @@ impl From<&HashMap<String, f64>> for PortfolioType {
     }
 }
 
-
 // AggregatedTrades
 pub type AggregatedInner = HashMap<String, f64>;
 
 #[derive(Debug, PartialEq)]
-pub struct AggregatedTrades ( pub AggregatedInner );
+pub struct AggregatedTrades(pub AggregatedInner);
 
 ref_deref_trait!(AggregatedTrades, AggregatedInner);
 
@@ -142,7 +139,6 @@ impl Mul<f64> for PortfolioType {
 impl MulAssign<&AggregatedTrades> for PortfolioType {
     fn mul_assign(&mut self, rhs: &AggregatedTrades) {
         for (trade_id, trade_val) in self.iter_mut() {
-
             //if let Ok(tid) = trade_id.parse::<u16>() {
             if let Some(trade_mult) = rhs.get(trade_id) {
                 *trade_val *= *trade_mult;
@@ -164,7 +160,6 @@ impl MulAssign<f64> for PortfolioType {
     }
 }
 
-
 impl<TT: BaseTrade> AddAssign<TT> for AggregatedTrades {
     fn add_assign(&mut self, rhs: TT) {
         let new_trade_id = rhs.id();
@@ -184,7 +179,6 @@ impl<TT: BaseTrade> AddAssign<TT> for AggregatedTrades {
         }
     }
 }
-
 
 impl<TT: BaseTrade> Add<TT> for AggregatedTrades {
     type Output = AggregatedTrades;
@@ -210,23 +204,24 @@ impl<TT: BaseTrade> Add<TT> for AggregatedTrades {
     }
 }
 
-
 // PV01Results
 /// PV01Results is of form (trade_id, (exposure_to, exposure_amt))
 pub type PV01Inner = HashMap<String, PortfolioType>;
 #[derive(Clone, Debug, PartialEq)]
-pub struct PV01Results ( pub PV01Inner );
+pub struct PV01Results(pub PV01Inner);
 
 ref_deref_trait!(PV01Results, PV01Inner);
 
 impl MulAssign<&AggregatedTrades> for PV01Results {
     fn mul_assign(&mut self, rhs: &AggregatedTrades) {
         for (trade_id, trade_val) in self.iter_mut() {
-
             if let Some(trade_mult) = rhs.get(trade_id) {
                 *trade_val *= *trade_mult;
             } else {
-                warn!("mul_assign: Could not find the multiplying factor for {}", trade_id);
+                warn!(
+                    "mul_assign: Could not find the multiplying factor for {}",
+                    trade_id
+                );
             }
         }
     }
@@ -257,7 +252,6 @@ impl Neg for PV01Results {
     }
 }
 
-
 impl PV01Results {
     pub fn new() -> Self {
         Self(PV01Inner::new())
@@ -273,12 +267,11 @@ impl PV01Results {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum PricingResults {
     PV(PortfolioType),
     PV01(PV01Results),
-    PnL(PortfolioType),  // same as PV type
+    PnL(PortfolioType), // same as PV type
 }
 
 impl PricingResults {
@@ -307,7 +300,7 @@ impl Neg for PricingResults {
         match self {
             Self::PV(portfolio) => Self::PV(-portfolio),
             Self::PV01(pv01_results) => Self::PV01(-pv01_results),
-            Self::PnL(pnl_results) => Self::PnL(- pnl_results),
+            Self::PnL(pnl_results) => Self::PnL(-pnl_results),
         }
     }
 }
@@ -316,11 +309,10 @@ impl Mul<f64> for PricingResults {
     type Output = Self;
 
     fn mul(self, rhs: f64) -> Self {
-
         match self {
             Self::PV(pv_result) => Self::PV(pv_result * rhs),
             Self::PV01(pv01_result) => Self::PV01(pv01_result * rhs),
-	    Self::PnL(pnl_results) => Self::PnL(pnl_results * rhs),
+            Self::PnL(pnl_results) => Self::PnL(pnl_results * rhs),
         }
     }
 }
@@ -331,7 +323,7 @@ impl Neg for PortfolioType {
     fn neg(self) -> Self::Output {
         let mut res = Self::new();
         for (trade_id, trade_val) in self.iter() {
-            res.insert(trade_id.clone(), -*trade_val);  // TODO: IMPROVE HERE!!!
+            res.insert(trade_id.clone(), -*trade_val); // TODO: IMPROVE HERE!!!
         }
 
         res
@@ -340,103 +332,86 @@ impl Neg for PortfolioType {
 
 impl AddAssign<PricingResults> for PricingResults {
     fn add_assign(&mut self, rhs: PricingResults) {
-
         match rhs {
             PricingResults::PV(pv_results) => {
                 *self += PricingResults::PV(pv_results);
-            },
-            PricingResults::PV01(pv01_results) => {
-                *self += PricingResults::PV01(pv01_results)
-            },
-	        PricingResults::PnL(_pnl_results) => {
+            }
+            PricingResults::PV01(pv01_results) => *self += PricingResults::PV01(pv01_results),
+            PricingResults::PnL(_pnl_results) => {
                 todo!()
-	        },
+            }
         }
     }
 }
 
 impl SubAssign<PricingResults> for PricingResults {
     fn sub_assign(&mut self, rhs: PricingResults) {
-
         match rhs {
             PricingResults::PV(pv_results) => {
                 *self -= PricingResults::PV(pv_results);
-            },
-            PricingResults::PV01(pv01_results) => {
-                *self -= PricingResults::PV01(pv01_results)
-            },
-	        PricingResults::PnL(_pnl_results) => {
+            }
+            PricingResults::PV01(pv01_results) => *self -= PricingResults::PV01(pv01_results),
+            PricingResults::PnL(_pnl_results) => {
                 todo!()
-	        },
+            }
         }
     }
 }
 
-
 impl AddAssign<PricingResults> for PortfolioType {
-
     fn add_assign(&mut self, rhs: PricingResults) {
-
         match rhs {
             PricingResults::PV(pv_results) => {
                 *self += pv_results;
-            },
+            }
             PricingResults::PV01(pv01_results) => {
                 for (_, trade_portf) in pv01_results.iter() {
                     *self += trade_portf;
                 }
-            },
-	        PricingResults::PnL(_pnl_results) => {
+            }
+            PricingResults::PnL(_pnl_results) => {
                 todo!()
-            },
+            }
         }
     }
 }
 
 impl SubAssign<PricingResults> for PortfolioType {
-
     fn sub_assign(&mut self, rhs: PricingResults) {
-
         match rhs {
             PricingResults::PV(pv_results) => {
                 *self -= pv_results;
-            },
+            }
             PricingResults::PV01(pv01_results) => {
                 for (_, trade_portf) in pv01_results.iter() {
                     *self -= trade_portf;
-
                 }
-            },
-	    PricingResults::PnL(pnl_results) => {
-		*self -= pnl_results;
-	    }
+            }
+            PricingResults::PnL(pnl_results) => {
+                *self -= pnl_results;
+            }
         }
     }
 }
 
-
 impl MulAssign<&AggregatedTrades> for PricingResults {
-
     fn mul_assign(&mut self, rhs: &AggregatedTrades) {
-
         match self {
             PricingResults::PV(ref mut pv_portfolio) => *pv_portfolio *= rhs,
             PricingResults::PV01(pv01_results) => {
                 // go over trades and multiply each one by a factor.
                 for (trade_id, trade_val) in pv01_results.iter_mut() {
-
                     if let Some(trade_mult) = rhs.get(trade_id) {
                         *trade_val *= *trade_mult;
                     } else {
                         warn!("Could not find the multiplying factor for {}", trade_id);
                     }
                 }
-            },
-	        PricingResults::PnL(ref mut pnl_portfolio) => *pnl_portfolio *= rhs,
+            }
+            PricingResults::PnL(ref mut pnl_portfolio) => *pnl_portfolio *= rhs,
         }
     }
 }
-
 
 #[cfg(test)]
 mod portfolio_tests {
@@ -453,10 +428,10 @@ mod portfolio_tests {
         let _date_3 = date_1.clone();
         let _date_4 = date_1.clone();
         let _date_5 = date_2.clone();
-        let mut portfolio_1 = PortfolioType::from([('1'.to_string(), 10.), ('2'.to_string(), 20.),]);
-        let portfolio_2 = PortfolioType::from([('1'.to_string(), 20.),]);
+        let mut portfolio_1 = PortfolioType::from([('1'.to_string(), 10.), ('2'.to_string(), 20.)]);
+        let portfolio_2 = PortfolioType::from([('1'.to_string(), 20.)]);
         portfolio_1 += portfolio_2;
-        let portfolio_res = PortfolioType::from([('1'.to_string(), 30.), ('2'.to_string(), 20.),]);
+        let portfolio_res = PortfolioType::from([('1'.to_string(), 30.), ('2'.to_string(), 20.)]);
 
         assert_eq!(portfolio_1, portfolio_res);
     }

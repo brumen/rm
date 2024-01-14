@@ -1,5 +1,5 @@
-use time::Date;
-use time::error::{Parse, Format};  // parse error
+use time::error::{Format, Parse};
+use time::Date; // parse error
 
 // TODO: THIS WHOLE FILE CAN BE REMOVED IN THE NEXT ITERATION.
 
@@ -13,9 +13,7 @@ impl From<Parse> for DecoderError {
     }
 }
 
-
 pub trait EncoderDecoder {
-
     fn _decode_flight_date(flight_date: String) -> Result<(String, Date), DecoderError>;
     fn _encode_flight_date(flight: String, date: Date) -> Result<String, Format>;
 }

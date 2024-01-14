@@ -2,33 +2,25 @@
 //  Real time risk manager using local market & local pricing
 //
 
-use log::{debug, info, warn, error, };
-use std::sync::{Arc, Mutex,};
-use std::sync::mpsc::{Sender, Receiver, };
 use kafka::consumer::Message;
+use log::{debug, error, info, warn};
 use serde::Deserialize;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 
-use crate::portfolio::{PortfolioType, PricingResults, };
 use crate::market::{
-    MarketType,
-    MktMsgParams,
-    CurrNewMarket,
-    MarketSwitching,
-    TradeMarketDiscovery,
+    CurrNewMarket, MarketSwitching, MarketType, MktMsgParams, TradeMarketDiscovery,
 };
 use crate::mkt_handler::MktEventHandler;
+use crate::portfolio::{PortfolioType, PricingResults};
 use crate::ref_deref::TryFromRef;
 
-use crate::pricer::{
-    PricingMetric,
-    PriceTrade,
-    MarketPricingOptions,
-};
+use crate::pricer::{MarketPricingOptions, PriceTrade, PricingMetric};
 
-use crate::streaming::Streaming;
-use crate::trade::{BaseTrade, TradeDirection, TradeRep, TradeReduce, TradeTypes, };
 use crate::publish::PublishResults;
-use crate::trade_procs::{ProcessTradeSync, RiskProcessors,};
+use crate::streaming::Streaming;
+use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeRep, TradeTypes};
+use crate::trade_procs::{ProcessTradeSync, RiskProcessors};
 
 /// RTRM - Real time risk manager using local
 ///    local market and local pricing.
@@ -47,7 +39,6 @@ pub struct RTRMLocal {
     new_market: Arc<Mutex<MarketType>>,
 }
 
-
 #[derive(Deserialize)]
 pub struct RTRMConfig {
     pub kafka_server_name: String,
@@ -59,15 +50,9 @@ pub struct RTRMConfig {
     pub positions_topic: String,
 }
 
-
 // Controller is generic over MarketType type, which originally was (String, Date)
 impl RTRMLocal {
-    pub fn new(
-        kafka_server_name: String,
-        kafka_port: i32,
-        metric: PricingMetric,
-    ) -> Self {
-
+    pub fn new(kafka_server_name: String, kafka_port: i32, metric: PricingMetric) -> Self {
         Self {
             kafka_server_name,
             kafka_port,
@@ -79,18 +64,16 @@ impl RTRMLocal {
 
     /// constructs the controller from configuration read from the file.
     /// config_file. If it cant read the file properly, it crashes.
-    pub fn new_from_config(
-        config_file: String,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new_from_config(config_file: String) -> Result<Self, Box<dyn std::error::Error>> {
         let config_f = std::fs::File::open(config_file).unwrap();
         let config_map: RTRMConfig = serde_yaml::from_reader(config_f).unwrap();
 
         let controller_metric = match config_map.metric.as_str() {
-	    "PV" => PricingMetric::PV,
-	    "PV01" => PricingMetric::PV01,
-	    "PnL" => PricingMetric::PnL,
-	    &_ => todo!(),
-	};
+            "PV" => PricingMetric::PV,
+            "PV01" => PricingMetric::PV01,
+            "PnL" => PricingMetric::PnL,
+            &_ => todo!(),
+        };
 
         Ok(RTRMLocal::new(
             // pricing_params
@@ -101,27 +84,31 @@ impl RTRMLocal {
     }
 }
 
-
 impl MarketSwitching for RTRMLocal {
     /// switch markets on the trade api.
     fn _switch_markets(&self) {
         info!("_switch_markets: Switching markets: current <- new.");
 
-        let nm = self.new_market.lock().expect("_switch_markets: Could not lock new market.");
-        **self.curr_market.lock().expect("_switch_markets: Could not lock current market") = (*nm).clone();
+        let nm = self
+            .new_market
+            .lock()
+            .expect("_switch_markets: Could not lock new market.");
+        **self
+            .curr_market
+            .lock()
+            .expect("_switch_markets: Could not lock current market") = (*nm).clone();
 
-	    debug!("_switch_markets: Curr market now: {:?}", nm);
+        debug!("_switch_markets: Curr market now: {:?}", nm);
     }
 
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
-	    self.curr_market.clone()
+        self.curr_market.clone()
     }
 
     fn _new_mkt(&self) -> Arc<Mutex<MarketType>> {
-	    self.new_market.clone()
+        self.new_market.clone()
     }
 }
-
 
 impl Streaming for RTRMLocal {
     fn kafka_server_name(&self) -> String {
@@ -133,9 +120,7 @@ impl Streaming for RTRMLocal {
     }
 }
 
-
 impl MktEventHandler for RTRMLocal {
-
     /// updates the local market variable.
     fn _handle_mkt_msg(
         &self,
@@ -143,11 +128,10 @@ impl MktEventHandler for RTRMLocal {
         new_mkt_sender: Sender<MarketType>,
         _mkt_params: MktMsgParams,
     ) {
-
         let new_market = MarketType::try_from_ref(mkt_msg);
         debug!("_handle_mkt_msg: Got quote: {:?}", new_market);
         if new_market.is_err() {
-            return;  // ignore the market message if it cant be decoded correctly.
+            return; // ignore the market message if it cant be decoded correctly.
         }
 
         let Ok(new_mkt_real) = new_market else {
@@ -155,14 +139,24 @@ impl MktEventHandler for RTRMLocal {
             return;
         };
 
-	    *self._curr_mkt().lock().expect("_handle_mkt_msg: Could not lock curr_mkt") += &new_mkt_real;
+        *self
+            ._curr_mkt()
+            .lock()
+            .expect("_handle_mkt_msg: Could not lock curr_mkt") += &new_mkt_real;
         let _ = new_mkt_sender.send(new_mkt_real);
     }
 }
 
-
 impl<TR> ProcessTradeSync<TR> for RTRMLocal
-where TR: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTrade + std::marker::Send + Sync
+where
+    TR: PartialEq
+        + std::fmt::Debug
+        + Clone
+        + BaseTrade
+        + PriceTrade
+        + BaseTrade
+        + std::marker::Send
+        + Sync,
 {
     /// processes the trade, by calculating the metric given
     /// on either the current or the new market.
@@ -174,29 +168,23 @@ where TR: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTra
         _pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
     ) -> PricingResults {
-
         let market = match curr_new_mkt {
             CurrNewMarket::Current => self._curr_mkt(),
             CurrNewMarket::New => self._new_mkt(),
         };
 
         let trade_v = match market.lock() {
-            Ok(market_l) => {
-                trade.value_by_metric(
-                    metric,
-                    &market_l,
-                )
-            },
+            Ok(market_l) => trade.value_by_metric(metric, &market_l),
             Err(e) => {
                 error!("_process_trade: Market was poisoned {:?}", e);
                 trade.value_by_metric(metric, &(MarketType::new()))
-            },
+            }
         };
         debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
 
         match trade.direction() {
             TradeDirection::Create => trade_v,
-            TradeDirection::Delete => - trade_v,
+            TradeDirection::Delete => -trade_v,
             TradeDirection::Update => todo!(),
         }
     }
@@ -204,7 +192,8 @@ where TR: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + BaseTra
 
 impl TradeMarketDiscovery for RTRMLocal
 //where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + Send
-{ }
+{
+}
 
 impl RiskProcessors for RTRMLocal
 //where
@@ -220,12 +209,7 @@ impl RiskProcessors for RTRMLocal
         let mut p = PortfolioType::new();
 
         for trade in all_trades.values() {
-            p += self._process_trade(
-                trade,
-                metric,
-                pricing_options,
-                curr_new_mkt,
-            );
+            p += self._process_trade(trade, metric, pricing_options, curr_new_mkt);
         }
         p
     }
@@ -240,7 +224,6 @@ impl RiskProcessors for RTRMLocal
         curr_new_mkt: CurrNewMarket,
         new_trades_sender: &Sender<(PortfolioType, TradeRep<Self::TR>)>,
     ) {
-
         while let Ok(trade) = trade_receiver.try_recv() {
             debug!("_trade_processor_curr: Received good trade {:?}", trade);
 
@@ -250,28 +233,21 @@ impl RiskProcessors for RTRMLocal
             }
 
             if new_trade {
-                *curr_portfolio += self._process_trade(
-                    &trade,
-                    metric,
-                    pricing_options,
-                    curr_new_mkt,
-                );
+                *curr_portfolio +=
+                    self._process_trade(&trade, metric, pricing_options, curr_new_mkt);
 
-                let _ = new_trades_sender.send(
-                    (curr_portfolio.clone(), TradeRep(all_trades.clone()))
-                );
+                let _ =
+                    new_trades_sender.send((curr_portfolio.clone(), TradeRep(all_trades.clone())));
             }
         }
     }
 }
-
 
 impl PublishResults for RTRMLocal {
     fn metric(&self) -> PricingMetric {
         self.metric
     }
 }
-
 
 impl TradeReduce for RTRMLocal {
     type ReductionType = TradeTypes;

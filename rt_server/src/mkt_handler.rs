@@ -1,15 +1,13 @@
 //use log::debug;
-use tracing::{debug, info_span, info, };
 use kafka::consumer::Message;
 use std::sync::mpsc::Sender;
+use tracing::{debug, info, info_span};
 
-use crate::streaming::Streaming;
-use crate::market::{MarketType, MktMsgParams,};
+use crate::market::{MarketType, MktMsgParams};
 use crate::portfolio_sender::connect_with_retries;
+use crate::streaming::Streaming;
 
-
-pub trait MktEventHandler : Streaming {
-
+pub trait MktEventHandler: Streaming {
     fn _handle_mkt_msg(
         &self,
         mkt_msg: &Message,
@@ -21,25 +19,21 @@ pub trait MktEventHandler : Streaming {
     /// mkt_topic - receiving market events from this topic
     /// new_mkt_sender - sending the new market to the pricing api
     /// switch_mkt_recv - receiver receiving the event when to switch markets.
-    fn _handle_mkt_events (
+    fn _handle_mkt_events(
         &self,
         mkt_topic: String,
         mkt_params: MktMsgParams,
         new_mkt_sender: Sender<MarketType>,
     ) {
+        let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
 
-        let bootstrap_servers = format!(
-            "{}:{}",
-            self.kafka_server_name(), self.kafka_port()
-        );
-
-	    let mut mkt_listener_ = connect_with_retries(&bootstrap_servers, &mkt_topic);
+        let mut mkt_listener_ = connect_with_retries(&bootstrap_servers, &mkt_topic);
 
         loop {
             info!("_handle_mkt_events: Entering market event loop.");
 
-
-            for mkt_msg_set in mkt_listener_.poll().unwrap().iter() {  // TODO: What to do w/ unwrap here??
+            for mkt_msg_set in mkt_listener_.poll().unwrap().iter() {
+                // TODO: What to do w/ unwrap here??
                 for mkt_msg in mkt_msg_set.messages() {
                     //let _handle_mkt_msg_span = info_span!(
                     //    "Handling raw message.",
@@ -48,11 +42,7 @@ pub trait MktEventHandler : Streaming {
                     //let _ = _handle_mkt_msg_span.enter();
 
                     info!("_handle_mkt_events: Getting new markets from {mkt_topic}.");
-                    self._handle_mkt_msg(
-                        mkt_msg,
-                        new_mkt_sender.clone(),
-                        mkt_params.clone(),
-                    );
+                    self._handle_mkt_msg(mkt_msg, new_mkt_sender.clone(), mkt_params.clone());
                 }
                 let _ = mkt_listener_.consume_messageset(mkt_msg_set);
             }

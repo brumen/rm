@@ -11,7 +11,6 @@ use crate::publish::PublishResults;
 use crate::trade::TradeRep;
 use crate::trade_procs::RiskProcessors;
 
-
 pub trait CalcController {
     //type TR;
 
@@ -25,7 +24,6 @@ pub trait CalcController {
     );
 }
 
-
 impl<T> CalcController for T
 where
     T: Send + Sync + RiskProcessors + MktEventHandler + PublishResults + PortfolioSender,
@@ -38,15 +36,16 @@ where
         mkt_params: MktMsgParams,
         pricing_options: &MarketPricingOptions,
     ) {
-
         // 2 trade senders, 1 for current market, 1 for new market.
         let (pos_sender_curr, pos_recv_curr) = channel::<<T as PortfolioSender>::TR>();
         let (pos_sender_new, pos_recv_new) = channel::<<T as PortfolioSender>::TR>();
         // events about the new market event
         let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
         // new & current market portfolio
-        let (curr_portfolio_sender, curr_portfolio_recv) = channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>();
-        let (new_portfolio_sender, new_portfolio_recv) = channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>();
+        let (curr_portfolio_sender, curr_portfolio_recv) =
+            channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>();
+        let (new_portfolio_sender, new_portfolio_recv) =
+            channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>();
         let (resend_sender, resend_recv) = channel::<bool>();
         let (accept_sender, accept_recv) = channel::<bool>();
 
@@ -102,14 +101,9 @@ where
 
             let _ = thread::Builder::new()
                 .name("publish_thread".to_string())
-                .spawn_scoped(
-                    s,
-                    move || {
-                        self._publish_results(
-                            curr_portfolio_recv,
-                            results_topic
-                        );
-                    })
+                .spawn_scoped(s, move || {
+                    self._publish_results(curr_portfolio_recv, results_topic);
+                })
                 .unwrap();
         });
     }

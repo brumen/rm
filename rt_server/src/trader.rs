@@ -1,19 +1,19 @@
-use log::{debug, warn, };
+use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 
 use kafka::consumer::Message;
 use kafka::producer::Record;
+use std::sync::mpsc::{channel, Sender};
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::sync::{Arc, Mutex,};
-use std::sync::mpsc::{channel, Sender, };
 
-use crate::trade::TradeTypes;
-use crate::streaming::Streaming;
-use crate::market::{MarketType, MktMsgParams, LETFP,};
+use crate::market::{MarketType, MktMsgParams, LETFP};
 use crate::mkt_handler::MktEventHandler;
-use crate::ref_deref::TryFromRef;
 use crate::portfolio_sender::connect_with_retries;
 use crate::publish::connect_with_retries_producer;
+use crate::ref_deref::TryFromRef;
+use crate::streaming::Streaming;
+use crate::trade::TradeTypes;
 
 /// LETF trader structure.
 /// market_date: date when we are pricing.
@@ -24,9 +24,8 @@ use crate::publish::connect_with_retries_producer;
 pub struct LETFTrader {
     kafka_server_name: String,
     kafka_port: i32,
-    curr_mkt : Arc<Mutex<MarketType>>,
+    curr_mkt: Arc<Mutex<MarketType>>,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RTConfig {
@@ -37,12 +36,8 @@ pub struct RTConfig {
     pub results_topic: String,
 }
 
-
 impl LETFTrader {
-    pub fn new(
-        kafka_server_name: String,
-        kafka_port: i32,
-    ) -> Self {
+    pub fn new(kafka_server_name: String, kafka_port: i32) -> Self {
         // if given the params, use them, otherwise construct empty map
 
         Self {
@@ -55,7 +50,6 @@ impl LETFTrader {
     /// constructs the controller from configuration read from the file.
     /// config_file. If it cant read the file properly, it crashes.
     pub fn new_from_config(config_file: String) -> Result<Self, Box<dyn std::error::Error>> {
-
         let config_f = std::fs::File::open(config_file).unwrap();
         let config_map: RTConfig = serde_yaml::from_reader(config_f)?;
 
@@ -67,19 +61,14 @@ impl LETFTrader {
 
     /// listens to kafka stream for trades and responds to incoming trades.
     ///
-    fn __hedger(
-        &self,
-        pos_topic: String,
-        hedge_topic: String,
-    ) {
+    fn __hedger(&self, pos_topic: String, hedge_topic: String) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name, self.kafka_port);
         let mut pos_listener_ = connect_with_retries(&bootstrap_servers, &pos_topic);
-	    let mut hedge_book = connect_with_retries_producer(&bootstrap_servers);
+        let mut hedge_book = connect_with_retries_producer(&bootstrap_servers);
 
         loop {
             for ms in pos_listener_.poll().unwrap().iter() {
                 for m in ms.messages() {
-
                     let trade_result = TradeTypes::try_from_ref(m);
 
                     let trade = match trade_result {
@@ -92,7 +81,10 @@ impl LETFTrader {
                     }
 
                     let mut trade = trade.unwrap();
-                    let stock_mkt = self.curr_mkt.lock().expect("Could not lock the current market, weird");
+                    let stock_mkt = self
+                        .curr_mkt
+                        .lock()
+                        .expect("Could not lock the current market, weird");
 
                     for trade_hedge in trade.hedge(&stock_mkt) {
                         let hedge_json = serde_json::ser::to_string(&trade_hedge).unwrap();
@@ -102,10 +94,11 @@ impl LETFTrader {
 
                         let _ = hedge_book.send(&hedge_record);
                     }
-                    let trade_itself = serde_json::ser::to_string(&TradeTypes::LETF(trade)).unwrap();
-                    let trade_itself_record = Record::from_value(&hedge_topic, trade_itself.as_bytes())
-                        .with_partition(0);
-                    let _ = hedge_book.send(&trade_itself_record);  // Trade itself is sent to the book.
+                    let trade_itself =
+                        serde_json::ser::to_string(&TradeTypes::LETF(trade)).unwrap();
+                    let trade_itself_record =
+                        Record::from_value(&hedge_topic, trade_itself.as_bytes()).with_partition(0);
+                    let _ = hedge_book.send(&trade_itself_record); // Trade itself is sent to the book.
                 }
                 let _ = pos_listener_.consume_messageset(ms); // TODO: FIX THIS ERROR HANDLING HERE
             }
@@ -123,7 +116,6 @@ impl LETFTrader {
         mkt_topic: String,
         results_topic: String, // publish the results topic
     ) {
-
         let (mkt_sender, _) = channel::<MarketType>();
 
         thread::scope(|s| {
@@ -132,11 +124,9 @@ impl LETFTrader {
                 .spawn_scoped(s, move || {
                     self._handle_mkt_events(
                         mkt_topic,
-                        MktMsgParams::LETFParams(
-                            LETFP {
-                                curr_mkt: self.curr_mkt.clone(),
-                            }
-                        ),
+                        MktMsgParams::LETFParams(LETFP {
+                            curr_mkt: self.curr_mkt.clone(),
+                        }),
                         mkt_sender,
                     );
                 })
@@ -145,10 +135,7 @@ impl LETFTrader {
             let _ = thread::Builder::new()
                 .name("hedger".to_string())
                 .spawn_scoped(s, move || {
-                    self.__hedger(
-                        pos_topic,
-                        results_topic,
-                    );
+                    self.__hedger(pos_topic, results_topic);
                 })
                 .unwrap();
         });
@@ -165,9 +152,7 @@ impl Streaming for LETFTrader {
     }
 }
 
-
 impl MktEventHandler for LETFTrader {
-
     /// updates the local market variable.
     fn _handle_mkt_msg(
         &self,
@@ -175,24 +160,21 @@ impl MktEventHandler for LETFTrader {
         _new_mkt_sender: Sender<MarketType>,
         mkt_params: MktMsgParams,
     ) {
-
-	    let new_quote_mkt = match MarketType::try_from_ref(mkt_msg) {
-	        Err(e) => {
-		        // ignore the market message if it cant be decoded correctly.
-		        warn!("_handle_mkt_msg: New mkt message cant be decoded correctly: {e}");
-		        return;
-	        },
-	        Ok(new_mkt_inner) => {
-		        new_mkt_inner
-	        },
-	    };
+        let new_quote_mkt = match MarketType::try_from_ref(mkt_msg) {
+            Err(e) => {
+                // ignore the market message if it cant be decoded correctly.
+                warn!("_handle_mkt_msg: New mkt message cant be decoded correctly: {e}");
+                return;
+            }
+            Ok(new_mkt_inner) => new_mkt_inner,
+        };
 
         let MktMsgParams::LETFParams(letf_mkt) = mkt_params else {
             warn!("_handle_mkt_msg: Parameters provided to MktEventHandler are of wrong type");
             return;
         };
 
-        let mut curr_mkt_tmp = letf_mkt.curr_mkt.lock().unwrap();  // lock the current market
+        let mut curr_mkt_tmp = letf_mkt.curr_mkt.lock().unwrap(); // lock the current market
         for (new_quote, new_value) in new_quote_mkt.iter() {
             curr_mkt_tmp.insert(new_quote.to_string(), *new_value);
         }
