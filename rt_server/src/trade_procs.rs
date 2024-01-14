@@ -1,25 +1,16 @@
 // Trade processor interaction between current and new market.
-use tracing::info;
-use std::sync::mpsc::{Receiver, Sender,};
-use std::sync::{Arc, Mutex,};
 use std::future::Future;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use tracing::info;
 
-use crate::portfolio::{PortfolioType, PricingResults, };
-use crate::market::{
-    MarketType,
-    CurrNewMarket,
-    TradeMarketDiscovery,
-};
-use crate::pricer::{
-    PricingMetric,
-    MarketPricingOptions,
-};
-use crate::trade::TradeRep;
+use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery};
+use crate::portfolio::{PortfolioType, PricingResults};
 use crate::portfolio_sender::PortfolioSender;
+use crate::pricer::{MarketPricingOptions, PricingMetric};
+use crate::trade::TradeRep;
 
-
-pub trait ProcessTradeSync<TR>
-{
+pub trait ProcessTradeSync<TR> {
     fn _process_trade(
         &self,
         trade: &TR,
@@ -29,22 +20,20 @@ pub trait ProcessTradeSync<TR>
     ) -> PricingResults;
 }
 
-
-pub trait ProcessTradeAsync<TR>
-{
+pub trait ProcessTradeAsync<TR> {
     fn _process_trade(
         &self,
         trade: &TR,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> impl Future<Output=PortfolioType> + Send;
+    ) -> impl Future<Output = PortfolioType> + Send;
 }
 
-
 /// Pricing engine for trades for remote pricing
-pub trait RiskProcessors : TradeMarketDiscovery + PortfolioSender
-where <Self as PortfolioSender>::TR: Clone
+pub trait RiskProcessors: TradeMarketDiscovery + PortfolioSender
+where
+    <Self as PortfolioSender>::TR: Clone,
 {
     /// computes the metric of the existing trades in
     /// all_trades, on either the new or the current market
@@ -82,7 +71,7 @@ where <Self as PortfolioSender>::TR: Clone
         pricing_options: &MarketPricingOptions,
         accepted_sender: Sender<bool>,
     ) {
-        let mut new_potential_portfolio : Option<(PortfolioType, TradeRep<Self::TR>)>;
+        let mut new_potential_portfolio: Option<(PortfolioType, TradeRep<Self::TR>)>;
         let mut all_trades = TradeRep::<Self::TR>::new();
         let curr_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
 
@@ -95,7 +84,6 @@ where <Self as PortfolioSender>::TR: Clone
         );
 
         loop {
-
             info!(
                 "_trade_processor_curr: Curr nb trades: {}.",
                 all_trades.len(),
@@ -121,15 +109,21 @@ where <Self as PortfolioSender>::TR: Clone
 
                 let all_l = all_trades.len();
                 let new_l = new_trades.len();
-                info!("_trade_processor_curr: New trades sent: {}. Curr trades: {}", new_l, all_l);
-                if new_l >= all_l {  // new processor is further ahead
-                    info!("_trade_processor_curr: Switching curr_p <- new_p: {}", new_trades.len());
+                info!(
+                    "_trade_processor_curr: New trades sent: {}. Curr trades: {}",
+                    new_l, all_l
+                );
+                if new_l >= all_l {
+                    // new processor is further ahead
+                    info!(
+                        "_trade_processor_curr: Switching curr_p <- new_p: {}",
+                        new_trades.len()
+                    );
                     curr_portfolio = new_p;
                     all_trades += &new_trades;
                     let _ = accepted_sender.send(true);
-                    let _ = curr_portfolio_sender.send(
-                        (curr_portfolio.clone(), TradeRep(all_trades.clone()))
-                    );
+                    let _ = curr_portfolio_sender
+                        .send((curr_portfolio.clone(), TradeRep(all_trades.clone())));
                 } else {
                     info!("_trade_processor_curr: New portfolio behind old one, not switching.");
                     let _ = accepted_sender.send(false);
@@ -143,37 +137,32 @@ where <Self as PortfolioSender>::TR: Clone
     fn _trade_processor_new(
         &self,
         new_market_receiver: Receiver<MarketType>,
-        new_trade_receiver: Receiver<Self::TR>,  // receiving new additional trades
-        new_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::TR>)>,  // results are sent here
+        new_trade_receiver: Receiver<Self::TR>, // receiving new additional trades
+        new_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::TR>)>, // results are sent here
         new_publisher: Sender<bool>,
         accepted_recv: Receiver<bool>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
     ) {
-
         loop {
-
-	        // new_market_event also updates the new market
-            let new_market_event = self._new_market_event(
-		        &new_market_receiver,
-	        );
-            info!("_trade_processor_new: Getting new market: {}.", new_market_event);
+            // new_market_event also updates the new market
+            let new_market_event = self._new_market_event(&new_market_receiver);
+            info!(
+                "_trade_processor_new: Getting new market: {}.",
+                new_market_event
+            );
 
             if new_market_event {
                 info!("_trade_processor_new: Pricing existing trades on NEW market.");
 
-                let (mut new_portfolio, mut all_batches) = self._new_processor_trade_loop(
-                    &new_trade_receiver,
-                    metric,
-                    pricing_options,
-                );
+                let (mut new_portfolio, mut all_batches) =
+                    self._new_processor_trade_loop(&new_trade_receiver, metric, pricing_options);
 
                 info!("_trade_processor_new: New portfolio = {:?}", new_portfolio);
-                let _ = new_portfolio_sender.send(
-                    (new_portfolio.clone(), TradeRep(all_batches.clone()))
-                );
+                let _ = new_portfolio_sender
+                    .send((new_portfolio.clone(), TradeRep(all_batches.clone())));
 
-                let nb_attempts = 5;  // try 5 times before aborting and starting on a new market
+                let nb_attempts = 5; // try 5 times before aborting and starting on a new market
                 let mut curr_attempt = 0;
 
                 while curr_attempt < nb_attempts {
@@ -183,16 +172,16 @@ where <Self as PortfolioSender>::TR: Clone
                             break;
                         } else {
                             // attempt with the newest batch
-                            let (new_portfolio_inner, all_batches_inner) = self._new_processor_trade_loop(
-                                &new_trade_receiver,
-                                metric,
-                                pricing_options,
-                            );
+                            let (new_portfolio_inner, all_batches_inner) = self
+                                ._new_processor_trade_loop(
+                                    &new_trade_receiver,
+                                    metric,
+                                    pricing_options,
+                                );
                             new_portfolio += new_portfolio_inner;
                             all_batches += &all_batches_inner;
-                            let _ = new_portfolio_sender.send(
-                                (new_portfolio.clone(), TradeRep(all_batches.clone()))
-                            );
+                            let _ = new_portfolio_sender
+                                .send((new_portfolio.clone(), TradeRep(all_batches.clone())));
                             curr_attempt += 1;
                         }
                     }
@@ -200,7 +189,6 @@ where <Self as PortfolioSender>::TR: Clone
             } else {
                 info!("_trade_processor_new: No new market. Looping.");
             }
-
         }
     }
 
@@ -211,15 +199,11 @@ where <Self as PortfolioSender>::TR: Clone
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
     ) -> (PortfolioType, TradeRep<Self::TR>) {
-
         let mut portfolio = PortfolioType::new();
         let mut all_batches = TradeRep::<Self::TR>::new();
-        let mut new_batch = self._get_trades_from_recv(
-            &new_trade_receiver
-        );
+        let mut new_batch = self._get_trades_from_recv(&new_trade_receiver);
 
         while new_batch.len() > 0 {
-
             let new_portfolio = self._price_existing_trades(
                 &new_batch,
                 metric,
@@ -235,11 +219,7 @@ where <Self as PortfolioSender>::TR: Clone
         (portfolio, all_batches)
     }
 
-    fn _get_trades_from_recv (
-        &self,
-        trade_receiver: &Receiver<Self::TR>,
-    ) -> TradeRep<Self::TR> {
-
+    fn _get_trades_from_recv(&self, trade_receiver: &Receiver<Self::TR>) -> TradeRep<Self::TR> {
         let mut new_trades = TradeRep::<Self::TR>::new();
 
         for trade in trade_receiver.try_iter() {
@@ -248,5 +228,4 @@ where <Self as PortfolioSender>::TR: Clone
 
         new_trades
     }
-
 }
