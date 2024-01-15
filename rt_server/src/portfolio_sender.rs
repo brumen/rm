@@ -53,7 +53,7 @@ where
                     info!("_construct_portfolio: Got a resend value {}", resend_val);
                     if resend_val {
                         // fill sender_new with existing trades
-                        for (tid, trade) in existing_trades.iter() {
+                        for (_tid, trade) in existing_trades.iter() {
                             // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
                             let _ = sender_new.send(trade.clone());
                         }

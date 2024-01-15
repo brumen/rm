@@ -2,7 +2,7 @@ use kafka::producer::{Producer, Record, RequiredAcks};
 use std::sync::mpsc::Receiver;
 use std::thread::sleep;
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::portfolio::PortfolioType;
 use crate::pricer::PricingMetric;

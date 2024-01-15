@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use string_join::Join;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::market::{CurrNewMarket, MarketType};
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
@@ -350,15 +350,14 @@ where
     {
         let mut curr_portfolio = PortfolioType::new();
 
-        let nb_trades = trades.len();
-        let split_nb = 20;
+        let split_nb = 20; // TODO: FACTOR THIS NUMBER OUT
 
         let mut curr_trade_nb = 0;
         let mut curr_trade_rep = TradeRep::<TR>::new();
 
         let pricing_client = reqwest::blocking::Client::new();
 
-        for (tid, tr) in trades.iter() {
+        for (_tid, tr) in trades.iter() {
             curr_trade_rep += tr;
             curr_trade_nb += 1;
 

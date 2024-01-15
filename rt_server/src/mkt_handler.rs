@@ -1,7 +1,7 @@
 //use log::debug;
 use kafka::consumer::Message;
 use std::sync::mpsc::Sender;
-use tracing::{debug, info, info_span};
+use tracing::info;
 
 use crate::market::{MarketType, MktMsgParams};
 use crate::portfolio_sender::connect_with_retries;
@@ -35,12 +35,6 @@ pub trait MktEventHandler: Streaming {
             for mkt_msg_set in mkt_listener_.poll().unwrap().iter() {
                 // TODO: What to do w/ unwrap here??
                 for mkt_msg in mkt_msg_set.messages() {
-                    //let _handle_mkt_msg_span = info_span!(
-                    //    "Handling raw message.",
-                    //);
-
-                    //let _ = _handle_mkt_msg_span.enter();
-
                     info!("_handle_mkt_events: Getting new markets from {mkt_topic}.");
                     self._handle_mkt_msg(mkt_msg, new_mkt_sender.clone(), mkt_params.clone());
                 }

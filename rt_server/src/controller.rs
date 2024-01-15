@@ -164,16 +164,8 @@ where
         curr_new_mkt: CurrNewMarket,
     ) -> impl Future<Output = PortfolioType> + Send {
         async move {
-            let trade_id = trade.id();
+            // let _trade_id = trade.id();
             // let trade_direction = tr.direction();
-
-            //let _process_trade_span = debug_span!(
-            //     "_process trade span",
-            //    %trade_id,
-            //);
-
-            // let _ = _process_trade_span.enter();
-
             let trade_v = trade
                 .value_by_metric(metric, pricing_options, curr_new_mkt) //.instrument(_process_trade_span)
                 .await;
