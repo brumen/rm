@@ -80,10 +80,6 @@ impl MktEventHandler for Controller {
         new_mkt_sender: Sender<MarketType>,
         _mkt_msg_params: MktMsgParams,
     ) {
-        //let _handle_msg_span = info_span!(
-        //    "Handling mkt message",
-        //);
-
         let optional_mkt = MarketType::try_from_ref(mkt_msg);
 
         let market_obj = match optional_mkt {
@@ -136,7 +132,6 @@ impl MarketSwitching for Controller {
 }
 
 impl TradeMarketDiscovery for Controller
-//where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade
 {
 }
 
@@ -152,7 +147,6 @@ impl TradeReduce for Controller {
 }
 
 impl<TR> ProcessTradeAsync<TR> for Controller
-//where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send + Sync
 where
     TR: PriceTradeAsync + BaseTrade + Sync,
 {
@@ -190,10 +184,8 @@ where
     }
 }
 
-impl RiskProcessors for Controller
-//where
-//    TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + BaseTrade + Send + Sync,
-{
+impl RiskProcessors for Controller {
+
     #[tracing::instrument]
     fn _price_existing_trades(
         &self,
@@ -342,9 +334,7 @@ impl Controller {
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
         new_trades_sender: &Sender<(PortfolioType, TradeRep<AOTradeRep>)>,
-    )
-    // where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTradeAsync + Send + Sync
-    {
+    ) {
         self.async_rt.block_on(async {
             let mut trade_counter = 0;
             while let Ok(trade) = trade_receiver.try_recv() {
@@ -387,8 +377,8 @@ impl Controller {
         }
     }
 
-    // gets trades from receiver and constructs a trade
-    // representation from them.
+    /// gets trades from receiver and constructs a trade
+    /// representation from them.
     fn _get_trades_from_recv<TR: Clone + BaseTrade>(
         &self,
         trade_receiver: &Receiver<TR>,

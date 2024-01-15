@@ -1,23 +1,11 @@
 // Starts the controller.
 
-// Windows usage:
-// ADD THIS TO POWERSHELL:
-// $env:OPENSSL_DIR = 'C:\Tools\vcpkg\installed\x64-windows-static'
-// $env:OPENSSL_STATIC = 'Yes'
-
-//use std::env::args;
-
 use crate::controller::{Controller, RTConfig};
 use crate::engine::CalcController;
 use crate::market;
 use crate::pricer::MarketPricingOptions;
 
 pub fn ao_main_risk() {
-    // let market_date = Date::from_calendar_date(2016, Month::January, 1).unwrap();
-    // let option_type = "ao".to_string();
-    // let config_file : String = args().nth(1).unwrap();
-    //pricing_server: "localhost:9092".to_owned(),
-
     let config_file = "/home/brumen/work/rm/configs/configuration.yaml".to_owned();
     let config_f = std::fs::File::open(config_file.clone()).unwrap();
     let config_map: RTConfig = serde_yaml::from_reader(config_f).unwrap();

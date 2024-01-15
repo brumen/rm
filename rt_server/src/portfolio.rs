@@ -204,7 +204,6 @@ impl<TT: BaseTrade> Add<TT> for AggregatedTrades {
     }
 }
 
-// PV01Results
 /// PV01Results is of form (trade_id, (exposure_to, exposure_amt))
 pub type PV01Inner = HashMap<String, PortfolioType>;
 #[derive(Clone, Debug, PartialEq)]
