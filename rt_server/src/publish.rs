@@ -47,6 +47,7 @@ pub trait PublishResults: Streaming {
     }
 }
 
+
 /// connects the consumer to Kafka, retries every 5 seconds
 /// to try to establish connection.
 pub fn connect_with_retries_producer(bootstrap_servers: &str) -> Producer {

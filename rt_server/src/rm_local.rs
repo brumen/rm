@@ -37,6 +37,7 @@ pub struct RTRMLocal {
     metric: PricingMetric,
     curr_market: Arc<Mutex<MarketType>>,
     new_market: Arc<Mutex<MarketType>>,
+    future_market: Arc<Mutex<MarketType>>,
 }
 
 #[derive(Deserialize)]
@@ -59,6 +60,7 @@ impl RTRMLocal {
             metric,
             curr_market: Arc::new(Mutex::from(MarketType::new())),
             new_market: Arc::new(Mutex::from(MarketType::new())),
+	    future_market: Arc::new(Mutex::from(MarketType::new())),
         }
     }
 
@@ -86,19 +88,10 @@ impl RTRMLocal {
 
 impl MarketSwitching for RTRMLocal {
     /// switch markets on the trade api.
-    fn _switch_markets(&self) {
+
+    async fn _switch_markets(&self) {
         info!("_switch_markets: Switching markets: current <- new.");
-
-        let nm = self
-            .new_market
-            .lock()
-            .expect("_switch_markets: Could not lock new market.");
-        **self
-            .curr_market
-            .lock()
-            .expect("_switch_markets: Could not lock current market") = (*nm).clone();
-
-        debug!("_switch_markets: Curr market now: {:?}", nm);
+	self._internal_switch_markets()	
     }
 
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
@@ -108,6 +101,7 @@ impl MarketSwitching for RTRMLocal {
     fn _new_mkt(&self) -> Arc<Mutex<MarketType>> {
         self.new_market.clone()
     }
+    
 }
 
 impl Streaming for RTRMLocal {

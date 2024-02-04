@@ -3,7 +3,10 @@ use log::{debug, info, warn};
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread::sleep;
 use std::time::Duration;
-
+use rdkafka::consumer::stream_consumer::StreamConsumer;
+use rdkafka::ClientConfig;
+use uuid::Uuid;
+    
 use crate::ref_deref::TryFromRef;
 use crate::streaming::Streaming;
 use crate::trade::{BaseTrade, TradeReduce, TradeRep};
@@ -34,7 +37,63 @@ where
 {
     type TR = <T as TradeReduce>::ReductionType;
 
-    fn __construct_portfolio(
+
+    fn __construct_portfolio_new(
+        &self,
+        sender_new: Sender<Self::TR>,
+        sender_curr: Sender<Self::TR>,
+        resend_existing: Receiver<bool>,
+        pos_topic: String,
+    ) {
+        let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port(),);
+        let mut position_listener = connect_with_retries(&bootstrap_servers, &pos_topic);
+
+        let mut existing_trades = TradeRep::<Self::TR>::new();
+
+        loop {
+
+	    tokio::select!();  // TODO: HERE THE FUTURES
+	    
+            let resend = resend_existing.try_recv(); // should we resend existing trades
+            match resend {
+                Ok(resend_val) => {
+                    info!("_construct_portfolio: Got a resend value {}", resend_val);
+                    if resend_val {
+                        // fill sender_new with existing trades
+                        for (_tid, trade) in existing_trades.iter() {
+                            // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
+                            let _ = sender_new.send(trade.clone());
+                        }
+                    }
+                }
+                Err(tre) => {
+                    debug!("_construct_portfolio: resend channel problems: {:?}", tre);
+                }
+            }
+
+
+	    // pos_listener is a 
+	    msg = pos_listener.recv() => {
+                match <T as TradeReduce>::TradeType::try_from_ref(msg) {
+                    Err(e) => {
+                        warn!("__construct_portfolio: Problem w/ trade: {:?}", e);
+                        continue;
+                    }
+                    Ok(trade) => {
+                        info!("__construct_portfolio: sending trade {:?}", trade);
+			
+                        // add trades to trade_reduce
+                        let tr = self.reduce(&trade);
+                        let _ = sender_new.send(tr.clone());
+                        let _ = sender_curr.send(tr.clone());
+                        existing_trades += &tr;
+                    }
+                }
+	    }
+	}
+    }
+
+    fn __construct_portfolio_old(
         &self,
         sender_new: Sender<Self::TR>,
         sender_curr: Sender<Self::TR>,
@@ -88,6 +147,42 @@ where
         }
     }
 }
+
+
+/// attempts to connect the RDKafka consumer to Kafka
+///  if it cant, returns the KafkaErr TODO: TO BE CHANGED.
+pub fn connect_with_retries_rd(bootstrap_servers: &str, pos_topic: &str) -> Result<StreamConsumer, KafkaErr> {
+    
+    let mut listener_connected = false;
+
+    while !listener_connected {
+
+	let pos_consumer = ClientConfig::new()
+            .set("bootstrap.servers", bootstrap_servers)
+        // .set("enable.partition.eof", "false")
+        // We'll give each session its own (unique) consumer group id,
+        // so that each session will receive all messages
+	//            .set("group.id", format!("chat-{}", Uuid::new_v4()))
+            .create();
+
+	match pos_consumer {
+            Ok(pos_listener) => {
+		let pos_consumer = StreamConsumer::from_config(pos_listener);
+                return Some(pos_listener);
+            },
+            Err(e) => {
+                warn!(
+                    "__construct_portfolio: listener is not connected, waiting 5 secs: {:?}",
+                    e
+                );
+                sleep(Duration::new(5, 0));
+            }
+        };
+    }
+    KafkaErr()
+}
+
+
 
 /// connects the consumer to Kafka
 pub fn connect_with_retries(bootstrap_servers: &str, pos_topic: &str) -> Consumer {

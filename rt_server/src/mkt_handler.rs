@@ -1,14 +1,14 @@
-//use log::debug;
 use kafka::consumer::Message;
-use std::sync::mpsc::Sender;
+//use std::sync::mpsc::Sender;
+use tokio::sync::mpsc::Sender;
 use tracing::info;
 
 use crate::market::{MarketType, MktMsgParams};
-use crate::portfolio_sender::connect_with_retries;
+use crate::portfolio_sender::connect_with_retries_rd;
 use crate::streaming::Streaming;
 
 pub trait MktEventHandler: Streaming {
-    fn _handle_mkt_msg(
+    async fn _handle_mkt_msg(
         &self,
         mkt_msg: &Message,
         new_mkt_sender: Sender<MarketType>,
@@ -19,7 +19,7 @@ pub trait MktEventHandler: Streaming {
     /// mkt_topic - receiving market events from this topic
     /// new_mkt_sender - sending the new market to the pricing api
     /// switch_mkt_recv - receiver receiving the event when to switch markets.
-    fn _handle_mkt_events(
+    async fn _handle_mkt_events(
         &self,
         mkt_topic: String,
         mkt_params: MktMsgParams,
@@ -27,20 +27,18 @@ pub trait MktEventHandler: Streaming {
     ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
 
-        let mut mkt_listener_ = connect_with_retries(&bootstrap_servers, &mkt_topic);
+        let mut mkt_listener_ = connect_with_retries_rd(&bootstrap_servers, &mkt_topic);
 
-        loop {
-            info!("_handle_mkt_events: Entering market event loop.");
+	// listens to the stream and sends messages
+	let mkt_stream = mkt_listener.stream().try_for_each(
+	    |borrowed_msg| {
+	        info!("_handle_mkt_events: Getting new markets from {mkt_topic}.");
+                self._handle_mkt_msg(borrowed_msg, new_mkt_sender.clone(), mkt_params.clone());
+		
+	    }
+	);
 
-            for mkt_msg_set in mkt_listener_.poll().unwrap().iter() {
-                // TODO: What to do w/ unwrap here??
-                for mkt_msg in mkt_msg_set.messages() {
-                    info!("_handle_mkt_events: Getting new markets from {mkt_topic}.");
-                    self._handle_mkt_msg(mkt_msg, new_mkt_sender.clone(), mkt_params.clone());
-                }
-                let _ = mkt_listener_.consume_messageset(mkt_msg_set);
-            }
-            mkt_listener_.commit_consumed().unwrap();
-        }
+	// TODO: FIX THIS MKT STREAM
+	mkt_stream.await.expect("Stream processing failed!");
     }
 }

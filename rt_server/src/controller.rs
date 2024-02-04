@@ -6,7 +6,8 @@ use core::convert::From;
 use std::collections::HashMap;
 use std::future::Future;
 use std::marker::Sync;
-use std::sync::mpsc::{Receiver, Sender};
+//use std::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use tokio::runtime;
 
@@ -41,6 +42,7 @@ pub struct Controller {
     metric: PricingMetric,
     curr_mkt: Arc<Mutex<MarketType>>,
     new_mkt: Arc<Mutex<MarketType>>,
+    future_mkt: Arc<Mutex<MarketType>>,
     async_rt: runtime::Runtime,
 }
 
@@ -74,9 +76,14 @@ impl PublishResults for Controller {
 }
 
 impl MktEventHandler for Controller {
-    fn _handle_mkt_msg(
+
+    /// _handle_mkt_msg - for controller
+    ///    the message is sent to update future_market.
+    ///    future_market becomes new_market when the trade
+    ///    processor determines it should be switched.
+    async fn _handle_mkt_msg(
         &self,
-        mkt_msg: &Message,
+        mkt_msg: &Message,  // TODO: FIX THIS TYPE
         new_mkt_sender: Sender<MarketType>,
         _mkt_msg_params: MktMsgParams,
     ) {
@@ -96,30 +103,41 @@ impl MktEventHandler for Controller {
             }
         };
 
-        let mkt_client_address = format!("http://{}/future_market", self.trade_pricer.clone(),);
-        let market_posted = reqwest::blocking::Client::new()
-            .post(format!("{0}", mkt_client_address))
-            .json(&HashMap::from([("market", &market_obj)]))
-            .send();
+	**(self._future_mkt().lock().expect("Could nto lock")) = market_obj.clone();
 
-        match market_posted {
-            Ok(_) => {
-                debug!("_handle_mkt_msg: Market posted successfully.");
-            }
-            _ => {
-                warn!("_handle_mkt_msg: Could not post the market successfully. Ignoring last market.");
-            }
-        }
-
-        let _ = new_mkt_sender.send(market_obj);
+        let _ = new_mkt_sender.send(market_obj).await;
     }
 }
 
 impl MarketSwitching for Controller {
     /// switch markets on the trade api.
-    fn _switch_markets(&self) {
+    async fn _switch_markets(&self) {
         info!("_switch_markets: Switching markets: current <- new.");
-        let _ = reqwest::blocking::get(format!("http://{}/switch_markets", self.trade_pricer));
+	self._internal_switch_markets();  // curr <- new, new <- future
+	// update the markets on the server.
+
+	let client = reqwest::Client::new();
+	
+	let market_post = client
+            .post(format!("http://{0}/market", self.trade_pricer))
+            .json(&HashMap::from([("market", &self._curr_mkt())]))
+            .send();
+
+	let new_market_post = client
+            .post(format!("http://{0}/new_market", self.trade_pricer))
+            .json(&HashMap::from([("market", &self._new_mkt())]))
+            .send();
+
+	let future_market_post = client
+            .post(format!("http://{0}/future_market", self.trade_pricer))
+            .json(&HashMap::from([("market", &self._new_mkt())]))
+            .send();
+	
+	tokio::select!(
+	    market_post,
+	    new_market_post,
+	    future_market_post,
+	);
     }
 
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
@@ -128,6 +146,10 @@ impl MarketSwitching for Controller {
 
     fn _new_mkt(&self) -> Arc<Mutex<MarketType>> {
         self.new_mkt.clone()
+    }
+
+    fn _future_mkt(&self) -> Arc<Mutex<MarketType>> {
+	self.future_mkt.clone()
     }
 }
 
@@ -197,19 +219,11 @@ impl RiskProcessors for Controller {
         //if all_trades.len() > 20 {
         // send to spark.
         return self.price_trades_on_spark(all_trades, metric, pricing_options, curr_new_mkt);
-        //}
 
-        // price them sequentially
-        //self._price_new_trades_seq(
-        //    all_trades,
-        //    metric,
-        //    pricing_options,
-        //     curr_new_mkt,
-        //   )
     }
 
     #[tracing::instrument]
-    fn _price_new_trades(
+    async fn _price_new_trades(
         &self,
         curr_portfolio: &mut PortfolioType,
         trade_receiver: &Receiver<Self::TR>,
@@ -227,7 +241,7 @@ impl RiskProcessors for Controller {
             pricing_options,
             curr_new_mkt,
             new_trades_sender,
-        )
+        ).await
     }
 }
 
@@ -291,6 +305,7 @@ impl Controller {
             metric,
             curr_mkt: Arc::new(Mutex::new(MarketType::new())),
             new_mkt: Arc::new(Mutex::new(MarketType::new())),
+	    future_mkt: Arc::new(Mutex::new(MarketType::new())),
             async_rt: rt,
         }
     }
@@ -325,7 +340,7 @@ impl Controller {
 
     /// prices trades sequentially.
     #[tracing::instrument]
-    fn _price_new_trades_seq(
+    async fn _price_new_trades_seq(
         &self,
         curr_portfolio: &mut PortfolioType,
         trade_receiver: &Receiver<AOTradeRep>,
@@ -335,23 +350,18 @@ impl Controller {
         curr_new_mkt: CurrNewMarket,
         new_trades_sender: &Sender<(PortfolioType, TradeRep<AOTradeRep>)>,
     ) {
-        self.async_rt.block_on(async {
-            let mut trade_counter = 0;
-            while let Ok(trade) = trade_receiver.try_recv() {
-                trade_counter += 1;
-                if trade_counter > 20 {
-                    break;
-                }
-                *all_trades += &trade;
 
-                *curr_portfolio += self
-                    ._process_trade(&trade, metric, pricing_options, curr_new_mkt)
-                    .await;
-
-                let _ =
-                    new_trades_sender.send((curr_portfolio.clone(), TradeRep(all_trades.clone())));
-            }
-        });
+        while let Ok(trade) = trade_receiver.recv().await {
+            *all_trades += &trade;
+            *curr_portfolio += self
+                ._process_trade(&trade, metric, pricing_options, curr_new_mkt)
+                .await;
+	    
+            let _ =
+                new_trades_sender.send(
+		    (curr_portfolio.clone(), TradeRep(all_trades.clone()))
+		).await;
+        }
     }
 
     /// price trades that are coming on the trade receiver on

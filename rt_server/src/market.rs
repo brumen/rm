@@ -117,9 +117,35 @@ pub enum MktMsgParams {
 /// current market to new market.
 pub trait MarketSwitching {
     /// switch markets on the trade api.
-    fn _switch_markets(&self);
+    async fn _switch_markets(&self);
+    fn _internal_switch_markets(&self) {
+	// replace current market with new market
+        let new_mkt_copy = self
+            ._new_mkt()
+            .lock()
+            .expect("_switch_markets: Could not lock new market.");
+	let fut_mkt_copy = self
+	    ._future_mkt()
+	    .lock()
+	    .expect("_internal_switch_markets: Could not lock future market");
+
+	// replace current market w/ new market
+	**self
+            ._curr_mkt()
+            .lock()
+            .expect("_switch_markets: Could not lock current market") = (*new_mkt_copy).clone();
+
+	// replace new market with 	
+        debug!("_switch_markets: Curr market now: {:?}", new_mkt_copy);
+
+	**self
+	    ._new_mkt()
+	    .lock()
+	    .expect("Could not lock new market") = (*fut_mkt_copy).clone();
+    }
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>>;
     fn _new_mkt(&self) -> Arc<Mutex<MarketType>>;
+    fn _future_mkt(&self) -> Arc<Mutex<MarketType>>;
 }
 
 /// trait that detects new events and potentially skips some.
@@ -137,7 +163,7 @@ pub trait TradeMarketDiscovery: MarketSwitching {
         }
 
         *self
-            ._new_mkt()
+            ._future_mkt()
             .lock()
             .expect("_new_market_event: Could not lock!") += &new_stock_mkt;
 

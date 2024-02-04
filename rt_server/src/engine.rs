@@ -1,5 +1,6 @@
 use std::sync::mpsc::channel;
 use std::thread;
+use tokio;
 
 use crate::market::MarketType;
 use crate::market::MktMsgParams;
@@ -63,12 +64,11 @@ where
                 })
                 .unwrap();
 
-            let _ = thread::Builder::new()
-                .name("market_events".to_string())
-                .spawn_scoped(s, move || {
-                    self._handle_mkt_events(mkt_topic, mkt_params, new_mkt_sender)
-                })
-                .unwrap();
+	    let _ = tokio::spawn(
+		async move || {
+		    self._handle_mkt_events(mkt_topic, mkt_params, new_mkt_sender).await
+		}
+	    );
 
             let _ = thread::Builder::new()
                 .name("new_portfolio".to_string())

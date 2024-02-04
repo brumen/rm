@@ -62,7 +62,7 @@ where
     /// current trade processor, reads on
     /// trade_receiver, and new_portfolio_receiver,
     /// and updates the curr_portfolio_sender.
-    fn _trade_processor_curr(
+    async fn _trade_processor_curr(
         &self,
         trade_receiver: Receiver<Self::TR>,
         curr_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::TR>)>,
@@ -83,55 +83,59 @@ where
             CurrNewMarket::Current,
         );
 
-        loop {
-            info!(
-                "_trade_processor_curr: Curr nb trades: {}.",
-                all_trades.len(),
-            );
-            self._price_new_trades(
-                &mut curr_portfolio,
-                &trade_receiver,
-                &mut all_trades,
-                metric,
-                pricing_options,
-                CurrNewMarket::Current,
-                &curr_portfolio_sender,
-            );
+        info!(
+            "_trade_processor_curr: Curr nb trades: {}.",
+            all_trades.len(),
+        );
 
-            // receive new portfolio, replace current w/ new.
-            new_potential_portfolio = None;
-            while let Ok(new_portfolio) = new_portfolio_receiver.try_recv() {
+	let switch_portfolios = async move || {
+	    // receive new portfolio, replace current w/ new.
+	    while let Ok(new_portfolio) = new_portfolio_receiver.recv().await {
                 new_potential_portfolio = Some(new_portfolio);
-            }
+		if let Some((new_p, new_trades)) = new_potential_portfolio {
+		    self._switch_markets();
+		    
+		    let all_l = all_trades.len();
+		    let new_l = new_trades.len();
+		    info!(
+			"_trade_processor_curr: New trades sent: {}. Curr trades: {}",
+			new_l, all_l
+		    );
+		    if new_l >= all_l {
+			// new processor is further ahead
+			info!(
+			    "_trade_processor_curr: Switching curr_p <- new_p: {}",
+			    new_trades.len()
+			);
+			curr_portfolio = new_p;
+			all_trades += &new_trades;
+			let _ = accepted_sender.send(true);
+			let _ = curr_portfolio_sender
+			    .send((curr_portfolio.clone(), TradeRep(all_trades.clone())));
+		    } else {
+			info!("_trade_processor_curr: New portfolio behind old one, not switching.");
+			let _ = accepted_sender.send(false);
+		    }
+		}
+	    }
+	};
 
-            if let Some((new_p, new_trades)) = new_potential_portfolio {
-                self._switch_markets();
-
-                let all_l = all_trades.len();
-                let new_l = new_trades.len();
-                info!(
-                    "_trade_processor_curr: New trades sent: {}. Curr trades: {}",
-                    new_l, all_l
-                );
-                if new_l >= all_l {
-                    // new processor is further ahead
-                    info!(
-                        "_trade_processor_curr: Switching curr_p <- new_p: {}",
-                        new_trades.len()
-                    );
-                    curr_portfolio = new_p;
-                    all_trades += &new_trades;
-                    let _ = accepted_sender.send(true);
-                    let _ = curr_portfolio_sender
-                        .send((curr_portfolio.clone(), TradeRep(all_trades.clone())));
-                } else {
-                    info!("_trade_processor_curr: New portfolio behind old one, not switching.");
-                    let _ = accepted_sender.send(false);
-                }
-            }
-        }
+	let price_new_trades_fut = self._price_new_trades(
+            &mut curr_portfolio,
+            &trade_receiver,
+            &mut all_trades,
+            metric,
+            pricing_options,
+            CurrNewMarket::Current,
+            &curr_portfolio_sender,
+	);
+	
+	tokio::select!(
+	    price_new_trades_fut,
+	    switch_portfolios,
+	);
     }
-
+	
     /// processes the trades on the new market.
     /// new_market_receiver:
     fn _trade_processor_new(
@@ -146,11 +150,7 @@ where
     ) {
         loop {
             // new_market_event also updates the new market
-            let new_market_event = self._new_market_event(&new_market_receiver);
-            info!(
-                "_trade_processor_new: Getting new market: {}.",
-                new_market_event
-            );
+	    let new_market_event = self._new_mkt().lock().expect("could not lock") != self._future_mkt().lock().expect("could not lock");  // TODO: THIS IS WRONG
 
             if new_market_event {
                 info!("_trade_processor_new: Pricing existing trades on NEW market.");
@@ -201,6 +201,7 @@ where
     ) -> (PortfolioType, TradeRep<Self::TR>) {
         let mut portfolio = PortfolioType::new();
         let mut all_batches = TradeRep::<Self::TR>::new();
+
         let mut new_batch = self._get_trades_from_recv(&new_trade_receiver);
 
         while new_batch.len() > 0 {
@@ -219,7 +220,10 @@ where
         (portfolio, all_batches)
     }
 
-    fn _get_trades_from_recv(&self, trade_receiver: &Receiver<Self::TR>) -> TradeRep<Self::TR> {
+    async fn _get_trades_from_recv(
+	&self,
+	trade_receiver: &Receiver<Self::TR>,
+    ) -> TradeRep<Self::TR> {
         let mut new_trades = TradeRep::<Self::TR>::new();
 
         for trade in trade_receiver.try_iter() {
