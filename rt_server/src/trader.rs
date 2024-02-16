@@ -1,15 +1,14 @@
 use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 
-use kafka::consumer::Message;
 use kafka::producer::Record;
-use std::sync::mpsc::{channel, Sender};
+use tokio::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
-use std::thread;
+use rdkafka::message::BorrowedMessage;
 
 use crate::market::{MarketType, MktMsgParams, LETFP};
 use crate::mkt_handler::MktEventHandler;
-use crate::portfolio_sender::connect_with_retries;
+use crate::portfolio_sender::connect_with_retries_rd;
 use crate::publish::connect_with_retries_producer;
 use crate::ref_deref::TryFromRef;
 use crate::streaming::Streaming;
@@ -61,48 +60,43 @@ impl LETFTrader {
 
     /// listens to kafka stream for trades and responds to incoming trades.
     ///
-    fn __hedger(&self, pos_topic: String, hedge_topic: String) {
+    async fn __hedger(&self, pos_topic: String, hedge_topic: String) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name, self.kafka_port);
-        let mut pos_listener_ = connect_with_retries(&bootstrap_servers, &pos_topic);
+        let pos_listener_ = connect_with_retries_rd(&bootstrap_servers, &pos_topic);
         let mut hedge_book = connect_with_retries_producer(&bootstrap_servers);
 
         loop {
-            for ms in pos_listener_.poll().unwrap().iter() {
-                for m in ms.messages() {
-                    let trade_result = TradeTypes::try_from_ref(m);
+            let m = pos_listener_.recv().await.unwrap();
+            let trade_result = TradeTypes::try_from_ref(&m);
 
-                    let trade = match trade_result {
-                        Ok(TradeTypes::LETF(trade_new)) => Some(trade_new),
-                        _ => None,
-                    };
+            let trade = match trade_result {
+                Ok(TradeTypes::LETF(trade_new)) => Some(trade_new),
+                _ => None,
+            };
 
-                    if trade.is_none() {
-                        continue;
-                    }
-
-                    let mut trade = trade.unwrap();
-                    let stock_mkt = self
-                        .curr_mkt
-                        .lock()
-                        .expect("Could not lock the current market, weird");
-
-                    for trade_hedge in trade.hedge(&stock_mkt) {
-                        let hedge_json = serde_json::ser::to_string(&trade_hedge).unwrap();
-                        debug!("Processing hedge {}", hedge_json);
-                        let hedge_record = Record::from_value(&hedge_topic, hedge_json.as_bytes())
-                            .with_partition(0);
-
-                        let _ = hedge_book.send(&hedge_record);
-                    }
-                    let trade_itself =
-                        serde_json::ser::to_string(&TradeTypes::LETF(trade)).unwrap();
-                    let trade_itself_record =
-                        Record::from_value(&hedge_topic, trade_itself.as_bytes()).with_partition(0);
-                    let _ = hedge_book.send(&trade_itself_record); // Trade itself is sent to the book.
-                }
-                let _ = pos_listener_.consume_messageset(ms); // TODO: FIX THIS ERROR HANDLING HERE
+            if trade.is_none() {
+                continue;
             }
-            pos_listener_.commit_consumed().unwrap();
+
+            let mut trade = trade.unwrap();
+            let stock_mkt = self
+                .curr_mkt
+                .lock()
+                .expect("Could not lock the current market, weird");
+	    
+            for trade_hedge in trade.hedge(&stock_mkt) {
+                let hedge_json = serde_json::ser::to_string(&trade_hedge).unwrap();
+                debug!("Processing hedge {}", hedge_json);
+                let hedge_record = Record::from_value(&hedge_topic, hedge_json.as_bytes())
+                    .with_partition(0);
+		
+                let _ = hedge_book.send(&hedge_record);
+            }
+            let trade_itself =
+                serde_json::ser::to_string(&TradeTypes::LETF(trade)).unwrap();
+            let trade_itself_record =
+                Record::from_value(&hedge_topic, trade_itself.as_bytes()).with_partition(0);
+            let _ = hedge_book.send(&trade_itself_record); // Trade itself is sent to the book.
         }
     }
 
@@ -110,35 +104,31 @@ impl LETFTrader {
     /// 2 threads at the moment:
     ///    1st: handles market events and updates the market.
     ///    2nd: handles position events and returns hedges.
-    pub fn start(
+    pub async fn start(
         &self,
         pos_topic: String,
         mkt_topic: String,
         results_topic: String, // publish the results topic
     ) {
-        let (mkt_sender, _) = channel::<MarketType>();
+        let (mkt_sender, _) = channel::<MarketType>(100);  // TODO: THIS IS SHIT HERE: 100
+	let (fut_mkt_ready_s, _fut_mkt_ready_r) = channel::<bool>(100); // TODO: BUFFER SIZE SHOULD BE ???
+	
+	let handle_mkt_f = 
+                self._handle_mkt_events(
+                    mkt_topic, 
+                   MktMsgParams::LETFParams(LETFP {
+                        curr_mkt: self.curr_mkt.clone(),
+                    }),
+                    mkt_sender,
+		    fut_mkt_ready_s,
+                );
 
-        thread::scope(|s| {
-            let _ = thread::Builder::new()
-                .name("handle_mkt_events".to_string())
-                .spawn_scoped(s, move || {
-                    self._handle_mkt_events(
-                        mkt_topic,
-                        MktMsgParams::LETFParams(LETFP {
-                            curr_mkt: self.curr_mkt.clone(),
-                        }),
-                        mkt_sender,
-                    );
-                })
-                .unwrap();
+	let hedger_f = self.__hedger(pos_topic, results_topic);
 
-            let _ = thread::Builder::new()
-                .name("hedger".to_string())
-                .spawn_scoped(s, move || {
-                    self.__hedger(pos_topic, results_topic);
-                })
-                .unwrap();
-        });
+	tokio::join!(
+	    handle_mkt_f,
+	    hedger_f,
+	);
     }
 }
 
@@ -154,13 +144,13 @@ impl Streaming for LETFTrader {
 
 impl MktEventHandler for LETFTrader {
     /// updates the local market variable.
-    fn _handle_mkt_msg(
+    async fn _handle_mkt_msg(
         &self,
-        mkt_msg: &Message,
+        mkt_msg: BorrowedMessage<'_>,
         _new_mkt_sender: Sender<MarketType>,
         mkt_params: MktMsgParams,
     ) {
-        let new_quote_mkt = match MarketType::try_from_ref(mkt_msg) {
+        let new_quote_mkt = match MarketType::try_from_ref(&mkt_msg) {
             Err(e) => {
                 // ignore the market message if it cant be decoded correctly.
                 warn!("_handle_mkt_msg: New mkt message cant be decoded correctly: {e}");

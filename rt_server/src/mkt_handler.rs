@@ -1,6 +1,5 @@
-use kafka::consumer::Message;
-//use std::sync::mpsc::Sender;
 use tokio::sync::mpsc::Sender;
+use rdkafka::message::BorrowedMessage;
 use tracing::info;
 
 use crate::market::{MarketType, MktMsgParams};
@@ -10,7 +9,7 @@ use crate::streaming::Streaming;
 pub trait MktEventHandler: Streaming {
     async fn _handle_mkt_msg(
         &self,
-        mkt_msg: &Message,
+        mkt_msg: BorrowedMessage,
         new_mkt_sender: Sender<MarketType>,
         mkt_params: MktMsgParams,
     );
@@ -24,21 +23,18 @@ pub trait MktEventHandler: Streaming {
         mkt_topic: String,
         mkt_params: MktMsgParams,
         new_mkt_sender: Sender<MarketType>,
+	fut_mkt_ready_s: Sender<bool>,
     ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
 
-        let mut mkt_listener_ = connect_with_retries_rd(&bootstrap_servers, &mkt_topic);
+        let mkt_listener_ = connect_with_retries_rd(&bootstrap_servers, &mkt_topic);
 
 	// listens to the stream and sends messages
-	let mkt_stream = mkt_listener.stream().try_for_each(
-	    |borrowed_msg| {
-	        info!("_handle_mkt_events: Getting new markets from {mkt_topic}.");
-                self._handle_mkt_msg(borrowed_msg, new_mkt_sender.clone(), mkt_params.clone());
-		
-	    }
-	);
-
-	// TODO: FIX THIS MKT STREAM
-	mkt_stream.await.expect("Stream processing failed!");
+	loop {
+	    let borrowed_msg = mkt_listener_.recv().await.unwrap();  // TODO: HANDLE THIS PROPERLY NOT UNWRAP!!!
+	    info!("_handle_mkt_events: Getting new markets from {mkt_topic}.");
+            self._handle_mkt_msg(borrowed_msg, new_mkt_sender.clone(), mkt_params.clone());
+	    let _ = fut_mkt_ready_s.send(true);
+	}
     }
 }

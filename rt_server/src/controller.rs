@@ -1,12 +1,11 @@
-use kafka::consumer::Message;
+use rdkafka::message::BorrowedMessage;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, debug_span, info, info_span, warn, Instrument};
-//use reqwest::{self, Error};
+use tokio::sync::mpsc::error::TryRecvError;
+use tracing::{debug, info, warn};
 use core::convert::From;
 use std::collections::HashMap;
 use std::future::Future;
 use std::marker::Sync;
-//use std::sync::mpsc::{Receiver, Sender};
 use tokio::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use tokio::runtime;
@@ -23,7 +22,7 @@ use crate::pricer::{
 use crate::publish::PublishResults;
 use crate::ref_deref::TryFromRef;
 use crate::streaming::Streaming;
-use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeRep};
+use crate::trade::{BaseTrade, TradeReduce, TradeRep};
 use crate::trade_procs::{ProcessTradeAsync, RiskProcessors};
 
 pub type PricingParams = HashMap<String, f64>;
@@ -83,11 +82,11 @@ impl MktEventHandler for Controller {
     ///    processor determines it should be switched.
     async fn _handle_mkt_msg(
         &self,
-        mkt_msg: &Message,  // TODO: FIX THIS TYPE
+        mkt_msg: BorrowedMessage<'_>,
         new_mkt_sender: Sender<MarketType>,
         _mkt_msg_params: MktMsgParams,
     ) {
-        let optional_mkt = MarketType::try_from_ref(mkt_msg);
+        let optional_mkt = MarketType::try_from_ref(&mkt_msg);
 
         let market_obj = match optional_mkt {
             Err(e) => {
@@ -111,35 +110,59 @@ impl MktEventHandler for Controller {
 
 impl MarketSwitching for Controller {
     /// switch markets on the trade api.
-    async fn _switch_markets(&self) {
+    async fn _switch_all_markets(&self) {
         info!("_switch_markets: Switching markets: current <- new.");
-	self._internal_switch_markets();  // curr <- new, new <- future
+	self._internal_switch_all_markets();  // curr <- new, new <- future
 	// update the markets on the server.
 
-	let client = reqwest::Client::new();
-	
+	let client = reqwest::Client::new();  // async client
+
 	let market_post = client
             .post(format!("http://{0}/market", self.trade_pricer))
-            .json(&HashMap::from([("market", &self._curr_mkt())]))
+            .json(&HashMap::from([("market", &*self.curr_mkt.lock().unwrap())]))
             .send();
 
 	let new_market_post = client
             .post(format!("http://{0}/new_market", self.trade_pricer))
-            .json(&HashMap::from([("market", &self._new_mkt())]))
+            .json(&HashMap::from([("market", &*self.new_mkt.lock().unwrap())]))
             .send();
 
 	let future_market_post = client
             .post(format!("http://{0}/future_market", self.trade_pricer))
-            .json(&HashMap::from([("market", &self._new_mkt())]))
+            .json(&HashMap::from([("market", &*self.future_mkt.lock().unwrap())]))
             .send();
 	
-	tokio::select!(
+	tokio::join!(
 	    market_post,
 	    new_market_post,
 	    future_market_post,
 	);
     }
 
+    async fn _switch_new_fut_markets(&self) {
+	self._internal_switch_new_fut_markets();  // new <- future
+	// update the markets on the server.
+
+	let client = reqwest::Client::new();  // async client
+	
+
+	let new_market_post = client
+            .post(format!("http://{0}/new_market", self.trade_pricer))
+            .json(&HashMap::from([("market", &*self.new_mkt.lock().unwrap())]))
+            .send();
+
+	let future_market_post = client
+            .post(format!("http://{0}/future_market", self.trade_pricer))
+            .json(&HashMap::from([("market", &*self.future_mkt.lock().unwrap())]))
+            .send();
+	
+	tokio::join!(
+	    new_market_post,
+	    future_market_post,
+	);
+    }
+
+    
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
         self.curr_mkt.clone()
     }
@@ -150,6 +173,10 @@ impl MarketSwitching for Controller {
 
     fn _future_mkt(&self) -> Arc<Mutex<MarketType>> {
 	self.future_mkt.clone()
+    }
+
+    fn _future_mkt_ready(&self) -> bool {
+	*self.new_mkt.lock().unwrap() != *self.future_mkt.lock().unwrap()
     }
 }
 
@@ -206,10 +233,10 @@ where
     }
 }
 
-impl RiskProcessors for Controller {
+impl RiskProcessors<AOTradeRep> for Controller {
 
     #[tracing::instrument]
-    fn _price_existing_trades(
+    async fn _price_existing_trades(
         &self,
         all_trades: &TradeRep<Self::TR>,
         metric: PricingMetric,
@@ -218,15 +245,14 @@ impl RiskProcessors for Controller {
     ) -> PortfolioType {
         //if all_trades.len() > 20 {
         // send to spark.
-        return self.price_trades_on_spark(all_trades, metric, pricing_options, curr_new_mkt);
+        return self.price_trades_on_spark(all_trades, metric, pricing_options, curr_new_mkt).await;
 
     }
 
-    #[tracing::instrument]
     async fn _price_new_trades(
         &self,
         curr_portfolio: &mut PortfolioType,
-        trade_receiver: &Receiver<Self::TR>,
+        trade_receiver: &mut Receiver<Self::TR>,
         all_trades: &mut TradeRep<Self::TR>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
@@ -338,12 +364,34 @@ impl Controller {
         ))
     }
 
+    async fn _price_new_trades(
+        &self,
+        curr_portfolio: &mut PortfolioType,
+        trade_receiver: &mut Receiver<AOTradeRep>,
+        all_trades: &mut TradeRep<AOTradeRep>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+        new_trades_sender: &Sender<(PortfolioType, TradeRep<AOTradeRep>)>,
+    ) {
+	self._price_new_trades_seq(
+	    curr_portfolio,
+	    trade_receiver,
+	    all_trades,
+	    metric,
+	    pricing_options,
+	    curr_new_mkt,
+	    new_trades_sender,
+	).await;
+    }
+
+    
     /// prices trades sequentially.
     #[tracing::instrument]
     async fn _price_new_trades_seq(
         &self,
         curr_portfolio: &mut PortfolioType,
-        trade_receiver: &Receiver<AOTradeRep>,
+        trade_receiver: &mut Receiver<AOTradeRep>,
         all_trades: &mut TradeRep<AOTradeRep>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
@@ -351,23 +399,29 @@ impl Controller {
         new_trades_sender: &Sender<(PortfolioType, TradeRep<AOTradeRep>)>,
     ) {
 
-        while let Ok(trade) = trade_receiver.recv().await {
+        while let Ok(trade) = trade_receiver.try_recv() {
             *all_trades += &trade;
             *curr_portfolio += self
                 ._process_trade(&trade, metric, pricing_options, curr_new_mkt)
                 .await;
 	    
-            let _ =
-                new_trades_sender.send(
-		    (curr_portfolio.clone(), TradeRep(all_trades.clone()))
-		).await;
+            let new_p_attempt =  new_trades_sender.send(
+		(curr_portfolio.clone(), TradeRep(all_trades.clone()))
+	    ).await;
+
+	    match new_p_attempt {
+		Ok(_) => {},
+		Err(e) => {
+		    warn!("Could not send portfolio from _price_new_trades_seq: {:?}", e);
+		},
+	    }
         }
     }
 
     /// price trades that are coming on the trade receiver on
     /// spark, by doing repeated loops
     #[tracing::instrument]
-    fn _price_new_trades_spark(
+    async fn _price_new_trades_spark(
         &self,
         trade_receiver: &Receiver<AOTradeRep>,
         metric: PricingMetric,
@@ -376,12 +430,12 @@ impl Controller {
     ) -> (PortfolioType, TradeRep<AOTradeRep>) {
         let new_trades = self._get_trades_from_recv(trade_receiver);
 
-        let pricing_client = reqwest::blocking::Client::new();
+        let pricing_client = reqwest::Client::new();
 
         let pricing_result =
             self.price_trades_spark_2(&new_trades, &pricing_client, curr_new_mkt, metric);
 
-        match pricing_result {
+        match pricing_result.await {
             Ok(pr) => (pr, new_trades),
             Err(_) => (PortfolioType::new(), new_trades),
         }
@@ -395,10 +449,22 @@ impl Controller {
     ) -> TradeRep<TR> {
         let mut new_trades = TradeRep::<TR>::new();
 
-        for trade in trade_receiver.try_iter() {
-            new_trades += &trade;
+	loop {
+            match trade_receiver.try_recv() {
+		Ok(trade) => {
+		    new_trades += &trade;
+		},
+		Err(e) => {
+		    match e {
+			TryRecvError::Empty => {
+			    return new_trades;
+			},
+			TryRecvError::Disconnected => {
+			    return new_trades;  // TODO: CEHCK THIS
+			},
+		    }
+		},
+	    }
         }
-
-        new_trades
     }
 }

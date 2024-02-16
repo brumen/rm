@@ -1,8 +1,14 @@
-use kafka::producer::{Producer, Record, RequiredAcks};
-use std::sync::mpsc::Receiver;
+use kafka; 
+use rdkafka;
+use rdkafka::ClientConfig;
+use rdkafka::config::FromClientConfig;
+use rdkafka::producer::{FutureRecord, FutureProducer};
+use rdkafka::util::Timeout;
+use tokio::sync::mpsc::Receiver;
 use std::thread::sleep;
 use std::time::Duration;
 use tracing::{debug, warn};
+use std::cmp::min;
 
 use crate::portfolio::PortfolioType;
 use crate::pricer::PricingMetric;
@@ -13,26 +19,25 @@ use crate::streaming::Streaming;
 pub trait PublishResults: Streaming {
     fn metric(&self) -> PricingMetric;
 
-    fn _publish_results<TT>(
+    async fn _publish_results<TT>(
         &self,
-        curr_portfolio_recv: Receiver<(PortfolioType, TT)>,
+        mut curr_portfolio_recv: Receiver<(PortfolioType, TT)>,
         results_topic: String,
     ) {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
-        let mut res_publisher = connect_with_retries_producer(&bootstrap_servers);
-
-        loop {
-            let curr_portfolio_raw = curr_portfolio_recv.recv();
-            let curr_portfolio = match curr_portfolio_raw {
-                Ok((curr_portfolio_actual, _)) => {
+        let res_publisher = connect_with_retries_producer_rd(&bootstrap_servers);
+        
+	loop {
+	    let curr_portfolio = match curr_portfolio_recv.recv().await {
+                Some((curr_portfolio_actual, _)) => {
                     debug!(
                         "_publish_results: Found actual portfolio: {:?}",
                         curr_portfolio_actual
                     );
                     curr_portfolio_actual
                 }
-                Err(e) => {
-                    warn!("_publish_results: Error in publishing: {:?}", e);
+                None => {
+                    warn!("_publish_results: Error in publishing.");
                     continue;
                 }
             };
@@ -40,38 +45,79 @@ pub trait PublishResults: Streaming {
             let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric(), curr_mkt_json);
 
             // implements bytearray(str(dumps(self.curr_market)), ascii))
-            let market_record =
-                Record::from_value(&results_topic, curr_mkt_pv.as_bytes()).with_partition(0);
-            let _ = res_publisher.send(&market_record);
+	    // TODO: REMOVE THE NEXT 2 lines later.
+            //let market_record =
+            //    kafka::producer::Record::from_value(&results_topic, curr_mkt_pv.as_bytes()).with_partition(0);
+	    let market_record2 : FutureRecord<'_, [u8], [u8]> = FutureRecord {
+		topic: &results_topic,
+		partition: Some(0),
+		payload: Some(curr_mkt_pv.as_bytes()), 
+		key: None,  // TODO: pub key: Option<&'a K>,
+		timestamp: None, 
+		headers: None, 
+	    };
+
+            let _ = res_publisher.send(market_record2, Timeout::Never);  // TODO: THIS SHOULD BE CHECKED NEver
         }
     }
 }
 
 
-/// connects the consumer to Kafka, retries every 5 seconds
+/// connects the consumer to RDKafka library, retries every 5 seconds
 /// to try to establish connection.
-pub fn connect_with_retries_producer(bootstrap_servers: &str) -> Producer {
-    let mut listener_connected = false;
-    let mut eventual_listener = None;
+pub fn connect_with_retries_producer_rd(bootstrap_servers: &str) -> rdkafka::producer::FutureProducer {
 
-    while !listener_connected {
-        match Producer::from_hosts(vec![bootstrap_servers.to_owned()])
-            .with_required_acks(RequiredAcks::One)
-            .create()
-        {
-            Ok(pos_listener) => {
-                eventual_listener = Some(pos_listener);
-                listener_connected = true;
-            }
+    let mut current_sleep_time = 1;
+
+    loop {
+	let result_producer_config = ClientConfig::new()
+            .set("bootstrap.servers", bootstrap_servers);
+        // .set("enable.partition.eof", "false")
+        // We'll give each session its own (unique) consumer group id,
+        // so that each session will receive all messages
+	//            .set("group.id", format!("chat-{}", Uuid::new_v4()))
+
+	match FutureProducer::from_config(&result_producer_config) {
+            Ok(result_producer) => {
+		return result_producer;
+            },
             Err(e) => {
                 warn!(
                     "__construct_portfolio: listener is not connected, waiting 5 secs: {:?}",
                     e
                 );
-                sleep(Duration::new(5, 0));
-                eventual_listener = None;
+                sleep(Duration::new(current_sleep_time, 0));
+		current_sleep_time += min(current_sleep_time+1, 5);
             }
         };
     }
-    eventual_listener.unwrap()
+}
+
+
+
+/// connects the consumer to Kafka, retries every 5 seconds
+/// to try to establish connection.
+pub fn connect_with_retries_producer(bootstrap_servers: &str) -> kafka::producer::Producer {
+
+    let mut sleep_duration = 1;
+    
+    loop {
+        match kafka::producer::Producer::from_hosts(vec![bootstrap_servers.to_owned()])
+            .with_required_acks(kafka::producer::RequiredAcks::One)
+            .create()
+        {
+            Ok(pos_listener) => {
+                return pos_listener;  // maybe Some missing here
+            },
+            Err(e) => {
+                warn!(
+                    "__construct_portfolio: listener is not connected, waiting {:?} secs: {:?}",
+		    sleep_duration,
+                    e,
+                );
+                sleep(Duration::new(sleep_duration, 0));
+		sleep_duration = min(sleep_duration + 1, 5);
+            },
+        };
+    }
 }

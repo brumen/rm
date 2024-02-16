@@ -2,10 +2,10 @@
 //  Real time risk manager using local market & local pricing
 //
 
-use kafka::consumer::Message;
+use rdkafka::message::BorrowedMessage;
 use log::{debug, error, info, warn};
 use serde::Deserialize;
-use std::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use crate::market::{
@@ -19,7 +19,7 @@ use crate::pricer::{MarketPricingOptions, PriceTrade, PricingMetric};
 
 use crate::publish::PublishResults;
 use crate::streaming::Streaming;
-use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeRep, TradeTypes};
+use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeRep, TradeTypes, LETFTrade};
 use crate::trade_procs::{ProcessTradeSync, RiskProcessors};
 
 /// RTRM - Real time risk manager using local
@@ -89,11 +89,15 @@ impl RTRMLocal {
 impl MarketSwitching for RTRMLocal {
     /// switch markets on the trade api.
 
-    async fn _switch_markets(&self) {
+    async fn _switch_all_markets(&self) {
         info!("_switch_markets: Switching markets: current <- new.");
-	self._internal_switch_markets()	
+	self._internal_switch_all_markets();
     }
 
+    async fn _switch_new_fut_markets(&self) {
+	self._internal_switch_new_fut_markets();
+    }
+    
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
         self.curr_market.clone()
     }
@@ -101,7 +105,14 @@ impl MarketSwitching for RTRMLocal {
     fn _new_mkt(&self) -> Arc<Mutex<MarketType>> {
         self.new_market.clone()
     }
-    
+
+    fn _future_mkt_ready(&self) -> bool {
+	*self.future_market.lock().unwrap() != *self.new_market.lock().unwrap()
+    }
+
+    fn _future_mkt(&self) -> Arc<Mutex<MarketType>> {
+	self.future_market.clone()  // TODO: CAN THIS BE DONE W/O cloning???
+    }
 }
 
 impl Streaming for RTRMLocal {
@@ -116,13 +127,13 @@ impl Streaming for RTRMLocal {
 
 impl MktEventHandler for RTRMLocal {
     /// updates the local market variable.
-    fn _handle_mkt_msg(
+    async fn _handle_mkt_msg(
         &self,
-        mkt_msg: &Message,
+        mkt_msg: BorrowedMessage<'_>,
         new_mkt_sender: Sender<MarketType>,
         _mkt_params: MktMsgParams,
     ) {
-        let new_market = MarketType::try_from_ref(mkt_msg);
+        let new_market = MarketType::try_from_ref(&mkt_msg);
         debug!("_handle_mkt_msg: Got quote: {:?}", new_market);
         if new_market.is_err() {
             return; // ignore the market message if it cant be decoded correctly.
@@ -189,11 +200,12 @@ impl TradeMarketDiscovery for RTRMLocal
 {
 }
 
-impl RiskProcessors for RTRMLocal
+// TODO: THIS IS PROBABLY WRONG!!!
+impl RiskProcessors<LETFTrade> for RTRMLocal
 //where
 //    Self::TR: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + Send + Sync,
 {
-    fn _price_existing_trades(
+    async fn _price_existing_trades(
         &self,
         all_trades: &TradeRep<Self::TR>,
         metric: PricingMetric,
@@ -208,10 +220,10 @@ impl RiskProcessors for RTRMLocal
         p
     }
 
-    fn _price_new_trades(
+    async fn _price_new_trades(
         &self,
         curr_portfolio: &mut PortfolioType,
-        trade_receiver: &Receiver<Self::TR>,
+        trade_receiver: &mut Receiver<Self::TR>,
         all_trades: &mut TradeRep<Self::TR>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,

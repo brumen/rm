@@ -1,6 +1,6 @@
 use core::cmp::Eq;
-use kafka::consumer::Message;
 use log::{debug, warn};
+use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -143,11 +143,12 @@ impl LETFTrade {
     }
 }
 
-impl TryFromRef<Message<'_>> for TradeTypes {
+impl TryFromRef<BorrowedMessage<'_>> for TradeTypes {
     type Error = TradeError;
 
-    fn try_from_ref(value: &Message) -> Result<Self, Self::Error> {
-        let msg_utf = std::str::from_utf8(value.value)?;
+    fn try_from_ref(value: &BorrowedMessage) -> Result<Self, Self::Error> {
+	let msg_value = value.detach().payload().unwrap();  // TODO: FIX THIS UNWRAP
+        let msg_utf = std::str::from_utf8(msg_value)?;
 
         Ok(serde_json::from_str::<TradeTypes>(msg_utf)?)
     }

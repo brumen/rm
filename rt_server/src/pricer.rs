@@ -5,6 +5,7 @@ use std::fmt;
 use std::future::Future;
 use string_join::Join;
 use tracing::{debug, warn};
+use reqwest::Client;
 
 use crate::market::{CurrNewMarket, MarketType};
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
@@ -298,13 +299,14 @@ where
     fn _pricing_endpoint_spark(&self, market_: CurrNewMarket, metric: PricingMetric) -> String;
 
     // prices the trades on the spark
-    fn price_trades_spark(
+    async fn price_trades_spark(
         &self,
         trades: &TradeRep<TR>,
-        pricing_client: &reqwest::blocking::Client,
+        pricing_client: &Client,
         market_: CurrNewMarket,
         metric: PricingMetric,
     ) -> PortfolioType {
+
         // joins all trades with commas, like 190,191,192
         let all_trade_ids = ",".join(trades.all_trade_names());
         let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
@@ -319,8 +321,8 @@ where
             .send();
 
         // unwrap the result_pricing
-        let priced_portfolio = match result_pricing {
-            Ok(result_price) => self._unwrap_pricing_results(result_price, metric),
+        let priced_portfolio = match result_pricing.await {
+            Ok(result_price) => self._unwrap_pricing_results_a(result_price, metric).await,
             Err(e) => {
                 warn!("Trades could not price correctly: {}", e);
                 return PortfolioType::new(); // TODO: What to do if the trade cant convert
@@ -339,11 +341,11 @@ where
     ///   just that it only limits to spark application to
     ///   a certain number of trades, and it repeats the spark
     ///   application
-    fn price_trades_on_spark(
+    async fn price_trades_on_spark(
         &self,
         trades: &TradeRep<TR>,
         metric: PricingMetric,
-        pricing_options: &MarketPricingOptions,
+        _pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
     ) -> PortfolioType
 //where TR: PartialEq + std::fmt::Debug + Clone + pricer::PriceTradeAsync + Send + Sync
@@ -355,7 +357,7 @@ where
         let mut curr_trade_nb = 0;
         let mut curr_trade_rep = TradeRep::<TR>::new();
 
-        let pricing_client = reqwest::blocking::Client::new();
+        let pricing_client = Client::new();
 
         for (_tid, tr) in trades.iter() {
             curr_trade_rep += tr;
@@ -364,7 +366,12 @@ where
             if curr_trade_nb > split_nb {
                 // do the computation
                 let portfolio =
-                    self.price_trades_spark(&curr_trade_rep, &pricing_client, curr_new_mkt, metric);
+                    self.price_trades_spark(
+			&curr_trade_rep,
+			&pricing_client,
+			curr_new_mkt,
+			metric
+		    ).await;
 
                 curr_portfolio += portfolio;
                 curr_trade_nb = 0;
@@ -374,16 +381,21 @@ where
 
         // remaining part of trades
         curr_portfolio +=
-            self.price_trades_spark(&curr_trade_rep, &pricing_client, curr_new_mkt, metric);
+            self.price_trades_spark(
+		&curr_trade_rep,
+		&pricing_client,
+		curr_new_mkt,
+		metric
+	    ).await;
 
         curr_portfolio
     }
 
     // prices the trades on the spark
-    fn price_trades_spark_2(
+    async fn price_trades_spark_2(
         &self,
         trades: &TradeRep<TR>,
-        pricing_client: &reqwest::blocking::Client,
+        pricing_client: &Client,
         market_: CurrNewMarket,
         metric: PricingMetric,
     ) -> Result<PortfolioType, Error> {
@@ -391,6 +403,7 @@ where
         let all_trade_ids = ",".join(trades.all_trade_names());
         let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
         let market_endpoint = pricing_endpoint_spark.as_str();
+
         let result_pricing = pricing_client
             .post(format!(
                 "http://{}/{}",
@@ -398,10 +411,11 @@ where
                 market_endpoint
             ))
             .form(&HashMap::from([("trades", &all_trade_ids)]))
-            .send()?;
+            .send()
+	    .await?;
 
         // unwrap the result_pricing
-        let priced_portfolio = self._unwrap_pricing_results(result_pricing, metric);
+        let priced_portfolio = self._unwrap_pricing_results_a(result_pricing, metric).await;
 
         // let's do the aggregation here
         Ok(match priced_portfolio {

@@ -1,9 +1,9 @@
-use kafka::consumer::Message;
-use log::debug;
+use tracing::debug;
 use serde::{Deserialize, Serialize};
 use std::collections::{hash_map::IntoIter, HashMap};
 use std::ops::{AddAssign, Deref, DerefMut};
 use std::sync::mpsc::{Receiver, Sender};
+use rdkafka::message::{BorrowedMessage, Message};
 
 use std::default::Default;
 use std::iter::IntoIterator;
@@ -79,11 +79,12 @@ pub enum MarketTypeError {
     CantConvertToMarket(#[from] serde_json::Error),
 }
 
-impl TryFromRef<Message<'_>> for MarketType {
+impl TryFromRef<BorrowedMessage<'_>> for MarketType {
     type Error = MarketTypeError;
 
-    fn try_from_ref(value: &Message) -> Result<Self, Self::Error> {
-        let msg_utf = std::str::from_utf8(value.value)?;
+    fn try_from_ref(value: &BorrowedMessage) -> Result<Self, Self::Error> {
+	let msg_val = value.detach().payload().unwrap();  // TODO: CAN WE DO THIS WITHOUT DETACHING???
+        let msg_utf = std::str::from_utf8(msg_val)?;
 
         debug!("try_from_ref(MarketType): Msg = {:?}", msg_utf);
         Ok(serde_json::from_str::<MarketType>(msg_utf)?)
@@ -116,9 +117,11 @@ pub enum MktMsgParams {
 /// trait that deals with when we switch from
 /// current market to new market.
 pub trait MarketSwitching {
-    /// switch markets on the trade api.
-    async fn _switch_markets(&self);
-    fn _internal_switch_markets(&self) {
+    async fn _switch_all_markets(&self);
+    async fn _switch_new_fut_markets(&self);
+    
+    /// switches curr <- new; new <- future
+    fn _internal_switch_all_markets(&self) {
 	// replace current market with new market
         let new_mkt_copy = self
             ._new_mkt()
@@ -143,30 +146,47 @@ pub trait MarketSwitching {
 	    .lock()
 	    .expect("Could not lock new market") = (*fut_mkt_copy).clone();
     }
+
+    /// switches only new_market <- future_market
+    fn _internal_switch_new_fut_markets(&self) {
+	// replace current market with new market
+	let fut_mkt_copy = self
+	    ._future_mkt()
+	    .lock()
+	    .expect("_internal_switch_markets: Could not lock future market");
+
+	**self
+	    ._new_mkt()
+	    .lock()
+	    .expect("Could not lock new market") = (*fut_mkt_copy).clone();
+    }
+
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>>;
     fn _new_mkt(&self) -> Arc<Mutex<MarketType>>;
     fn _future_mkt(&self) -> Arc<Mutex<MarketType>>;
+    // is future market ready, i.e. is there any update to the futures market.
+    fn _future_mkt_ready(&self) -> bool;    
 }
 
 /// trait that detects new events and potentially skips some.
 pub trait TradeMarketDiscovery: MarketSwitching {
+
     /// indicator if there is a new market present.
     /// consumes the new market events to come to the last one.
-    fn _new_market_event(&self, new_market_receiver: &Receiver<MarketType>) -> bool {
+    fn _new_market_event(
+	&self,
+	new_market_receiver: &Receiver<MarketType>,
+	fut_market_sender: &Sender<MarketType>,
+    ) {
         // handling new market event - roll to the latest new market, ignore in between markets
-        let mut new_market_event = false;
-        let mut new_stock_mkt: MarketType = MarketType::new();
 
-        while let Ok(new_potential_mkt) = new_market_receiver.try_recv() {
-            new_market_event = true;
-            new_stock_mkt = new_potential_mkt;
-        }
-
-        *self
-            ._future_mkt()
-            .lock()
-            .expect("_new_market_event: Could not lock!") += &new_stock_mkt;
-
-        new_market_event
+        while let Ok(new_stock_mkt) = new_market_receiver.recv() {
+            *self
+		._future_mkt()
+		.lock()
+		.expect("_new_market_event: Could not lock!") += &new_stock_mkt;
+	    let fm = self._future_mkt().lock().unwrap().clone();
+            let _ = fut_market_sender.send(MarketType(fm));
+	}
     }
 }
