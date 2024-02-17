@@ -15,12 +15,12 @@ use crate::mkt_handler::MktEventHandler;
 use crate::portfolio::{PortfolioType, PricingResults};
 use crate::ref_deref::TryFromRef;
 
-use crate::pricer::{MarketPricingOptions, PriceTrade, PricingMetric};
+use crate::pricer::{MarketPricingOptions, PriceTrade, PricingMetric, Decoder, PriceTradeAsync};
 
 use crate::publish::PublishResults;
 use crate::streaming::Streaming;
-use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeRep, TradeTypes, LETFTrade};
-use crate::trade_procs::{ProcessTradeSync, RiskProcessors};
+use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeRep, TradeTypes};
+use crate::trade_procs::{ProcessTradeSync, RiskProcessors, ProcessTradeAsync};
 
 /// RTRM - Real time risk manager using local
 ///    local market and local pricing.
@@ -152,48 +152,66 @@ impl MktEventHandler for RTRMLocal {
     }
 }
 
-impl<TR> ProcessTradeSync<TR> for RTRMLocal
-where
-    TR: PartialEq
-        + std::fmt::Debug
-        + Clone
-        + BaseTrade
-        + PriceTrade
-        + BaseTrade
-        + std::marker::Send
-        + Sync,
+impl ProcessTradeAsync for RTRMLocal
+// where
+//     TR: PartialEq
+//         + std::fmt::Debug
+//         + Clone
+//         + BaseTrade
+//         + PriceTrade
+//         + BaseTrade
+//         + std::marker::Send
+//         + Sync,
 {
     /// processes the trade, by calculating the metric given
     /// on either the current or the new market.
     /// updates the curr_portfolio.
-    fn _process_trade(
+    async fn _process_trade<TR: Decoder + BaseTrade + PriceTradeAsync + Send + Sync>(
         &self,
         trade: &TR,
         metric: PricingMetric,
         _pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> PricingResults {
+    ) -> PortfolioType {
         let market = match curr_new_mkt {
             CurrNewMarket::Current => self._curr_mkt(),
             CurrNewMarket::New => self._new_mkt(),
         };
 
         let trade_v = match market.lock() {
-            Ok(market_l) => trade.value_by_metric(metric, &market_l),
+            Ok(market_l) => trade.value_by_metric(metric, _pricing_options, curr_new_mkt).await,
             Err(e) => {
                 error!("_process_trade: Market was poisoned {:?}", e);
-                trade.value_by_metric(metric, &(MarketType::new()))
+                trade.value_by_metric(metric, _pricing_options, curr_new_mkt).await
             }
         };
         debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
 
-        match trade.direction() {
+        let trade_v_dir = match trade.direction() {
             TradeDirection::Create => trade_v,
             TradeDirection::Delete => -trade_v,
             TradeDirection::Update => todo!(),
-        }
+        };
+
+	match trade_v_dir {
+	    PricingResults::PV(pv) => pv,
+	    PricingResults::PV01(pv01) => pv01.aggregate(),
+	    PricingResults::PnL(pnl) => pnl,	    
+	}
     }
 }
+
+// impl ProcesTradeAsync for RTRMLocal {
+//     async fn _process_trade(
+// 	&self,
+// 	trade: &TR,
+// 	metric: PricingMetric,
+// 	pricing_options: &MarketPricingOptions,
+// 	curr_new_mkt: CurrNewMarket,
+//     ) {
+// 	self._process_trade(${1:trade}, ${2:metric}, ${3:pricing_options}, ${4:curr_new_mkt})$0
+//     }
+// }
 
 impl TradeMarketDiscovery for RTRMLocal
 //where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + Send
@@ -201,7 +219,7 @@ impl TradeMarketDiscovery for RTRMLocal
 }
 
 // TODO: THIS IS PROBABLY WRONG!!!
-impl RiskProcessors<LETFTrade> for RTRMLocal
+impl RiskProcessors for RTRMLocal
 //where
 //    Self::TR: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + Send + Sync,
 {
@@ -215,7 +233,7 @@ impl RiskProcessors<LETFTrade> for RTRMLocal
         let mut p = PortfolioType::new();
 
         for trade in all_trades.values() {
-            p += self._process_trade(trade, metric, pricing_options, curr_new_mkt);
+            p += self._process_trade(trade, metric, pricing_options, curr_new_mkt).await;
         }
         p
     }
@@ -240,7 +258,7 @@ impl RiskProcessors<LETFTrade> for RTRMLocal
 
             if new_trade {
                 *curr_portfolio +=
-                    self._process_trade(&trade, metric, pricing_options, curr_new_mkt);
+                    self._process_trade(&trade, metric, pricing_options, curr_new_mkt).await;
 
                 let _ =
                     new_trades_sender.send((curr_portfolio.clone(), TradeRep(all_trades.clone())));

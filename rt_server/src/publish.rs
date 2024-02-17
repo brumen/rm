@@ -69,13 +69,14 @@ pub fn connect_with_retries_producer_rd(bootstrap_servers: &str) -> rdkafka::pro
 
     let mut current_sleep_time = 1;
 
-    loop {
-	let result_producer_config = ClientConfig::new()
-            .set("bootstrap.servers", bootstrap_servers);
+    let mut result_producer_config = ClientConfig::new();
+    result_producer_config.set("bootstrap.servers", bootstrap_servers);
         // .set("enable.partition.eof", "false")
         // We'll give each session its own (unique) consumer group id,
         // so that each session will receive all messages
 	//            .set("group.id", format!("chat-{}", Uuid::new_v4()))
+
+    loop {
 
 	match FutureProducer::from_config(&result_producer_config) {
             Ok(result_producer) => {

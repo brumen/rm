@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::market::MarketType;
 use crate::portfolio::{PV01Results, PortfolioType};
-use crate::pricer::PriceTrade;
+use crate::pricer::{PriceTrade, Decoder};
 use crate::ref_deref::TryFromRef;
 use crate::ref_deref_trait;
 
@@ -147,7 +147,7 @@ impl TryFromRef<BorrowedMessage<'_>> for TradeTypes {
     type Error = TradeError;
 
     fn try_from_ref(value: &BorrowedMessage) -> Result<Self, Self::Error> {
-	let msg_value = value.detach().payload().unwrap();  // TODO: FIX THIS UNWRAP
+	let msg_value = value.payload().unwrap();  // TODO: FIX THIS UNWRAP
         let msg_utf = std::str::from_utf8(msg_value)?;
 
         Ok(serde_json::from_str::<TradeTypes>(msg_utf)?)
@@ -281,6 +281,8 @@ impl TradeTypes {
         }
     }
 }
+
+impl Decoder for TradeTypes {}
 
 impl PriceTrade for TradeTypes {
     fn initial_pv(&self) -> Option<f64> {

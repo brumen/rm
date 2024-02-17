@@ -154,15 +154,16 @@ pub fn connect_with_retries_rd(bootstrap_servers: &str, pos_topic: &str) -> Stre
     
     let mut current_sleep_time = 1;
 
+    let mut pos_consumer_config = ClientConfig::new();
+    pos_consumer_config.set("bootstrap.servers", bootstrap_servers);
+
     loop {
-	let pos_consumer_config = ClientConfig::new()
-            .set("bootstrap.servers", bootstrap_servers);
         // .set("enable.partition.eof", "false")
         // We'll give each session its own (unique) consumer group id,
         // so that each session will receive all messages
 	//            .set("group.id", format!("chat-{}", Uuid::new_v4()))
 
-	match StreamConsumer::from_config(pos_consumer_config) {
+	match StreamConsumer::from_config(&pos_consumer_config) {
             Ok(pos_listener) => {
 		return pos_listener;
             },

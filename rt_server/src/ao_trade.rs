@@ -138,7 +138,7 @@ impl TryFromRef<BorrowedMessage<'_>> for AOTrade {
     type Error = TradeError;
 
     fn try_from_ref(value: &BorrowedMessage<'_>) -> Result<Self, Self::Error> {
-	let msg_val = value.detach().payload().unwrap();  // TODO: FIX THIS UNWRAP
+	let msg_val = value.payload().unwrap();  // TODO: FIX THIS UNWRAP
         let msg_utf = std::str::from_utf8(msg_val)?;
         debug!("try_from_ref: Message received: {}", msg_utf);
 

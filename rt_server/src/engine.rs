@@ -6,7 +6,7 @@ use crate::market::MktMsgParams;
 use crate::mkt_handler::MktEventHandler;
 use crate::portfolio::PortfolioType;
 use crate::portfolio_sender::PortfolioSender;
-use crate::pricer::MarketPricingOptions;
+use crate::pricer::{MarketPricingOptions, Decoder};
 use crate::publish::PublishResults;
 use crate::trade::TradeRep;
 use crate::trade_procs::RiskProcessors;
@@ -24,10 +24,10 @@ pub trait CalcController {
     );
 }
 
-impl<T, TR> CalcController for T
+impl<T> CalcController for T
 where
-    T: Send + Sync + RiskProcessors<TR> + MktEventHandler + PublishResults + PortfolioSender,
-    TR:
+    T: Send + Sync + RiskProcessors + MktEventHandler + PublishResults + PortfolioSender,
+    <T as PortfolioSender>::TR : Sync + Decoder,
 {
     async fn start(
         &self,

@@ -1,14 +1,13 @@
 // Trade processor interaction between current and new market.
-use std::future::Future;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{info, warn};
+use tracing::info;
 use tokio;
 
 use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery};
 use crate::portfolio::{PortfolioType, PricingResults};
 use crate::portfolio_sender::PortfolioSender;
-use crate::pricer::{MarketPricingOptions, PricingMetric};
-use crate::trade::TradeRep;
+use crate::pricer::{MarketPricingOptions, PricingMetric, Decoder, PriceTradeAsync};
+use crate::trade::{TradeRep, BaseTrade};
 
 pub trait ProcessTradeSync<TR> {
     fn _process_trade(
@@ -20,20 +19,20 @@ pub trait ProcessTradeSync<TR> {
     ) -> PricingResults;
 }
 
-pub trait ProcessTradeAsync<TR> {
-    fn _process_trade(
+pub trait ProcessTradeAsync {
+    async fn _process_trade<TR: PriceTradeAsync + Send + Sync + Decoder + BaseTrade>  ( //: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + Send + Sync + Decoder + Sync> (
         &self,
         trade: &TR,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> impl Future<Output = PortfolioType> + Send;
+    ) -> PortfolioType; // impl Future<Output = PortfolioType> + Send;
 }
 
 /// Pricing engine for trades for remote pricing
-pub trait RiskProcessors<TR>: TradeMarketDiscovery + PortfolioSender + ProcessTradeAsync<TR>
+pub trait RiskProcessors: TradeMarketDiscovery + PortfolioSender + ProcessTradeAsync
 where
-    <Self as PortfolioSender>::TR: Clone,
+    <Self as PortfolioSender>::TR: Clone + BaseTrade + Decoder + Sync,
 {
     /// computes the metric of the existing trades in
     /// all_trades, on either the new or the current market
@@ -103,20 +102,16 @@ where
         );
 
 	loop {
-	    let trade_f = trade_receiver.recv();
-	    let new_portfolio_f = new_portfolio_receiver.recv();
-	    
 	    tokio::select! {
 		trade_out = trade_receiver.recv() => {
 		    match trade_out {
 			None => { todo!() },
 			Some(trade) => {
-			    *all_trades += &trade;
-			    *curr_portfolio += self
+			    all_trades += &trade;
+			    curr_portfolio += self
 				._process_trade(&trade, metric, pricing_options, CurrNewMarket::Current)
 				.await;
 
-			    
 //			    let new_p_attempt =  new_trades_sender.send(
 //				(curr_portfolio.clone(), TradeRep(all_trades.clone()))
 //			    ).await;

@@ -4,7 +4,6 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{debug, info, warn};
 use core::convert::From;
 use std::collections::HashMap;
-use std::future::Future;
 use std::marker::Sync;
 use tokio::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -195,31 +194,31 @@ impl TradeReduce for Controller {
     }
 }
 
-impl<TR> ProcessTradeAsync<TR> for Controller
-where
-    TR: PriceTradeAsync + BaseTrade + Sync,
+impl ProcessTradeAsync for Controller
+//where
+//    TR: PriceTradeAsync + BaseTrade + Sync,
 {
-    fn _process_trade(
+    // TR : BaseTrade + Decoder + Sync>
+    async fn _process_trade<TR: PriceTradeAsync + Send + Sync + Decoder + BaseTrade>(
         &self,
         trade: &TR,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> impl Future<Output = PortfolioType> + Send {
-        async move {
-            // let _trade_id = trade.id();
-            // let trade_direction = tr.direction();
-            let trade_v = trade
-                .value_by_metric(metric, pricing_options, curr_new_mkt) //.instrument(_process_trade_span)
-                .await;
+    ) -> PortfolioType {  // impl Future<Output = PortfolioType> + Send {
+        // let _trade_id = trade.id();
+        // let trade_direction = tr.direction();
+        let trade_v = trade
+            .value_by_metric(metric, pricing_options, curr_new_mkt) //.instrument(_process_trade_span)
+            .await;
 
-            let trade_portf = match trade_v {
-                PricingResults::PV(pv) => pv,
-                PricingResults::PV01(pv01) => pv01.aggregate(),
-                PricingResults::PnL(pnl) => pnl,
-            };
+        let trade_portf = match trade_v {
+            PricingResults::PV(pv) => pv,
+            PricingResults::PV01(pv01) => pv01.aggregate(),
+            PricingResults::PnL(pnl) => pnl,
+        };
 
-            trade_portf
+        trade_portf
 
             // let mut cp = curr_portfolio.lock().unwrap();
             //TradeDirection::Create => *cp += trade_portf,
@@ -229,11 +228,10 @@ where
             //    TradeDirection::Delete => - trade_portf,
             //    _ => todo!(),
             //}
-        }
     }
 }
 
-impl RiskProcessors<AOTradeRep> for Controller {
+impl RiskProcessors for Controller {
 
     #[tracing::instrument]
     async fn _price_existing_trades(
@@ -423,7 +421,7 @@ impl Controller {
     #[tracing::instrument]
     async fn _price_new_trades_spark(
         &self,
-        trade_receiver: &Receiver<AOTradeRep>,
+        trade_receiver: &mut Receiver<AOTradeRep>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
@@ -445,7 +443,7 @@ impl Controller {
     /// representation from them.
     fn _get_trades_from_recv<TR: Clone + BaseTrade>(
         &self,
-        trade_receiver: &Receiver<TR>,
+        trade_receiver: &mut Receiver<TR>,
     ) -> TradeRep<TR> {
         let mut new_trades = TradeRep::<TR>::new();
 
