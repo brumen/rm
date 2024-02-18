@@ -1,6 +1,6 @@
 // Trade processor interaction between current and new market.
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::info;
+use tracing::{info, instrument};
 use tokio;
 
 use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery};
@@ -32,11 +32,13 @@ pub trait ProcessTradeAsync {
 /// Pricing engine for trades for remote pricing
 pub trait RiskProcessors: TradeMarketDiscovery + PortfolioSender + ProcessTradeAsync
 where
-    <Self as PortfolioSender>::TR: Clone + BaseTrade + Decoder + Sync,
+    <Self as PortfolioSender>::TR: Clone + BaseTrade + Decoder + Sync + std::fmt::Debug,
+    Self: std::fmt::Debug,
 {
     /// computes the metric of the existing trades in
     /// all_trades, on either the new or the current market
     /// and updates the current_portfolio
+    #[instrument]
     async fn _price_existing_trades(
         &self,
         all_trades: &TradeRep<Self::TR>,
@@ -70,6 +72,7 @@ where
     ///    metric: metric which we are computing.
     ///    pricing_options: options for pricing trades.
     ///    accepted_sender: sender if new portfolio was accepted.
+    #[instrument]
     async fn _trade_processor_curr(
         &self,
         mut trade_receiver: Receiver<Self::TR>,
@@ -161,6 +164,7 @@ where
     ///    new_publisher: should the new portfolio be published. ??? TODO: CHECK THIS
     ///    accepted_recv: how far behind (positive number), or ahead (negative number we are with this new mkt)
     ///    fut_mkt_ready_recv: is the futures market ready.
+    #[instrument]
     async fn _trade_processor_new(
         &self,
 	    mut new_market_receiver: Receiver<MarketType>,

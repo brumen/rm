@@ -27,7 +27,7 @@ pub trait CalcController {
 impl<T> CalcController for T
 where
     T: Send + Sync + RiskProcessors + MktEventHandler + PublishResults + PortfolioSender,
-    <T as PortfolioSender>::TR : Sync + Decoder,
+    <T as PortfolioSender>::TR : Sync + Decoder + std::fmt::Debug,
 {
     async fn start(
         &self,

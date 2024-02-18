@@ -31,6 +31,7 @@ use crate::trade_procs::{ProcessTradeSync, RiskProcessors, ProcessTradeAsync};
 /// trader_pricer: name of the rester service, like localhost:5010
 /// curr_market: current market to be priced on
 /// new_market: new market used for pricing.
+#[derive(Debug)]
 pub struct RTRMLocal {
     kafka_server_name: String,
     kafka_port: i32,

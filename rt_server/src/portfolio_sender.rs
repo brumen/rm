@@ -1,5 +1,6 @@
 use kafka;  // ::{Consumer, FetchOffset, GroupOffsetStorage, Message};
 use log::{debug, info, warn};
+use rdkafka::consumer::Consumer;
 use tokio::sync::mpsc::{Sender, Receiver};
 use std::thread::sleep;
 use std::time::Duration;
@@ -48,45 +49,45 @@ where
 
         let mut existing_trades = TradeRep::<Self::TR>::new();
 
-	loop {
-	    tokio::select! {
-		trade = position_listener.recv() => {
-		    match <T as TradeReduce>::TradeType::try_from_ref(&trade.unwrap()) {  // TODO: FIX THIS UNWRAP
-			Err(e) => {
-			    warn!("Problem w/ trade: {:?}", e);
-			    // TODO: IS THERE ANYTHING ELSE TO DO??
-			}
-			Ok(trade) => {
-			    info!("sending trade {:?}", trade);
-			    
-			    // add trades to trade_reduce
-			    let tr = self.reduce(&trade);
-			    let _ = sender_new.send(tr.clone());
-			    let _ = sender_curr.send(tr.clone());
-			    existing_trades += &tr;
-			}
-		    }
-		},
+	    loop {
+	        tokio::select! {
+		        trade = position_listener.recv() => {
+		            match <T as TradeReduce>::TradeType::try_from_ref(&trade.unwrap()) {  // TODO: FIX THIS UNWRAP
+			            Err(e) => {
+			                warn!("Problem w/ trade: {:?}", e);
+			                // TODO: IS THERE ANYTHING ELSE TO DO??
+			            }
+			            Ok(trade) => {
+			                info!("sending trade {:?}", trade);
 
-		resend = resend_existing.recv() => {
-		    match resend {
-			Some(resend_val) => {
-			    info!("Got a resend value {}", resend_val);
-			    if resend_val {
-				// fill sender_new with existing trades
-				for (_tid, trade) in existing_trades.iter() {
-				    // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
-				    let _ = sender_new.send(trade.clone());
-				}
-			    }
-			},
-			None => {
-			    debug!("resend channel problems.");
-			}
-		    }
-		},
-	    }			    
-	}
+			                // add trades to trade_reduce
+			                let tr = self.reduce(&trade);
+			                let _ = sender_new.send(tr.clone());
+			                let _ = sender_curr.send(tr.clone());
+			                existing_trades += &tr;
+			            }
+		            }
+		        },
+
+		        resend = resend_existing.recv() => {
+		            match resend {
+			            Some(resend_val) => {
+			                info!("Got a resend value {}", resend_val);
+			                if resend_val {
+				                // fill sender_new with existing trades
+				                for (_tid, trade) in existing_trades.iter() {
+				                    // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
+				                    let _ = sender_new.send(trade.clone());
+				                }
+			                }
+			            },
+			            None => {
+			                debug!("resend channel problems.");
+			            }
+		            }
+		        },
+	        }
+	    }
     }
 }
 
@@ -94,31 +95,34 @@ where
 /// attempts to connect the RDKafka consumer to Kafka
 ///  if it cant, returns the KafkaErr TODO: TO BE CHANGED.
 pub fn connect_with_retries_rd(bootstrap_servers: &str, pos_topic: &str) -> StreamConsumer {
-    
+
     let mut current_sleep_time = 1;
 
     let mut pos_consumer_config = ClientConfig::new();
     pos_consumer_config.set("bootstrap.servers", bootstrap_servers);
-    pos_consumer_config.set("topic", pos_topic);  // TODO: CHECK THIS PART
+    pos_consumer_config.set("group.id", "pos_listener");
 
     loop {
         // .set("enable.partition.eof", "false")
         // We'll give each session its own (unique) consumer group id,
         // so that each session will receive all messages
-	//            .set("group.id", format!("chat-{}", Uuid::new_v4()))
 
-	match StreamConsumer::from_config(&pos_consumer_config) {
+	    match StreamConsumer::from_config(&pos_consumer_config) {
             Ok(pos_listener) => {
-		return pos_listener;
+		        pos_listener
+                    .subscribe(&[pos_topic])
+                    .expect("Cant subscribe to topic");
+
+                return pos_listener;
             },
             Err(e) => {
                 warn!(
                     "listener is not connected, waiting {:?} secs: {:?}",
-		    current_sleep_time,
+		            current_sleep_time,
                     e,
                 );
                 sleep(Duration::new(current_sleep_time, 0));
-		current_sleep_time = min(current_sleep_time+1, 5);
+		        current_sleep_time = min(current_sleep_time+1, 5);
             }
         };
     }

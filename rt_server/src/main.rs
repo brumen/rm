@@ -1,5 +1,7 @@
 // Starts the controller.
-//use std::env::args;
+
+use tokio;
+use tracing_subscriber;
 
 mod ao_risk;
 mod ao_trade;
@@ -20,13 +22,10 @@ mod trade;
 mod trade_procs;
 mod trader;
 
-use tokio;
-use tracing_subscriber;
-
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt().init();
-    
+
     // letf_trader::main_letf_trader();
     ao_risk::ao_main_risk().await;
 }
