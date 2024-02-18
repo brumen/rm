@@ -6,6 +6,8 @@ use rt_server::{
     ao_trade::{AOTrade, AfterPosition, BeforePosition, Payload},
     pricer::MarketPricingOptions,
 };
+use rt_server::market::CurrNewMarket;
+
 
 async fn ao_trade_1() {
     let ao_trade = AOTrade {
@@ -21,14 +23,15 @@ async fn ao_trade_1() {
         pricing_server: "localhost:5010".to_owned(),
     };
 
-    let res = ao_trade.price(&pricing_options).await;
+    let res = ao_trade.price(&pricing_options, CurrNewMarket::Current).await;
     let res2 = ao_trade
-        .value_by_metric(PricingMetric::PV, &pricing_options)
+        .value_by_metric(PricingMetric::PV, &pricing_options, CurrNewMarket::Current,)
         .await;
 
     assert_eq!(res, Some(4.));
     assert_eq!(res2, PricingResults::new(PricingMetric::PV));
 }
+
 
 fn test_ao_trade() {
     todo!()

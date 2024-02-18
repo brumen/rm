@@ -1,14 +1,6 @@
-// Starts the controller.
-
-// Windows usage:
-// ADD THIS TO POWERSHELL:
-// $env:OPENSSL_DIR = 'C:\Tools\vcpkg\installed\x64-windows-static'
-// $env:OPENSSL_STATIC = 'Yes'
-
-//use std::env::args;
-
+// Starts the controller for Leveraged ETF trading..
 use std::sync::{Arc, Mutex};
-use std::thread;
+use tokio;
 
 use crate::engine::CalcController;
 use crate::market;
@@ -17,28 +9,18 @@ use crate::pricer::MarketPricingOptions;
 use crate::rm_local::{RTRMConfig, RTRMLocal};
 use crate::trader::{LETFTrader, RTConfig};
 
-pub fn main_letf_trader() {
-    thread::scope(|s| {
-        let _ = thread::Builder::new()
-            .name("letf_trader".to_string())
-            .spawn_scoped(s, move || {
-                letf_trader();
-            })
-            .unwrap();
+pub async fn main_letf_trader() {
 
-        let _ = thread::Builder::new()
-            .name("letf_risk".to_string())
-            .spawn_scoped(s, move || {
-                letf_risk();
-            })
-            .unwrap();
-    });
+    tokio::join!(
+	letf_trader(),
+	letf_risk(),
+    );
 }
 
 // start trader w/ RuST_LOG=debug cargo r "CONFIG FILE"
 
 /// starts the trader portion of the Leveraged ETF.
-fn letf_trader() {
+async fn letf_trader() {
     let config_file: String =
         "/home/brumen/work/rm/configs/configuration_letf_trader.yaml".to_owned();
 
@@ -51,11 +33,12 @@ fn letf_trader() {
         config_map.positions_topic,
         config_map.mkt_topic,
         config_map.results_topic,
-    );
+    ).await;
 }
 
+
 /// starts the risk engine of the letf trader.
-fn letf_risk() {
+async fn letf_risk() {
     // at some point add: //args().nth(1).unwrap();
     let config_file: String =
         "/home/brumen/work/rm/configs/configuration_letf_risk.yaml".to_owned();
@@ -77,5 +60,5 @@ fn letf_risk() {
             curr_mkt: Arc::new(Mutex::new(MarketType::new())),
         }),
         &market_pricing_options,
-    );
+    ).await;
 }

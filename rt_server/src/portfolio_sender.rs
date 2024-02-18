@@ -1,6 +1,5 @@
 use kafka;  // ::{Consumer, FetchOffset, GroupOffsetStorage, Message};
 use log::{debug, info, warn};
-// use std::sync::mpsc::{Receiver, Sender};
 use tokio::sync::mpsc::{Sender, Receiver};
 use std::thread::sleep;
 use std::time::Duration;
@@ -20,8 +19,6 @@ pub trait PortfolioSender: TradeReduce {
     /// if it receives a signal to resend existing trades, it resends them
 
     type TR: Clone + Send + BaseTrade;
-
-    // fn reduce(&self, trade: Message<'_>) -> (String, Self::TR);
 
     async fn __construct_portfolio(
         &self,
@@ -91,60 +88,6 @@ where
 	    }			    
 	}
     }
-
-    // fn __construct_portfolio_old(
-    //     &self,
-    //     sender_new: Sender<Self::TR>,
-    //     sender_curr: Sender<Self::TR>,
-    //     resend_existing: Receiver<bool>,
-    //     pos_topic: String,
-    // ) {
-    //     let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port(),);
-    //     let mut position_listener = connect_with_retries(&bootstrap_servers, &pos_topic);
-
-    //     let mut existing_trades = TradeRep::<Self::TR>::new();
-
-    //     loop {
-    //         let resend = resend_existing.try_recv(); // should we resend existing trades
-    //         match resend {
-    //             Ok(resend_val) => {
-    //                 info!("_construct_portfolio: Got a resend value {}", resend_val);
-    //                 if resend_val {
-    //                     // fill sender_new with existing trades
-    //                     for (_tid, trade) in existing_trades.iter() {
-    //                         // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
-    //                         let _ = sender_new.send(trade.clone());
-    //                     }
-    //                 }
-    //             }
-    //             Err(tre) => {
-    //                 debug!("_construct_portfolio: resend channel problems: {:?}", tre);
-    //             }
-    //         }
-
-    //         for ms in position_listener.poll().unwrap().iter() {
-    //             for msg in ms.messages() {
-    //                 match <T as TradeReduce>::TradeType::try_from_ref(msg) {
-    //                     Err(e) => {
-    //                         warn!("__construct_portfolio: Problem w/ trade: {:?}", e);
-    //                         continue;
-    //                     }
-    //                     Ok(trade) => {
-    //                         info!("__construct_portfolio: sending trade {:?}", trade);
-
-    //                         // add trades to trade_reduce
-    //                         let tr = self.reduce(&trade);
-    //                         let _ = sender_new.send(tr.clone());
-    //                         let _ = sender_curr.send(tr.clone());
-    //                         existing_trades += &tr;
-    //                     }
-    //                 }
-    //             }
-    //             let _ = position_listener.consume_messageset(ms); // TODO: FIX THIS ERROR HANDLING HERE
-    //         }
-    //         position_listener.commit_consumed().unwrap();
-    //     }
-    // }
 }
 
 
@@ -156,6 +99,7 @@ pub fn connect_with_retries_rd(bootstrap_servers: &str, pos_topic: &str) -> Stre
 
     let mut pos_consumer_config = ClientConfig::new();
     pos_consumer_config.set("bootstrap.servers", bootstrap_servers);
+    pos_consumer_config.set("topic", pos_topic);  // TODO: CHECK THIS PART
 
     loop {
         // .set("enable.partition.eof", "false")
@@ -174,16 +118,16 @@ pub fn connect_with_retries_rd(bootstrap_servers: &str, pos_topic: &str) -> Stre
                     e,
                 );
                 sleep(Duration::new(current_sleep_time, 0));
-		current_sleep_time += min(current_sleep_time+1, 5);
+		current_sleep_time = min(current_sleep_time+1, 5);
             }
         };
     }
 }
 
 
-
 /// connects the consumer to Kafka,
 /// keep retyring every 5 seconds.
+#[allow(dead_code)]
 pub fn connect_with_retries(
     bootstrap_servers: &str,
     pos_topic: &str,

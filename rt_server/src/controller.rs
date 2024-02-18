@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::marker::Sync;
 use tokio::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use tokio::runtime;
 
 use crate::ao_trade::{AOTrade, AOTradeRep};
 use crate::market::{
@@ -41,7 +40,6 @@ pub struct Controller {
     curr_mkt: Arc<Mutex<MarketType>>,
     new_mkt: Arc<Mutex<MarketType>>,
     future_mkt: Arc<Mutex<MarketType>>,
-    async_rt: runtime::Runtime,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -138,12 +136,12 @@ impl MarketSwitching for Controller {
 	);
     }
 
+    /// replaces new market w/ future market.
+    ///    and updates them on the server. 
     async fn _switch_new_fut_markets(&self) {
-	self._internal_switch_new_fut_markets();  // new <- future
-	// update the markets on the server.
+	self._internal_switch_new_fut_markets();
 
-	let client = reqwest::Client::new();  // async client
-	
+	let client = reqwest::Client::new();	
 
 	let new_market_post = client
             .post(format!("http://{0}/new_market", self.trade_pricer))
@@ -154,7 +152,8 @@ impl MarketSwitching for Controller {
             .post(format!("http://{0}/future_market", self.trade_pricer))
             .json(&HashMap::from([("market", &*self.future_mkt.lock().unwrap())]))
             .send();
-	
+
+	// TODO: THIS HAS TO BE STUDIED.
 	tokio::join!(
 	    new_market_post,
 	    future_market_post,
@@ -308,14 +307,14 @@ impl Controller {
             None => PricingParams::new(),
         };
 
-        let (num_tokio_worker_threads, max_tokio_blocking_threads) = (8, 512); // 512 is tokio's current default
-        let rt = runtime::Builder::new_multi_thread()
-            .enable_all()
-            .thread_stack_size(8 * 1024 * 1024)
-            .worker_threads(num_tokio_worker_threads)
-            .max_blocking_threads(max_tokio_blocking_threads)
-            .build()
-            .unwrap();
+        // let (num_tokio_worker_threads, max_tokio_blocking_threads) = (8, 512); // 512 is tokio's current default
+        // let rt = runtime::Builder::new_multi_thread()
+        //     .enable_all()
+        //     .thread_stack_size(8 * 1024 * 1024)
+        //     .worker_threads(num_tokio_worker_threads)
+        //     .max_blocking_threads(max_tokio_blocking_threads)
+        //     .build()
+        //     .unwrap();
 
         // let mkt_client_address = "http://localhost:8000/future_market";
         // let client = reqwest::blocking::Client::new();  // TODO: THIS ALWAYS REPEATS!!!
@@ -330,7 +329,6 @@ impl Controller {
             curr_mkt: Arc::new(Mutex::new(MarketType::new())),
             new_mkt: Arc::new(Mutex::new(MarketType::new())),
 	    future_mkt: Arc::new(Mutex::new(MarketType::new())),
-            async_rt: rt,
         }
     }
 
