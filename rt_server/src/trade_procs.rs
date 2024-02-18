@@ -256,6 +256,13 @@ where
     ///    new_publisher: should the new portfolio be published. ??? TODO: CHECK THIS
     ///    accepted_recv: how far behind (positive number), or ahead (negative number we are with this new mkt)
     ///    fut_mkt_ready_recv: is the futures market ready.
+    ///   new_market_receiver: receiver for the new market events
+    ///   new_trade_receiver: receiver for the new trades.
+    ///   new_portfolio_sender: sends the computed portfolio to the current market.
+    ///   new_publisher: whether
+    ///   accepted_recv:
+    ///   metric: which metric is being computed.
+    ///   pricing_options: options for the pricing engine.
     fn _trade_processor_new(
         &self,
         mut new_market_receiver: Receiver<MarketType>,
