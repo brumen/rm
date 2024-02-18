@@ -163,7 +163,7 @@ where
     ///    fut_mkt_ready_recv: is the futures market ready.
     async fn _trade_processor_new(
         &self,
-	mut new_market_receiver: Receiver<MarketType>,
+	    mut new_market_receiver: Receiver<MarketType>,
         mut new_trade_receiver: Receiver<Self::TR>, // receiving new additional trades
         new_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::TR>)>, // results are sent here
         new_publisher: Sender<bool>,
@@ -173,10 +173,10 @@ where
         pricing_options: &MarketPricingOptions,
     ) {
         let nb_attempts = 5; // try 5 times before aborting and starting on a new market
-	
-	while let Some(_new_mkt) = new_market_receiver.recv().await {
-	    self._switch_new_fut_markets().await;  // switch new market <- fut market
-	    
+
+	    while let Some(_new_mkt) = new_market_receiver.recv().await {
+	        self._switch_new_fut_markets().await;  // switch new market <- fut market
+
 	    // price the trades on the current market
             let (mut new_portfolio, mut all_batches) =
                 self._new_processor_trade_loop(
