@@ -133,7 +133,13 @@ where
     }
 
     /// processes the trades on the new market.
-    /// new_market_receiver:
+    ///   new_market_receiver: receiver for the new market events
+    ///   new_trade_receiver: receiver for the new trades.
+    ///   new_portfolio_sender: sends the computed portfolio to the current market.
+    ///   new_publisher: whether
+    ///   accepted_recv:
+    ///   metric: which metric is being computed.
+    ///   pricing_options: options for the pricing engine.
     fn _trade_processor_new(
         &self,
         new_market_receiver: Receiver<MarketType>,
