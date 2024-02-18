@@ -186,7 +186,7 @@ where
 		).await;
 
 	    // attempt to send the portfolio to the trade_processor_curr
-            info!("_trade_processor_new: New portfolio = {:?}", new_portfolio);
+            info!("New portfolio = {:?}", new_portfolio);
             let _ = new_portfolio_sender
                 .send((new_portfolio.clone(), TradeRep(all_batches.clone())));
 

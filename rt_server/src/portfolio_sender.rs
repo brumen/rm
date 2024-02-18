@@ -53,11 +53,11 @@ where
 		trade = position_listener.recv() => {
 		    match <T as TradeReduce>::TradeType::try_from_ref(&trade.unwrap()) {  // TODO: FIX THIS UNWRAP
 			Err(e) => {
-			    warn!("__construct_portfolio: Problem w/ trade: {:?}", e);
+			    warn!("Problem w/ trade: {:?}", e);
 			    // TODO: IS THERE ANYTHING ELSE TO DO??
 			}
 			Ok(trade) => {
-			    info!("__construct_portfolio: sending trade {:?}", trade);
+			    info!("sending trade {:?}", trade);
 			    
 			    // add trades to trade_reduce
 			    let tr = self.reduce(&trade);
@@ -71,7 +71,7 @@ where
 		resend = resend_existing.recv() => {
 		    match resend {
 			Some(resend_val) => {
-			    info!("_construct_portfolio: Got a resend value {}", resend_val);
+			    info!("Got a resend value {}", resend_val);
 			    if resend_val {
 				// fill sender_new with existing trades
 				for (_tid, trade) in existing_trades.iter() {
@@ -81,7 +81,7 @@ where
 			    }
 			},
 			None => {
-			    debug!("_construct_portfolio: resend channel problems.");
+			    debug!("resend channel problems.");
 			}
 		    }
 		},
@@ -113,7 +113,7 @@ pub fn connect_with_retries_rd(bootstrap_servers: &str, pos_topic: &str) -> Stre
             },
             Err(e) => {
                 warn!(
-                    "__construct_portfolio: listener is not connected, waiting {:?} secs: {:?}",
+                    "listener is not connected, waiting {:?} secs: {:?}",
 		    current_sleep_time,
                     e,
                 );
@@ -148,7 +148,7 @@ pub fn connect_with_retries(
             }
             Err(e) => {
                 warn!(
-                    "__construct_portfolio: listener is not connected, waiting {:?} secs: {:?}",
+                    "listener is not connected, waiting {:?} secs: {:?}",
 		    current_sleep_time,
                     e
                 );

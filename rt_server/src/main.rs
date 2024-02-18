@@ -21,11 +21,12 @@ mod trade_procs;
 mod trader;
 
 use tokio;
+use tracing_subscriber;
 
 #[tokio::main]
 async fn main() {
-    env_logger::init(); // TODO: CHECK IF THIS NEEDS TO BE DONE!!!
-
+    tracing_subscriber::fmt().init();
+    
     // letf_trader::main_letf_trader();
     ao_risk::ao_main_risk().await;
 }

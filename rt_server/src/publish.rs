@@ -84,7 +84,7 @@ pub fn connect_with_retries_producer_rd(bootstrap_servers: &str) -> rdkafka::pro
             },
             Err(e) => {
                 warn!(
-                    "__construct_portfolio: listener is not connected, waiting {:?} secs: {:?}",
+                    "listener is not connected, waiting {:?} secs: {:?}",
 		    current_sleep_time,
                     e,
                 );
