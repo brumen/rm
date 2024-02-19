@@ -1,5 +1,5 @@
 use kafka;  // ::{Consumer, FetchOffset, GroupOffsetStorage, Message};
-use log::{debug, info, warn};
+use tracing::{debug, info, warn, instrument};
 use rdkafka::consumer::Consumer;
 use tokio::sync::mpsc::{Sender, Receiver};
 use std::thread::sleep;
@@ -32,11 +32,12 @@ pub trait PortfolioSender: TradeReduce {
 
 impl<T> PortfolioSender for T
 where
-    T: Streaming + TradeReduce,
+    T: Streaming + TradeReduce + std::fmt::Debug,
     for<'a> <T as TradeReduce>::TradeType: TryFromRef<BorrowedMessage<'a>> + std::fmt::Debug
 {
     type TR = <T as TradeReduce>::ReductionType;
 
+    //#[instrument]
     async fn __construct_portfolio(
         &self,
         sender_new: Sender<Self::TR>,
@@ -49,27 +50,32 @@ where
 
         let mut existing_trades = TradeRep::<Self::TR>::new();
 
+        info!("Starting portfolio construction loop");
 	    loop {
+            warn!("Looping CONSTRUCT PORT");
 	        tokio::select! {
-		        trade = position_listener.recv() => {
+                trade = position_listener.recv() => {
+                    warn!("Receiving trade");
 		            match <T as TradeReduce>::TradeType::try_from_ref(&trade.unwrap()) {  // TODO: FIX THIS UNWRAP
 			            Err(e) => {
 			                warn!("Problem w/ trade: {:?}", e);
 			                // TODO: IS THERE ANYTHING ELSE TO DO??
 			            }
 			            Ok(trade) => {
-			                info!("sending trade {:?}", trade);
+			                warn!("sending trade {:?}", &trade);
 
 			                // add trades to trade_reduce
 			                let tr = self.reduce(&trade);
-			                let _ = sender_new.send(tr.clone());
-			                let _ = sender_curr.send(tr.clone());
+			                let _ = sender_new.send(tr.clone()).await;
+			                let _ = sender_curr.send(tr.clone()).await;
 			                existing_trades += &tr;
+                            warn!("Finished sending trade");
 			            }
 		            }
 		        },
 
 		        resend = resend_existing.recv() => {
+                    warn!("Resending the trades");
 		            match resend {
 			            Some(resend_val) => {
 			                info!("Got a resend value {}", resend_val);
@@ -77,7 +83,7 @@ where
 				                // fill sender_new with existing trades
 				                for (_tid, trade) in existing_trades.iter() {
 				                    // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
-				                    let _ = sender_new.send(trade.clone());
+				                    let _ = sender_new.send(trade.clone()).await;
 				                }
 			                }
 			            },
@@ -87,6 +93,7 @@ where
 		            }
 		        },
 	        }
+            warn!("Finished THREAD _construct_portfolio. This is unusual.");
 	    }
     }
 }

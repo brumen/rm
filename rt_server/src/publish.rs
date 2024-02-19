@@ -32,6 +32,7 @@ where Self: std::fmt::Debug
         let res_publisher = connect_with_retries_producer_rd(&bootstrap_servers);
 
 	    loop {
+            debug!("Looping _publish_results");
 	        let curr_portfolio = match curr_portfolio_recv.recv().await {
                 Some((curr_portfolio_actual, _)) => {
                     debug!(
@@ -60,7 +61,7 @@ where Self: std::fmt::Debug
 		        timestamp: None,
 		        headers: None,
 	        };
-            let _ = res_publisher.send(market_record2, Timeout::Never);  // TODO: THIS SHOULD BE CHECKED NEver
+            let _ = res_publisher.send(market_record2, Timeout::Never).await;  // TODO: THIS SHOULD BE CHECKED NEver
         }
     }
 }

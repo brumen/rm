@@ -20,6 +20,7 @@ use crate::trade::TradeTypes;
 /// kafka_server_name: name of kafka server, like "localhost"
 /// kafka_port: port of kafka server, like 9092
 /// trader_pricer: name of the rester service, like localhost:5010
+#[derive(Debug)]
 pub struct LETFTrader {
     kafka_server_name: String,
     kafka_port: i32,

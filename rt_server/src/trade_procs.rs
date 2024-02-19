@@ -1,6 +1,6 @@
 // Trade processor interaction between current and new market.
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{info, instrument};
+use tracing::{info, debug, instrument};
 use tokio;
 
 use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery};
@@ -38,7 +38,6 @@ where
     /// computes the metric of the existing trades in
     /// all_trades, on either the new or the current market
     /// and updates the current_portfolio
-    #[instrument]
     async fn _price_existing_trades(
         &self,
         all_trades: &TradeRep<Self::TR>,
@@ -104,59 +103,60 @@ where
             all_trades.len(),
         );
 
-	loop {
-	    tokio::select! {
-		trade_out = trade_receiver.recv() => {
-		    match trade_out {
-			None => { todo!() },
-			Some(trade) => {
-			    all_trades += &trade;
-			    curr_portfolio += self
-				._process_trade(&trade, metric, pricing_options, CurrNewMarket::Current)
-				.await;
+	    loop {
+            debug!("Looping");
+	        tokio::select! {
+		        trade_out = trade_receiver.recv() => {
+		            match trade_out {
+			            None => { todo!() },
+			            Some(trade) => {
+			                all_trades += &trade;
+			                curr_portfolio += self
+				                ._process_trade(&trade, metric, pricing_options, CurrNewMarket::Current)
+				                .await;
 
-//			    let new_p_attempt =  new_trades_sender.send(
-//				(curr_portfolio.clone(), TradeRep(all_trades.clone()))
-//			    ).await;
-			},
-		    }
-		},
-		new_portfolio = new_portfolio_receiver.recv() => {
-		    match new_portfolio {
-			None => {
-			    todo!()
-			},
-			Some((new_p, new_trades)) => {
-			    
-			    let all_l = all_trades.len();
-			    let new_l = new_trades.len();
-			    info!(
-				"New trades sent: {}. Curr trades: {}",
-				new_l, all_l
-			    );
-			    
-			    let _ = accepted_sender.send(all_l - new_l);
-			    if new_l >= all_l {
-				// new processor is further ahead
-				info!(
-				    "Switching curr_p <- new_p: {}",
-				    new_trades.len()
-				);
-				curr_portfolio = new_p;
-				all_trades += &new_trades;
-				self._switch_all_markets();  // curr <- new, new <- fut
-				let _ = curr_portfolio_sender
-				    .send((curr_portfolio.clone(), TradeRep(all_trades.clone())));
-			    } else {
-				info!("New portfolio behind old one, not switching.");
-			    }
-			},
-		    }
-		},
+                            //			    let new_p_attempt =  new_trades_sender.send(
+                            //				(curr_portfolio.clone(), TradeRep(all_trades.clone()))
+                            //			    ).await;
+			            },
+		            }
+		        },
+		        new_portfolio = new_portfolio_receiver.recv() => {
+		            match new_portfolio {
+			            None => {
+			                todo!()
+			            },
+			            Some((new_p, new_trades)) => {
+
+			                let all_l = all_trades.len();
+			                let new_l = new_trades.len();
+			                info!(
+				                "New trades sent: {}. Curr trades: {}",
+				                new_l, all_l
+			                );
+
+			                let _ = accepted_sender.send(all_l - new_l).await;
+			                if new_l >= all_l {
+				                // new processor is further ahead
+				                info!(
+				                    "Switching curr_p <- new_p: {}",
+				                    new_trades.len()
+				                );
+				                curr_portfolio = new_p;
+				                all_trades += &new_trades;
+				                self._switch_all_markets().await;  // curr <- new, new <- fut
+				                let _ = curr_portfolio_sender
+				                    .send((curr_portfolio.clone(), TradeRep(all_trades.clone()))).await;
+			                } else {
+				                info!("New portfolio behind old one, not switching.");
+			                }
+			            },
+		            }
+		        },
+	        }
 	    }
-	}
     }
-	
+
     /// processes the trades on the new market.
     ///    new_market_receiver: receiver of the new market
     ///    new_trade_receiver: receiver of new trades.
@@ -192,14 +192,15 @@ where
 	    // attempt to send the portfolio to the trade_processor_curr
             info!("New portfolio = {:?}", new_portfolio);
             let _ = new_portfolio_sender
-                .send((new_portfolio.clone(), TradeRep(all_batches.clone())));
+                .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
+                .await;
 
 	    //let ma: Vec<_> = vec![];  // moving average, how far behind are we in this market
             let mut curr_attempt = 0;
             while (curr_attempt < nb_attempts) & !self._future_mkt_ready() {
                 if let Ok(accepted_real) = accepted_recv.try_recv() {
                     if accepted_real <= 0 {
-                        let _ = new_publisher.send(true);
+                        let _ = new_publisher.send(true).await;
                         break;
                     } else {
                         // attempt with the newest batch
@@ -212,7 +213,8 @@ where
                         new_portfolio += new_portfolio_inner;
                         all_batches += &all_batches_inner;
                         let _ = new_portfolio_sender
-                            .send((new_portfolio.clone(), TradeRep(all_batches.clone())));
+                            .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
+                            .await;
                         curr_attempt += 1;
                     }
                 }
@@ -249,15 +251,14 @@ where
     }
 
     async fn _get_trades_from_recv(
-	&self,
-	trade_receiver: &mut Receiver<Self::TR>,
+	    &self,
+	    trade_receiver: &mut Receiver<Self::TR>,
     ) -> TradeRep<Self::TR> {
         let mut new_trades = TradeRep::<Self::TR>::new();
 
         while let Ok(trade) = trade_receiver.try_recv() {
             new_trades += &trade;
         }
-	
         new_trades
     }
 }

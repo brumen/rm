@@ -37,7 +37,7 @@ where
         mkt_params: MktMsgParams,
         pricing_options: &MarketPricingOptions,
     ) {
-	let buffer_size = 100;
+	    let buffer_size = 100;
         // 2 trade senders, 1 for current market, 1 for new market.
         let (pos_sender_curr, pos_recv_curr) = channel::<<T as PortfolioSender>::TR>(buffer_size);
         let (pos_sender_new, pos_recv_new) = channel::<<T as PortfolioSender>::TR>(buffer_size);
@@ -48,26 +48,26 @@ where
             channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>(buffer_size);
         let (new_portfolio_sender, new_portfolio_recv) =
             channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>(buffer_size);
-	// whether to resend the whole portfolio to trade_processor_new
+	    // whether to resend the whole portfolio to trade_processor_new
         let (resend_sender, resend_recv) = channel::<bool>(buffer_size);
-	// whether the portfolio was accepted by the trade_processor_curr
+	    // whether the portfolio was accepted by the trade_processor_curr
         let (accept_sender, accept_recv) = channel::<usize>(buffer_size);
-	let (fut_mkt_ready_s, fut_mkt_ready_r) = channel::<bool>(buffer_size);
-	
+	    let (fut_mkt_ready_s, fut_mkt_ready_r) = channel::<bool>(buffer_size);
+
         // threads fail if any of them can not be created.
         let constr_portf_f = self.__construct_portfolio(
-                    pos_sender_new,
-                    pos_sender_curr,
-                    resend_recv,
-                    pos_topic,
-                );
-	
-	let mkt_handler_f = self._handle_mkt_events(
-	    mkt_topic,
-	    mkt_params,
-	    new_mkt_sender,
-	    fut_mkt_ready_s,			
-	);
+            pos_sender_new,
+            pos_sender_curr,
+            resend_recv,
+            pos_topic,
+        );
+
+	    let mkt_handler_f = self._handle_mkt_events(
+	        mkt_topic,
+	        mkt_params,
+	        new_mkt_sender,
+	        fut_mkt_ready_s,
+	    );
 
         let trade_procs_new_f = self._trade_processor_new(
             new_mkt_receiver,
@@ -75,11 +75,11 @@ where
             new_portfolio_sender,
             resend_sender,
             accept_recv,
-	    fut_mkt_ready_r,
+	        fut_mkt_ready_r,
             self.metric(),
             pricing_options,
         );
-	
+
         let trade_procs_curr_f = self._trade_processor_curr(
             pos_recv_curr,
             curr_portfolio_sender,
@@ -88,19 +88,18 @@ where
             pricing_options,
             accept_sender,
         );
-	
+
         let publish_results_f = self._publish_results(
-	    curr_portfolio_recv,
-	    results_topic,
-	);
+	        curr_portfolio_recv,
+	        results_topic,
+	    );
 
-
-	tokio::join!(
-	    constr_portf_f,
-	    mkt_handler_f,
-	    trade_procs_new_f,
-	    trade_procs_curr_f,
-	    publish_results_f,
-	);	    
+	    tokio::join!(
+	        constr_portf_f,
+	        mkt_handler_f,
+	        trade_procs_new_f,
+	        trade_procs_curr_f,
+	        publish_results_f,
+	    );
     }
 }

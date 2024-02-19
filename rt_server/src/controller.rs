@@ -1,7 +1,7 @@
 use rdkafka::message::BorrowedMessage;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::error::TryRecvError;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, warn, instrument};
 use core::convert::From;
 use std::collections::HashMap;
 use std::marker::Sync;
@@ -160,7 +160,6 @@ impl MarketSwitching for Controller {
 	);
     }
 
-    
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
         self.curr_mkt.clone()
     }
@@ -178,9 +177,7 @@ impl MarketSwitching for Controller {
     }
 }
 
-impl TradeMarketDiscovery for Controller
-{
-}
+impl TradeMarketDiscovery for Controller { }
 
 // TradeReduce reduces the trade to empty,
 // we dont need any additional information from the trade.
@@ -232,7 +229,7 @@ impl ProcessTradeAsync for Controller
 
 impl RiskProcessors for Controller {
 
-    #[tracing::instrument]
+    #[instrument]
     async fn _price_existing_trades(
         &self,
         all_trades: &TradeRep<Self::TR>,
@@ -360,6 +357,7 @@ impl Controller {
         ))
     }
 
+    #[instrument]
     async fn _price_new_trades(
         &self,
         curr_portfolio: &mut PortfolioType,
@@ -370,20 +368,19 @@ impl Controller {
         curr_new_mkt: CurrNewMarket,
         new_trades_sender: &Sender<(PortfolioType, TradeRep<AOTradeRep>)>,
     ) {
-	self._price_new_trades_seq(
-	    curr_portfolio,
-	    trade_receiver,
-	    all_trades,
-	    metric,
-	    pricing_options,
-	    curr_new_mkt,
-	    new_trades_sender,
-	).await;
+	    self._price_new_trades_seq(
+	        curr_portfolio,
+	        trade_receiver,
+	        all_trades,
+	        metric,
+	        pricing_options,
+	        curr_new_mkt,
+	        new_trades_sender,
+	    ).await;
     }
 
-    
     /// prices trades sequentially.
-    #[tracing::instrument]
+    #[instrument]
     async fn _price_new_trades_seq(
         &self,
         curr_portfolio: &mut PortfolioType,
@@ -400,23 +397,22 @@ impl Controller {
             *curr_portfolio += self
                 ._process_trade(&trade, metric, pricing_options, curr_new_mkt)
                 .await;
-	    
-            let new_p_attempt =  new_trades_sender.send(
-		(curr_portfolio.clone(), TradeRep(all_trades.clone()))
-	    ).await;
+	        let new_p_attempt =  new_trades_sender.send(
+		        (curr_portfolio.clone(), TradeRep(all_trades.clone()))
+	        ).await;
 
-	    match new_p_attempt {
-		Ok(_) => {},
-		Err(e) => {
-		    warn!("Could not send portfolio from _price_new_trades_seq: {:?}", e);
-		},
-	    }
+	        match new_p_attempt {
+		        Ok(_) => {},
+		        Err(e) => {
+		            warn!("Could not send portfolio from _price_new_trades_seq: {:?}", e);
+		        },
+	        }
         }
     }
 
     /// price trades that are coming on the trade receiver on
     /// spark, by doing repeated loops
-    #[tracing::instrument]
+    #[instrument]
     async fn _price_new_trades_spark(
         &self,
         trade_receiver: &mut Receiver<AOTradeRep>,
@@ -445,22 +441,22 @@ impl Controller {
     ) -> TradeRep<TR> {
         let mut new_trades = TradeRep::<TR>::new();
 
-	loop {
+	    loop {
             match trade_receiver.try_recv() {
-		Ok(trade) => {
-		    new_trades += &trade;
-		},
-		Err(e) => {
-		    match e {
-			TryRecvError::Empty => {
-			    return new_trades;
-			},
-			TryRecvError::Disconnected => {
-			    return new_trades;  // TODO: CEHCK THIS
-			},
-		    }
-		},
-	    }
+		        Ok(trade) => {
+		            new_trades += &trade;
+		        },
+		        Err(e) => {
+		            match e {
+			            TryRecvError::Empty => {
+			                return new_trades;
+			            },
+			            TryRecvError::Disconnected => {
+			                return new_trades;  // TODO: CEHCK THIS
+			            },
+		            }
+		        },
+	        }
         }
     }
 }
