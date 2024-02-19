@@ -83,7 +83,7 @@ where
 	// portfolio is. If 0 - the portfolio was accepted. If > 0 it means it
 	// is e.g. 3 trades behind the current processor. If < 0 it means the
 	// new processor is ahead of the current processor.
-        accepted_sender: Sender<usize>,
+        accepted_sender: Sender<i32>,
     ) {
 	// TODO: REMOVE THIS NEXT LINE
         // let mut new_potential_portfolio: Option<(PortfolioType, TradeRep<Self::TR>)>;
@@ -135,7 +135,8 @@ where
 				                new_l, all_l
 			                );
 
-			                let _ = accepted_sender.send(all_l - new_l).await;
+                            let behind = (all_l - new_l) as i32;
+			                let _ = accepted_sender.send(behind).await;
 			                if new_l >= all_l {
 				                // new processor is further ahead
 				                info!(
@@ -171,31 +172,32 @@ where
         mut new_trade_receiver: Receiver<Self::TR>, // receiving new additional trades
         new_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::TR>)>, // results are sent here
         new_publisher: Sender<bool>,
-        mut accepted_recv: Receiver<usize>,
+        mut accepted_recv: Receiver<i32>,
 	_fut_mkt_ready_recv: Receiver<bool>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
     ) {
-        let nb_attempts = 5; // try 5 times before aborting and starting on a new market
+        let nb_attempts = 100; // try 5 times before aborting and starting on a new market
 
 	    while let Some(_new_mkt) = new_market_receiver.recv().await {
+            info!("TRADE PROCESSOR NEW");
 	        self._switch_new_fut_markets().await;  // switch new market <- fut market
 
-	    // price the trades on the current market
+	        // price the trades on the current market
             let (mut new_portfolio, mut all_batches) =
                 self._new_processor_trade_loop(
-		    &mut new_trade_receiver,
-		    metric,
-		    pricing_options
-		).await;
+		            &mut new_trade_receiver,
+		            metric,
+		            pricing_options
+		        ).await;
 
-	    // attempt to send the portfolio to the trade_processor_curr
+	        // attempt to send the portfolio to the trade_processor_curr
             info!("New portfolio = {:?}", new_portfolio);
             let _ = new_portfolio_sender
                 .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
                 .await;
 
-	    //let ma: Vec<_> = vec![];  // moving average, how far behind are we in this market
+	        //let ma: Vec<_> = vec![];  // moving average, how far behind are we in this market
             let mut curr_attempt = 0;
             while (curr_attempt < nb_attempts) & !self._future_mkt_ready() {
                 if let Ok(accepted_real) = accepted_recv.try_recv() {
@@ -215,11 +217,11 @@ where
                         let _ = new_portfolio_sender
                             .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
                             .await;
-                        curr_attempt += 1;
                     }
                 }
+                curr_attempt += 1;
             }
-	}
+	    }
     }
 
     /// loop untill all the trade are exhausted on the receiver

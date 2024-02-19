@@ -107,16 +107,23 @@ class AOTradeProducer(BaseProducer):
                 sleep(5)
 
     def _value_to_publish(self, sleep_between_publish=11.):
+        """ Updating AO flights with some values. Just for testing purposes
+            for now.
+        """
 
         while True:
 
             for flight in self.flight_ids:
-                letf_position = {
+                ao_position = {
                     'carrier_nb': flight,
                     'dep_date': datetime.date(2017, 5, 1).strftime('%Y%m%d'),
-                    'price': 150.,
+                    'price': 150. + np.random.uniform(high=50.),
                 }
 
-                yield letf_position
+                logger.info(
+                    f'Publishing AO flight position: {ao_position}'
+                )
+
+                yield ao_position
 
             sleep(sleep_between_publish)

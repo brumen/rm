@@ -51,7 +51,7 @@ where
 	    // whether to resend the whole portfolio to trade_processor_new
         let (resend_sender, resend_recv) = channel::<bool>(buffer_size);
 	    // whether the portfolio was accepted by the trade_processor_curr
-        let (accept_sender, accept_recv) = channel::<usize>(buffer_size);
+        let (accept_sender, accept_recv) = channel::<i32>(buffer_size);
 	    let (fut_mkt_ready_s, fut_mkt_ready_r) = channel::<bool>(buffer_size);
 
         // threads fail if any of them can not be created.
