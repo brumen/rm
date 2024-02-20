@@ -1,5 +1,6 @@
 use tokio::sync::mpsc::channel;
 use tokio;
+use tokio_scoped;
 
 use crate::market::MarketType;
 use crate::market::MktMsgParams;
@@ -55,51 +56,66 @@ where
 	    let (fut_mkt_ready_s, fut_mkt_ready_r) = channel::<bool>(buffer_size);
 
         // threads fail if any of them can not be created.
-        let constr_portf_f = self.__construct_portfolio(
-            pos_sender_new,
-            pos_sender_curr,
-            resend_recv,
-            pos_topic,
+        tokio_scoped::scope(
+            |scope| {
+                //let constr_portf_f = tokio::spawn(
+                scope.spawn(
+                    self.__construct_portfolio(
+                        pos_sender_new,
+                        pos_sender_curr,
+                        resend_recv,
+                        pos_topic,
+                    )
+                );
+
+                scope.spawn(
+                    self._handle_mkt_events(
+	                    mkt_topic,
+	                    mkt_params,
+	                    new_mkt_sender,
+	                    fut_mkt_ready_s,
+	                )
+                );
+
+                scope.spawn(
+                    self._trade_processor_new(
+                        new_mkt_receiver,
+                        pos_recv_new,
+                        new_portfolio_sender,
+                        resend_sender,
+                        accept_recv,
+	                    fut_mkt_ready_r,
+                        self.metric(),
+                        pricing_options,
+                    )
+                );
+
+                scope.spawn(
+                    self._trade_processor_curr(
+                        pos_recv_curr,
+                        curr_portfolio_sender,
+                        new_portfolio_recv,
+                        self.metric(),
+                        pricing_options,
+                        accept_sender,
+                    )
+                );
+
+                scope.spawn(
+                    self._publish_results(
+	                    curr_portfolio_recv,
+	                    results_topic,
+	                )
+                );
+            }
         );
 
-	    let mkt_handler_f = self._handle_mkt_events(
-	        mkt_topic,
-	        mkt_params,
-	        new_mkt_sender,
-	        fut_mkt_ready_s,
-	    );
-
-        let trade_procs_new_f = self._trade_processor_new(
-            new_mkt_receiver,
-            pos_recv_new,
-            new_portfolio_sender,
-            resend_sender,
-            accept_recv,
-	        fut_mkt_ready_r,
-            self.metric(),
-            pricing_options,
-        );
-
-        let trade_procs_curr_f = self._trade_processor_curr(
-            pos_recv_curr,
-            curr_portfolio_sender,
-            new_portfolio_recv,
-            self.metric(),
-            pricing_options,
-            accept_sender,
-        );
-
-        let publish_results_f = self._publish_results(
-	        curr_portfolio_recv,
-	        results_topic,
-	    );
-
-	    tokio::join!(
-	        constr_portf_f,
-	        mkt_handler_f,
-	        trade_procs_new_f,
-	        trade_procs_curr_f,
-	        publish_results_f,
-	    );
+	    // tokio::join!(
+	    //     constr_portf_f,
+	    //     mkt_handler_f,
+	    //     trade_procs_new_f,
+	    //     trade_procs_curr_f,
+	    //     publish_results_f,
+	    // );
     }
 }

@@ -167,38 +167,41 @@ impl ProcessTradeAsync for RTRMLocal
     /// processes the trade, by calculating the metric given
     /// on either the current or the new market.
     /// updates the curr_portfolio.
-    async fn _process_trade<TR: Decoder + BaseTrade + PriceTradeAsync + Send + Sync>(
+    fn _process_trade<TR: Decoder + BaseTrade + PriceTradeAsync + Send + Sync>(
         &self,
         trade: &TR,
         metric: PricingMetric,
         _pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> PortfolioType {
-        let market = match curr_new_mkt {
-            CurrNewMarket::Current => self._curr_mkt(),
-            CurrNewMarket::New => self._new_mkt(),
-        };
+    ) -> impl std::future::Future<Output=PortfolioType> + Send {
+        async move {
+            //let market = match curr_new_mkt {
+            //    CurrNewMarket::Current => self._curr_mkt(),
+            //    CurrNewMarket::New => self._new_mkt(),
+            //};
 
-        let trade_v = match market.lock() {
-            Ok(market_l) => trade.value_by_metric(metric, _pricing_options, curr_new_mkt).await,
-            Err(e) => {
-                error!("_process_trade: Market was poisoned {:?}", e);
-                trade.value_by_metric(metric, _pricing_options, curr_new_mkt).await
-            }
-        };
-        debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
+            let trade_v = trade.value_by_metric(metric, _pricing_options, curr_new_mkt).await;
+            //let trade_v = match market.lock() {
+            //    Ok(_) => trade.value_by_metric(metric, _pricing_options, curr_new_mkt).await,
+            //    Err(e) => {
+            //        error!("_process_trade: Market was poisoned {:?}", e);
+            //        trade.value_by_metric(metric, _pricing_options, curr_new_mkt).await
+            //    }
+            //};
+            debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
 
-        let trade_v_dir = match trade.direction() {
-            TradeDirection::Create => trade_v,
-            TradeDirection::Delete => -trade_v,
-            TradeDirection::Update => todo!(),
-        };
+            let trade_v_dir = match trade.direction() {
+                TradeDirection::Create => trade_v,
+                TradeDirection::Delete => -trade_v,
+                TradeDirection::Update => todo!(),
+            };
 
-	match trade_v_dir {
-	    PricingResults::PV(pv) => pv,
-	    PricingResults::PV01(pv01) => pv01.aggregate(),
-	    PricingResults::PnL(pnl) => pnl,	    
-	}
+	        match trade_v_dir {
+	            PricingResults::PV(pv) => pv,
+	            PricingResults::PV01(pv01) => pv01.aggregate(),
+	            PricingResults::PnL(pnl) => pnl,
+	        }
+        }
     }
 }
 
@@ -224,19 +227,21 @@ impl RiskProcessors for RTRMLocal
 //where
 //    Self::TR: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + Send + Sync,
 {
-    async fn _price_existing_trades(
+    fn _price_existing_trades(
         &self,
         all_trades: &TradeRep<Self::TR>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> PortfolioType {
-        let mut p = PortfolioType::new();
+    ) -> impl std::future::Future<Output=PortfolioType> + Send {
+        async move {
+            let mut p = PortfolioType::new();
 
-        for trade in all_trades.values() {
-            p += self._process_trade(trade, metric, pricing_options, curr_new_mkt).await;
+            for trade in all_trades.values() {
+                p += self._process_trade(trade, metric, pricing_options, curr_new_mkt).await;
+            }
+            p
         }
-        p
     }
 
     async fn _price_new_trades(

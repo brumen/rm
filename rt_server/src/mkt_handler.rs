@@ -7,37 +7,39 @@ use crate::portfolio_sender::connect_with_retries_rd;
 use crate::streaming::Streaming;
 
 pub trait MktEventHandler: Streaming
-    where Self: std::fmt::Debug,
+    where Self: std::fmt::Debug + Sync,
 {
-    async fn _handle_mkt_msg(
+    fn _handle_mkt_msg(
         &self,
         mkt_msg: BorrowedMessage,
         new_mkt_sender: Sender<MarketType>,
         mkt_params: MktMsgParams,
-    );
+    ) -> impl std::future::Future<Output=()> + Send;
 
     /// Loop that handles the market events
     /// mkt_topic - receiving market events from this topic
     /// new_mkt_sender - sending the new market to the pricing api
     /// switch_mkt_recv - receiver receiving the event when to switch markets.
     //#[instrument]
-    async fn _handle_mkt_events(
+    fn _handle_mkt_events(
         &self,
         mkt_topic: String,
         mkt_params: MktMsgParams,
         new_mkt_sender: Sender<MarketType>,
 	    fut_mkt_ready_s: Sender<bool>,
-    ) {
-        let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
+    ) -> impl std::future::Future<Output=()> + Send {
+        async move {
+            let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
 
-        let mkt_listener_ = connect_with_retries_rd(&bootstrap_servers, &mkt_topic);
+            let mkt_listener_ = connect_with_retries_rd(&bootstrap_servers, &mkt_topic);
 
 	    // listens to the stream and sends messages
-	    loop {
-	        let borrowed_msg = mkt_listener_.recv().await.unwrap();  // TODO: HANDLE THIS PROPERLY NOT UNWRAP!!!
-	        info!("Getting new markets from {mkt_topic}.");
-            self._handle_mkt_msg(borrowed_msg, new_mkt_sender.clone(), mkt_params.clone()).await;
-	        let _ = fut_mkt_ready_s.send(true).await;
-	    }
+	        loop {
+	            let borrowed_msg = mkt_listener_.recv().await.unwrap();  // TODO: HANDLE THIS PROPERLY NOT UNWRAP!!!
+	            info!("Getting new markets from {mkt_topic}.");
+                self._handle_mkt_msg(borrowed_msg, new_mkt_sender.clone(), mkt_params.clone()).await;
+	            let _ = fut_mkt_ready_s.send(true).await;
+	        }
+        }
     }
 }

@@ -18,16 +18,17 @@ use crate::streaming::Streaming;
 /// publishes the results to the of the current portfolio
 /// to the results topic.
 pub trait PublishResults: Streaming
-where Self: std::fmt::Debug
+where Self: std::fmt::Debug + Sync
 {
     fn metric(&self) -> PricingMetric;
 
-    #[instrument]
-    async fn _publish_results<TT>(
+    //#[instrument]
+    fn _publish_results<TT: Send>(
         &self,
         mut curr_portfolio_recv: Receiver<(PortfolioType, TT)>,
         results_topic: String,
-    ) {
+    ) -> impl std::future::Future<Output=()> + Send {
+        async move {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
         let res_publisher = connect_with_retries_producer_rd(&bootstrap_servers);
 
@@ -62,6 +63,7 @@ where Self: std::fmt::Debug
 		        headers: None,
 	        };
             let _ = res_publisher.send(market_record2, Timeout::Never).await;  // TODO: THIS SHOULD BE CHECKED NEver
+        }
         }
     }
 }

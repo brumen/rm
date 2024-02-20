@@ -1,7 +1,7 @@
 use rdkafka::message::BorrowedMessage;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::error::TryRecvError;
-use tracing::{debug, info, warn, instrument};
+use tracing::{debug, info, warn, instrument, error};
 use core::convert::From;
 use std::collections::HashMap;
 use std::marker::Sync;
@@ -109,71 +109,99 @@ impl MarketSwitching for Controller {
     /// switch markets on the trade api.
     async fn _switch_all_markets(&self) {
         info!("_switch_markets: Switching markets: current <- new.");
-	self._internal_switch_all_markets();  // curr <- new, new <- future
-	// update the markets on the server.
+	    self._internal_switch_all_markets();  // curr <- new, new <- future
+	    // update the markets on the server.
 
-	let client = reqwest::Client::new();  // async client
+	    let client = reqwest::Client::new();  // async client
 
-	let market_post = client
+	    let market_post = client
             .post(format!("http://{0}/market", self.trade_pricer))
             .json(&HashMap::from([("market", &*self.curr_mkt.lock().unwrap())]))
             .send();
 
-	let new_market_post = client
+	    let new_market_post = client
             .post(format!("http://{0}/new_market", self.trade_pricer))
             .json(&HashMap::from([("market", &*self.new_mkt.lock().unwrap())]))
             .send();
 
-	let future_market_post = client
+	    let future_market_post = client
             .post(format!("http://{0}/future_market", self.trade_pricer))
             .json(&HashMap::from([("market", &*self.future_mkt.lock().unwrap())]))
             .send();
-	
-	tokio::join!(
-	    market_post,
-	    new_market_post,
-	    future_market_post,
-	);
+
+	    let (curr_market_post_res, new_market_post_res, future_mkt_post_res) = tokio::join!(
+	        market_post,
+	        new_market_post,
+	        future_market_post,
+	    );
+
+        // handling potential errors
+        for (mkt_name, mkt_result) in vec![
+            ("CURRENT", curr_market_post_res),
+            ("NEW", new_market_post_res),
+            ("FUTURE", future_mkt_post_res)
+        ] {
+            match mkt_result {
+                Ok(_) => { },
+                Err(mpe) => {
+                    error!("Error posting to {:?} market: {:?}", mkt_name, mpe);
+                }
+            }
+        }
     }
 
     /// replaces new market w/ future market.
-    ///    and updates them on the server. 
+    ///    and updates them on the server.
     async fn _switch_new_fut_markets(&self) {
-	self._internal_switch_new_fut_markets();
+	    self._internal_switch_new_fut_markets();
 
-	let client = reqwest::Client::new();	
+	    let client = reqwest::Client::new();
 
-	let new_market_post = client
+	    let new_market_post = client
             .post(format!("http://{0}/new_market", self.trade_pricer))
             .json(&HashMap::from([("market", &*self.new_mkt.lock().unwrap())]))
             .send();
 
-	let future_market_post = client
+	    let future_market_post = client
             .post(format!("http://{0}/future_market", self.trade_pricer))
             .json(&HashMap::from([("market", &*self.future_mkt.lock().unwrap())]))
             .send();
 
-	// TODO: THIS HAS TO BE STUDIED.
-	tokio::join!(
-	    new_market_post,
-	    future_market_post,
-	);
+	    let (new_mkt_res, fut_mkt_res) =
+	        tokio::join!(
+	            new_market_post,
+	            future_market_post,
+	        );
+        for (mkt_name, mkt_result) in vec![
+            ("NEW", new_mkt_res),
+            ("FUTURE", fut_mkt_res)
+        ] {
+            match mkt_result {
+                Ok(_) => { },
+                Err(mpe) => {
+                    error!("Error posting to {:?} market: {:?}", mkt_name, mpe);
+                }
+            }
+        }
     }
 
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
-        self.curr_mkt.clone()
+        self.curr_mkt.clone()  // TODO: CAN IT GO WITHOUT CLONING???
     }
 
     fn _new_mkt(&self) -> Arc<Mutex<MarketType>> {
-        self.new_mkt.clone()
+        self.new_mkt.clone()  // TODO: CLONING???
     }
 
     fn _future_mkt(&self) -> Arc<Mutex<MarketType>> {
-	self.future_mkt.clone()
+	    self.future_mkt.clone()  // TODO: CLONING???
     }
 
     fn _future_mkt_ready(&self) -> bool {
-	*self.new_mkt.lock().unwrap() != *self.future_mkt.lock().unwrap()
+
+	    let fut_mkt_ready = *self.new_mkt.lock().unwrap() != *self.future_mkt.lock().unwrap();
+        info!("_future_mkt_ready: {:?}", fut_mkt_ready);
+        fut_mkt_ready
     }
 }
 
@@ -195,13 +223,14 @@ impl ProcessTradeAsync for Controller
 //    TR: PriceTradeAsync + BaseTrade + Sync,
 {
     // TR : BaseTrade + Decoder + Sync>
-    async fn _process_trade<TR: PriceTradeAsync + Send + Sync + Decoder + BaseTrade>(
+    fn _process_trade<TR: PriceTradeAsync + Send + Sync + Decoder + BaseTrade>(
         &self,
         trade: &TR,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> PortfolioType {  // impl Future<Output = PortfolioType> + Send {
+    ) -> impl std::future::Future<Output=PortfolioType> + Send {  // impl Future<Output = PortfolioType> + Send {
+        async move {
         // let _trade_id = trade.id();
         // let trade_direction = tr.direction();
         let trade_v = trade
@@ -224,12 +253,14 @@ impl ProcessTradeAsync for Controller
             //    TradeDirection::Delete => - trade_portf,
             //    _ => todo!(),
             //}
+        }
     }
 }
 
 impl RiskProcessors for Controller {
 
-    #[instrument]
+    // prices trades provided in all_trades for metric, and selected market.
+    //#[instrument]
     async fn _price_existing_trades(
         &self,
         all_trades: &TradeRep<Self::TR>,
@@ -237,10 +268,12 @@ impl RiskProcessors for Controller {
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
     ) -> PortfolioType {
-        //if all_trades.len() > 20 {
-        // send to spark.
-        return self.price_trades_on_spark(all_trades, metric, pricing_options, curr_new_mkt).await;
-
+        return self.price_trades_on_spark(
+            all_trades,
+            metric,
+            pricing_options,
+            curr_new_mkt
+        ).await;
     }
 
     async fn _price_new_trades(

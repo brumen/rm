@@ -9,6 +9,7 @@ use rdkafka::config::FromClientConfig;
 use rdkafka::ClientConfig;
 use rdkafka::message::BorrowedMessage;
 use std::cmp::min;
+use std::future::Future;
 
 use crate::ref_deref::TryFromRef;
 use crate::streaming::Streaming;
@@ -21,61 +22,59 @@ pub trait PortfolioSender: TradeReduce {
 
     type TR: Clone + Send + BaseTrade;
 
-    async fn __construct_portfolio(
+    fn __construct_portfolio(
         &self,
         sender_new: Sender<Self::TR>,
         sender_curr: Sender<Self::TR>,
         resend_existing: Receiver<bool>,
         pos_topic: String,
-    );
+    ) -> impl Future<Output=()> + Send;
 }
 
 impl<T> PortfolioSender for T
 where
-    T: Streaming + TradeReduce + std::fmt::Debug,
+    T: Streaming + TradeReduce + std::fmt::Debug + Sync,
     for<'a> <T as TradeReduce>::TradeType: TryFromRef<BorrowedMessage<'a>> + std::fmt::Debug
 {
     type TR = <T as TradeReduce>::ReductionType;
 
     //#[instrument]
-    async fn __construct_portfolio(
+    fn __construct_portfolio(
         &self,
         sender_new: Sender<Self::TR>,
         sender_curr: Sender<Self::TR>,
         mut resend_existing: Receiver<bool>,
         pos_topic: String,
-    ) {
+    ) -> impl Future<Output = ()> + Send {
+        async move {
         let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port(),);
         let position_listener = connect_with_retries_rd(&bootstrap_servers, &pos_topic);
 
         let mut existing_trades = TradeRep::<Self::TR>::new();
 
-        info!("Starting portfolio construction loop");
 	    loop {
-            warn!("Looping CONSTRUCT PORT");
 	        tokio::select! {
                 trade = position_listener.recv() => {
-                    warn!("Receiving trade");
+                    debug!("Got trade: {:?}", trade);
 		            match <T as TradeReduce>::TradeType::try_from_ref(&trade.unwrap()) {  // TODO: FIX THIS UNWRAP
 			            Err(e) => {
 			                warn!("Problem w/ trade: {:?}", e);
 			                // TODO: IS THERE ANYTHING ELSE TO DO??
 			            }
 			            Ok(trade) => {
-			                warn!("sending trade {:?}", &trade);
+			                debug!("Sending trade {:?} to CURR & NEW processor.", &trade);
 
 			                // add trades to trade_reduce
 			                let tr = self.reduce(&trade);
 			                let _ = sender_new.send(tr.clone()).await;
 			                let _ = sender_curr.send(tr.clone()).await;
 			                existing_trades += &tr;
-                            warn!("Finished sending trade");
 			            }
 		            }
 		        },
 
 		        resend = resend_existing.recv() => {
-                    warn!("Resending the trades");
+                    info!("Resending all ({:?}) trades to NEW processor.", existing_trades.len());
 		            match resend {
 			            Some(resend_val) => {
 			                info!("Got a resend value {}", resend_val);
@@ -88,13 +87,13 @@ where
 			                }
 			            },
 			            None => {
-			                debug!("resend channel problems.");
+			                debug!("Resend channel problems.");
 			            }
 		            }
 		        },
 	        }
-            warn!("Finished THREAD _construct_portfolio. This is unusual.");
 	    }
+        }
     }
 }
 
@@ -108,6 +107,12 @@ pub fn connect_with_retries_rd(bootstrap_servers: &str, pos_topic: &str) -> Stre
     let mut pos_consumer_config = ClientConfig::new();
     pos_consumer_config.set("bootstrap.servers", bootstrap_servers);
     pos_consumer_config.set("group.id", "pos_listener");
+
+    info!(
+        "Attempting to connect to {:?} on topic {:?}",
+        bootstrap_servers,
+        pos_topic,
+    );
 
     loop {
         // .set("enable.partition.eof", "false")

@@ -394,8 +394,8 @@ impl<TR> DerefMut for TradeRep<TR> {
 }
 
 pub trait TradeReduce {
-    type TradeType: BaseTrade;
-    type ReductionType: Send + Clone + BaseTrade;
+    type TradeType: BaseTrade + Send;
+    type ReductionType: Send + Sync + Clone + BaseTrade;
 
     fn reduce(&self, trade: &Self::TradeType) -> Self::ReductionType;
 }

@@ -35,7 +35,7 @@ macro_rules! ref_deref_trait {
 // };
 
 pub trait TryFromRef<T: Sized> {
-    type Error: Debug;
+    type Error: Debug + Send;
 
     fn try_from_ref(value: &T) -> Result<Self, Self::Error>
     where

@@ -117,9 +117,9 @@ pub enum MktMsgParams {
 /// trait that deals with when we switch from
 /// current market to new market.
 pub trait MarketSwitching {
-    async fn _switch_all_markets(&self);
-    async fn _switch_new_fut_markets(&self);
-    
+    fn _switch_all_markets(&self) -> impl std::future::Future<Output=()> + Send;
+    fn _switch_new_fut_markets(&self) -> impl std::future::Future<Output=()> + Send;
+
     /// switches curr <- new; new <- future
     fn _internal_switch_all_markets(&self) {
 	// replace current market with new market
@@ -142,7 +142,7 @@ pub trait MarketSwitching {
             .lock()
             .expect("_switch_markets: Could not lock new market.").clone(); //(*new_mkt_copy).clone();
 
-	// replace new market with 	
+	// replace new market with
 //        debug!("_switch_markets: Curr market now: {:?}", new_mkt_copy);
 
 	**self
@@ -175,7 +175,7 @@ pub trait MarketSwitching {
     fn _new_mkt(&self) -> Arc<Mutex<MarketType>>;
     fn _future_mkt(&self) -> Arc<Mutex<MarketType>>;
     // is future market ready, i.e. is there any update to the futures market.
-    fn _future_mkt_ready(&self) -> bool;    
+    fn _future_mkt_ready(&self) -> bool;
 }
 
 /// trait that detects new events and potentially skips some.

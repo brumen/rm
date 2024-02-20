@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use string_join::Join;
-use tracing::{debug, warn};
+use tracing::{debug, warn, info};
 use reqwest::Client;
 
 use crate::market::{CurrNewMarket, MarketType};
@@ -199,16 +199,18 @@ pub trait PriceTradeAsync: BaseTrade {
     }
 
     /// computes the pricing request.
-    fn _pricing_request(
+    async fn _pricing_request(
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> impl Future<Output = Result<reqwest::Response, reqwest::Error>> + Send
+    ) -> Result<reqwest::Response, reqwest::Error>
     where
         Self: Sync,
     {
-        async move { reqwest::get(self._endpoint(metric, pricing_options, curr_new_mkt)).await }
+        reqwest::get(
+            self._endpoint(metric, pricing_options, curr_new_mkt)
+        ).await
     }
 
     fn initial_pv(&self) -> impl Future<Output = Option<f64>> + Send;
@@ -352,7 +354,7 @@ where
     {
         let mut curr_portfolio = PortfolioType::new();
 
-        let split_nb = 20; // TODO: FACTOR THIS NUMBER OUT
+        let split_nb = 200; // TODO: FACTOR THIS NUMBER OUT
 
         let mut curr_trade_nb = 0;
         let mut curr_trade_rep = TradeRep::<TR>::new();
@@ -365,13 +367,14 @@ where
 
             if curr_trade_nb > split_nb {
                 // do the computation
+                info!("Pricing {:?} trades on spark.", curr_trade_nb);
                 let portfolio =
                     self.price_trades_spark(
-			&curr_trade_rep,
-			&pricing_client,
-			curr_new_mkt,
-			metric
-		    ).await;
+			            &curr_trade_rep,
+			            &pricing_client,
+			            curr_new_mkt,
+			            metric
+		            ).await;
 
                 curr_portfolio += portfolio;
                 curr_trade_nb = 0;
@@ -380,12 +383,11 @@ where
         }
 
         // remaining part of trades
-        curr_portfolio +=
-            self.price_trades_spark(
-		&curr_trade_rep,
-		&pricing_client,
-		curr_new_mkt,
-		metric
+        curr_portfolio += self.price_trades_spark(
+		    &curr_trade_rep,
+		    &pricing_client,
+		    curr_new_mkt,
+		    metric
 	    ).await;
 
         curr_portfolio
