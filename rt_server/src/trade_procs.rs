@@ -181,56 +181,57 @@ where
         pricing_options: &MarketPricingOptions,
     ) -> impl std::future::Future<Output=()> + Send {
         async move {
-        let nb_attempts = 100; // try 5 times before aborting and starting on a new market
+            let nb_attempts = 100; // try 5 times before aborting and starting on a new market
 
-	    while let Some(_new_mkt) = new_market_receiver.recv().await {
-            info!("Received new market, commencing computations & switching new & fut markets");
-	        self._switch_new_fut_markets().await;  // switch new market <- fut market
+            info!("Starting NEW trade processor.");
+	        while let Some(_new_mkt) = new_market_receiver.recv().await {
+                info!("Received new market, commencing computations & switching new & fut markets");
+	            self._switch_new_fut_markets().await;  // switch new market <- fut market
 
-	        // price the trades on the current market
-            info!("Pricing trades on the current market.");
-            let (mut new_portfolio, mut all_batches) =
-                self._new_processor_trade_loop(
-		            &mut new_trade_receiver,
-		            metric,
-		            pricing_options
-		        ).await;
+	            // price the trades on the current market
+                info!("Pricing trades on the NEW market.");
+                let (mut new_portfolio, mut all_batches) =
+                    self._new_processor_trade_loop(
+		                &mut new_trade_receiver,
+		                metric,
+		                pricing_options
+		            ).await;
 
-	        // attempt to send the portfolio to the trade_processor_curr
-            info!("New portfolio = {:?}", new_portfolio);
-            info!("Sending new portfolio for potential publishing.");
-            let _ = new_portfolio_sender
-                .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
-                .await;
+	            // attempt to send the portfolio to the trade_processor_curr
+                info!("New portfolio = {:?}", new_portfolio);
+                info!("Sending new portfolio for potential publishing.");
+                let _ = new_portfolio_sender
+                    .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
+                    .await;
 
-	        //let ma: Vec<_> = vec![];  // moving average, how far behind are we in this market
-            let mut curr_attempt = 0;
-            info!("FUTURE MKT READY: {:?}", _fut_mkt_ready_recv.try_recv());
-            while (curr_attempt < nb_attempts) & !self._future_mkt_ready() {
-                if let Ok(accepted_real) = accepted_recv.try_recv() {
-                    if accepted_real <= 0 {
-                        info!("New portfolio accepted.");
-                        let _ = new_publisher.send(true).await;
-                        break;
-                    } else {
-                        // attempt with the newest batch
-                        info!("New portfolio NOT accepted. Retrying w/ additional trades.");
-                        let (new_portfolio_inner, all_batches_inner) = self
-                            ._new_processor_trade_loop(
-                                &mut new_trade_receiver,
-                                metric,
-                                pricing_options,
-                            ).await;
-                        new_portfolio += new_portfolio_inner;
-                        all_batches += &all_batches_inner;
-                        let _ = new_portfolio_sender
-                            .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
-                            .await;
+	            //let ma: Vec<_> = vec![];  // moving average, how far behind are we in this market
+                let mut curr_attempt = 0;
+                info!("FUTURE MKT READY: {:?}", _fut_mkt_ready_recv.try_recv());
+                while (curr_attempt < nb_attempts) & !self._future_mkt_ready() {
+                    if let Ok(accepted_real) = accepted_recv.try_recv() {
+                        if accepted_real <= 0 {
+                            info!("New portfolio accepted.");
+                            let _ = new_publisher.send(true).await;
+                            break;
+                        } else {
+                            // attempt with the newest batch
+                            info!("New portfolio NOT accepted. Retrying w/ additional trades.");
+                            let (new_portfolio_inner, all_batches_inner) = self
+                                ._new_processor_trade_loop(
+                                    &mut new_trade_receiver,
+                                    metric,
+                                    pricing_options,
+                                ).await;
+                            new_portfolio += new_portfolio_inner;
+                            all_batches += &all_batches_inner;
+                            let _ = new_portfolio_sender
+                                .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
+                                .await;
+                        }
                     }
+                    curr_attempt += 1;
                 }
-                curr_attempt += 1;
-            }
-	    }
+	        }
         }
     }
 

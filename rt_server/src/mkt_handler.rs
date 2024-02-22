@@ -1,20 +1,21 @@
 use tokio::sync::mpsc::Sender;
-use rdkafka::message::BorrowedMessage;
-use tracing::{info, instrument};
+use tracing::{info, instrument, warn, debug};
 
 use crate::market::{MarketType, MktMsgParams};
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::streaming::Streaming;
+use crate::ref_deref::TryFromRef;
 
 pub trait MktEventHandler: Streaming
     where Self: std::fmt::Debug + Sync,
 {
     fn _handle_mkt_msg(
         &self,
-        mkt_msg: BorrowedMessage,
+        market_obj: MarketType,
         new_mkt_sender: Sender<MarketType>,
         mkt_params: MktMsgParams,
     ) -> impl std::future::Future<Output=()> + Send;
+
 
     /// Loop that handles the market events
     /// mkt_topic - receiving market events from this topic
@@ -33,12 +34,32 @@ pub trait MktEventHandler: Streaming
 
             let mkt_listener_ = connect_with_retries_rd(&bootstrap_servers, &mkt_topic);
 
-	    // listens to the stream and sends messages
+	        // listens to the stream and sends messages
 	        loop {
 	            let borrowed_msg = mkt_listener_.recv().await.unwrap();  // TODO: HANDLE THIS PROPERLY NOT UNWRAP!!!
 	            info!("Getting new markets from {mkt_topic}.");
-                self._handle_mkt_msg(borrowed_msg, new_mkt_sender.clone(), mkt_params.clone()).await;
-	            let _ = fut_mkt_ready_s.send(true).await;
+
+                let optional_mkt = MarketType::try_from_ref(&borrowed_msg);
+
+                let market_obj = match optional_mkt {
+                    Err(e) => {
+                        warn!(
+                            "_handle_mkt_msg: Error converting to market object from json: {:?}",
+                            e
+                        );
+                        return;
+                    },
+                    Ok(market_inside) => {
+                        debug!("_handle_mkt_msg: Market = {:?}", market_inside);
+                        market_inside
+                    }
+                };
+
+                self._handle_mkt_msg(market_obj, new_mkt_sender.clone(), mkt_params.clone()).await;
+
+	            if let Err(e) = fut_mkt_ready_s.send(true).await {
+                    warn!("Could not send a message that future market is ready: {:?}", e);
+                }
 	        }
         }
     }

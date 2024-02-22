@@ -47,52 +47,52 @@ where
         pos_topic: String,
     ) -> impl Future<Output = ()> + Send {
         async move {
-        let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port(),);
-        let position_listener = connect_with_retries_rd(&bootstrap_servers, &pos_topic);
+            let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port(),);
+            let position_listener = connect_with_retries_rd(&bootstrap_servers, &pos_topic);
 
-        let mut existing_trades = TradeRep::<Self::TR>::new();
+            let mut existing_trades = TradeRep::<Self::TR>::new();
 
-	    loop {
-	        tokio::select! {
-                trade = position_listener.recv() => {
-                    debug!("Got trade: {:?}", trade);
-		            match <T as TradeReduce>::TradeType::try_from_ref(&trade.unwrap()) {  // TODO: FIX THIS UNWRAP
-			            Err(e) => {
-			                warn!("Problem w/ trade: {:?}", e);
-			                // TODO: IS THERE ANYTHING ELSE TO DO??
-			            }
-			            Ok(trade) => {
-			                debug!("Sending trade {:?} to CURR & NEW processor.", &trade);
-
-			                // add trades to trade_reduce
-			                let tr = self.reduce(&trade);
-			                let _ = sender_new.send(tr.clone()).await;
-			                let _ = sender_curr.send(tr.clone()).await;
-			                existing_trades += &tr;
-			            }
-		            }
-		        },
-
-		        resend = resend_existing.recv() => {
-                    info!("Resending all ({:?}) trades to NEW processor.", existing_trades.len());
-		            match resend {
-			            Some(resend_val) => {
-			                info!("Got a resend value {}", resend_val);
-			                if resend_val {
-				                // fill sender_new with existing trades
-				                for (_tid, trade) in existing_trades.iter() {
-				                    // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
-				                    let _ = sender_new.send(trade.clone()).await;
-				                }
+	        loop {
+	            tokio::select! {
+                    trade = position_listener.recv() => {
+                        debug!("Got trade: {:?}", trade);
+		                match <T as TradeReduce>::TradeType::try_from_ref(&trade.unwrap()) {  // TODO: FIX THIS UNWRAP
+			                Err(e) => {
+			                    warn!("Problem w/ trade: {:?}", e);
+			                    // TODO: IS THERE ANYTHING ELSE TO DO??
 			                }
-			            },
-			            None => {
-			                debug!("Resend channel problems.");
-			            }
-		            }
-		        },
+			                Ok(trade) => {
+			                    debug!("Sending trade {:?} to CURR & NEW processor.", &trade);
+
+			                    // add trades to trade_reduce
+			                    let tr = self.reduce(&trade);
+			                    let _ = sender_new.send(tr.clone()).await;
+			                    let _ = sender_curr.send(tr.clone()).await;
+			                    existing_trades += &tr;
+			                }
+		                }
+		            },
+
+		            resend = resend_existing.recv() => {
+                        info!("Resending all ({:?}) trades to NEW processor.", existing_trades.len());
+		                match resend {
+			                Some(resend_val) => {
+			                    info!("Got a resend value {}", resend_val);
+			                    if resend_val {
+				                    // fill sender_new with existing trades
+				                    for (_tid, trade) in existing_trades.iter() {
+				                        // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
+				                        let _ = sender_new.send(trade.clone()).await;
+				                    }
+			                    }
+			                },
+			                None => {
+			                    debug!("Resend channel problems.");
+			                }
+		                }
+		            },
+	            }
 	        }
-	    }
         }
     }
 }
@@ -124,7 +124,7 @@ pub fn connect_with_retries_rd(bootstrap_servers: &str, pos_topic: &str) -> Stre
 		        pos_listener
                     .subscribe(&[pos_topic])
                     .expect("Cant subscribe to topic");
-
+                info!("Connected to {:?} on {:?}", bootstrap_servers, pos_topic);
                 return pos_listener;
             },
             Err(e) => {

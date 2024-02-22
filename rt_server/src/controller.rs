@@ -79,29 +79,14 @@ impl MktEventHandler for Controller {
     ///    processor determines it should be switched.
     async fn _handle_mkt_msg(
         &self,
-        mkt_msg: BorrowedMessage<'_>,
+        market_obj: MarketType,
         new_mkt_sender: Sender<MarketType>,
-        _mkt_msg_params: MktMsgParams,
+        _mkt_params: MktMsgParams,
     ) {
-        let optional_mkt = MarketType::try_from_ref(&mkt_msg);
-
-        let market_obj = match optional_mkt {
-            Err(e) => {
-                warn!(
-                    "_handle_mkt_msg: Error converting to market object from json: {:?}",
-                    e
-                );
-                return;
-            }
-            Ok(market_inside) => {
-                debug!("_handle_mkt_msg: Market = {:?}", market_inside);
-                market_inside
-            }
-        };
-
-	**(self._future_mkt().lock().expect("Could nto lock")) = market_obj.clone();
-
-        let _ = new_mkt_sender.send(market_obj).await;
+	    **(self._future_mkt().lock().expect("Could not lock _future_mkt")) = market_obj.clone();
+        if let Err(e) = new_mkt_sender.send(market_obj).await {
+            warn!("Could not send a message to the new market: {:?}", e);
+        }
     }
 }
 

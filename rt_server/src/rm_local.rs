@@ -92,13 +92,13 @@ impl MarketSwitching for RTRMLocal {
 
     async fn _switch_all_markets(&self) {
         info!("_switch_markets: Switching markets: current <- new.");
-	self._internal_switch_all_markets();
+	    self._internal_switch_all_markets();
     }
 
     async fn _switch_new_fut_markets(&self) {
-	self._internal_switch_new_fut_markets();
+	    self._internal_switch_new_fut_markets();
     }
-    
+
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
         self.curr_market.clone()
     }
@@ -108,11 +108,11 @@ impl MarketSwitching for RTRMLocal {
     }
 
     fn _future_mkt_ready(&self) -> bool {
-	*self.future_market.lock().unwrap() != *self.new_market.lock().unwrap()
+	    *self.future_market.lock().unwrap() != *self.new_market.lock().unwrap()
     }
 
     fn _future_mkt(&self) -> Arc<Mutex<MarketType>> {
-	self.future_market.clone()  // TODO: CAN THIS BE DONE W/O cloning???
+	    self.future_market.clone()  // TODO: CAN THIS BE DONE W/O cloning???
     }
 }
 
@@ -130,39 +130,22 @@ impl MktEventHandler for RTRMLocal {
     /// updates the local market variable.
     async fn _handle_mkt_msg(
         &self,
-        mkt_msg: BorrowedMessage<'_>,
+        market_obj: MarketType,
         new_mkt_sender: Sender<MarketType>,
         _mkt_params: MktMsgParams,
     ) {
-        let new_market = MarketType::try_from_ref(&mkt_msg);
-        debug!("_handle_mkt_msg: Got quote: {:?}", new_market);
-        if new_market.is_err() {
-            return; // ignore the market message if it cant be decoded correctly.
-        }
-
-        let Ok(new_mkt_real) = new_market else {
-            warn!("_handle_mkt_msg: New market !!!!");
-            return;
-        };
-
         *self
             ._curr_mkt()
             .lock()
-            .expect("_handle_mkt_msg: Could not lock curr_mkt") += &new_mkt_real;
-        let _ = new_mkt_sender.send(new_mkt_real);
+            .expect("_handle_mkt_msg: Could not lock curr_mkt") += &market_obj;
+
+        if let Err(e) = new_mkt_sender.send(market_obj).await {
+            warn!("Could not send a message about new market: {:?}", e);
+        }
     }
 }
 
 impl ProcessTradeAsync for RTRMLocal
-// where
-//     TR: PartialEq
-//         + std::fmt::Debug
-//         + Clone
-//         + BaseTrade
-//         + PriceTrade
-//         + BaseTrade
-//         + std::marker::Send
-//         + Sync,
 {
     /// processes the trade, by calculating the metric given
     /// on either the current or the new market.
@@ -217,16 +200,11 @@ impl ProcessTradeAsync for RTRMLocal
 //     }
 // }
 
-impl TradeMarketDiscovery for RTRMLocal
-//where TT: PartialEq + std::fmt::Debug + Clone + BaseTrade + Send
-{
-}
+impl TradeMarketDiscovery for RTRMLocal { }
 
 // TODO: THIS IS PROBABLY WRONG!!!
-impl RiskProcessors for RTRMLocal
-//where
-//    Self::TR: BaseTrade + PartialEq + std::fmt::Debug + Clone + PriceTrade + Send + Sync,
-{
+impl RiskProcessors for RTRMLocal {
+
     fn _price_existing_trades(
         &self,
         all_trades: &TradeRep<Self::TR>,

@@ -9,11 +9,13 @@ use crate::pricer::MarketPricingOptions;
 use crate::rm_local::{RTRMConfig, RTRMLocal};
 use crate::trader::{LETFTrader, RTConfig};
 
+#[allow(dead_code)]
 pub async fn main_letf_trader() {
 
+    // TODO: ADD HERE TOKIO SPAWNS
     tokio::join!(
-	letf_trader(),
-	letf_risk(),
+	    letf_trader(),
+	    letf_risk(),
     );
 }
 
@@ -56,9 +58,11 @@ async fn letf_risk() {
         config_map.results_topic,
         config_map.mkt_topic,
         config_map.risk_topic,
-        market::MktMsgParams::LETFParams(LETFP {
-            curr_mkt: Arc::new(Mutex::new(MarketType::new())),
-        }),
+        market::MktMsgParams::LETFParams(
+            LETFP {
+                curr_mkt: Arc::new(Mutex::new(MarketType::new())),
+            }
+        ),
         &market_pricing_options,
     ).await;
 }
