@@ -21,6 +21,7 @@ mod streaming;
 mod trade;
 mod trade_procs;
 mod trader;
+mod process_trade;
 
 #[tokio::main]
 async fn main() {

@@ -1,39 +1,20 @@
 // Trade processor interaction between current and new market.
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{info, debug, instrument};
-use tokio;
 
-use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery};
-use crate::portfolio::{PortfolioType, PricingResults};
+use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery, MarketGeneral};
+use crate::portfolio::{PortfolioType, PricingResults,};
 use crate::portfolio_sender::PortfolioSender;
-use crate::pricer::{MarketPricingOptions, PricingMetric, Decoder, PriceTradeAsync};
-use crate::trade::{TradeRep, BaseTrade};
+use crate::pricer::{MarketPricingOptions, PricingMetric, Decoder, PriceTradeAsync,};
+use crate::trade::{TradeRep, BaseTrade, TradeDirection,};
+use crate::process_trade::{ProcessTradeValue, ObtainMarket, };
 
-pub trait ProcessTradeSync<TR> {
-    fn _process_trade(
-        &self,
-        trade: &TR,
-        metric: PricingMetric,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
-    ) -> PricingResults;
-}
-
-pub trait ProcessTradeAsync {
-    fn _process_trade<TR: PriceTradeAsync + Send + Sync + Decoder + BaseTrade>  ( //: PartialEq + std::fmt::Debug + Clone + BaseTrade + PriceTrade + Send + Sync + Decoder + Sync> (
-        &self,
-        trade: &TR,
-        metric: PricingMetric,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
-    ) -> impl std::future::Future<Output=PortfolioType> + Send;
-}
 
 /// Pricing engine for trades for remote pricing
-pub trait RiskProcessors: TradeMarketDiscovery + PortfolioSender + ProcessTradeAsync
+pub trait RiskProcessors: TradeMarketDiscovery + PortfolioSender
 where
-    <Self as PortfolioSender>::TR: Clone + BaseTrade + Decoder + Sync + std::fmt::Debug,
-    Self: std::fmt::Debug + Sync,
+    <Self as PortfolioSender>::TR: Clone + BaseTrade + Decoder + Sync + std::fmt::Debug + ProcessTradeValue,
+    Self: std::fmt::Debug + Sync + ObtainMarket,
 {
     /// computes the metric of the existing trades in
     /// all_trades, on either the new or the current market
@@ -58,6 +39,50 @@ where
         curr_new_mkt: CurrNewMarket,
         new_trades_sender: &Sender<(PortfolioType, TradeRep<Self::TR>)>,
     );
+
+    fn _process_trade<TR: Send + Sync + Decoder + BaseTrade + ProcessTradeValue>  (
+        &self,
+        trade: &TR,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+    ) -> impl std::future::Future<Output=PortfolioType> + Send {
+
+        async move {
+            // let _trade_id = trade.id();
+            // let trade_direction = tr.direction();
+
+            let market = self.get_market(curr_new_mkt);
+
+            let trade_v = trade
+                .value_by_metric2(metric, pricing_options, market)
+                .await;
+
+            // TODO: MAYBE REMOVE OR INCORPORATE
+            let trade_v_dir = match trade.direction() {
+                TradeDirection::Create => trade_v,
+                TradeDirection::Delete => -trade_v,
+                TradeDirection::Update => todo!(),
+            };
+
+            let trade_portf = match trade_v_dir {
+                PricingResults::PV(pv) => pv,
+                PricingResults::PV01(pv01) => pv01.aggregate(),
+                PricingResults::PnL(pnl) => pnl,
+            };
+
+            trade_portf
+
+            // let mut cp = curr_portfolio.lock().unwrap();
+            //TradeDirection::Create => *cp += trade_portf,
+
+            //match trade_direction {
+            //    TradeDirection::Create => trade_portf,
+            //    TradeDirection::Delete => - trade_portf,
+            //    _ => todo!(),
+            //}
+        }
+    }
 
     /// current trade processor, reads on
     /// trade_receiver, and new_portfolio_receiver,
@@ -143,7 +168,7 @@ where
 			                if new_l >= all_l {
 				                // new processor is further ahead
 				                info!(
-				                    "Switching curr_p <- new_p: {}",
+				                    "Switching curr_p <- new_p: Nb trades = {}",
 				                    new_trades.len()
 				                );
 				                curr_portfolio = new_p;

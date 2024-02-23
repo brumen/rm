@@ -7,11 +7,12 @@ use std::collections::HashMap;
 use std::ops::{AddAssign, Deref, DerefMut};
 use thiserror::Error;
 
-use crate::market::MarketType;
-use crate::portfolio::{PV01Results, PortfolioType};
-use crate::pricer::{PriceTrade, Decoder};
+use crate::market::{MarketType, MarketGeneral};
+use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
+use crate::pricer::{PriceTrade, Decoder, PricingMetric};
 use crate::ref_deref::TryFromRef;
 use crate::ref_deref_trait;
+use crate::process_trade::ProcessTradeValue;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
@@ -283,6 +284,47 @@ impl TradeTypes {
 }
 
 impl Decoder for TradeTypes {}
+
+impl ProcessTradeValue for TradeTypes {
+    fn value_by_metric2(
+        &self,
+        metric: crate::pricer::PricingMetric,
+        pricing_options: &crate::pricer::MarketPricingOptions,
+        curr_new_mkt: crate::market::MarketGeneral,
+    ) -> impl std::future::Future<Output = PricingResults> + Send {
+        async move {
+            // TODO: THIS CAN BE BETTER IMPLEMENTED
+            let actual_market = match curr_new_mkt {
+                MarketGeneral::MarketRemote(_) => panic!(),
+                MarketGeneral::MarketLocal(mkt_local) => mkt_local,
+            };
+
+            match metric {
+                PricingMetric::PV => {
+                    let price = self.price(&actual_market);
+                    PricingResults::PV(
+                        PortfolioType::from([(
+                            self.id(),
+                            price.unwrap(),
+                        )])
+                    )
+                },
+                PricingMetric::PV01 => {
+                    let pv01 = self.pv01(&actual_market);
+                    PricingResults::PV01(pv01)
+                },
+                PricingMetric::PnL => {
+                    let pnl = self.pnl(&actual_market);
+                    PricingResults::PV(
+                        PortfolioType::from([(
+                            self.id(),
+                            pnl.unwrap_or(0.01),
+                        )]))
+                },
+            }
+        }
+    }
+}
 
 impl PriceTrade for TradeTypes {
     fn initial_pv(&self) -> Option<f64> {

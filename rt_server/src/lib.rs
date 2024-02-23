@@ -16,3 +16,4 @@ pub mod streaming;
 pub mod trade;
 pub mod trade_procs;
 pub mod trader;
+pub mod process_trade;

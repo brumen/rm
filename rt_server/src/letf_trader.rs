@@ -1,6 +1,5 @@
 // Starts the controller for Leveraged ETF trading..
 use std::sync::{Arc, Mutex};
-use tokio;
 
 use crate::engine::CalcController;
 use crate::market;
@@ -12,10 +11,15 @@ use crate::trader::{LETFTrader, RTConfig};
 #[allow(dead_code)]
 pub async fn main_letf_trader() {
 
-    // TODO: ADD HERE TOKIO SPAWNS
-    tokio::join!(
-	    letf_trader(),
-	    letf_risk(),
+    tokio_scoped::scope(
+        |scope| {
+            scope.spawn(
+                letf_trader()
+            );
+            scope.spawn(
+                letf_risk()
+            );
+        }
     );
 }
 

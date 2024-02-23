@@ -1,11 +1,10 @@
 use rdkafka::message::{BorrowedMessage, Message};
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
-use std::future::Future;
 use std::marker::Sync;
 use std::ops::{Deref, DerefMut};
 
-use crate::market::CurrNewMarket;
+use crate::market::{CurrNewMarket, MarketGeneral};
 use crate::portfolio::PV01Results;
 use crate::portfolio::PricingResults;
 use crate::pricer::{Decoder, MarketPricingOptions, PriceTradeAsync, PricingMetric};
@@ -13,6 +12,7 @@ use crate::ref_deref::TryFromRef;
 use crate::ref_deref_trait;
 use crate::trade::BaseTrade;
 use crate::trade::{TradeDirection, TradeError};
+use crate::process_trade::ProcessTradeValue;
 
 // structure of the AOTrade payload, possibly can be simplified.
 //
@@ -41,6 +41,28 @@ pub struct AOTrade {
 
 impl Decoder for AOTrade {}
 
+impl ProcessTradeValue for AOTrade {
+    fn value_by_metric2(
+        &self,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: MarketGeneral,
+    ) -> impl std::future::Future<Output = PricingResults> + Send {
+        async move {
+            let market_remote = match curr_new_mkt {
+                MarketGeneral::MarketRemote(cn_mkt) => cn_mkt,
+                MarketGeneral::MarketLocal(_) => panic!(),
+            };
+
+            self.value_by_metric(
+                metric,
+                pricing_options,
+                market_remote,
+            ).await
+        }
+    }
+}
+
 impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
     //fn initial_pv(&self) -> impl Future<Output = Option<f64>> + Send {
     async fn initial_pv(&self) -> Option<f64> {
@@ -66,9 +88,9 @@ impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
 
                 debug!("_price_ao_trade: Result = {:?}", unwrapped_price);
                 if let PricingResults::PV(pv_result) = unwrapped_price {
-                    let result_keys: Vec<_> = pv_result.keys().into_iter().collect();
+                    let result_keys: Vec<_> = pv_result.keys().collect();
                     // TODO: THIS IS GARBARGE
-                    if result_keys.len() == 0 {
+                    if result_keys.is_empty() {
                         Some(0.) // PortfolioType::new()
                     } else {
                         pv_result.get(result_keys[0]).copied()
@@ -162,5 +184,28 @@ impl BaseTrade for AOTradeRep {
 
     fn direction(&self) -> TradeDirection {
         TradeDirection::Create
+    }
+}
+
+
+impl ProcessTradeValue for AOTradeRep {
+    fn value_by_metric2(
+        &self,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: MarketGeneral,
+    ) -> impl std::future::Future<Output = PricingResults> + Send {
+        async move {
+            let market_remote = match curr_new_mkt {
+                MarketGeneral::MarketRemote(cn_mkt) => cn_mkt,
+                MarketGeneral::MarketLocal(_) => panic!(),
+            };
+
+            self.value_by_metric(
+                metric,
+                pricing_options,
+                market_remote,
+            ).await
+        }
     }
 }

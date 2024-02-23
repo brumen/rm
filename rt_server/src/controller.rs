@@ -4,13 +4,12 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tracing::{debug, info, warn, instrument, error};
 use core::convert::From;
 use std::collections::HashMap;
-use std::marker::Sync;
 use tokio::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use crate::ao_trade::{AOTrade, AOTradeRep};
 use crate::market::{
-    CurrNewMarket, MarketSwitching, MarketType, MktMsgParams, TradeMarketDiscovery,
+    CurrNewMarket, MarketSwitching, MarketType, MktMsgParams, TradeMarketDiscovery, MarketGeneral,
 };
 use crate::mkt_handler::MktEventHandler;
 use crate::portfolio::{PortfolioType, PricingResults};
@@ -21,7 +20,8 @@ use crate::publish::PublishResults;
 use crate::ref_deref::TryFromRef;
 use crate::streaming::Streaming;
 use crate::trade::{BaseTrade, TradeReduce, TradeRep};
-use crate::trade_procs::{ProcessTradeAsync, RiskProcessors};
+use crate::trade_procs::RiskProcessors;
+use crate::process_trade::ObtainMarket;
 
 pub type PricingParams = HashMap<String, f64>;
 
@@ -87,6 +87,15 @@ impl MktEventHandler for Controller {
         if let Err(e) = new_mkt_sender.send(market_obj).await {
             warn!("Could not send a message to the new market: {:?}", e);
         }
+    }
+}
+
+impl ObtainMarket for Controller {
+    fn get_market(
+        &self,
+        curr_new_mkt: CurrNewMarket,
+    ) -> MarketGeneral {
+        MarketGeneral::MarketRemote(curr_new_mkt)
     }
 }
 
@@ -190,7 +199,9 @@ impl MarketSwitching for Controller {
     }
 }
 
+
 impl TradeMarketDiscovery for Controller { }
+
 
 // TradeReduce reduces the trade to empty,
 // we dont need any additional information from the trade.
@@ -203,44 +214,6 @@ impl TradeReduce for Controller {
     }
 }
 
-impl ProcessTradeAsync for Controller
-//where
-//    TR: PriceTradeAsync + BaseTrade + Sync,
-{
-    // TR : BaseTrade + Decoder + Sync>
-    fn _process_trade<TR: PriceTradeAsync + Send + Sync + Decoder + BaseTrade>(
-        &self,
-        trade: &TR,
-        metric: PricingMetric,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
-    ) -> impl std::future::Future<Output=PortfolioType> + Send {  // impl Future<Output = PortfolioType> + Send {
-        async move {
-        // let _trade_id = trade.id();
-        // let trade_direction = tr.direction();
-        let trade_v = trade
-            .value_by_metric(metric, pricing_options, curr_new_mkt) //.instrument(_process_trade_span)
-            .await;
-
-        let trade_portf = match trade_v {
-            PricingResults::PV(pv) => pv,
-            PricingResults::PV01(pv01) => pv01.aggregate(),
-            PricingResults::PnL(pnl) => pnl,
-        };
-
-        trade_portf
-
-            // let mut cp = curr_portfolio.lock().unwrap();
-            //TradeDirection::Create => *cp += trade_portf,
-
-            //match trade_direction {
-            //    TradeDirection::Create => trade_portf,
-            //    TradeDirection::Delete => - trade_portf,
-            //    _ => todo!(),
-            //}
-        }
-    }
-}
 
 impl RiskProcessors for Controller {
 
@@ -309,6 +282,7 @@ impl RestPricerSpark<AOTradeRep> for Controller {
 
 // Controller is generic over MarketType type, which originally was (String, Date)
 impl Controller {
+
     pub fn new(
         pricing_params_: Option<PricingParams>,
         kafka_server_name: String,

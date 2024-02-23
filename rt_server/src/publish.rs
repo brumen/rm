@@ -1,5 +1,3 @@
-use kafka; 
-use rdkafka;
 use rdkafka::ClientConfig;
 use rdkafka::config::FromClientConfig;
 use rdkafka::producer::{FutureRecord, FutureProducer};
@@ -7,7 +5,7 @@ use rdkafka::util::Timeout;
 use tokio::sync::mpsc::Receiver;
 use std::thread::sleep;
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::{debug, warn, info,};
 use std::cmp::min;
 use tracing::instrument;
 
@@ -22,6 +20,7 @@ where Self: std::fmt::Debug + Sync
 {
     fn metric(&self) -> PricingMetric;
 
+    /// publishes results to the server.
     //#[instrument]
     fn _publish_results<TT: Send>(
         &self,
@@ -29,41 +28,41 @@ where Self: std::fmt::Debug + Sync
         results_topic: String,
     ) -> impl std::future::Future<Output=()> + Send {
         async move {
-        let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
-        let res_publisher = connect_with_retries_producer_rd(&bootstrap_servers);
+            let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
+            let res_publisher = connect_with_retries_producer_rd(&bootstrap_servers);
 
-	    loop {
-            debug!("Looping _publish_results");
-	        let curr_portfolio = match curr_portfolio_recv.recv().await {
-                Some((curr_portfolio_actual, _)) => {
-                    debug!(
-                        "_publish_results: Found actual portfolio: {:?}",
+	        loop {
+                debug!("Looping _publish_results");
+	            let curr_portfolio = match curr_portfolio_recv.recv().await {
+                    Some((curr_portfolio_actual, _)) => {
+                        debug!(
+                            "_publish_results: Found actual portfolio: {:?}",
+                            curr_portfolio_actual
+                        );
                         curr_portfolio_actual
-                    );
-                    curr_portfolio_actual
-                }
-                None => {
-                    warn!("_publish_results: Error in publishing.");
-                    continue;
-                }
-            };
-            let curr_mkt_json = serde_json::ser::to_string(&curr_portfolio).unwrap();
-            let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric(), curr_mkt_json);
+                    }
+                    None => {
+                        warn!("Channel curr_portfolio_recv has been dropped. Investigate!");
+                        panic!();
+                    }
+                };
+                let curr_mkt_json = serde_json::ser::to_string(&curr_portfolio).unwrap();
+                let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric(), curr_mkt_json);
 
-            // implements bytearray(str(dumps(self.curr_market)), ascii))
-	        // TODO: REMOVE THE NEXT 2 lines later.
-            //let market_record =
-            //    kafka::producer::Record::from_value(&results_topic, curr_mkt_pv.as_bytes()).with_partition(0);
-	        let market_record2 : FutureRecord<'_, [u8], [u8]> = FutureRecord {
-		        topic: &results_topic,
-		        partition: Some(0),
-		        payload: Some(curr_mkt_pv.as_bytes()),
-		        key: None,  // TODO: pub key: Option<&'a K>,
-		        timestamp: None,
-		        headers: None,
-	        };
-            let _ = res_publisher.send(market_record2, Timeout::Never).await;  // TODO: THIS SHOULD BE CHECKED NEver
-        }
+                // implements bytearray(str(dumps(self.curr_market)), ascii))
+	            // TODO: REMOVE THE NEXT 2 lines later.
+                //let market_record =
+                //    kafka::producer::Record::from_value(&results_topic, curr_mkt_pv.as_bytes()).with_partition(0);
+	            let market_record2 : FutureRecord<'_, [u8], [u8]> = FutureRecord {
+		            topic: &results_topic,
+		            partition: Some(0),
+		            payload: Some(curr_mkt_pv.as_bytes()),
+		            key: None,  // TODO: pub key: Option<&'a K>,
+		            timestamp: None,
+		            headers: None,
+	            };
+                let _ = res_publisher.send(market_record2, Timeout::Never).await;  // TODO: THIS SHOULD BE CHECKED NEver
+            }
         }
     }
 }
@@ -87,6 +86,7 @@ pub fn connect_with_retries_producer_rd(bootstrap_servers: &str) -> rdkafka::pro
 
 	    match FutureProducer::from_config(&result_producer_config) {
             Ok(result_producer) => {
+                info!("Connected to kafka producer {:?}", bootstrap_servers);
 		        return result_producer;
             },
             Err(e) => {
@@ -109,23 +109,24 @@ pub fn connect_with_retries_producer_rd(bootstrap_servers: &str) -> rdkafka::pro
 pub fn connect_with_retries_producer(bootstrap_servers: &str) -> kafka::producer::Producer {
 
     let mut sleep_duration = 1;
-    
+
     loop {
         match kafka::producer::Producer::from_hosts(vec![bootstrap_servers.to_owned()])
             .with_required_acks(kafka::producer::RequiredAcks::One)
             .create()
         {
             Ok(pos_listener) => {
+                info!("Connected to kafka producer {:?}", bootstrap_servers);
                 return pos_listener;  // maybe Some missing here
             },
             Err(e) => {
                 warn!(
                     "__construct_portfolio: listener is not connected, waiting {:?} secs: {:?}",
-		    sleep_duration,
+		            sleep_duration,
                     e,
                 );
                 sleep(Duration::new(sleep_duration, 0));
-		sleep_duration = min(sleep_duration + 1, 5);
+		        sleep_duration = min(sleep_duration + 1, 5);
             },
         };
     }

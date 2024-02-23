@@ -1,6 +1,4 @@
 use tokio::sync::mpsc::channel;
-use tokio;
-use tokio_scoped;
 
 use crate::market::MarketType;
 use crate::market::MktMsgParams;
@@ -8,6 +6,7 @@ use crate::mkt_handler::MktEventHandler;
 use crate::portfolio::PortfolioType;
 use crate::portfolio_sender::PortfolioSender;
 use crate::pricer::{MarketPricingOptions, Decoder};
+use crate::process_trade::ProcessTradeValue;
 use crate::publish::PublishResults;
 use crate::trade::TradeRep;
 use crate::trade_procs::RiskProcessors;
@@ -28,7 +27,7 @@ pub trait CalcController {
 impl<T> CalcController for T
 where
     T: Send + Sync + RiskProcessors + MktEventHandler + PublishResults + PortfolioSender,
-    <T as PortfolioSender>::TR : Sync + Decoder + std::fmt::Debug,
+    <T as PortfolioSender>::TR : Sync + Decoder + std::fmt::Debug + ProcessTradeValue,
 {
     async fn start(
         &self,
@@ -109,13 +108,5 @@ where
                 );
             }
         );
-
-	    // tokio::join!(
-	    //     constr_portf_f,
-	    //     mkt_handler_f,
-	    //     trade_procs_new_f,
-	    //     trade_procs_curr_f,
-	    //     publish_results_f,
-	    // );
     }
 }

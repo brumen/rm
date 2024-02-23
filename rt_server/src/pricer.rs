@@ -136,7 +136,7 @@ pub trait PriceTrade: BaseTrade {
 
         match metric {
             PricingMetric::PV => {
-                let priced_trade = self.price(&market);
+                let priced_trade = self.price(market);
                 debug!("_value_trade: PV of {:?} = {:?}", trade_name, priced_trade);
                 if let Some(price_trade) = priced_trade {
                     PricingResults::PV(PortfolioType::from([(trade_name, price_trade)]))
@@ -146,13 +146,13 @@ pub trait PriceTrade: BaseTrade {
             }
 
             PricingMetric::PV01 => {
-                let trade_pv01 = self.pv01(&market);
+                let trade_pv01 = self.pv01(market);
                 debug!("_value_trade: PV01 of {:?} = {:?}", trade_name, trade_pv01);
                 PricingResults::PV01(trade_pv01)
             }
 
             PricingMetric::PnL => {
-                let pnl_trade = self.pnl(&market);
+                let pnl_trade = self.pnl(market);
                 debug!("_value_trade: PnL of {:?} = {:?}", trade_name, pnl_trade);
                 if let Some(pnl_trade_real) = pnl_trade {
                     PricingResults::PV(PortfolioType::from([(trade_name, pnl_trade_real)]))

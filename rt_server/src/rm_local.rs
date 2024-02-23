@@ -2,25 +2,22 @@
 //  Real time risk manager using local market & local pricing
 //
 
-use rdkafka::message::BorrowedMessage;
 use log::{debug, error, info, warn};
 use serde::Deserialize;
 use tokio::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use crate::market::{
-    CurrNewMarket, MarketSwitching, MarketType, MktMsgParams, TradeMarketDiscovery,
+    CurrNewMarket, MarketSwitching, MarketType, MktMsgParams, TradeMarketDiscovery, MarketGeneral,
 };
 use crate::mkt_handler::MktEventHandler;
 use crate::portfolio::{PortfolioType, PricingResults};
-use crate::ref_deref::TryFromRef;
-
 use crate::pricer::{MarketPricingOptions, PriceTrade, PricingMetric, Decoder, PriceTradeAsync};
-
 use crate::publish::PublishResults;
 use crate::streaming::Streaming;
 use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeRep, TradeTypes};
-use crate::trade_procs::{ProcessTradeSync, RiskProcessors, ProcessTradeAsync};
+use crate::trade_procs::RiskProcessors;
+use crate::process_trade::ObtainMarket;
 
 /// RTRM - Real time risk manager using local
 ///    local market and local pricing.
@@ -145,60 +142,20 @@ impl MktEventHandler for RTRMLocal {
     }
 }
 
-impl ProcessTradeAsync for RTRMLocal
-{
-    /// processes the trade, by calculating the metric given
-    /// on either the current or the new market.
-    /// updates the curr_portfolio.
-    fn _process_trade<TR: Decoder + BaseTrade + PriceTradeAsync + Send + Sync>(
+impl ObtainMarket for RTRMLocal {
+    fn get_market(
         &self,
-        trade: &TR,
-        metric: PricingMetric,
-        _pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> impl std::future::Future<Output=PortfolioType> + Send {
-        async move {
-            //let market = match curr_new_mkt {
-            //    CurrNewMarket::Current => self._curr_mkt(),
-            //    CurrNewMarket::New => self._new_mkt(),
-            //};
-
-            let trade_v = trade.value_by_metric(metric, _pricing_options, curr_new_mkt).await;
-            //let trade_v = match market.lock() {
-            //    Ok(_) => trade.value_by_metric(metric, _pricing_options, curr_new_mkt).await,
-            //    Err(e) => {
-            //        error!("_process_trade: Market was poisoned {:?}", e);
-            //        trade.value_by_metric(metric, _pricing_options, curr_new_mkt).await
-            //    }
-            //};
-            debug!("_trade_processor_curr: Trade value = {:?}", trade_v);
-
-            let trade_v_dir = match trade.direction() {
-                TradeDirection::Create => trade_v,
-                TradeDirection::Delete => -trade_v,
-                TradeDirection::Update => todo!(),
-            };
-
-	        match trade_v_dir {
-	            PricingResults::PV(pv) => pv,
-	            PricingResults::PV01(pv01) => pv01.aggregate(),
-	            PricingResults::PnL(pnl) => pnl,
-	        }
+    ) -> crate::market::MarketGeneral {
+        match curr_new_mkt {
+            // TODO: FIX THESE CLONING HERE
+            CurrNewMarket::Current => MarketGeneral::MarketLocal(MarketType(self.curr_market.lock().unwrap().clone())),
+            CurrNewMarket::New => MarketGeneral::MarketLocal(MarketType(self.new_market.lock().unwrap().clone())),
         }
     }
+
 }
 
-// impl ProcesTradeAsync for RTRMLocal {
-//     async fn _process_trade(
-// 	&self,
-// 	trade: &TR,
-// 	metric: PricingMetric,
-// 	pricing_options: &MarketPricingOptions,
-// 	curr_new_mkt: CurrNewMarket,
-//     ) {
-// 	self._process_trade(${1:trade}, ${2:metric}, ${3:pricing_options}, ${4:curr_new_mkt})$0
-//     }
-// }
 
 impl TradeMarketDiscovery for RTRMLocal { }
 

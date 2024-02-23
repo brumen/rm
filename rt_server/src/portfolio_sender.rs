@@ -53,13 +53,13 @@ where
             let mut existing_trades = TradeRep::<Self::TR>::new();
 
 	        loop {
+                debug!("LOOPING POSITION LISTENER");
 	            tokio::select! {
                     trade = position_listener.recv() => {
                         debug!("Got trade: {:?}", trade);
 		                match <T as TradeReduce>::TradeType::try_from_ref(&trade.unwrap()) {  // TODO: FIX THIS UNWRAP
 			                Err(e) => {
 			                    warn!("Problem w/ trade: {:?}", e);
-			                    // TODO: IS THERE ANYTHING ELSE TO DO??
 			                }
 			                Ok(trade) => {
 			                    debug!("Sending trade {:?} to CURR & NEW processor.", &trade);

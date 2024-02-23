@@ -97,6 +97,13 @@ pub enum CurrNewMarket {
     New,
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub enum MarketGeneral {
+    MarketRemote(CurrNewMarket),
+    MarketLocal(MarketType),
+}
+
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AOMktParams {
@@ -184,19 +191,19 @@ pub trait TradeMarketDiscovery: MarketSwitching {
     /// indicator if there is a new market present.
     /// consumes the new market events to come to the last one.
     fn _new_market_event(
-	&self,
-	new_market_receiver: &Receiver<MarketType>,
-	fut_market_sender: &Sender<MarketType>,
+	    &self,
+	    new_market_receiver: &Receiver<MarketType>,
+	    fut_market_sender: &Sender<MarketType>,
     ) {
         // handling new market event - roll to the latest new market, ignore in between markets
 
         while let Ok(new_stock_mkt) = new_market_receiver.recv() {
             *self
-		._future_mkt()
-		.lock()
-		.expect("_new_market_event: Could not lock!") += &new_stock_mkt;
-	    let fm = self._future_mkt().lock().unwrap().clone();
+		        ._future_mkt()
+		        .lock()
+		        .expect("_new_market_event: Could not lock!") += &new_stock_mkt;
+	        let fm = self._future_mkt().lock().unwrap().clone();
             let _ = fut_market_sender.send(MarketType(fm));
-	}
+	    }
     }
 }
