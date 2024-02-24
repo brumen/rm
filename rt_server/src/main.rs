@@ -1,8 +1,5 @@
 // Starts the controller.
 
-use tokio;
-use tracing_subscriber;
-
 mod ao_risk;
 mod ao_trade;
 mod controller;

@@ -1,4 +1,3 @@
-use kafka;  // ::{Consumer, FetchOffset, GroupOffsetStorage, Message};
 use tracing::{debug, info, warn, instrument};
 use rdkafka::consumer::Consumer;
 use tokio::sync::mpsc::{Sender, Receiver};

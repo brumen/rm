@@ -129,53 +129,36 @@ pub trait MarketSwitching {
 
     /// switches curr <- new; new <- future
     fn _internal_switch_all_markets(&self) {
-	// replace current market with new market
-//        let new_mkt_copy = self
-//            ._new_mkt()
-//            .lock()
-//            .expect("_switch_markets: Could not lock new market.");
 
-//	let fut_mkt_copy = self
-//	    ._future_mkt()
-//	    .lock()
-//	    .expect("_internal_switch_markets: Could not lock future market");
-
-	// replace current market w/ new market
-	**self
+	    // replace current market w/ new market
+	    **self
             ._curr_mkt()
             .lock()
             .expect("_switch_markets: Could not lock current market") = self
             ._new_mkt()
             .lock()
-            .expect("_switch_markets: Could not lock new market.").clone(); //(*new_mkt_copy).clone();
+            .expect("_switch_markets: Could not lock new market.").clone();
 
-	// replace new market with
-//        debug!("_switch_markets: Curr market now: {:?}", new_mkt_copy);
-
-	**self
-	    ._new_mkt()
-	    .lock()
-	    .expect("Could not lock new market") = self
-	    ._future_mkt()
-	    .lock()
-	    .expect("_internal_switch_markets: Could not lock future market").clone(); //(*fut_mkt_copy).clone();
+	    // replace new market with future market
+	    **self
+	        ._new_mkt()
+	        .lock()
+	        .expect("Could not lock new market") = self
+	        ._future_mkt()
+	        .lock()
+	        .expect("_internal_switch_markets: Could not lock future market").clone();
     }
 
     /// switches only new_market <- future_market
     fn _internal_switch_new_fut_markets(&self) {
-	// replace current market with new market
-//	let fut_mkt_copy = self
-//	    ._future_mkt()
-//	    .lock()
-//	    .expect("_internal_switch_markets: Could not lock future market");
-
-	**self
-	    ._new_mkt()
-	    .lock()
-	    .expect("Could not lock new market") = self
-	    ._future_mkt()
-	    .lock()
-	    .expect("_internal_switch_markets: Could not lock future market").clone();  // (*fut_mkt_copy).clone();
+	    // replace current market with new market
+	    **self
+	        ._new_mkt()
+	        .lock()
+	        .expect("Could not lock new market") = self
+	        ._future_mkt()
+	        .lock()
+	        .expect("_internal_switch_markets: Could not lock future market").clone();
     }
 
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>>;
