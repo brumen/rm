@@ -47,7 +47,7 @@ pub trait Decoder {
                 let results_conv = result_price.json::<HashMap<String, f64>>();
 
                 if results_conv.is_err() {
-                    return PricingResults::PV(PortfolioType::new());
+                    return PricingResults::PV(PortfolioType::default());
                 }
 
                 PricingResults::PV(PortfolioType(results_conv.unwrap()))
@@ -85,7 +85,7 @@ pub trait Decoder {
                     let results_conv = result_price.json::<HashMap<String, f64>>().await;
 
                     if results_conv.is_err() {
-                        return PricingResults::PV(PortfolioType::new());
+                        return PricingResults::PV(PortfolioType::default());
                     }
 
                     PricingResults::PV(PortfolioType(results_conv.unwrap()))
@@ -131,6 +131,7 @@ pub trait PriceTrade: BaseTrade {
     }
 
     /// values the trade for a specific metric.
+    #[allow(dead_code)]
     fn value_by_metric(&self, metric: PricingMetric, market: &MarketType) -> PricingResults {
         let trade_name = self.id();
 
@@ -141,7 +142,7 @@ pub trait PriceTrade: BaseTrade {
                 if let Some(price_trade) = priced_trade {
                     PricingResults::PV(PortfolioType::from([(trade_name, price_trade)]))
                 } else {
-                    PricingResults::PV(PortfolioType::new())
+                    PricingResults::PV(PortfolioType::default())
                 }
             }
 
@@ -157,7 +158,7 @@ pub trait PriceTrade: BaseTrade {
                 if let Some(pnl_trade_real) = pnl_trade {
                     PricingResults::PV(PortfolioType::from([(trade_name, pnl_trade_real)]))
                 } else {
-                    PricingResults::PV(PortfolioType::new())
+                    PricingResults::PV(PortfolioType::default())
                 }
             }
         }
@@ -199,18 +200,20 @@ pub trait PriceTradeAsync: BaseTrade {
     }
 
     /// computes the pricing request.
-    async fn _pricing_request(
+    fn _pricing_request(
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> Result<reqwest::Response, reqwest::Error>
+    ) -> impl std::future::Future<Output=Result<reqwest::Response, reqwest::Error>> + Send
     where
         Self: Sync,
     {
-        reqwest::get(
-            self._endpoint(metric, pricing_options, curr_new_mkt)
-        ).await
+        async move {
+            reqwest::get(
+                self._endpoint(metric, pricing_options, curr_new_mkt)
+            ).await
+        }
     }
 
     fn initial_pv(&self) -> impl Future<Output = Option<f64>> + Send;
@@ -266,7 +269,7 @@ pub trait PriceTradeAsync: BaseTrade {
                     if let Some(price_trade) = priced_trade {
                         PricingResults::PV(PortfolioType::from([(trade_name, price_trade)]))
                     } else {
-                        PricingResults::PV(PortfolioType::new())
+                        PricingResults::PV(PortfolioType::default())
                     }
                 }
                 PricingMetric::PV01 => {
@@ -281,7 +284,7 @@ pub trait PriceTradeAsync: BaseTrade {
                     if let Some(pnl_trade_real) = pnl_trade {
                         PricingResults::PV(PortfolioType::from([(trade_name, pnl_trade_real)]))
                     } else {
-                        PricingResults::PV(PortfolioType::new())
+                        PricingResults::PV(PortfolioType::default())
                     }
                 }
             }
@@ -292,7 +295,8 @@ pub trait PriceTradeAsync: BaseTrade {
 /// pricing trades on spark
 pub trait RestPricerSpark<TR>: Decoder
 where
-    TR: PartialEq + Clone + BaseTrade,
+    TR: PartialEq + Clone + BaseTrade + Send + Sync,
+    Self: Sync,
 {
     // server used by spark to price trades, like localhost:5010
     fn _pricing_server_spark(&self) -> String;
@@ -301,129 +305,134 @@ where
     fn _pricing_endpoint_spark(&self, market_: CurrNewMarket, metric: PricingMetric) -> String;
 
     // prices the trades on the spark
-    async fn price_trades_spark(
+    fn price_trades_spark(
         &self,
         trades: &TradeRep<TR>,
         pricing_client: &Client,
         market_: CurrNewMarket,
         metric: PricingMetric,
-    ) -> PortfolioType {
+    ) -> impl std::future::Future<Output=PortfolioType> + Send {
 
-        // joins all trades with commas, like 190,191,192
-        let all_trade_ids = ",".join(trades.all_trade_names());
-        let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
-        let market_endpoint = pricing_endpoint_spark.as_str();
-        let result_pricing = pricing_client
-            .post(format!(
-                "http://{}/{}",
-                self._pricing_server_spark(),
-                market_endpoint
-            ))
-            .form(&HashMap::from([("trades", &all_trade_ids)]))
-            .send();
+        async move {
+            // joins all trades with commas, like 190,191,192
+            let all_trade_ids = ",".join(trades.all_trade_names());
+            let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
+            let market_endpoint = pricing_endpoint_spark.as_str();
+            let result_pricing = pricing_client
+                .post(format!(
+                    "http://{}/{}",
+                    self._pricing_server_spark(),
+                    market_endpoint
+                ))
+                .form(&HashMap::from([("trades", &all_trade_ids)]))
+                .send();
 
-        // unwrap the result_pricing
-        let priced_portfolio = match result_pricing.await {
-            Ok(result_price) => self._unwrap_pricing_results_a(result_price, metric).await,
-            Err(e) => {
-                warn!("Trades could not price correctly: {}", e);
-                return PortfolioType::new(); // TODO: What to do if the trade cant convert
+            // unwrap the result_pricing
+            let priced_portfolio = match result_pricing.await {
+                Ok(result_price) => self._unwrap_pricing_results_a(result_price, metric).await,
+                Err(e) => {
+                    warn!("Trades could not price correctly: {}", e);
+                    return PortfolioType::default(); // TODO: What to do if the trade cant convert
+                }
+            };
+
+            // let's do the aggregation here.  TODO: CHECK IF THIS IS NECESSARY
+            match priced_portfolio {
+                PricingResults::PV(pv_portfolio) => pv_portfolio,
+                PricingResults::PV01(pv01_results) => pv01_results.aggregate(),
+                PricingResults::PnL(pnl_portfolio) => pnl_portfolio,
             }
-        };
-
-        // let's do the aggregation here.  TODO: CHECK IF THIS IS NECESSARY
-        match priced_portfolio {
-            PricingResults::PV(pv_portfolio) => pv_portfolio,
-            PricingResults::PV01(pv01_results) => pv01_results.aggregate(),
-            PricingResults::PnL(pnl_portfolio) => pnl_portfolio,
         }
-    }
 
+    }
     /// similar to price_trades_spark,
     ///   just that it only limits to spark application to
     ///   a certain number of trades, and it repeats the spark
     ///   application
-    async fn price_trades_on_spark(
+    fn price_trades_on_spark(
         &self,
         trades: &TradeRep<TR>,
         metric: PricingMetric,
         _pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> PortfolioType
-//where TR: PartialEq + std::fmt::Debug + Clone + pricer::PriceTradeAsync + Send + Sync
-    {
-        let mut curr_portfolio = PortfolioType::new();
+    ) -> impl std::future::Future<Output=PortfolioType> + Send {
+        async move {
+            let mut curr_portfolio = PortfolioType::default();
 
-        let split_nb = 200; // TODO: FACTOR THIS NUMBER OUT
+            let split_nb = 200; // TODO: FACTOR THIS NUMBER OUT
 
-        let mut curr_trade_nb = 0;
-        let mut curr_trade_rep = TradeRep::<TR>::new();
+            let mut curr_trade_nb = 0;
+            let mut curr_trade_rep = TradeRep::<TR>::default();
 
-        let pricing_client = Client::new();
+            let pricing_client = Client::new();
 
-        for (_tid, tr) in trades.iter() {
-            curr_trade_rep += tr;
-            curr_trade_nb += 1;
+            for (_tid, tr) in trades.iter() {
+                curr_trade_rep += tr;
+                curr_trade_nb += 1;
 
-            if curr_trade_nb > split_nb {
-                // do the computation
-                info!("Pricing {:?} trades on spark.", curr_trade_nb);
-                let portfolio =
-                    self.price_trades_spark(
-			            &curr_trade_rep,
-			            &pricing_client,
-			            curr_new_mkt,
-			            metric
-		            ).await;
+                if curr_trade_nb > split_nb {
+                    // do the computation
+                    info!("Pricing {:?} trades on spark.", curr_trade_nb);
+                    let portfolio =
+                        self.price_trades_spark(
+			                &curr_trade_rep,
+			                &pricing_client,
+			                curr_new_mkt,
+			                metric
+		                ).await;
 
-                curr_portfolio += portfolio;
-                curr_trade_nb = 0;
-                curr_trade_rep = TradeRep::<TR>::new();
+                    curr_portfolio += portfolio;
+                    curr_trade_nb = 0;
+                    curr_trade_rep = TradeRep::<TR>::default();
+                }
             }
+
+            // remaining part of trades
+            curr_portfolio += self.price_trades_spark(
+		        &curr_trade_rep,
+		        &pricing_client,
+		        curr_new_mkt,
+		        metric
+	        ).await;
+
+            curr_portfolio
         }
-
-        // remaining part of trades
-        curr_portfolio += self.price_trades_spark(
-		    &curr_trade_rep,
-		    &pricing_client,
-		    curr_new_mkt,
-		    metric
-	    ).await;
-
-        curr_portfolio
     }
 
     // prices the trades on the spark
-    async fn price_trades_spark_2(
+    #[allow(dead_code)]
+    fn price_trades_spark_2(
         &self,
         trades: &TradeRep<TR>,
         pricing_client: &Client,
         market_: CurrNewMarket,
         metric: PricingMetric,
-    ) -> Result<PortfolioType, Error> {
-        // joins all trades with commas, like 190,191,192
-        let all_trade_ids = ",".join(trades.all_trade_names());
-        let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
-        let market_endpoint = pricing_endpoint_spark.as_str();
+    ) -> impl std::future::Future<Output=Result<PortfolioType, Error>> + Send {
+        async move {
+            // joins all trades with commas, like 190,191,192
+            let all_trade_ids = ",".join(trades.all_trade_names());
+            let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
+            let market_endpoint = pricing_endpoint_spark.as_str();
 
-        let result_pricing = pricing_client
-            .post(format!(
-                "http://{}/{}",
-                self._pricing_server_spark(),
-                market_endpoint
-            ))
-            .form(&HashMap::from([("trades", &all_trade_ids)]))
-            .send()
-	    .await?;
+            let result_pricing = pricing_client
+                .post(format!(
+                    "http://{}/{}",
+                    self._pricing_server_spark(),
+                    market_endpoint
+                ))
+                .form(&HashMap::from([("trades", &all_trade_ids)]))
+                .send()
+	            .await?;
 
-        // unwrap the result_pricing
-        let priced_portfolio = self._unwrap_pricing_results_a(result_pricing, metric).await;
+            // unwrap the result_pricing
+            let priced_portfolio = self._unwrap_pricing_results_a(result_pricing, metric).await;
 
-        // let's do the aggregation here
-        Ok(match priced_portfolio {
-            PricingResults::PV(pv_portfolio) => pv_portfolio,
-            PricingResults::PV01(pv01_results) => pv01_results.aggregate(),
-            PricingResults::PnL(pnl_portfolio) => pnl_portfolio,
-        })
+            // let's do the aggregation here
+            Ok(match priced_portfolio {
+                PricingResults::PV(pv_portfolio) => pv_portfolio,
+                PricingResults::PV01(pv01_results) => pv01_results.aggregate(),
+                PricingResults::PnL(pnl_portfolio) => pnl_portfolio,
+            })
+        }
     }
 }

@@ -1,4 +1,4 @@
-use log::{debug, warn};
+use tracing::{debug, warn};
 use serde::{Deserialize, Serialize};
 
 use kafka::producer::Record;
@@ -113,22 +113,24 @@ impl LETFTrader {
         let (mkt_sender, _) = channel::<MarketType>(100);  // TODO: THIS IS SHIT HERE: 100
 	    let (fut_mkt_ready_s, _fut_mkt_ready_r) = channel::<bool>(100); // TODO: BUFFER SIZE SHOULD BE ???
 
-	    let handle_mkt_f =
-            self._handle_mkt_events(
-                mkt_topic,
-                MktMsgParams::LETFParams(LETFP {
-                    curr_mkt: self.curr_mkt.clone(),
-                }),
-                mkt_sender,
-		        fut_mkt_ready_s,
-            );
+	    tokio_scoped::scope(
+            |scope| {
+                scope.spawn(
+                    self._handle_mkt_events(
+                        mkt_topic,
+                        MktMsgParams::LETFParams(LETFP {
+                            curr_mkt: self.curr_mkt.clone(),
+                        }),
+                        mkt_sender,
+		                fut_mkt_ready_s,
+                    )
+                );
 
-	    let hedger_f = self.__hedger(pos_topic, results_topic);
-
-	    tokio::join!(
-	        handle_mkt_f,
-	        hedger_f,
-	    );
+                scope.spawn(
+                    self.__hedger(pos_topic, results_topic)
+                );
+            }
+        )
     }
 }
 

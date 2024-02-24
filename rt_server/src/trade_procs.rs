@@ -2,10 +2,10 @@
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{info, debug, instrument};
 
-use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery, MarketGeneral};
+use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery,};
 use crate::portfolio::{PortfolioType, PricingResults,};
 use crate::portfolio_sender::PortfolioSender;
-use crate::pricer::{MarketPricingOptions, PricingMetric, Decoder, PriceTradeAsync,};
+use crate::pricer::{MarketPricingOptions, PricingMetric, Decoder,};
 use crate::trade::{TradeRep, BaseTrade, TradeDirection,};
 use crate::process_trade::{ProcessTradeValue, ObtainMarket, };
 
@@ -29,7 +29,7 @@ where
 
     /// adds new trades on the trade_receiver to the
     /// all_trades, and prices the new trades that came on it.
-    async fn _price_new_trades(
+    fn _price_new_trades(
         &self,
         curr_portfolio: &mut PortfolioType,
         trade_receiver: &mut Receiver<Self::TR>,
@@ -38,7 +38,7 @@ where
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
         new_trades_sender: &Sender<(PortfolioType, TradeRep<Self::TR>)>,
-    );
+    ) -> impl std::future::Future<Output=()> + Send;
 
     fn _process_trade<TR: Send + Sync + Decoder + BaseTrade + ProcessTradeValue>  (
         &self,
@@ -65,13 +65,11 @@ where
                 TradeDirection::Update => todo!(),
             };
 
-            let trade_portf = match trade_v_dir {
+            return match trade_v_dir {
                 PricingResults::PV(pv) => pv,
                 PricingResults::PV01(pv01) => pv01.aggregate(),
                 PricingResults::PnL(pnl) => pnl,
             };
-
-            trade_portf
 
             // let mut cp = curr_portfolio.lock().unwrap();
             //TradeDirection::Create => *cp += trade_portf,
@@ -113,7 +111,7 @@ where
         async move {
 	// TODO: REMOVE THIS NEXT LINE
         // let mut new_potential_portfolio: Option<(PortfolioType, TradeRep<Self::TR>)>;
-        let mut all_trades = TradeRep::<Self::TR>::new();
+        let mut all_trades = TradeRep::<Self::TR>::default();
         // let curr_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
 
         info!("Pricing existing trades on CURRENT market.");
@@ -268,8 +266,8 @@ where
         pricing_options: &MarketPricingOptions,
     ) -> impl std::future::Future<Output=(PortfolioType, TradeRep<Self::TR>)> + Send {
         async move {
-            let mut portfolio = PortfolioType::new();
-            let mut all_batches = TradeRep::<Self::TR>::new();
+            let mut portfolio = PortfolioType::default();
+            let mut all_batches = TradeRep::<Self::TR>::default();
 
             let mut new_batch = self._get_trades_from_recv(new_trade_receiver).await;
 
@@ -295,7 +293,7 @@ where
 	    trade_receiver: &mut Receiver<Self::TR>,
     ) -> impl std::future::Future<Output=TradeRep<Self::TR>> + Send {
         async move {
-            let mut new_trades = TradeRep::<Self::TR>::new();
+            let mut new_trades = TradeRep::<Self::TR>::default();
 
             while let Ok(trade) = trade_receiver.try_recv() {
                 new_trades += &trade;

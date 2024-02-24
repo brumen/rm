@@ -2,20 +2,25 @@
 //  Real time risk manager using local market & local pricing
 //
 
-use log::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use serde::Deserialize;
 use tokio::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use crate::market::{
-    CurrNewMarket, MarketSwitching, MarketType, MktMsgParams, TradeMarketDiscovery, MarketGeneral,
+    CurrNewMarket,
+    MarketSwitching,
+    MarketType,
+    MktMsgParams,
+    TradeMarketDiscovery,
+    MarketGeneral,
 };
 use crate::mkt_handler::MktEventHandler;
-use crate::portfolio::{PortfolioType, PricingResults};
-use crate::pricer::{MarketPricingOptions, PriceTrade, PricingMetric, Decoder, PriceTradeAsync};
+use crate::portfolio::PortfolioType;
+use crate::pricer::{MarketPricingOptions, PricingMetric,};
 use crate::publish::PublishResults;
 use crate::streaming::Streaming;
-use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeRep, TradeTypes};
+use crate::trade::{BaseTrade, TradeReduce, TradeRep, TradeTypes};
 use crate::trade_procs::RiskProcessors;
 use crate::process_trade::ObtainMarket;
 
@@ -153,7 +158,6 @@ impl ObtainMarket for RTRMLocal {
             CurrNewMarket::New => MarketGeneral::MarketLocal(MarketType(self.new_market.lock().unwrap().clone())),
         }
     }
-
 }
 
 
@@ -170,7 +174,7 @@ impl RiskProcessors for RTRMLocal {
         curr_new_mkt: CurrNewMarket,
     ) -> impl std::future::Future<Output=PortfolioType> + Send {
         async move {
-            let mut p = PortfolioType::new();
+            let mut p = PortfolioType::default();
 
             for trade in all_trades.values() {
                 p += self._process_trade(trade, metric, pricing_options, curr_new_mkt).await;

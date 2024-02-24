@@ -1,11 +1,12 @@
 use core::cmp::Eq;
-use log::{debug, warn};
+use tracing::{debug, warn};
 use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::ops::{AddAssign, Deref, DerefMut};
 use thiserror::Error;
+use std::default::Default;
 
 use crate::market::{MarketType, MarketGeneral};
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
@@ -117,9 +118,14 @@ impl LETFTrade {
     pub fn hedge(&mut self, market: &MarketType) -> Vec<LETFHedge> {
         let stock_name = &self.stock;
         let stock_value = market.get(stock_name);
+        debug!("HEDGE: Market = {:?}", market);
 
         if stock_value.is_none() {
-            warn!("hedge: Could not find {:?} in the market", stock_name);
+            warn!(
+                "hedge: Could not find {:?} in the market. NOT HEDGING {:?}",
+                stock_name,
+                self,
+            );
             return vec![]; // Cant do much w/ it.
         }
 
@@ -129,6 +135,7 @@ impl LETFTrade {
         let beta = self.beta;
         let amount = self.amount;
 
+        // Computing the hedge.
         vec![
             LETFHedge::Future(Future {
                 initial_val: Some(-beta * amount),
@@ -289,13 +296,14 @@ impl ProcessTradeValue for TradeTypes {
     fn value_by_metric2(
         &self,
         metric: crate::pricer::PricingMetric,
-        pricing_options: &crate::pricer::MarketPricingOptions,
+        _pricing_options: &crate::pricer::MarketPricingOptions,
         curr_new_mkt: crate::market::MarketGeneral,
     ) -> impl std::future::Future<Output = PricingResults> + Send {
         async move {
+
             // TODO: THIS CAN BE BETTER IMPLEMENTED
             let actual_market = match curr_new_mkt {
-                MarketGeneral::MarketRemote(_) => panic!(),
+                MarketGeneral::MarketRemote(_) => panic!(),  // we should not be getting this
                 MarketGeneral::MarketLocal(mkt_local) => mkt_local,
             };
 
@@ -385,10 +393,6 @@ impl BaseTrade for TradeTypes {
     }
 }
 
-pub trait LETFTradeHandling {
-    fn recover_trade(msg_decoded: &Value) -> Option<LETFTrade>;
-}
-
 pub type TradeTypesInner = TradeTypes;
 pub struct TradeTypesRep(pub TradeTypesInner);
 
@@ -396,7 +400,7 @@ ref_deref_trait!(TradeTypesRep, TradeTypesInner);
 
 impl BaseTrade for TradeTypesRep {
     fn id(&self) -> String {
-        self.id()
+        self.0.id()
     }
 
     fn direction(&self) -> TradeDirection {
@@ -410,10 +414,11 @@ impl PriceTrade for TradeTypesRep {
     }
 
     fn price(&self, market: &MarketType) -> Option<f64> {
-        self.price(market)
+        self.0.price(market)
     }
+
     fn pv01(&self, market: &MarketType) -> PV01Results {
-        self.pv01(market)
+        self.0.pv01(market)
     }
 }
 
@@ -442,19 +447,20 @@ pub trait TradeReduce {
     fn reduce(&self, trade: &Self::TradeType) -> Self::ReductionType;
 }
 
-impl<TR> TradeRep<TR> {
-    pub fn new() -> Self {
+impl<TR> Default for TradeRep<TR> {
+    fn default() -> Self {
         Self(HashMap::<String, TR>::new())
     }
+}
+
+impl<TR> TradeRep<TR> {
+    // pub fn new() -> Self {
+    //     Self(HashMap::<String, TR>::new())
+    // }
 
     /// returns all trade ids in the trade representation.
     pub fn all_trade_names(&self) -> Vec<&String> {
         self.keys().into_iter().collect::<Vec<&String>>()
-    }
-
-    /// returns a vector of references to the representation. Used for reading.
-    pub fn all_trades_ref(&self) -> Vec<&TR> {
-        self.values().into_iter().collect::<Vec<&TR>>()
     }
 
     /// does trade representation contain trade_id

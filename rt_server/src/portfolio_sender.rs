@@ -50,7 +50,7 @@ where
             let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port(),);
             let position_listener = connect_with_retries_rd(&bootstrap_servers, &pos_topic);
 
-            let mut existing_trades = TradeRep::<Self::TR>::new();
+            let mut existing_trades = TradeRep::<Self::TR>::default();
 
 	        loop {
                 debug!("LOOPING POSITION LISTENER");

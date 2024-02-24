@@ -7,6 +7,7 @@ use crate::engine::CalcController;
 use crate::market;
 use crate::pricer::MarketPricingOptions;
 
+#[allow(dead_code)]
 pub async fn ao_main_risk() {
     let config_file = "/home/brumen/work/rm/configs/configuration.yaml".to_owned();
     let config_f = std::fs::File::open(config_file.clone()).unwrap();

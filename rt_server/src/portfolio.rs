@@ -3,6 +3,7 @@ use serde::Serialize;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Deref, DerefMut, Mul, MulAssign, Neg};
 use std::{collections::HashMap, ops::SubAssign};
+use std::default::Default;
 
 use crate::pricer::PricingMetric;
 use crate::ref_deref_trait;
@@ -15,6 +16,12 @@ pub type PortfolioInner = HashMap<String, f64>;
 pub struct PortfolioType(pub PortfolioInner);
 
 ref_deref_trait!(PortfolioType, PortfolioInner);
+
+impl Default for PortfolioType {
+    fn default() -> Self {
+        Self(PortfolioInner::new())
+    }
+}
 
 impl Add for PortfolioType {
     type Output = PortfolioType;
@@ -88,12 +95,6 @@ impl SubAssign<&PortfolioType> for PortfolioType {
     }
 }
 
-impl PortfolioType {
-    pub fn new() -> Self {
-        Self(PortfolioInner::new())
-    }
-}
-
 impl<const N: usize> From<[(String, f64); N]> for PortfolioType {
     fn from(arr: [(String, f64); N]) -> Self {
         Self(PortfolioInner::from(arr))
@@ -128,7 +129,7 @@ impl Mul<f64> for PortfolioType {
     type Output = PortfolioType;
 
     fn mul(self, rhs: f64) -> Self {
-        let mut new_agg_trades = Self::new();
+        let mut new_agg_trades = Self::default();
         for (trade_id, trade_val) in self.iter() {
             new_agg_trades.insert(trade_id.clone(), *trade_val * rhs);
         }
@@ -232,7 +233,7 @@ impl Mul<f64> for PV01Results {
     fn mul(self, rhs: f64) -> Self {
         let mut new_pv01 = PV01Results::new();
         for (trade_id, portfolio) in self.iter() {
-            let mut inner_portf = PortfolioType::new();
+            let mut inner_portf = PortfolioType::default();
             for (trade_id_inner, value) in portfolio.iter() {
                 inner_portf.insert(trade_id_inner.clone(), value * rhs);
             }
@@ -258,7 +259,7 @@ impl PV01Results {
 
     // aggregates the PV01 results into Portfoliotype, irrespective of trades.
     pub fn aggregate(self) -> PortfolioType {
-        let mut pv01_aggs = PortfolioType::new();
+        let mut pv01_aggs = PortfolioType::default();
         for (_, trade_pv01) in self.iter() {
             pv01_aggs += trade_pv01;
         }
@@ -273,16 +274,19 @@ pub enum PricingResults {
     PnL(PortfolioType), // same as PV type
 }
 
+
 impl PricingResults {
+    #[allow(dead_code)]
     pub fn new(metric: PricingMetric) -> Self {
         match metric {
-            PricingMetric::PV => Self::PV(PortfolioType::new()),
+            PricingMetric::PV => Self::PV(PortfolioType::default()),
             PricingMetric::PV01 => Self::PV01(PV01Results::new()),
-            PricingMetric::PnL => Self::PnL(PortfolioType::new()),
+            PricingMetric::PnL => Self::PnL(PortfolioType::default()),
         }
     }
 
     // TODO: CHECK IF WE CAN DO THIS WITHOUT CLONING!!!
+    #[allow(dead_code)]
     pub fn aggregate(&self) -> PortfolioType {
         match self {
             PricingResults::PV(pv) => (*pv).clone(),
@@ -320,7 +324,7 @@ impl Neg for PortfolioType {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        let mut res = Self::new();
+        let mut res = Self::default();
         for (trade_id, trade_val) in self.iter() {
             res.insert(trade_id.clone(), -*trade_val); // TODO: IMPROVE HERE!!!
         }

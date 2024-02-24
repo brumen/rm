@@ -1,7 +1,6 @@
-use rdkafka::message::BorrowedMessage;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::error::TryRecvError;
-use tracing::{debug, info, warn, instrument, error};
+use tracing::{info, warn, instrument, error};
 use core::convert::From;
 use std::collections::HashMap;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -12,12 +11,11 @@ use crate::market::{
     CurrNewMarket, MarketSwitching, MarketType, MktMsgParams, TradeMarketDiscovery, MarketGeneral,
 };
 use crate::mkt_handler::MktEventHandler;
-use crate::portfolio::{PortfolioType, PricingResults};
+use crate::portfolio::PortfolioType;
 use crate::pricer::{
-    Decoder, MarketPricingOptions, PriceTradeAsync, PricingMetric, PricingStruct, RestPricerSpark,
+    Decoder, MarketPricingOptions, PricingMetric, PricingStruct, RestPricerSpark,
 };
 use crate::publish::PublishResults;
-use crate::ref_deref::TryFromRef;
 use crate::streaming::Streaming;
 use crate::trade::{BaseTrade, TradeReduce, TradeRep};
 use crate::trade_procs::RiskProcessors;
@@ -421,7 +419,7 @@ impl Controller {
 
         match pricing_result.await {
             Ok(pr) => (pr, new_trades),
-            Err(_) => (PortfolioType::new(), new_trades),
+            Err(_) => (PortfolioType::default(), new_trades),
         }
     }
 
@@ -431,7 +429,7 @@ impl Controller {
         &self,
         trade_receiver: &mut Receiver<TR>,
     ) -> TradeRep<TR> {
-        let mut new_trades = TradeRep::<TR>::new();
+        let mut new_trades = TradeRep::<TR>::default();
 
 	    loop {
             match trade_receiver.try_recv() {

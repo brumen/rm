@@ -14,14 +14,14 @@ use crate::trade_procs::RiskProcessors;
 pub trait CalcController {
     //type TR;
 
-    async fn start(
+    fn start(
         &self,
         pos_topic: String,     // position topic on kafka
         mkt_topic: String,     // market topic
         results_topic: String, // publish the results topic
         mkt_params: MktMsgParams,
         pricing_options: &MarketPricingOptions,
-    );
+    ) -> impl std::future::Future<Output=()> + Send;
 }
 
 impl<T> CalcController for T
@@ -29,84 +29,86 @@ where
     T: Send + Sync + RiskProcessors + MktEventHandler + PublishResults + PortfolioSender,
     <T as PortfolioSender>::TR : Sync + Decoder + std::fmt::Debug + ProcessTradeValue,
 {
-    async fn start(
+    fn start(
         &self,
         pos_topic: String,     // position topic on kafka
         mkt_topic: String,     // market topic
         results_topic: String, // publish the results topic
         mkt_params: MktMsgParams,
         pricing_options: &MarketPricingOptions,
-    ) {
-	    let buffer_size = 100;
-        // 2 trade senders, 1 for current market, 1 for new market.
-        let (pos_sender_curr, pos_recv_curr) = channel::<<T as PortfolioSender>::TR>(buffer_size);
-        let (pos_sender_new, pos_recv_new) = channel::<<T as PortfolioSender>::TR>(buffer_size);
-        // events about the new market event
-        let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>(buffer_size);
-        // new & current market portfolio
-        let (curr_portfolio_sender, curr_portfolio_recv) =
-            channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>(buffer_size);
-        let (new_portfolio_sender, new_portfolio_recv) =
-            channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>(buffer_size);
-	    // whether to resend the whole portfolio to trade_processor_new
-        let (resend_sender, resend_recv) = channel::<bool>(buffer_size);
-	    // whether the portfolio was accepted by the trade_processor_curr
-        let (accept_sender, accept_recv) = channel::<i32>(buffer_size);
-	    let (fut_mkt_ready_s, fut_mkt_ready_r) = channel::<bool>(buffer_size);
+    ) -> impl std::future::Future<Output=()> + Send {
+        async move {
+	        let buffer_size = 100;
+            // 2 trade senders, 1 for current market, 1 for new market.
+            let (pos_sender_curr, pos_recv_curr) = channel::<<T as PortfolioSender>::TR>(buffer_size);
+            let (pos_sender_new, pos_recv_new) = channel::<<T as PortfolioSender>::TR>(buffer_size);
+            // events about the new market event
+            let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>(buffer_size);
+            // new & current market portfolio
+            let (curr_portfolio_sender, curr_portfolio_recv) =
+                channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>(buffer_size);
+            let (new_portfolio_sender, new_portfolio_recv) =
+                channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>(buffer_size);
+	        // whether to resend the whole portfolio to trade_processor_new
+            let (resend_sender, resend_recv) = channel::<bool>(buffer_size);
+	        // whether the portfolio was accepted by the trade_processor_curr
+            let (accept_sender, accept_recv) = channel::<i32>(buffer_size);
+	        let (fut_mkt_ready_s, fut_mkt_ready_r) = channel::<bool>(buffer_size);
 
-        // threads fail if any of them can not be created.
-        tokio_scoped::scope(
-            |scope| {
-                //let constr_portf_f = tokio::spawn(
-                scope.spawn(
-                    self.__construct_portfolio(
-                        pos_sender_new,
-                        pos_sender_curr,
-                        resend_recv,
-                        pos_topic,
-                    )
-                );
+            // threads fail if any of them can not be created.
+            tokio_scoped::scope(
+                |scope| {
+                    //let constr_portf_f = tokio::spawn(
+                    scope.spawn(
+                        self.__construct_portfolio(
+                            pos_sender_new,
+                            pos_sender_curr,
+                            resend_recv,
+                            pos_topic,
+                        )
+                    );
 
-                scope.spawn(
-                    self._handle_mkt_events(
-	                    mkt_topic,
-	                    mkt_params,
-	                    new_mkt_sender,
-	                    fut_mkt_ready_s,
-	                )
-                );
+                    scope.spawn(
+                        self._handle_mkt_events(
+	                        mkt_topic,
+	                        mkt_params,
+	                        new_mkt_sender,
+	                        fut_mkt_ready_s,
+	                    )
+                    );
 
-                scope.spawn(
-                    self._trade_processor_new(
-                        new_mkt_receiver,
-                        pos_recv_new,
-                        new_portfolio_sender,
-                        resend_sender,
-                        accept_recv,
-	                    fut_mkt_ready_r,
-                        self.metric(),
-                        pricing_options,
-                    )
-                );
+                    scope.spawn(
+                        self._trade_processor_new(
+                            new_mkt_receiver,
+                            pos_recv_new,
+                            new_portfolio_sender,
+                            resend_sender,
+                            accept_recv,
+	                        fut_mkt_ready_r,
+                            self.metric(),
+                            pricing_options,
+                        )
+                    );
 
-                scope.spawn(
-                    self._trade_processor_curr(
-                        pos_recv_curr,
-                        curr_portfolio_sender,
-                        new_portfolio_recv,
-                        self.metric(),
-                        pricing_options,
-                        accept_sender,
-                    )
-                );
+                    scope.spawn(
+                        self._trade_processor_curr(
+                            pos_recv_curr,
+                            curr_portfolio_sender,
+                            new_portfolio_recv,
+                            self.metric(),
+                            pricing_options,
+                            accept_sender,
+                        )
+                    );
 
-                scope.spawn(
-                    self._publish_results(
-	                    curr_portfolio_recv,
-	                    results_topic,
-	                )
-                );
-            }
-        );
+                    scope.spawn(
+                        self._publish_results(
+	                        curr_portfolio_recv,
+	                        results_topic,
+	                    )
+                    );
+                }
+            );
+        }
     }
 }
