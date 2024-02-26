@@ -168,7 +168,7 @@ impl RiskProcessors for RTRMLocal {
 
     fn _price_existing_trades(
         &self,
-        all_trades: &TradeRep<Self::TR>,
+        all_trades: &TradeRep<Self::ReductionType>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
@@ -186,12 +186,12 @@ impl RiskProcessors for RTRMLocal {
     async fn _price_new_trades(
         &self,
         curr_portfolio: &mut PortfolioType,
-        trade_receiver: &mut Receiver<Self::TR>,
-        all_trades: &mut TradeRep<Self::TR>,
+        trade_receiver: &mut Receiver<Self::ReductionType>,
+        all_trades: &mut TradeRep<Self::ReductionType>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-        new_trades_sender: &Sender<(PortfolioType, TradeRep<Self::TR>)>,
+        new_trades_sender: &Sender<(PortfolioType, TradeRep<Self::ReductionType>)>,
     ) {
         while let Ok(trade) = trade_receiver.try_recv() {
             debug!("_trade_processor_curr: Received good trade {:?}", trade);

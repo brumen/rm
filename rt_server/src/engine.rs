@@ -1,5 +1,6 @@
 use tokio::sync::mpsc::channel;
-use tracing::{info};
+use tracing::{info, debug};
+use rdkafka::message::BorrowedMessage;
 
 use crate::market::MarketType;
 use crate::market::MktMsgParams;
@@ -9,12 +10,11 @@ use crate::portfolio_sender::PortfolioSender;
 use crate::pricer::{MarketPricingOptions, Decoder};
 use crate::process_trade::ProcessTradeValue;
 use crate::publish::PublishResults;
-use crate::trade::TradeRep;
+use crate::trade::{TradeRep, TradeReduce};
 use crate::trade_procs::RiskProcessors;
+use crate::ref_deref::TryFromRef;
 
-pub trait CalcController {
-    //type TR;
-
+pub trait CalcController : TradeReduce {
     fn start(
         &self,
         pos_topic: String,     // position topic on kafka
@@ -22,13 +22,15 @@ pub trait CalcController {
         results_topic: String, // publish the results topic
         mkt_params: MktMsgParams,
         pricing_options: &MarketPricingOptions,
-    ) -> impl std::future::Future<Output=()> + Send;
+    ) -> impl std::future::Future<Output=()> + Send
+    where for<'a> <Self as TradeReduce>::TradeType: TryFromRef<BorrowedMessage<'a>>,
+    <Self as TradeReduce>::ReductionType: std::fmt::Debug + ProcessTradeValue;
 }
 
 impl<T> CalcController for T
 where
     T: Send + Sync + RiskProcessors + MktEventHandler + PublishResults + PortfolioSender,
-    <T as PortfolioSender>::TR : Sync + Decoder + std::fmt::Debug + ProcessTradeValue,
+    <T as TradeReduce>::TradeType: std::fmt::Debug
 {
     fn start(
         &self,
@@ -37,19 +39,22 @@ where
         results_topic: String, // publish the results topic
         mkt_params: MktMsgParams,
         pricing_options: &MarketPricingOptions,
-    ) -> impl std::future::Future<Output=()> + Send {
+    ) -> impl std::future::Future<Output=()> + Send
+        where for<'a> <T as TradeReduce>::TradeType: TryFromRef<BorrowedMessage<'a>>,
+            <T as TradeReduce>::ReductionType: std::fmt::Debug + ProcessTradeValue
+    {
         async move {
-	        let buffer_size = 100;
+	        let buffer_size = 10000;
             // 2 trade senders, 1 for current market, 1 for new market.
-            let (pos_sender_curr, pos_recv_curr) = channel::<<T as PortfolioSender>::TR>(buffer_size);
-            let (pos_sender_new, pos_recv_new) = channel::<<T as PortfolioSender>::TR>(buffer_size);
+            let (pos_sender_curr, pos_recv_curr) = channel::<<T as TradeReduce>::ReductionType>(buffer_size);
+            let (pos_sender_new, pos_recv_new) = channel::<<T as TradeReduce>::ReductionType>(buffer_size);
             // events about the new market event
             let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>(buffer_size);
             // new & current market portfolio
             let (curr_portfolio_sender, curr_portfolio_recv) =
-                channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>(buffer_size);
+                channel::<(PortfolioType, TradeRep<<T as TradeReduce>::ReductionType>)>(buffer_size);
             let (new_portfolio_sender, new_portfolio_recv) =
-                channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>(buffer_size);
+                channel::<(PortfolioType, TradeRep<<T as TradeReduce>::ReductionType>)>(buffer_size);
 	        // whether to resend the whole portfolio to trade_processor_new
             let (resend_sender, resend_recv) = channel::<bool>(buffer_size);
 	        // whether the portfolio was accepted by the trade_processor_curr

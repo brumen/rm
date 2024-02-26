@@ -13,22 +13,107 @@ use std::future::Future;
 
 use crate::ref_deref::TryFromRef;
 use crate::streaming::Streaming;
-use crate::trade::{BaseTrade, TradeReduce, TradeRep};
+use crate::trade::{BaseTrade, TradeReduce, TradeRep, };
 
-pub trait PortfolioSender: TradeReduce {
+pub trait PortfolioSender: TradeReduce + Streaming + Sync {
     /// sends new trades from the kafka position topic
     /// to new portfolio sender and current portfolio sender.
     /// if it receives a signal to resend existing trades, it resends them
 
-    type TR: Clone + Send + BaseTrade;
+    //type TR = <Self as TradeReduce>::ReductionType;   //: Clone + Send + BaseTrade;
 
+    //#[instrument]
     fn __construct_portfolio(
         &self,
-        sender_new: Sender<Self::TR>,
-        sender_curr: Sender<Self::TR>,
+        sender_new: Sender<<Self as TradeReduce>::ReductionType>,
+        sender_curr: Sender<<Self as TradeReduce>::ReductionType>,
         resend_existing: Receiver<bool>,
         pos_topic: String,
-    ) -> impl Future<Output=()> + Send;
+    ) -> impl Future<Output = ()> + Send
+        where for<'a> <Self as TradeReduce>::TradeType: std::fmt::Debug + TryFromRef<BorrowedMessage<'a>>
+    {
+        async move {
+            let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port(),);
+            let position_listener = connect_with_retries_rd(&bootstrap_servers, &pos_topic);
+
+            let existing_trades = Arc::new(Mutex::new(TradeRep::<<Self as TradeReduce>::ReductionType>::default()));
+            let existing_trades_2 = Arc::clone(&existing_trades);
+            let sender_new_2 = sender_new.clone();
+
+            tokio_scoped::scope(
+                |scope| {
+                    scope.spawn(
+                        self._send_trade_fut(position_listener, sender_new, sender_curr, existing_trades)
+                    );
+
+                    scope.spawn(
+                        self._resend_value(resend_existing, existing_trades_2, sender_new_2)
+	                );
+	            }
+            );
+        }
+    }
+
+    fn _send_trade_fut(
+        &self,
+        position_listener: StreamConsumer,
+        sender_new: Sender<<Self as TradeReduce>::ReductionType>,
+        sender_curr: Sender<<Self as TradeReduce>::ReductionType>,
+        existing_trades: Arc<Mutex<TradeRep::<<Self as TradeReduce>::ReductionType>>>,
+    ) -> impl std::future::Future<Output=()> + Send
+        where for<'a> <Self as TradeReduce>::TradeType: std::fmt::Debug + TryFromRef<BorrowedMessage<'a>>
+    {
+        async move {
+            loop {
+                let trade = position_listener.recv().await;
+                debug!("Got trade: {:?}", trade);
+                let message = trade.unwrap();  // TODO: FIX UNWRAP
+		        match <Self as TradeReduce>::TradeType::try_from_ref(&message) {
+			        Err(e) => {
+			            warn!("Problem w/ trade: {:?}", e);
+			        }
+			        Ok(trade) => {
+			            debug!("Sending trade {:?} to CURR & NEW processor.", &trade);
+
+			            // add trades to trade_reduce
+			            let tr = self.reduce(&trade);
+			            let _ = sender_new.send(tr.clone()).await;
+			            let _ = sender_curr.send(tr.clone()).await;
+			            *existing_trades.lock().unwrap() += &tr;
+			        }
+		        }
+                position_listener.commit_message(&message, CommitMode::Async);
+		    }
+        }
+    }
+
+    /// future handling the resending of the trades.
+    ///   resend_existing: channel whether to resend.
+    fn _resend_value(
+        &self,
+        mut resend_existing: Receiver<bool>,
+        existing_trades_2: Arc<Mutex<TradeRep::<<Self as TradeReduce>::ReductionType>>>,
+        sender_new_2: Sender<<Self as TradeReduce>::ReductionType>,
+    ) -> impl std::future::Future<Output=()> + Send {
+        async move {
+		    let resend = resend_existing.recv().await;
+		    match resend {
+			    Some(resend_val) => {
+			        debug!("Got a resend value {}", resend_val);
+			        if resend_val {
+				        // fill sender_new with existing trades
+				        for (_tid, trade) in existing_trades_2.lock().unwrap().iter() {
+				            // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
+				            let _ = sender_new_2.blocking_send(trade.clone());
+				        }
+			        }
+			    },
+			    None => {
+			        debug!("Resend channel problems.");
+			    }
+		    }
+	    }
+    }
 }
 
 impl<T> PortfolioSender for T
@@ -36,75 +121,7 @@ where
     T: Streaming + TradeReduce + std::fmt::Debug + Sync,
     for<'a> <T as TradeReduce>::TradeType: TryFromRef<BorrowedMessage<'a>> + std::fmt::Debug
 {
-    type TR = <T as TradeReduce>::ReductionType;
-
-    //#[instrument]
-    fn __construct_portfolio(
-        &self,
-        sender_new: Sender<Self::TR>,
-        sender_curr: Sender<Self::TR>,
-        mut resend_existing: Receiver<bool>,
-        pos_topic: String,
-    ) -> impl Future<Output = ()> + Send {
-        async move {
-            let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port(),);
-            let position_listener = connect_with_retries_rd(&bootstrap_servers, &pos_topic);
-
-            let existing_trades = Arc::new(Mutex::new(TradeRep::<Self::TR>::default()));
-            let existing_trades_2 = Arc::clone(&existing_trades);
-            let sender_new_2 = sender_new.clone();
-
-            tokio_scoped::scope(
-                |scope| {
-                    scope.spawn(
-                        async move {
-                            loop {
-                                let trade = position_listener.recv().await;
-                                debug!("Got trade: {:?}", trade);
-                                let message = trade.unwrap();  // TODO: FIX UNWRAP
-		                        match <T as TradeReduce>::TradeType::try_from_ref(&message) {
-			                        Err(e) => {
-			                            warn!("Problem w/ trade: {:?}", e);
-			                        }
-			                        Ok(trade) => {
-			                            debug!("Sending trade {:?} to CURR & NEW processor.", &trade);
-
-			                            // add trades to trade_reduce
-			                            let tr = self.reduce(&trade);
-			                            let _ = sender_new.send(tr.clone()).await;
-			                            let _ = sender_curr.send(tr.clone()).await;
-			                            *existing_trades.lock().unwrap() += &tr;
-			                        }
-		                        }
-                                position_listener.commit_message(&message, CommitMode::Async);
-		                    }
-                        }
-                    );
-
-                    scope.spawn(
-                        async move {
-		                    let resend = resend_existing.recv().await;
-		                    match resend {
-			                    Some(resend_val) => {
-			                        debug!("Got a resend value {}", resend_val);
-			                        if resend_val {
-				                        // fill sender_new with existing trades
-				                        for (_tid, trade) in existing_trades_2.lock().unwrap().iter() {
-				                            // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
-				                            let _ = sender_new_2.blocking_send(trade.clone());
-				                        }
-			                        }
-			                    },
-			                    None => {
-			                        debug!("Resend channel problems.");
-			                    }
-		                    }
-		                }
-	                );
-	            }
-            );
-        }
-    }
+    // type TR = <T as TradeReduce>::ReductionType;
 }
 
 

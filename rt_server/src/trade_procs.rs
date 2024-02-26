@@ -7,14 +7,14 @@ use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery,};
 use crate::portfolio::{PortfolioType, PricingResults,};
 use crate::portfolio_sender::PortfolioSender;
 use crate::pricer::{MarketPricingOptions, PricingMetric, Decoder,};
-use crate::trade::{TradeRep, BaseTrade, TradeDirection,};
+use crate::trade::{TradeRep, BaseTrade, TradeDirection, TradeReduce};
 use crate::process_trade::{ProcessTradeValue, ObtainMarket, };
 
 
 /// Pricing engine for trades for remote pricing
 pub trait RiskProcessors: TradeMarketDiscovery + PortfolioSender
 where
-    <Self as PortfolioSender>::TR: Clone + BaseTrade + Decoder + Sync + std::fmt::Debug + ProcessTradeValue,
+    //<Self as PortfolioSender>::TR: Clone + BaseTrade + Decoder + Sync + std::fmt::Debug + ProcessTradeValue,
     Self: std::fmt::Debug + Sync + ObtainMarket,
 {
     /// computes the metric of the existing trades in
@@ -22,7 +22,7 @@ where
     /// and updates the current_portfolio
     fn _price_existing_trades(
         &self,
-        all_trades: &TradeRep<Self::TR>,
+        all_trades: &TradeRep<<Self as TradeReduce>::ReductionType>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
@@ -33,15 +33,15 @@ where
     fn _price_new_trades(
         &self,
         curr_portfolio: &mut PortfolioType,
-        trade_receiver: &mut Receiver<Self::TR>,
-        all_trades: &mut TradeRep<Self::TR>,
+        trade_receiver: &mut Receiver<<Self as TradeReduce>::ReductionType>,
+        all_trades: &mut TradeRep<<Self as TradeReduce>::ReductionType>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-        new_trades_sender: &Sender<(PortfolioType, TradeRep<Self::TR>)>,
+        new_trades_sender: &Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
     ) -> impl std::future::Future<Output=()> + Send;
 
-    fn _process_trade<TR: Send + Sync + Decoder + BaseTrade + ProcessTradeValue>  (
+    fn _process_trade<TR: Send + Sync  + BaseTrade + ProcessTradeValue>  ( // + Decoder
         &self,
         trade: &TR,
         metric: PricingMetric,
@@ -98,9 +98,9 @@ where
     //#[instrument]
     fn _trade_processor_curr(
         &self,
-        mut trade_receiver: Receiver<Self::TR>,
-        curr_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::TR>)>,
-        mut new_portfolio_receiver: Receiver<(PortfolioType, TradeRep<Self::TR>)>,
+        mut trade_receiver: Receiver<<Self as TradeReduce>::ReductionType>,
+        curr_portfolio_sender: Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
+        mut new_portfolio_receiver: Receiver<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
 	// sends how many trades behind the current processor the proposed
@@ -108,10 +108,12 @@ where
 	// is e.g. 3 trades behind the current processor. If < 0 it means the
 	// new processor is ahead of the current processor.
         accepted_sender: Sender<i32>,
-    ) -> impl std::future::Future<Output=()> + Send {
+    ) -> impl std::future::Future<Output=()> + Send
+        where <Self as TradeReduce>::ReductionType: std::fmt::Debug + ProcessTradeValue
+    {
         async move {
             // trades that the curr_processor is handling.
-            let all_trades = Arc::new(Mutex::new(TradeRep::<Self::TR>::default()));
+            let all_trades = Arc::new(Mutex::new(TradeRep::<<Self as TradeReduce>::ReductionType>::default()));
             let all_trades_2 = Arc::clone(&all_trades);
             let curr_portfolio = Arc::new(Mutex::new(PortfolioType::default()));
             let curr_portfolio_2 = Arc::clone(&curr_portfolio);
@@ -145,12 +147,14 @@ where
 
     fn _process_trade_curr(
         &self,
-        mut curr_trade_receiver: Receiver<Self::TR>,
+        mut curr_trade_receiver: Receiver<<Self as TradeReduce>::ReductionType>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        all_trades: Arc<Mutex<TradeRep::<Self::TR>>>,
+        all_trades: Arc<Mutex<TradeRep::<<Self as TradeReduce>::ReductionType>>>,
         curr_portfolio: Arc<Mutex<PortfolioType>>,
-    ) -> impl std::future::Future<Output=()> + Send {
+    ) -> impl std::future::Future<Output=()> + Send
+        where <Self as TradeReduce>::ReductionType: std::fmt::Debug + ProcessTradeValue
+    {
         async move {
             loop {
                 let trade_out = curr_trade_receiver.recv().await;
@@ -177,12 +181,14 @@ where
     ///    switches curr <- new portfolio.
     fn _possible_portf_switch(
         &self,
-        mut new_portfolio_receiver: Receiver<(PortfolioType, TradeRep<Self::TR>)>,
-        all_trades_2: Arc<Mutex<TradeRep::<Self::TR>>>,
+        mut new_portfolio_receiver: Receiver<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
+        all_trades_2: Arc<Mutex<TradeRep::<<Self as TradeReduce>::ReductionType>>>,
         curr_portfolio_2: Arc<Mutex<PortfolioType>>,
         accepted_sender: Sender<i32>,
-        curr_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::TR>)>,
-    ) -> impl std::future::Future<Output=()> + Send {
+        curr_portfolio_sender: Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
+    ) -> impl std::future::Future<Output=()> + Send
+       where <Self as TradeReduce>::ReductionType: std::fmt::Debug
+    {
         async move {
             loop {
                 let new_portfolio = new_portfolio_receiver.recv().await;
@@ -194,7 +200,7 @@ where
 			        Some((new_p, new_trades)) => {
 			            let all_l = all_trades_2.lock().unwrap().len();
 			            let new_l = new_trades.len();
-			            info!(
+			            debug!(
 				            "Trades from NEW processor: {}. Trades on CURR processor: {}",
 				            new_l,
                             all_l,
@@ -214,9 +220,9 @@ where
                                     TradeRep(new_trades.clone()),
                                 )).await;
 
-				            *curr_portfolio_2.lock().unwrap() = new_p;
-				            *all_trades_2.lock().unwrap() += &new_trades;
 				            self._switch_all_markets().await;  // curr <- new, new <- fut
+                            *curr_portfolio_2.lock().unwrap() = new_p;
+				            *all_trades_2.lock().unwrap() += &new_trades;
 			            } else {
 				            info!("New portfolio behind old one, not switching.");
 			            }
@@ -236,8 +242,8 @@ where
     fn _trade_processor_new(
         &self,
 	    mut new_market_receiver: Receiver<MarketType>,
-        mut new_trade_receiver: Receiver<Self::TR>, // receiving new additional trades
-        new_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::TR>)>, // results are sent here
+        mut new_trade_receiver: Receiver<<Self as TradeReduce>::ReductionType>, // receiving new additional trades
+        new_portfolio_sender: Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>, // results are sent here
         new_publisher: Sender<bool>,
         mut accepted_recv: Receiver<i32>,
 	    mut _fut_mkt_ready_recv: Receiver<bool>,
@@ -302,13 +308,13 @@ where
     /// loop untill all the trade are exhausted on the receiver
     fn _new_processor_trade_loop(
         &self,
-        new_trade_receiver: &mut Receiver<Self::TR>,
+        new_trade_receiver: &mut Receiver<<Self as TradeReduce>::ReductionType>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-    ) -> impl std::future::Future<Output=(PortfolioType, TradeRep<Self::TR>)> + Send {
+    ) -> impl std::future::Future<Output=(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)> + Send {
         async move {
             let mut portfolio = PortfolioType::default();
-            let mut all_batches = TradeRep::<Self::TR>::default();
+            let mut all_batches = TradeRep::<<Self as TradeReduce>::ReductionType>::default();
 
             let mut new_batch = self._get_trades_from_recv(new_trade_receiver).await;
 
@@ -331,10 +337,10 @@ where
 
     fn _get_trades_from_recv(
 	    &self,
-	    trade_receiver: &mut Receiver<Self::TR>,
-    ) -> impl std::future::Future<Output=TradeRep<Self::TR>> + Send {
+	    trade_receiver: &mut Receiver<<Self as TradeReduce>::ReductionType>,
+    ) -> impl std::future::Future<Output=TradeRep<<Self as TradeReduce>::ReductionType>> + Send {
         async move {
-            let mut new_trades = TradeRep::<Self::TR>::default();
+            let mut new_trades = TradeRep::<<Self as TradeReduce>::ReductionType >::default();
 
             while let Ok(trade) = trade_receiver.try_recv() {
                 new_trades += &trade;

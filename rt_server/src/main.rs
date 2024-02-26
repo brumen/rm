@@ -1,4 +1,6 @@
 // Starts the controller.
+use tracing::Level;
+
 
 mod ao_risk;
 mod ao_trade;
@@ -22,7 +24,11 @@ mod process_trade;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt().init();
+
+    let tracing_level = Level::DEBUG;
+    tracing_subscriber::fmt()
+        .with_max_level(tracing_level)
+        .init();
 
     //letf_trader::main_letf_trader().await;
     ao_risk::ao_main_risk().await;

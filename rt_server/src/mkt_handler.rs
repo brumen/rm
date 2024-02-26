@@ -37,7 +37,7 @@ pub trait MktEventHandler: Streaming
 
 	        // listens to the stream and sends messages
 	        loop {
-                info!("Waiting for market messages on {:?}, {:?}", bootstrap_servers, mkt_topic);
+                debug!("Waiting for market messages on {:?}, {:?}", bootstrap_servers, mkt_topic);
                 let borrowed_msg = mkt_listener_.recv().await.unwrap();  // TODO: HANDLE THIS PROPERLY NOT UNWRAP!!!
 	            debug!("Getting new markets from {mkt_topic}.");
 
@@ -46,13 +46,13 @@ pub trait MktEventHandler: Streaming
                 let market_obj = match optional_mkt {
                     Err(e) => {
                         warn!(
-                            "_handle_mkt_msg: Error converting to market object from json: {:?}. Ignoring this.",
+                            "Error converting to market object from json: {:?}. Ignoring this.",
                             e
                         );
                         return;
                     },
                     Ok(market_inside) => {
-                        debug!("_handle_mkt_msg: Market = {:?}", market_inside);
+                        debug!("Market = {:?}", market_inside);
                         market_inside
                     }
                 };
