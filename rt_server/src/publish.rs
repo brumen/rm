@@ -32,10 +32,10 @@ where Self: std::fmt::Debug + Sync
             let res_publisher = connect_with_retries_producer_rd(&bootstrap_servers);
 
 	        loop {
-                debug!("Looping _publish_results");
+                warn!("Looping _publish_results");
 	            let curr_portfolio = match curr_portfolio_recv.recv().await {
                     Some((curr_portfolio_actual, _)) => {
-                        debug!(
+                        warn!(
                             "_publish_results: Found actual portfolio: {:?}",
                             curr_portfolio_actual
                         );
@@ -61,7 +61,7 @@ where Self: std::fmt::Debug + Sync
 		            timestamp: None,
 		            headers: None,
 	            };
-                debug!("Publishing results: {:?}", market_record2);
+                warn!("Publishing results: {:?}", market_record2);
                 let _ = res_publisher.send(market_record2, Timeout::Never).await;
             }
         }

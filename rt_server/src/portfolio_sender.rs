@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex,};
-use tracing::{debug, info, warn, instrument};
+use tracing::{debug, info, warn, instrument, error};
 use rdkafka::consumer::{Consumer, CommitMode};
 use tokio::sync::mpsc::{Sender, Receiver};
 use std::thread::sleep;
@@ -82,7 +82,14 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
 			            *existing_trades.lock().unwrap() += &tr;
 			        }
 		        }
-                position_listener.commit_message(&message, CommitMode::Async);
+                match position_listener.commit_message(&message, CommitMode::Async) {
+                    Ok(_) => {
+                        debug!("Successful commit of message!");
+                    },
+                    Err(e) => {
+                        error!("Something wrong with {:?}: {:?}", message, e);
+                    },
+                }
 		    }
         }
     }
@@ -102,9 +109,9 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
 			        debug!("Got a resend value {}", resend_val);
 			        if resend_val {
 				        // fill sender_new with existing trades
-				        for (_tid, trade) in existing_trades_2.lock().unwrap().iter() {
-				            // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
-				            let _ = sender_new_2.blocking_send(trade.clone());
+                        let curr_trades = existing_trades_2.lock().unwrap().clone();
+				        for (_tid, trade) in curr_trades.iter() {
+				            let _ = sender_new_2.send(trade.clone()).await;
 				        }
 			        }
 			    },

@@ -51,7 +51,7 @@ where
             // events about the new market event
             let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>(buffer_size);
             // new & current market portfolio
-            let (curr_portfolio_sender, curr_portfolio_recv) =
+            let (mut curr_portfolio_sender, curr_portfolio_recv) =
                 channel::<(PortfolioType, TradeRep<<T as TradeReduce>::ReductionType>)>(buffer_size);
             let (new_portfolio_sender, new_portfolio_recv) =
                 channel::<(PortfolioType, TradeRep<<T as TradeReduce>::ReductionType>)>(buffer_size);
@@ -102,7 +102,7 @@ where
                     scope.spawn(
                         self._trade_processor_curr(
                             pos_recv_curr,
-                            curr_portfolio_sender,
+                            &mut curr_portfolio_sender,
                             new_portfolio_recv,
                             self.metric(),
                             pricing_options,

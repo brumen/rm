@@ -1,6 +1,6 @@
 // Trade processor interaction between current and new market.
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{info, debug, instrument};
+use tracing::{info, debug, instrument, warn};
 use std::sync::{Arc, Mutex,};
 
 use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery,};
@@ -99,7 +99,7 @@ where
     fn _trade_processor_curr(
         &self,
         mut trade_receiver: Receiver<<Self as TradeReduce>::ReductionType>,
-        curr_portfolio_sender: Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
+        curr_portfolio_sender: &mut Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
         mut new_portfolio_receiver: Receiver<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
@@ -165,6 +165,7 @@ where
                         let valued_trade = self
 				            ._process_trade(&trade, metric, pricing_options, CurrNewMarket::Current)
 				            .await;
+                        debug!("CURR processor: Trade value: {:?}", valued_trade);
                         *all_trades.lock().unwrap() += &trade;
 			            *curr_portfolio.lock().unwrap() += valued_trade;
                         //			    let new_p_attempt =  new_trades_sender.send(
@@ -185,14 +186,14 @@ where
         all_trades_2: Arc<Mutex<TradeRep::<<Self as TradeReduce>::ReductionType>>>,
         curr_portfolio_2: Arc<Mutex<PortfolioType>>,
         accepted_sender: Sender<i32>,
-        curr_portfolio_sender: Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
+        curr_portfolio_sender: &mut Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
     ) -> impl std::future::Future<Output=()> + Send
        where <Self as TradeReduce>::ReductionType: std::fmt::Debug
     {
         async move {
             loop {
                 let new_portfolio = new_portfolio_receiver.recv().await;
-                debug!("CURR processor: Received new portfolio: {:?}.", new_portfolio);
+                warn!("CURR processor: Received new portfolio: {:?}.", new_portfolio);
                 match new_portfolio {
 			        None => {
 			            todo!()
@@ -200,7 +201,7 @@ where
 			        Some((new_p, new_trades)) => {
 			            let all_l = all_trades_2.lock().unwrap().len();
 			            let new_l = new_trades.len();
-			            debug!(
+			            warn!(
 				            "Trades from NEW processor: {}. Trades on CURR processor: {}",
 				            new_l,
                             all_l,
@@ -251,7 +252,6 @@ where
         pricing_options: &MarketPricingOptions,
     ) -> impl std::future::Future<Output=()> + Send {
         async move {
-            let nb_attempts = 100; // try 5 times before aborting and starting on a new market
 
             info!("Starting NEW trade processor.");
 	        while let Some(_new_mkt) = new_market_receiver.recv().await {
@@ -274,35 +274,35 @@ where
                     .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
                     .await;
 
-	            //let ma: Vec<_> = vec![];  // moving average, how far behind are we in this market
-                let mut curr_attempt = 0;
-                info!("FUTURE MKT READY: {:?}", _fut_mkt_ready_recv.try_recv());
-                while (curr_attempt < nb_attempts) & !self._future_mkt_ready() {
-                    if let Ok(accepted_real) = accepted_recv.try_recv() {
-                        if accepted_real <= 0 {
-                            info!("New portfolio accepted.");
-                            let _ = new_publisher.send(true).await;
-                            break;
-                        } else {
-                            // attempt with the newest batch
-                            info!("New portfolio NOT accepted. Retrying w/ additional trades.");
-                            let (new_portfolio_inner, all_batches_inner) = self
-                                ._new_processor_trade_loop(
-                                    &mut new_trade_receiver,
-                                    metric,
-                                    pricing_options,
-                                ).await;
-                            new_portfolio += new_portfolio_inner;
-                            all_batches += &all_batches_inner;
-                            let _ = new_portfolio_sender
-                                .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
-                                .await;
-                        }
+	            // let ma: Vec<_> = vec![];  // moving average, how far behind are we in this market
+                // let mut curr_attempt = 0;
+                // let nb_attempts = 100; // try 5 times before aborting and starting on a new market
+                // info!("FUTURE MKT READY: {:?}", _fut_mkt_ready_recv.try_recv());
+                // while (curr_attempt < nb_attempts) & !self._future_mkt_ready() {
+                if let Ok(accepted_real) = accepted_recv.try_recv() {
+                    if accepted_real <= 0 {
+                        info!("New portfolio accepted.");
+                        let _ = new_publisher.send(true).await;
+                        break;
+                    } else {
+                        // attempt with the newest batch
+                        info!("New portfolio NOT accepted. Retrying w/ additional trades.");
+                        let (new_portfolio_inner, all_batches_inner) = self
+                            ._new_processor_trade_loop(
+                                &mut new_trade_receiver,
+                                metric,
+                                pricing_options,
+                            ).await;
+                        new_portfolio += new_portfolio_inner;
+                        all_batches += &all_batches_inner;
+                        let _ = new_portfolio_sender
+                            .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
+                            .await;
                     }
-                    curr_attempt += 1;
                 }
-	        }
-        }
+                //curr_attempt += 1;
+            }
+	    }
     }
 
     /// loop untill all the trade are exhausted on the receiver
