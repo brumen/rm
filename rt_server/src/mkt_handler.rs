@@ -1,5 +1,6 @@
+use rdkafka::consumer::{Consumer, CommitMode};
 use tokio::sync::mpsc::Sender;
-use tracing::{info, instrument, warn, debug};
+use tracing::{info, instrument, warn, debug, trace, error,};
 
 use crate::market::{MarketType, MktMsgParams};
 use crate::portfolio_sender::connect_with_retries_rd;
@@ -21,7 +22,7 @@ pub trait MktEventHandler: Streaming
     /// mkt_topic - receiving market events from this topic
     /// new_mkt_sender - sending the new market to the pricing api
     /// switch_mkt_recv - receiver receiving the event when to switch markets.
-    //#[instrument]
+    #[instrument]
     fn _handle_mkt_events(
         &self,
         mkt_topic: String,
@@ -36,15 +37,16 @@ pub trait MktEventHandler: Streaming
 
 	        // listens to the stream and sends messages
 	        loop {
-	            let borrowed_msg = mkt_listener_.recv().await.unwrap();  // TODO: HANDLE THIS PROPERLY NOT UNWRAP!!!
-	            info!("Getting new markets from {mkt_topic}.");
+                info!("Waiting for market messages on {:?}, {:?}", bootstrap_servers, mkt_topic);
+                let borrowed_msg = mkt_listener_.recv().await.unwrap();  // TODO: HANDLE THIS PROPERLY NOT UNWRAP!!!
+	            debug!("Getting new markets from {mkt_topic}.");
 
                 let optional_mkt = MarketType::try_from_ref(&borrowed_msg);
 
                 let market_obj = match optional_mkt {
                     Err(e) => {
                         warn!(
-                            "_handle_mkt_msg: Error converting to market object from json: {:?}",
+                            "_handle_mkt_msg: Error converting to market object from json: {:?}. Ignoring this.",
                             e
                         );
                         return;
@@ -59,6 +61,10 @@ pub trait MktEventHandler: Streaming
 
 	            if let Err(e) = fut_mkt_ready_s.send(true).await {
                     warn!("Could not send a message that future market is ready: {:?}", e);
+                }
+                match mkt_listener_.commit_message(&borrowed_msg, CommitMode::Async) {
+                    Ok(_) => {info!("Successful commit of market message");},
+                    Err(_) => {error!("Message could not be committed");},
                 }
 	        }
         }

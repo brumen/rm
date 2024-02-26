@@ -1,6 +1,7 @@
 // Trade processor interaction between current and new market.
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{info, debug, instrument};
+use std::sync::{Arc, Mutex,};
 
 use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery,};
 use crate::portfolio::{PortfolioType, PricingResults,};
@@ -109,80 +110,120 @@ where
         accepted_sender: Sender<i32>,
     ) -> impl std::future::Future<Output=()> + Send {
         async move {
-	// TODO: REMOVE THIS NEXT LINE
-        // let mut new_potential_portfolio: Option<(PortfolioType, TradeRep<Self::TR>)>;
-        let mut all_trades = TradeRep::<Self::TR>::default();
-        // let curr_portfolio = Arc::new(Mutex::new(PortfolioType::new()));
+            // trades that the curr_processor is handling.
+            let all_trades = Arc::new(Mutex::new(TradeRep::<Self::TR>::default()));
+            let all_trades_2 = Arc::clone(&all_trades);
+            let curr_portfolio = Arc::new(Mutex::new(PortfolioType::default()));
+            let curr_portfolio_2 = Arc::clone(&curr_portfolio);
 
-        info!("Pricing existing trades on CURRENT market.");
-        let mut curr_portfolio = self._price_existing_trades(
-            &all_trades,
-            metric,
-            pricing_options,
-            CurrNewMarket::Current,
-        ).await;
+            tokio_scoped::scope(
+                |scope| {
+                    scope.spawn(
+                        self._process_trade_curr(
+                            trade_receiver,
+                            metric,
+                            pricing_options,
+                            all_trades,
+                            curr_portfolio,
+                        )
+                    );
 
-        info!(
-            "Curr nb trades: {}.",
-            all_trades.len(),
-        );
-
-	    loop {
-            debug!("CURRENT market, inner loop. Waiting for new traes or new portfolio");
-	        tokio::select! {
-		        trade_out = trade_receiver.recv() => {
-		            match trade_out {
-			            None => { todo!() },
-			            Some(trade) => {
-                            debug!("CURR processor: Processing trade {:?}.", trade);
-                            all_trades += &trade;
-			                curr_portfolio += self
-				                ._process_trade(&trade, metric, pricing_options, CurrNewMarket::Current)
-				                .await;
-
-                            //			    let new_p_attempt =  new_trades_sender.send(
-                            //				(curr_portfolio.clone(), TradeRep(all_trades.clone()))
-                            //			    ).await;
-			            },
-		            }
-		        },
-		        new_portfolio = new_portfolio_receiver.recv() => {
-                    info!("CURR processor: Received new portfolio: {:?}.", new_portfolio);
-                    match new_portfolio {
-			            None => {
-			                todo!()
-			            },
-			            Some((new_p, new_trades)) => {
-
-			                let all_l = all_trades.len();
-			                let new_l = new_trades.len();
-			                info!(
-				                "New trades sent: {}. Curr trades: {}",
-				                new_l, all_l
-			                );
-
-                            let behind = (all_l - new_l) as i32;  // how far behind is the
-			                let _ = accepted_sender.send(behind).await;
-			                if new_l >= all_l {
-				                // new processor is further ahead
-				                info!(
-				                    "Switching curr_p <- new_p: Nb trades = {}",
-				                    new_trades.len()
-				                );
-				                curr_portfolio = new_p;
-				                all_trades += &new_trades;
-				                self._switch_all_markets().await;  // curr <- new, new <- fut
-				                let _ = curr_portfolio_sender
-				                    .send((curr_portfolio.clone(), TradeRep(all_trades.clone()))).await;
-			                } else {
-				                info!("New portfolio behind old one, not switching.");
-			                }
-			            },
-		            }
-		        },
-	        }
-	    }
+                    scope.spawn(
+                        self._possible_portf_switch(
+                            new_portfolio_receiver,
+                            all_trades_2,
+                            curr_portfolio_2,
+                            accepted_sender,
+                            curr_portfolio_sender,
+                        )
+                    );
+	            }
+            )
         }
+    }
+
+
+    fn _process_trade_curr(
+        &self,
+        mut curr_trade_receiver: Receiver<Self::TR>,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        all_trades: Arc<Mutex<TradeRep::<Self::TR>>>,
+        curr_portfolio: Arc<Mutex<PortfolioType>>,
+    ) -> impl std::future::Future<Output=()> + Send {
+        async move {
+            loop {
+                let trade_out = curr_trade_receiver.recv().await;
+		        match trade_out {
+			        None => { todo!() },
+			        Some(trade) => {
+                        debug!("CURR processor: Processing trade {:?}.", trade);
+                        let valued_trade = self
+				            ._process_trade(&trade, metric, pricing_options, CurrNewMarket::Current)
+				            .await;
+                        *all_trades.lock().unwrap() += &trade;
+			            *curr_portfolio.lock().unwrap() += valued_trade;
+                        //			    let new_p_attempt =  new_trades_sender.send(
+                        //				(curr_portfolio.clone(), TradeRep(all_trades.clone()))
+                        //			    ).await;
+			        },
+		        }
+            }
+        }
+    }
+
+    /// future that listens to new_portfolio_receiver,
+    ///    and if it receives relevant portfolio,
+    ///    switches curr <- new portfolio.
+    fn _possible_portf_switch(
+        &self,
+        mut new_portfolio_receiver: Receiver<(PortfolioType, TradeRep<Self::TR>)>,
+        all_trades_2: Arc<Mutex<TradeRep::<Self::TR>>>,
+        curr_portfolio_2: Arc<Mutex<PortfolioType>>,
+        accepted_sender: Sender<i32>,
+        curr_portfolio_sender: Sender<(PortfolioType, TradeRep<Self::TR>)>,
+    ) -> impl std::future::Future<Output=()> + Send {
+        async move {
+            loop {
+                let new_portfolio = new_portfolio_receiver.recv().await;
+                debug!("CURR processor: Received new portfolio: {:?}.", new_portfolio);
+                match new_portfolio {
+			        None => {
+			            todo!()
+			        },
+			        Some((new_p, new_trades)) => {
+			            let all_l = all_trades_2.lock().unwrap().len();
+			            let new_l = new_trades.len();
+			            info!(
+				            "Trades from NEW processor: {}. Trades on CURR processor: {}",
+				            new_l,
+                            all_l,
+			            );
+
+                        let behind = (all_l - new_l) as i32;  // how far behind is the
+			            let _ = accepted_sender.send(behind).await;
+			            if new_l >= all_l {
+				            // new processor is further ahead
+				            info!(
+				                "Switching curr_p <- new_p: Nb trades = {}",
+				                new_trades.len()
+				            );
+				            let _ = curr_portfolio_sender
+				                .send((
+                                    new_p.clone(),
+                                    TradeRep(new_trades.clone()),
+                                )).await;
+
+				            *curr_portfolio_2.lock().unwrap() = new_p;
+				            *all_trades_2.lock().unwrap() += &new_trades;
+				            self._switch_all_markets().await;  // curr <- new, new <- fut
+			            } else {
+				            info!("New portfolio behind old one, not switching.");
+			            }
+			        },
+		        }
+		    }
+	    }
     }
 
     /// processes the trades on the new market.

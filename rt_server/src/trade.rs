@@ -122,7 +122,7 @@ impl LETFTrade {
 
         if stock_value.is_none() {
             warn!(
-                "hedge: Could not find {:?} in the market. NOT HEDGING {:?}",
+                "hedge: Could not find {:?} in the market. Leaving unhedged: {:?}",
                 stock_name,
                 self,
             );

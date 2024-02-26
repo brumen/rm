@@ -24,6 +24,6 @@ mod process_trade;
 async fn main() {
     tracing_subscriber::fmt().init();
 
-    letf_trader::main_letf_trader().await;
-    // ao_risk::ao_main_risk().await;
+    //letf_trader::main_letf_trader().await;
+    ao_risk::ao_main_risk().await;
 }

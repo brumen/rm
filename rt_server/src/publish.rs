@@ -5,7 +5,7 @@ use rdkafka::util::Timeout;
 use tokio::sync::mpsc::Receiver;
 use std::thread::sleep;
 use std::time::Duration;
-use tracing::{debug, warn, info,};
+use tracing::{debug, warn, info, error,};
 use std::cmp::min;
 use tracing::instrument;
 
@@ -42,7 +42,7 @@ where Self: std::fmt::Debug + Sync
                         curr_portfolio_actual
                     }
                     None => {
-                        warn!("Channel curr_portfolio_recv has been dropped. Investigate!");
+                        error!("Channel curr_portfolio_recv has been dropped. Investigate!");
                         panic!();
                     }
                 };
@@ -61,7 +61,8 @@ where Self: std::fmt::Debug + Sync
 		            timestamp: None,
 		            headers: None,
 	            };
-                let _ = res_publisher.send(market_record2, Timeout::Never).await;  // TODO: THIS SHOULD BE CHECKED NEver
+                debug!("Publishing results: {:?}", market_record2);
+                let _ = res_publisher.send(market_record2, Timeout::Never).await;
             }
         }
     }
@@ -72,7 +73,7 @@ where Self: std::fmt::Debug + Sync
 /// to try to establish connection.
 pub fn connect_with_retries_producer_rd(bootstrap_servers: &str) -> rdkafka::producer::FutureProducer {
 
-    let mut current_sleep_time = 1;
+    let mut current_sleep_time = 1;  // original sleep time in seconds.
 
     let mut result_producer_config = ClientConfig::new();
     result_producer_config.set("bootstrap.servers", bootstrap_servers);

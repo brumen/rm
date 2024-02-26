@@ -81,7 +81,7 @@ impl MktEventHandler for Controller {
         new_mkt_sender: Sender<MarketType>,
         _mkt_params: MktMsgParams,
     ) {
-	    **(self._future_mkt().lock().expect("Could not lock _future_mkt")) = market_obj.clone();
+	    **(self._future_mkt().lock().expect("Could not lock self.future_mkt")) = market_obj.clone();
         if let Err(e) = new_mkt_sender.send(market_obj).await {
             warn!("Could not send a message to the new market: {:?}", e);
         }
@@ -178,17 +178,20 @@ impl MarketSwitching for Controller {
     }
 
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
-        self.curr_mkt.clone()  // TODO: CAN IT GO WITHOUT CLONING???
+        self.curr_mkt.clone()
     }
 
     fn _new_mkt(&self) -> Arc<Mutex<MarketType>> {
-        self.new_mkt.clone()  // TODO: CLONING???
+        self.new_mkt.clone()
     }
 
     fn _future_mkt(&self) -> Arc<Mutex<MarketType>> {
-	    self.future_mkt.clone()  // TODO: CLONING???
+	    self.future_mkt.clone()
     }
 
+    /// whether the future market is "ready", i.e.
+    /// was there anything new added to the market to
+    /// be different from new_mkt
     fn _future_mkt_ready(&self) -> bool {
 
 	    let fut_mkt_ready = *self.new_mkt.lock().unwrap() != *self.future_mkt.lock().unwrap();

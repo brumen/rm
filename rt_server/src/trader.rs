@@ -1,4 +1,5 @@
-use tracing::{debug, warn};
+use rdkafka::consumer::{Consumer, CommitMode};
+use tracing::{debug, warn, error};
 use serde::{Deserialize, Serialize};
 
 use kafka::producer::Record;
@@ -66,7 +67,7 @@ impl LETFTrader {
         let mut hedge_book = connect_with_retries_producer(&bootstrap_servers);
 
         loop {
-            let m = pos_listener_.recv().await.unwrap();
+            let m = pos_listener_.recv().await.unwrap();  // position to be handled.
             let trade_result = TradeTypes::try_from_ref(&m);
 
             let trade = match trade_result {
@@ -97,6 +98,10 @@ impl LETFTrader {
             let trade_itself_record =
                 Record::from_value(&hedge_topic, trade_itself.as_bytes()).with_partition(0);
             let _ = hedge_book.send(&trade_itself_record); // Trade itself is sent to the book.
+
+            if let Err(commit_error) = pos_listener_.commit_message(&m, CommitMode::Async) {
+                error!("Could not commit to position listener on {:?}", hedge_topic);
+            }
         }
     }
 

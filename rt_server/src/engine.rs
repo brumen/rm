@@ -1,4 +1,5 @@
 use tokio::sync::mpsc::channel;
+use tracing::{info};
 
 use crate::market::MarketType;
 use crate::market::MktMsgParams;
@@ -58,7 +59,7 @@ where
             // threads fail if any of them can not be created.
             tokio_scoped::scope(
                 |scope| {
-                    //let constr_portf_f = tokio::spawn(
+                    info!("Spawning __construct_portfolio");
                     scope.spawn(
                         self.__construct_portfolio(
                             pos_sender_new,
@@ -68,6 +69,7 @@ where
                         )
                     );
 
+                    info!("Spawning _handle_mkt_events");
                     scope.spawn(
                         self._handle_mkt_events(
 	                        mkt_topic,
@@ -77,6 +79,7 @@ where
 	                    )
                     );
 
+                    info!("Spawning _trade_processor_new.");
                     scope.spawn(
                         self._trade_processor_new(
                             new_mkt_receiver,
@@ -90,6 +93,7 @@ where
                         )
                     );
 
+                    info!("Spawning _trade_processor_curr");
                     scope.spawn(
                         self._trade_processor_curr(
                             pos_recv_curr,
@@ -101,6 +105,7 @@ where
                         )
                     );
 
+                    info!("Spawning _publish_results");
                     scope.spawn(
                         self._publish_results(
 	                        curr_portfolio_recv,

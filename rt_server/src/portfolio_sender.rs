@@ -1,5 +1,6 @@
+use std::sync::{Arc, Mutex,};
 use tracing::{debug, info, warn, instrument};
-use rdkafka::consumer::Consumer;
+use rdkafka::consumer::{Consumer, CommitMode};
 use tokio::sync::mpsc::{Sender, Receiver};
 use std::thread::sleep;
 use std::time::Duration;
@@ -49,49 +50,59 @@ where
             let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port(),);
             let position_listener = connect_with_retries_rd(&bootstrap_servers, &pos_topic);
 
-            let mut existing_trades = TradeRep::<Self::TR>::default();
+            let existing_trades = Arc::new(Mutex::new(TradeRep::<Self::TR>::default()));
+            let existing_trades_2 = Arc::clone(&existing_trades);
+            let sender_new_2 = sender_new.clone();
 
-	        loop {
-                debug!("LOOPING POSITION LISTENER");
-	            tokio::select! {
-                    trade = position_listener.recv() => {
-                        debug!("Got trade: {:?}", trade);
-		                match <T as TradeReduce>::TradeType::try_from_ref(&trade.unwrap()) {  // TODO: FIX THIS UNWRAP
-			                Err(e) => {
-			                    warn!("Problem w/ trade: {:?}", e);
-			                }
-			                Ok(trade) => {
-			                    debug!("Sending trade {:?} to CURR & NEW processor.", &trade);
+            tokio_scoped::scope(
+                |scope| {
+                    scope.spawn(
+                        async move {
+                            loop {
+                                let trade = position_listener.recv().await;
+                                debug!("Got trade: {:?}", trade);
+                                let message = trade.unwrap();  // TODO: FIX UNWRAP
+		                        match <T as TradeReduce>::TradeType::try_from_ref(&message) {
+			                        Err(e) => {
+			                            warn!("Problem w/ trade: {:?}", e);
+			                        }
+			                        Ok(trade) => {
+			                            debug!("Sending trade {:?} to CURR & NEW processor.", &trade);
 
-			                    // add trades to trade_reduce
-			                    let tr = self.reduce(&trade);
-			                    let _ = sender_new.send(tr.clone()).await;
-			                    let _ = sender_curr.send(tr.clone()).await;
-			                    existing_trades += &tr;
-			                }
-		                }
-		            },
+			                            // add trades to trade_reduce
+			                            let tr = self.reduce(&trade);
+			                            let _ = sender_new.send(tr.clone()).await;
+			                            let _ = sender_curr.send(tr.clone()).await;
+			                            *existing_trades.lock().unwrap() += &tr;
+			                        }
+		                        }
+                                position_listener.commit_message(&message, CommitMode::Async);
+		                    }
+                        }
+                    );
 
-		            resend = resend_existing.recv() => {
-                        info!("Resending all ({:?}) trades to NEW processor.", existing_trades.len());
-		                match resend {
-			                Some(resend_val) => {
-			                    info!("Got a resend value {}", resend_val);
-			                    if resend_val {
-				                    // fill sender_new with existing trades
-				                    for (_tid, trade) in existing_trades.iter() {
-				                        // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
-				                        let _ = sender_new.send(trade.clone()).await;
-				                    }
+                    scope.spawn(
+                        async move {
+		                    let resend = resend_existing.recv().await;
+		                    match resend {
+			                    Some(resend_val) => {
+			                        debug!("Got a resend value {}", resend_val);
+			                        if resend_val {
+				                        // fill sender_new with existing trades
+				                        for (_tid, trade) in existing_trades_2.lock().unwrap().iter() {
+				                            // TODO: THIS IS SHITTY - TRY TO IMPLEMENT THIS WITHOUT CLONING
+				                            let _ = sender_new_2.blocking_send(trade.clone());
+				                        }
+			                        }
+			                    },
+			                    None => {
+			                        debug!("Resend channel problems.");
 			                    }
-			                },
-			                None => {
-			                    debug!("Resend channel problems.");
-			                }
+		                    }
 		                }
-		            },
+	                );
 	            }
-	        }
+            );
         }
     }
 }
