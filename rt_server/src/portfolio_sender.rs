@@ -103,23 +103,25 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
         sender_new_2: Sender<<Self as TradeReduce>::ReductionType>,
     ) -> impl std::future::Future<Output=()> + Send {
         async move {
-		    let resend = resend_existing.recv().await;
-		    match resend {
-			    Some(resend_val) => {
-			        debug!("Got a resend value {}", resend_val);
-			        if resend_val {
-				        // fill sender_new with existing trades
-                        let curr_trades = existing_trades_2.lock().unwrap().clone();
-				        for (_tid, trade) in curr_trades.iter() {
-				            let _ = sender_new_2.send(trade.clone()).await;
-				        }
+            loop {
+                let resend = resend_existing.recv().await;
+		        match resend {
+			        Some(resend_val) => {
+			            info!("Got a resend value {}", resend_val);
+			            if resend_val {
+				            // fill sender_new with existing trades
+                            let curr_trades = existing_trades_2.lock().unwrap().clone();
+				            for (_tid, trade) in curr_trades.iter() {
+				                let _ = sender_new_2.send(trade.clone()).await;
+				            }
+			            }
+			        },
+			        None => {
+			            error!("Resend channel problems. This should NOT happen.");
 			        }
-			    },
-			    None => {
-			        debug!("Resend channel problems.");
-			    }
-		    }
-	    }
+		        }
+	        }
+        }
     }
 }
 

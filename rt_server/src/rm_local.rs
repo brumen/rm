@@ -137,7 +137,7 @@ impl MktEventHandler for RTRMLocal {
         _mkt_params: MktMsgParams,
     ) {
         *self
-            ._curr_mkt()
+            ._future_mkt()
             .lock()
             .expect("_handle_mkt_msg: Could not lock curr_mkt") += &market_obj;
 

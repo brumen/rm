@@ -25,7 +25,7 @@ mod process_trade;
 #[tokio::main]
 async fn main() {
 
-    let tracing_level = Level::WARN;
+    let tracing_level = Level::INFO;
     tracing_subscriber::fmt()
         .with_max_level(tracing_level)
         .init();

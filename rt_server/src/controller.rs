@@ -81,7 +81,7 @@ impl MktEventHandler for Controller {
         new_mkt_sender: Sender<MarketType>,
         _mkt_params: MktMsgParams,
     ) {
-	    **(self._future_mkt().lock().expect("Could not lock self.future_mkt")) = market_obj.clone();
+	    **(self._future_mkt().lock().expect("Could not lock self.future_mkt")) = market_obj.clone();  // TODO: IS THIS CLONE NECESSARY???
         if let Err(e) = new_mkt_sender.send(market_obj).await {
             warn!("Could not send a message to the new market: {:?}", e);
         }
