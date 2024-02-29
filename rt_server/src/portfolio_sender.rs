@@ -14,6 +14,7 @@ use std::future::Future;
 use crate::ref_deref::TryFromRef;
 use crate::streaming::Streaming;
 use crate::trade::{BaseTrade, TradeReduce, TradeRep, };
+use uuid::Uuid;
 
 pub trait PortfolioSender: TradeReduce + Streaming + Sync {
     /// sends new trades from the kafka position topic
@@ -66,7 +67,7 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
         async move {
             loop {
                 let trade = position_listener.recv().await;
-                debug!("Got trade: {:?}", trade);
+                info!("Got trade: {:?}", trade);
                 let message = trade.unwrap();  // TODO: FIX UNWRAP
 		        match <Self as TradeReduce>::TradeType::try_from_ref(&message) {
 			        Err(e) => {
@@ -129,9 +130,7 @@ impl<T> PortfolioSender for T
 where
     T: Streaming + TradeReduce + std::fmt::Debug + Sync,
     for<'a> <T as TradeReduce>::TradeType: TryFromRef<BorrowedMessage<'a>> + std::fmt::Debug
-{
-    // type TR = <T as TradeReduce>::ReductionType;
-}
+{ }
 
 
 /// attempts to connect the RDKafka consumer to Kafka
@@ -142,7 +141,7 @@ pub fn connect_with_retries_rd(bootstrap_servers: &str, pos_topic: &str) -> Stre
 
     let mut pos_consumer_config = ClientConfig::new();
     pos_consumer_config.set("bootstrap.servers", bootstrap_servers);
-    pos_consumer_config.set("group.id", "pos_listener");
+    pos_consumer_config.set("group.id", Uuid::new_v4().to_string());
 
     info!(
         "Attempting to connect to {:?} on topic {:?}",
@@ -201,11 +200,11 @@ pub fn connect_with_retries(
             Err(e) => {
                 warn!(
                     "listener is not connected, waiting {:?} secs: {:?}",
-		    current_sleep_time,
+		            current_sleep_time,
                     e
                 );
                 sleep(Duration::new(current_sleep_time, 0));
-		current_sleep_time += min(current_sleep_time+1, 5);
+		        current_sleep_time += min(current_sleep_time+1, 5);
             }
         };
     }

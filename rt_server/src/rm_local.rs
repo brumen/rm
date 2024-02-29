@@ -23,6 +23,7 @@ use crate::streaming::Streaming;
 use crate::trade::{BaseTrade, TradeReduce, TradeRep, TradeTypes};
 use crate::trade_procs::RiskProcessors;
 use crate::process_trade::ObtainMarket;
+use crate::trader::LETFHedger;
 
 /// RTRM - Real time risk manager using local
 ///    local market and local pricing.
@@ -141,6 +142,8 @@ impl MktEventHandler for RTRMLocal {
             .lock()
             .expect("_handle_mkt_msg: Could not lock curr_mkt") += &market_obj;
 
+        info!("MARKET: {:?}", market_obj);
+
         if let Err(e) = new_mkt_sender.send(market_obj).await {
             warn!("Could not send a message about new market: {:?}", e);
         }
@@ -154,8 +157,14 @@ impl ObtainMarket for RTRMLocal {
     ) -> crate::market::MarketGeneral {
         match curr_new_mkt {
             // TODO: FIX THESE CLONING HERE
-            CurrNewMarket::Current => MarketGeneral::MarketLocal(MarketType(self.curr_market.lock().unwrap().clone())),
-            CurrNewMarket::New => MarketGeneral::MarketLocal(MarketType(self.new_market.lock().unwrap().clone())),
+            CurrNewMarket::Current =>
+                MarketGeneral::MarketLocal(
+                    MarketType(self.curr_market.lock().unwrap().clone())
+                ),
+            CurrNewMarket::New =>
+                MarketGeneral::MarketLocal(
+                    MarketType(self.new_market.lock().unwrap().clone())
+                ),
         }
     }
 }
@@ -163,7 +172,6 @@ impl ObtainMarket for RTRMLocal {
 
 impl TradeMarketDiscovery for RTRMLocal { }
 
-// TODO: THIS IS PROBABLY WRONG!!!
 impl RiskProcessors for RTRMLocal {
 
     fn _price_existing_trades(
@@ -205,8 +213,9 @@ impl RiskProcessors for RTRMLocal {
                 *curr_portfolio +=
                     self._process_trade(&trade, metric, pricing_options, curr_new_mkt).await;
 
-                let _ =
-                    new_trades_sender.send((curr_portfolio.clone(), TradeRep(all_trades.clone())));
+                let _ = new_trades_sender.send(
+                    (curr_portfolio.clone(), TradeRep(all_trades.clone()))
+                ).await;
             }
         }
     }
@@ -226,3 +235,7 @@ impl TradeReduce for RTRMLocal {
         (*trade).clone()
     }
 }
+
+
+/// default implementation
+impl LETFHedger for RTRMLocal { }

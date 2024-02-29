@@ -108,7 +108,7 @@ impl MarketSwitching for Controller {
 
 	    let market_post = client
             .post(format!("http://{0}/market", self.trade_pricer))
-            .json(&HashMap::from([("market", &*self.curr_mkt.lock().unwrap())]))
+            .json(&HashMap::from([("market", &*self.curr_mkt.lock().unwrap())]))  // It's fine if this panics.
             .send();
 
 	    let new_market_post = client

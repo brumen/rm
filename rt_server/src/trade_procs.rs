@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex,};
 use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery,};
 use crate::portfolio::{PortfolioType, PricingResults,};
 use crate::portfolio_sender::PortfolioSender;
-use crate::pricer::{MarketPricingOptions, PricingMetric, Decoder,};
+use crate::pricer::{MarketPricingOptions, PricingMetric,};
 use crate::trade::{TradeRep, BaseTrade, TradeDirection, TradeReduce};
 use crate::process_trade::{ProcessTradeValue, ObtainMarket, };
 
@@ -14,7 +14,6 @@ use crate::process_trade::{ProcessTradeValue, ObtainMarket, };
 /// Pricing engine for trades for remote pricing
 pub trait RiskProcessors: TradeMarketDiscovery + PortfolioSender
 where
-    //<Self as PortfolioSender>::TR: Clone + BaseTrade + Decoder + Sync + std::fmt::Debug + ProcessTradeValue,
     Self: std::fmt::Debug + Sync + ObtainMarket,
 {
     /// computes the metric of the existing trades in
@@ -41,7 +40,7 @@ where
         new_trades_sender: &Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
     ) -> impl std::future::Future<Output=()> + Send;
 
-    fn _process_trade<TR: Send + Sync  + BaseTrade + ProcessTradeValue>  ( // + Decoder
+    fn _process_trade<TR: Send + Sync  + BaseTrade + ProcessTradeValue>  (
         &self,
         trade: &TR,
         metric: PricingMetric,
@@ -54,6 +53,7 @@ where
             // let trade_direction = tr.direction();
 
             let market = self.get_market(curr_new_mkt);
+            info!("OBTAIN MARKET: {:?}", market);
 
             let trade_v = trade
                 .value_by_metric2(metric, pricing_options, market)
@@ -143,7 +143,7 @@ where
         }
     }
 
-    #[instrument]
+    //#[instrument]
     fn _process_trade_curr(
         &self,
         mut curr_trade_receiver: Receiver<<Self as TradeReduce>::ReductionType>,
@@ -160,11 +160,11 @@ where
 		        match trade_out {
 			        None => { todo!() },
 			        Some(trade) => {
-                        warn!("CURR processor: Processing trade {:?}.", trade);
+                        debug!("CURR processor: Processing trade {:?}.", trade);
                         let valued_trade = self
 				            ._process_trade(&trade, metric, pricing_options, CurrNewMarket::Current)
 				            .await;
-                        warn!("CURR processor: Trade value: {:?}", valued_trade);
+                        debug!("CURR processor: Trade value: {:?}", valued_trade);
                         *all_trades.lock().unwrap() += &trade;
 			            *curr_portfolio.lock().unwrap() += valued_trade;
                         //			    let new_p_attempt =  new_trades_sender.send(
@@ -192,7 +192,7 @@ where
         async move {
             loop {
                 let new_portfolio = new_portfolio_receiver.recv().await;
-                warn!("CURR processor: Received new portfolio: {:?}.", new_portfolio);
+                debug!("CURR processor: Received new portfolio: {:?}.", new_portfolio);
                 match new_portfolio {
 			        None => {
                         //error!("NEW PORTFOLIO RECEIVED NONE");
@@ -201,7 +201,7 @@ where
 			        Some((new_p, new_trades)) => {
 			            let all_l = all_trades_2.lock().unwrap().len();
 			            let new_l = new_trades.len();
-			            warn!(
+			            debug!(
 				            "Trades from NEW processor: {}. Trades on CURR processor: {}",
 				            new_l,
                             all_l,

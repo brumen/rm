@@ -25,11 +25,13 @@ mod process_trade;
 #[tokio::main]
 async fn main() {
 
+    // console_subscriber::init();
+
     let tracing_level = Level::INFO;
     tracing_subscriber::fmt()
         .with_max_level(tracing_level)
         .init();
 
-    //letf_trader::main_letf_trader().await;
-    ao_risk::ao_main_risk().await;
+    letf_trader::main_letf_trader().await;
+    //ao_risk::ao_main_risk().await;
 }

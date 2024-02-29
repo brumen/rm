@@ -7,7 +7,6 @@ use std::thread::sleep;
 use std::time::Duration;
 use tracing::{debug, warn, info, error,};
 use std::cmp::min;
-use tracing::instrument;
 
 use crate::portfolio::PortfolioType;
 use crate::pricer::PricingMetric;
@@ -21,7 +20,6 @@ where Self: std::fmt::Debug + Sync
     fn metric(&self) -> PricingMetric;
 
     /// publishes results to the server.
-    //#[instrument]
     fn _publish_results<TT: Send>(
         &self,
         mut curr_portfolio_recv: Receiver<(PortfolioType, TT)>,
@@ -32,10 +30,10 @@ where Self: std::fmt::Debug + Sync
             let res_publisher = connect_with_retries_producer_rd(&bootstrap_servers);
 
 	        loop {
-                warn!("Looping _publish_results");
+                debug!("Looping _publish_results");
 	            let curr_portfolio = match curr_portfolio_recv.recv().await {
                     Some((curr_portfolio_actual, _)) => {
-                        warn!(
+                        debug!(
                             "_publish_results: Found actual portfolio: {:?}",
                             curr_portfolio_actual
                         );
@@ -46,7 +44,15 @@ where Self: std::fmt::Debug + Sync
                         panic!();
                     }
                 };
-                let curr_mkt_json = serde_json::ser::to_string(&curr_portfolio).unwrap();
+
+                let curr_mkt_json = match serde_json::ser::to_string(&curr_portfolio) {
+                    Err(e) => {
+                        error!("Could not convert result portfolio to json: {:?}", e);
+                        return;
+                    },
+                    Ok(curr_mkt_json) => curr_mkt_json,
+                };
+
                 let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric(), curr_mkt_json);
 
                 // implements bytearray(str(dumps(self.curr_market)), ascii))
@@ -61,7 +67,7 @@ where Self: std::fmt::Debug + Sync
 		            timestamp: None,
 		            headers: None,
 	            };
-                warn!("Publishing results: {:?}", market_record2);
+                debug!("Publishing results: {:?}", market_record2);
                 let _ = res_publisher.send(market_record2, Timeout::Never).await;
             }
         }

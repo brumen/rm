@@ -27,28 +27,33 @@ pub trait MktEventHandler: Streaming
         mkt_topic: String,
         mkt_params: MktMsgParams,
         new_mkt_sender: Sender<MarketType>,
-	    fut_mkt_ready_s: Sender<bool>,
+	    _fut_mkt_ready_s: Sender<bool>,
     ) -> impl std::future::Future<Output=()> + Send {
         async move {
             let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
 
+            info!("ENTERING {:?}", self);
             let mkt_listener_ = connect_with_retries_rd(&bootstrap_servers, &mkt_topic);
 
 	        // listens to the stream and sends messages
 	        loop {
-                debug!("Waiting for market messages on {:?}, {:?}", bootstrap_servers, mkt_topic);
-                let borrowed_msg = mkt_listener_.recv().await.unwrap();  // TODO: HANDLE THIS PROPERLY NOT UNWRAP!!!
-	            debug!("Getting new markets from {mkt_topic}.");
-
-                let optional_mkt = MarketType::try_from_ref(&borrowed_msg);
-
-                let market_obj = match optional_mkt {
+                info!("LOOPING: {:?} Waiting for market messages on {:?}, {:?}", self, bootstrap_servers, mkt_topic);
+                let borrowed_msg = match mkt_listener_.recv().await {
+                    Ok(mkt_msg) => mkt_msg,
                     Err(e) => {
-                        warn!(
-                            "Error converting to market object from json: {:?}. Ignoring this.",
+                        error!("Error getting mkt message from Kafka: {:?}", e);
+                        continue;
+                    },
+                };
+	            info!("Got a market from {:?} for {:?}", mkt_topic, self );
+
+                let market_obj = match MarketType::try_from_ref(&borrowed_msg) {
+                    Err(e) => {
+                        error!(
+                            "Error converting to market object from json: {:?}. Ignoring.",
                             e
                         );
-                        return;
+                        continue;
                     },
                     Ok(market_inside) => {
                         debug!("Market = {:?}", market_inside);
@@ -63,9 +68,9 @@ pub trait MktEventHandler: Streaming
                 //    warn!("Could not send a message that future market is ready: {:?}", e);
                 //}
 
-                match mkt_listener_.commit_message(&borrowed_msg, CommitMode::Async) {
+                match mkt_listener_.commit_message(&borrowed_msg, CommitMode::Sync) {
                     Ok(_) => {debug!("Successful commit of market message");},
-                    Err(_) => {error!("Message could not be committed");},
+                    Err(_) => {error!("Message could not be committed to Kafka. Continuing in best hopes.");},
                 }
 	        }
         }
