@@ -13,15 +13,13 @@ use std::future::Future;
 
 use crate::ref_deref::TryFromRef;
 use crate::streaming::Streaming;
-use crate::trade::{BaseTrade, TradeReduce, TradeRep, };
+use crate::trade::{TradeReduce, TradeRep, };
 use uuid::Uuid;
 
+/// sends new trades from the kafka position topic
+/// to new portfolio sender and current portfolio sender.
+/// if it receives a signal to resend existing trades, it resends them
 pub trait PortfolioSender: TradeReduce + Streaming + Sync {
-    /// sends new trades from the kafka position topic
-    /// to new portfolio sender and current portfolio sender.
-    /// if it receives a signal to resend existing trades, it resends them
-
-    //type TR = <Self as TradeReduce>::ReductionType;   //: Clone + Send + BaseTrade;
 
     //#[instrument]
     fn __construct_portfolio(
@@ -67,7 +65,7 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
         async move {
             loop {
                 let trade = position_listener.recv().await;
-                info!("Got trade: {:?}", trade);
+                debug!("Got trade: {:?}", trade);
                 let message = trade.unwrap();  // TODO: FIX UNWRAP
 		        match <Self as TradeReduce>::TradeType::try_from_ref(&message) {
 			        Err(e) => {
@@ -108,7 +106,7 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
                 let resend = resend_existing.recv().await;
 		        match resend {
 			        Some(resend_val) => {
-			            info!("Got a resend value {}", resend_val);
+			            debug!("Got a resend value {}", resend_val);
 			            if resend_val {
 				            // fill sender_new with existing trades
                             let curr_trades = existing_trades_2.lock().unwrap().clone();
@@ -159,7 +157,7 @@ pub fn connect_with_retries_rd(bootstrap_servers: &str, pos_topic: &str) -> Stre
 		        pos_listener
                     .subscribe(&[pos_topic])
                     .expect("Cant subscribe to topic");
-                info!("Connected to {:?} on {:?}", bootstrap_servers, pos_topic);
+                debug!("Connected to {:?} on {:?}", bootstrap_servers, pos_topic);
                 return pos_listener;
             },
             Err(e) => {

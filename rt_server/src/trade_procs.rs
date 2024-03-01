@@ -1,6 +1,6 @@
 // Trade processor interaction between current and new market.
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{info, debug, instrument, warn, error,};
+use tracing::{info, debug, instrument, error,};
 use std::sync::{Arc, Mutex,};
 
 use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery,};
@@ -259,9 +259,11 @@ where
             loop {
                 let _new_mkt_all = new_market_receiver.recv().await;
                 match new_market_receiver.recv().await {
-                    None => { error!("NEW MARKET RECEIVER RECEIVED NONE"); },
+                    None => {
+                        error!("New market receiver received None - implies receiver connection broke.");
+                    },
                     Some(_new_mkt) => {
-                        info!("Received new market, commencing computations & switching new & fut markets");
+                        debug!("Received new market, commencing computations & switching new & fut markets");
 	                    self._switch_new_fut_markets().await;  // switch new market <- fut market
 
 	                    // price the trades on the current market
@@ -275,7 +277,7 @@ where
 
 	                    // attempt to send the portfolio to the trade_processor_curr
                         info!("New portfolio = {:?}, {:?}", new_portfolio, all_batches);
-                        info!("Sending new portfolio for potential publishing.");
+                        info!("Sending new portfolio to curr processor for potential publishing.");
                         let _ = new_portfolio_sender
                             .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
                             .await;
@@ -287,11 +289,10 @@ where
                         // while (curr_attempt < nb_attempts) & !self._future_mkt_ready() {
                         if let Ok(accepted_real) = accepted_recv.try_recv() {
                             if accepted_real <= 0 {
-                                info!("New portfolio accepted.");
-                                //break;
+                                info!("New portfolio accepted. Publishing and starting new market loop.");
                             } else {
                                 // attempt with the newest batch
-                                info!("New portfolio NOT accepted. Retrying w/ additional trades.");
+                                info!("New portfolio _NOT_ accepted. Retrying w/ additional trades.");
                                 let (new_portfolio_inner, all_batches_inner) = self
                                     ._new_processor_trade_loop(
                                         &mut new_trade_receiver,

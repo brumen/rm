@@ -1,5 +1,5 @@
 use tokio::sync::mpsc::channel;
-use tracing::{info, debug};
+use tracing::info;
 use rdkafka::message::BorrowedMessage;
 
 use crate::market::MarketType;
@@ -7,7 +7,7 @@ use crate::market::MktMsgParams;
 use crate::mkt_handler::MktEventHandler;
 use crate::portfolio::PortfolioType;
 use crate::portfolio_sender::PortfolioSender;
-use crate::pricer::{MarketPricingOptions, Decoder};
+use crate::pricer::MarketPricingOptions;
 use crate::process_trade::ProcessTradeValue;
 use crate::publish::PublishResults;
 use crate::trade::{TradeRep, TradeReduce};
