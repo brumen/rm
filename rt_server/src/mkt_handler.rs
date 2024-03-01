@@ -1,6 +1,6 @@
 use rdkafka::consumer::{Consumer, CommitMode};
 use tokio::sync::mpsc::Sender;
-use tracing::{info, instrument, warn, debug, trace, error,};
+use tracing::{info, debug, error,};
 
 use crate::market::{MarketType, MktMsgParams};
 use crate::portfolio_sender::connect_with_retries_rd;
@@ -32,12 +32,11 @@ pub trait MktEventHandler: Streaming
         async move {
             let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port());
 
-            info!("ENTERING {:?}", self);
+            info!("Starting market event handling.");
             let mkt_listener_ = connect_with_retries_rd(&bootstrap_servers, &mkt_topic);
 
 	        // listens to the stream and sends messages
 	        loop {
-                info!("LOOPING: {:?} Waiting for market messages on {:?}, {:?}", self, bootstrap_servers, mkt_topic);
                 let borrowed_msg = match mkt_listener_.recv().await {
                     Ok(mkt_msg) => mkt_msg,
                     Err(e) => {
@@ -45,7 +44,6 @@ pub trait MktEventHandler: Streaming
                         continue;
                     },
                 };
-	            info!("Got a market from {:?} for {:?}", mkt_topic, self );
 
                 let market_obj = match MarketType::try_from_ref(&borrowed_msg) {
                     Err(e) => {
@@ -56,12 +54,15 @@ pub trait MktEventHandler: Streaming
                         continue;
                     },
                     Ok(market_inside) => {
-                        debug!("Market = {:?}", market_inside);
                         market_inside
                     }
                 };
 
-                self._handle_mkt_msg(market_obj, new_mkt_sender.clone(), mkt_params.clone()).await;
+                self._handle_mkt_msg(
+                    market_obj,
+                    new_mkt_sender.clone(),
+                    mkt_params.clone()
+                ).await;
 
                 // TODO: CHECK THIS AT SOME LATER STAGE???
 	            //if let Err(e) = fut_mkt_ready_s.send(true).await {
@@ -69,8 +70,12 @@ pub trait MktEventHandler: Streaming
                 //}
 
                 match mkt_listener_.commit_message(&borrowed_msg, CommitMode::Sync) {
-                    Ok(_) => {debug!("Successful commit of market message");},
-                    Err(_) => {error!("Message could not be committed to Kafka. Continuing in best hopes.");},
+                    Ok(_) => {
+                        debug!("Successful commit of market message");
+                    },
+                    Err(e) => {
+                        error!("Message could not be committed to Kafka. Continuing in best hopes: {:?}", e);
+                    },
                 }
 	        }
         }
