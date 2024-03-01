@@ -1,5 +1,5 @@
 use core::cmp::Eq;
-use tracing::{debug, warn, info};
+use tracing::{debug, warn};
 use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -117,7 +117,6 @@ impl LETFTrade {
     pub fn hedge(&mut self, market: &MarketType) -> Vec<LETFHedge> {
         let stock_name = &self.stock;
         let stock_value = market.get(stock_name);
-        info!("HEDGE: Market = {:?}", market);
 
         if stock_value.is_none() {
             warn!(
@@ -135,7 +134,7 @@ impl LETFTrade {
         let amount = self.amount;
 
         // Computing the hedge.
-        let h = vec![
+        vec![
             LETFHedge::Future(Future {
                 initial_val: Some(-beta * amount),
                 trade_id: (trade_id.parse::<i32>().unwrap() + 1).to_string(), //Uuid::new_v4().to_string(),
@@ -146,10 +145,7 @@ impl LETFTrade {
                 trade_id: (trade_id.parse::<i32>().unwrap() + 2).to_string(), // Uuid::new_v4().to_string(),
                 amount: beta * amount,
             }),
-        ];
-
-        info!("HHHH {:?}", h);
-        h
+        ]
     }
 }
 
@@ -308,8 +304,6 @@ impl ProcessTradeValue for TradeTypes {
                 MarketGeneral::MarketRemote(_) => panic!(),  // we should not be getting this
                 MarketGeneral::MarketLocal(mkt_local) => mkt_local,
             };
-
-            info!("ACTUAL MARKET {:?}", actual_market);
 
             match metric {
                 PricingMetric::PV => {

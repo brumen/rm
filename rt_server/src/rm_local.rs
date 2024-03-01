@@ -142,8 +142,6 @@ impl MktEventHandler for RTRMLocal {
             .lock()
             .expect("_handle_mkt_msg: Could not lock curr_mkt") += &market_obj;
 
-        info!("MARKET: {:?}", market_obj);
-
         if let Err(e) = new_mkt_sender.send(market_obj).await {
             warn!("Could not send a message about new market: {:?}", e);
         }

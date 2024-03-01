@@ -1,7 +1,8 @@
 // Trade processor interaction between current and new market.
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{info, debug, instrument, error,};
+use tracing::{info, debug, instrument, error, warn};
 use std::sync::{Arc, Mutex,};
+use tokio::sync::mpsc::error::TryRecvError;
 
 use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery,};
 use crate::portfolio::{PortfolioType, PricingResults,};
@@ -53,8 +54,6 @@ where
             // let trade_direction = tr.direction();
 
             let market = self.get_market(curr_new_mkt);
-            info!("OBTAIN MARKET: {:?}", market);
-
             let trade_v = trade
                 .value_by_metric2(metric, pricing_options, market)
                 .await;
@@ -256,18 +255,29 @@ where
         async move {
 
             info!("Starting NEW trade processor.");
+            let sleep_duration = core::time::Duration::new(1, 0);
             loop {
-                let _new_mkt_all = new_market_receiver.recv().await;
-                match new_market_receiver.recv().await {
+
+                // try to catch the latest _new_mkt, ignore in betweeners.
+                let mut actual_mkt: Option<MarketType> = None;
+                while let Ok(_new_mkt) = new_market_receiver.try_recv() {
+                    // COULD BE THAT new_market_receiver disconnected. This is not handled.
+                    actual_mkt = Some(_new_mkt);
+                }
+
+                match actual_mkt {
                     None => {
-                        error!("New market receiver received None - implies receiver connection broke.");
+                        warn!("No new market, or new_market_receiver dropped.");
+                        tokio::task::yield_now().await;
+                        let _ = tokio::time::sleep(sleep_duration).await;
+
                     },
                     Some(_new_mkt) => {
                         debug!("Received new market, commencing computations & switching new & fut markets");
 	                    self._switch_new_fut_markets().await;  // switch new market <- fut market
 
 	                    // price the trades on the current market
-                        info!("Pricing trades on the NEW market.");
+                        debug!("Pricing trades on the NEW market.");
                         let (mut new_portfolio, mut all_batches) =
                             self._new_processor_trade_loop(
 		                        &mut new_trade_receiver,
@@ -276,8 +286,7 @@ where
 		                    ).await;
 
 	                    // attempt to send the portfolio to the trade_processor_curr
-                        info!("New portfolio = {:?}, {:?}", new_portfolio, all_batches);
-                        info!("Sending new portfolio to curr processor for potential publishing.");
+                        debug!("Sending new portfolio to curr processor for potential publishing.");
                         let _ = new_portfolio_sender
                             .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
                             .await;
@@ -292,7 +301,7 @@ where
                                 info!("New portfolio accepted. Publishing and starting new market loop.");
                             } else {
                                 // attempt with the newest batch
-                                info!("New portfolio _NOT_ accepted. Retrying w/ additional trades.");
+                                debug!("New portfolio _NOT_ accepted. Retrying w/ additional trades.");
                                 let (new_portfolio_inner, all_batches_inner) = self
                                     ._new_processor_trade_loop(
                                         &mut new_trade_receiver,
@@ -301,6 +310,7 @@ where
                                     ).await;
                                 new_portfolio += new_portfolio_inner;
                                 all_batches += &all_batches_inner;
+                                // try again to send the new portfolio results.
                                 let _ = new_portfolio_sender
                                     .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
                                     .await;
