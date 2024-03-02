@@ -32,6 +32,6 @@ async fn main() {
         .with_max_level(tracing_level)
         .init();
 
-    letf_trader::main_letf_trader().await;
-    //ao_risk::ao_main_risk().await;
+    //letf_trader::main_letf_trader().await;
+    ao_risk::ao_main_risk().await;
 }

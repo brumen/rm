@@ -115,6 +115,7 @@ where
             let all_trades_2 = Arc::clone(&all_trades);
             let curr_portfolio = Arc::new(Mutex::new(PortfolioType::default()));
             let curr_portfolio_2 = Arc::clone(&curr_portfolio);
+            let mut curr_portfolio_sender2 = curr_portfolio_sender.clone();
 
             tokio_scoped::scope(
                 |scope| {
@@ -125,6 +126,7 @@ where
                             pricing_options,
                             all_trades,
                             curr_portfolio,
+                            &mut curr_portfolio_sender2,
                         )
                     );
 
@@ -150,6 +152,7 @@ where
         pricing_options: &MarketPricingOptions,
         all_trades: Arc<Mutex<TradeRep::<<Self as TradeReduce>::ReductionType>>>,
         curr_portfolio: Arc<Mutex<PortfolioType>>,
+        curr_portfolio_sender2: &mut Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
     ) -> impl std::future::Future<Output=()> + Send
         where <Self as TradeReduce>::ReductionType: std::fmt::Debug + ProcessTradeValue
     {
@@ -159,16 +162,23 @@ where
 		        match trade_out {
 			        None => { todo!() },
 			        Some(trade) => {
-                        debug!("CURR processor: Processing trade {:?}.", trade);
+                        info!("CURR processor: Processing trade {:?}.", trade);
                         let valued_trade = self
 				            ._process_trade(&trade, metric, pricing_options, CurrNewMarket::Current)
 				            .await;
-                        debug!("CURR processor: Trade value: {:?}", valued_trade);
+                        info!("CURR processor: Trade value: {:?}", valued_trade);
                         *all_trades.lock().unwrap() += &trade;
 			            *curr_portfolio.lock().unwrap() += valued_trade;
-                        //			    let new_p_attempt =  new_trades_sender.send(
-                        //				(curr_portfolio.clone(), TradeRep(all_trades.clone()))
-                        //			    ).await;
+                        let (curr_p2, all_t2) = {
+                            let c2 = curr_portfolio.lock().expect("cant lock");
+                            let c3 = c2.clone();
+                            let t2 = all_trades.lock().unwrap();
+                            let t3 = TradeRep(t2.clone());
+                            (c3, t3)
+                        };
+				        let _ = curr_portfolio_sender2
+				            .send((curr_p2, all_t2))
+                            .await;
 			        },
 		        }
             }
