@@ -21,6 +21,8 @@ mod trade;
 mod trade_procs;
 mod trader;
 mod process_trade;
+mod controller_seq;
+mod ao_risk_seq;
 
 #[tokio::main]
 async fn main() {
@@ -32,6 +34,7 @@ async fn main() {
         .with_max_level(tracing_level)
         .init();
 
-    //letf_trader::main_letf_trader().await;
-    ao_risk::ao_main_risk().await;
+    // letf_trader::main_letf_trader().await;
+    // ao_risk::ao_main_risk().await;
+    ao_risk_seq::ao_risk_seq().await;
 }

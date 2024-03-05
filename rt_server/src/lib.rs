@@ -17,3 +17,4 @@ pub mod trade;
 pub mod trade_procs;
 pub mod trader;
 pub mod process_trade;
+pub mod controller_seq;
