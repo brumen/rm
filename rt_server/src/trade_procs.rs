@@ -158,29 +158,29 @@ where
     {
         async move {
             loop {
-                let trade_out = curr_trade_receiver.recv().await;
-		        match trade_out {
-			        None => { todo!() },
-			        Some(trade) => {
+                match curr_trade_receiver.recv().await {
+		    None => { todo!() },
+		    Some(trade) => {
                         info!("CURR processor: Processing trade {:?}.", trade);
                         let valued_trade = self
-				            ._process_trade(&trade, metric, pricing_options, CurrNewMarket::Current)
-				            .await;
+			    ._process_trade(&trade, metric, pricing_options, CurrNewMarket::Current)
+			    .await;
                         info!("CURR processor: Trade value: {:?}", valued_trade);
                         *all_trades.lock().unwrap() += &trade;
-			            *curr_portfolio.lock().unwrap() += valued_trade;
-                        let (curr_p2, all_t2) = {
+			*curr_portfolio.lock().unwrap() += valued_trade;
+
+			let (curr_p2, all_t2) = {
                             let c2 = curr_portfolio.lock().expect("cant lock");
                             let c3 = c2.clone();
                             let t2 = all_trades.lock().unwrap();
                             let t3 = TradeRep(t2.clone());
                             (c3, t3)
                         };
-				        let _ = curr_portfolio_sender2
-				            .send((curr_p2, all_t2))
+			let _ = curr_portfolio_sender2
+			    .send((curr_p2, all_t2))
                             .await;
-			        },
-		        }
+		    },
+		}
             }
         }
     }
