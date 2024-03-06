@@ -165,11 +165,12 @@ where
                         let valued_trade = self
 			    ._process_trade(&trade, metric, pricing_options, CurrNewMarket::Current)
 			    .await;
-                        info!("CURR processor: Trade value: {:?}", valued_trade);
+                        debug!("CURR processor: Trade value: {:?}", valued_trade);
+
                         *all_trades.lock().unwrap() += &trade;
 			*curr_portfolio.lock().unwrap() += valued_trade;
 
-			let (curr_p2, all_t2) = {
+                        let (curr_p2, all_t2) = {
                             let c2 = curr_portfolio.lock().expect("cant lock");
                             let c3 = c2.clone();
                             let t2 = all_trades.lock().unwrap();

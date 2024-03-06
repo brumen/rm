@@ -297,19 +297,6 @@ impl Controller {
             None => PricingParams::new(),
         };
 
-        // let (num_tokio_worker_threads, max_tokio_blocking_threads) = (8, 512); // 512 is tokio's current default
-        // let rt = runtime::Builder::new_multi_thread()
-        //     .enable_all()
-        //     .thread_stack_size(8 * 1024 * 1024)
-        //     .worker_threads(num_tokio_worker_threads)
-        //     .max_blocking_threads(max_tokio_blocking_threads)
-        //     .build()
-        //     .unwrap();
-
-        // let mkt_client_address = "http://localhost:8000/future_market";
-        // let client = reqwest::blocking::Client::new();  // TODO: THIS ALWAYS REPEATS!!!
-        // let rb = client.post(format!("{0}", mkt_client_address));
-
         Controller {
             pricing_params: pricing_init,
             kafka_server_name,
@@ -318,7 +305,7 @@ impl Controller {
             metric,
             curr_mkt: Arc::new(Mutex::new(MarketType::new())),
             new_mkt: Arc::new(Mutex::new(MarketType::new())),
-	    future_mkt: Arc::new(Mutex::new(MarketType::new())),
+	        future_mkt: Arc::new(Mutex::new(MarketType::new())),
         }
     }
 
