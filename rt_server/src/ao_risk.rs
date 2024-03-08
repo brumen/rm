@@ -26,11 +26,13 @@ pub async fn ao_main_risk() {
         pricing_endpoint: config_map.metric.to_owned(),       // "pv"
     };
 
-    controller.start(
-        position_topic,
-        mkt_topic,
-        results_topic,
-        market::MktMsgParams::AOParams(),
-        &market_pricing_options,
-    ).await;
+    controller
+        .start(
+            position_topic,
+            mkt_topic,
+            results_topic,
+            market::MktMsgParams::AOParams(),
+            &market_pricing_options,
+        )
+        .await;
 }

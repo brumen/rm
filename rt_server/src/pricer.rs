@@ -1,11 +1,11 @@
+use reqwest::Client;
 use reqwest::{self, Error};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use string_join::Join;
-use tracing::{debug, warn, info};
-use reqwest::Client;
+use tracing::{debug, info, warn};
 
 use crate::market::{CurrNewMarket, MarketType};
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
@@ -205,15 +205,11 @@ pub trait PriceTradeAsync: BaseTrade {
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> impl std::future::Future<Output=Result<reqwest::Response, reqwest::Error>> + Send
+    ) -> impl std::future::Future<Output = Result<reqwest::Response, reqwest::Error>> + Send
     where
         Self: Sync,
     {
-        async move {
-            reqwest::get(
-                self._endpoint(metric, pricing_options, curr_new_mkt)
-            ).await
-        }
+        async move { reqwest::get(self._endpoint(metric, pricing_options, curr_new_mkt)).await }
     }
 
     fn initial_pv(&self) -> impl Future<Output = Option<f64>> + Send;
@@ -311,8 +307,7 @@ where
         pricing_client: &Client,
         market_: CurrNewMarket,
         metric: PricingMetric,
-    ) -> impl std::future::Future<Output=PortfolioType> + Send {
-
+    ) -> impl std::future::Future<Output = PortfolioType> + Send {
         async move {
             // joins all trades with commas, like 190,191,192
             let all_trade_ids = ",".join(trades.all_trade_names());
@@ -343,7 +338,6 @@ where
                 PricingResults::PnL(pnl_portfolio) => pnl_portfolio,
             }
         }
-
     }
     /// similar to price_trades_spark,
     ///   just that it only limits to spark application to
@@ -355,7 +349,7 @@ where
         metric: PricingMetric,
         _pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> impl std::future::Future<Output=PortfolioType> + Send {
+    ) -> impl std::future::Future<Output = PortfolioType> + Send {
         async move {
             let mut curr_portfolio = PortfolioType::default();
 
@@ -373,13 +367,9 @@ where
                 if curr_trade_nb > split_nb {
                     // do the computation
                     info!("Pricing {:?} trades on spark.", curr_trade_nb);
-                    let portfolio =
-                        self.price_trades_spark(
-			                &curr_trade_rep,
-			                &pricing_client,
-			                curr_new_mkt,
-			                metric
-		                ).await;
+                    let portfolio = self
+                        .price_trades_spark(&curr_trade_rep, &pricing_client, curr_new_mkt, metric)
+                        .await;
 
                     curr_portfolio += portfolio;
                     curr_trade_nb = 0;
@@ -388,12 +378,9 @@ where
             }
 
             // remaining part of trades
-            curr_portfolio += self.price_trades_spark(
-		        &curr_trade_rep,
-		        &pricing_client,
-		        curr_new_mkt,
-		        metric
-	        ).await;
+            curr_portfolio += self
+                .price_trades_spark(&curr_trade_rep, &pricing_client, curr_new_mkt, metric)
+                .await;
 
             curr_portfolio
         }
@@ -407,7 +394,7 @@ where
         pricing_client: &Client,
         market_: CurrNewMarket,
         metric: PricingMetric,
-    ) -> impl std::future::Future<Output=Result<PortfolioType, Error>> + Send {
+    ) -> impl std::future::Future<Output = Result<PortfolioType, Error>> + Send {
         async move {
             // joins all trades with commas, like 190,191,192
             let all_trade_ids = ",".join(trades.all_trade_names());
@@ -422,7 +409,7 @@ where
                 ))
                 .form(&HashMap::from([("trades", &all_trade_ids)]))
                 .send()
-	            .await?;
+                .await?;
 
             // unwrap the result_pricing
             let priced_portfolio = self._unwrap_pricing_results_a(result_pricing, metric).await;

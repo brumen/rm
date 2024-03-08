@@ -1,9 +1,8 @@
 // Defining the trait Process Trade value.
 
-use crate::market::{MarketGeneral, CurrNewMarket,};
+use crate::market::{CurrNewMarket, MarketGeneral};
 use crate::portfolio::PricingResults;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
-
 
 pub trait ProcessTradeValue
 where
@@ -17,13 +16,9 @@ where
     ) -> impl std::future::Future<Output = PricingResults> + Send;
 }
 
-
 pub trait ObtainMarket
-where Self: Sync, {
-
-    fn get_market(
-        &self,
-        curr_new_mkt: CurrNewMarket,
-    ) -> MarketGeneral;
-
+where
+    Self: Sync,
+{
+    fn get_market(&self, curr_new_mkt: CurrNewMarket) -> MarketGeneral;
 }

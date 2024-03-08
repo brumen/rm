@@ -3,8 +3,8 @@
 use tracing::info;
 
 use crate::controller::RTConfig;
-use crate::engine::CalcController;
 use crate::controller_seq::ControllerSeq;
+use crate::engine::CalcController;
 use crate::market;
 use crate::pricer::MarketPricingOptions;
 
@@ -28,11 +28,13 @@ pub async fn ao_risk_seq() {
         pricing_endpoint: config_map.metric.to_owned(),       // "pv"
     };
 
-    controller_seq.start(
-        position_topic,
-        mkt_topic,
-        results_topic,
-        market::MktMsgParams::AOParams(),
-        &market_pricing_options,
-    ).await;
+    controller_seq
+        .start(
+            position_topic,
+            mkt_topic,
+            results_topic,
+            market::MktMsgParams::AOParams(),
+            &market_pricing_options,
+        )
+        .await;
 }

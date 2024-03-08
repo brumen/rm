@@ -2,27 +2,22 @@
 //  Real time risk manager using local market & local pricing
 //
 
-use tracing::{debug, info, warn};
 use serde::Deserialize;
-use tokio::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc::{Receiver, Sender};
+use tracing::{debug, info, warn};
 
 use crate::market::{
-    CurrNewMarket,
-    MarketSwitching,
-    MarketType,
-    MktMsgParams,
-    TradeMarketDiscovery,
-    MarketGeneral,
+    CurrNewMarket, MarketGeneral, MarketSwitching, MarketType, MktMsgParams, TradeMarketDiscovery,
 };
 use crate::mkt_handler::MktEventHandler;
 use crate::portfolio::PortfolioType;
-use crate::pricer::{MarketPricingOptions, PricingMetric,};
+use crate::pricer::{MarketPricingOptions, PricingMetric};
+use crate::process_trade::ObtainMarket;
 use crate::publish::PublishResults;
 use crate::streaming::Streaming;
 use crate::trade::{BaseTrade, TradeReduce, TradeRep, TradeTypes};
 use crate::trade_procs::RiskProcessors;
-use crate::process_trade::ObtainMarket;
 use crate::trader::LETFHedger;
 
 /// RTRM - Real time risk manager using local
@@ -64,7 +59,7 @@ impl RTRMLocal {
             metric,
             curr_market: Arc::new(Mutex::from(MarketType::new())),
             new_market: Arc::new(Mutex::from(MarketType::new())),
-	    future_market: Arc::new(Mutex::from(MarketType::new())),
+            future_market: Arc::new(Mutex::from(MarketType::new())),
         }
     }
 
@@ -95,11 +90,11 @@ impl MarketSwitching for RTRMLocal {
 
     async fn _switch_all_markets(&self) {
         info!("_switch_markets: Switching markets: current <- new.");
-	    self._internal_switch_all_markets();
+        self._internal_switch_all_markets();
     }
 
     async fn _switch_new_fut_markets(&self) {
-	    self._internal_switch_new_fut_markets();
+        self._internal_switch_new_fut_markets();
     }
 
     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>> {
@@ -111,11 +106,11 @@ impl MarketSwitching for RTRMLocal {
     }
 
     fn _future_mkt_ready(&self) -> bool {
-	    *self.future_market.lock().unwrap() != *self.new_market.lock().unwrap()
+        *self.future_market.lock().unwrap() != *self.new_market.lock().unwrap()
     }
 
     fn _future_mkt(&self) -> Arc<Mutex<MarketType>> {
-	    self.future_market.clone()  // TODO: CAN THIS BE DONE W/O cloning???
+        self.future_market.clone() // TODO: CAN THIS BE DONE W/O cloning???
     }
 }
 
@@ -149,41 +144,36 @@ impl MktEventHandler for RTRMLocal {
 }
 
 impl ObtainMarket for RTRMLocal {
-    fn get_market(
-        &self,
-        curr_new_mkt: CurrNewMarket,
-    ) -> crate::market::MarketGeneral {
+    fn get_market(&self, curr_new_mkt: CurrNewMarket) -> crate::market::MarketGeneral {
         match curr_new_mkt {
             // TODO: FIX THESE CLONING HERE
-            CurrNewMarket::Current =>
-                MarketGeneral::MarketLocal(
-                    MarketType(self.curr_market.lock().unwrap().clone())
-                ),
-            CurrNewMarket::New =>
-                MarketGeneral::MarketLocal(
-                    MarketType(self.new_market.lock().unwrap().clone())
-                ),
+            CurrNewMarket::Current => {
+                MarketGeneral::MarketLocal(MarketType(self.curr_market.lock().unwrap().clone()))
+            }
+            CurrNewMarket::New => {
+                MarketGeneral::MarketLocal(MarketType(self.new_market.lock().unwrap().clone()))
+            }
         }
     }
 }
 
-
-impl TradeMarketDiscovery for RTRMLocal { }
+impl TradeMarketDiscovery for RTRMLocal {}
 
 impl RiskProcessors for RTRMLocal {
-
     fn _price_existing_trades(
         &self,
         all_trades: &TradeRep<Self::ReductionType>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> impl std::future::Future<Output=PortfolioType> + Send {
+    ) -> impl std::future::Future<Output = PortfolioType> + Send {
         async move {
             let mut p = PortfolioType::default();
 
             for trade in all_trades.values() {
-                p += self._process_trade(trade, metric, pricing_options, curr_new_mkt).await;
+                p += self
+                    ._process_trade(trade, metric, pricing_options, curr_new_mkt)
+                    .await;
             }
             p
         }
@@ -208,12 +198,13 @@ impl RiskProcessors for RTRMLocal {
             }
 
             if new_trade {
-                *curr_portfolio +=
-                    self._process_trade(&trade, metric, pricing_options, curr_new_mkt).await;
+                *curr_portfolio += self
+                    ._process_trade(&trade, metric, pricing_options, curr_new_mkt)
+                    .await;
 
-                let _ = new_trades_sender.send(
-                    (curr_portfolio.clone(), TradeRep(all_trades.clone()))
-                ).await;
+                let _ = new_trades_sender
+                    .send((curr_portfolio.clone(), TradeRep(all_trades.clone())))
+                    .await;
             }
         }
     }
@@ -234,6 +225,5 @@ impl TradeReduce for RTRMLocal {
     }
 }
 
-
 /// default implementation
-impl LETFHedger for RTRMLocal { }
+impl LETFHedger for RTRMLocal {}

@@ -1,16 +1,15 @@
 // Trade processor interaction between current and new market.
-use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{info, debug, instrument, error, warn};
-use std::sync::{Arc, Mutex,};
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tracing::{debug, error, info, instrument, warn};
 
-use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery,};
-use crate::portfolio::{PortfolioType, PricingResults,};
+use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery};
+use crate::portfolio::{PortfolioType, PricingResults};
 use crate::portfolio_sender::PortfolioSender;
-use crate::pricer::{MarketPricingOptions, PricingMetric,};
-use crate::trade::{TradeRep, BaseTrade, TradeDirection, TradeReduce};
-use crate::process_trade::{ProcessTradeValue, ObtainMarket, };
-
+use crate::pricer::{MarketPricingOptions, PricingMetric};
+use crate::process_trade::{ObtainMarket, ProcessTradeValue};
+use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeRep};
 
 /// Pricing engine for trades for remote pricing
 pub trait RiskProcessors: TradeMarketDiscovery + PortfolioSender
@@ -26,7 +25,7 @@ where
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> impl std::future::Future<Output=PortfolioType> + Send;
+    ) -> impl std::future::Future<Output = PortfolioType> + Send;
 
     /// adds new trades on the trade_receiver to the
     /// all_trades, and prices the new trades that came on it.
@@ -38,17 +37,19 @@ where
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-        new_trades_sender: &Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
-    ) -> impl std::future::Future<Output=()> + Send;
+        new_trades_sender: &Sender<(
+            PortfolioType,
+            TradeRep<<Self as TradeReduce>::ReductionType>,
+        )>,
+    ) -> impl std::future::Future<Output = ()> + Send;
 
-    fn _process_trade<TR: Send + Sync  + BaseTrade + ProcessTradeValue>  (
+    fn _process_trade<TR: Send + Sync + BaseTrade + ProcessTradeValue>(
         &self,
         trade: &TR,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> impl std::future::Future<Output=PortfolioType> + Send {
-
+    ) -> impl std::future::Future<Output = PortfolioType> + Send {
         async move {
             // let _trade_id = trade.id();
             // let trade_direction = tr.direction();
@@ -97,50 +98,53 @@ where
     fn _trade_processor_curr(
         &self,
         trade_receiver: Receiver<<Self as TradeReduce>::ReductionType>,
-        curr_portfolio_sender: &mut Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
-        new_portfolio_receiver: Receiver<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
+        curr_portfolio_sender: &mut Sender<(
+            PortfolioType,
+            TradeRep<<Self as TradeReduce>::ReductionType>,
+        )>,
+        new_portfolio_receiver: Receiver<(
+            PortfolioType,
+            TradeRep<<Self as TradeReduce>::ReductionType>,
+        )>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-	// sends how many trades behind the current processor the proposed
-	// portfolio is. If 0 - the portfolio was accepted. If > 0 it means it
-	// is e.g. 3 trades behind the current processor. If < 0 it means the
-	// new processor is ahead of the current processor.
+        // sends how many trades behind the current processor the proposed
+        // portfolio is. If 0 - the portfolio was accepted. If > 0 it means it
+        // is e.g. 3 trades behind the current processor. If < 0 it means the
+        // new processor is ahead of the current processor.
         accepted_sender: Sender<i32>,
-    ) -> impl std::future::Future<Output=()> + Send
-        where <Self as TradeReduce>::ReductionType: std::fmt::Debug + ProcessTradeValue
+    ) -> impl std::future::Future<Output = ()> + Send
+    where
+        <Self as TradeReduce>::ReductionType: std::fmt::Debug + ProcessTradeValue,
     {
         async move {
             // trades that the curr_processor is handling.
-            let all_trades = Arc::new(Mutex::new(TradeRep::<<Self as TradeReduce>::ReductionType>::default()));
+            let all_trades = Arc::new(Mutex::new(
+                TradeRep::<<Self as TradeReduce>::ReductionType>::default(),
+            ));
             let all_trades_2 = Arc::clone(&all_trades);
             let curr_portfolio = Arc::new(Mutex::new(PortfolioType::default()));
             let curr_portfolio_2 = Arc::clone(&curr_portfolio);
             let mut curr_portfolio_sender2 = curr_portfolio_sender.clone();
 
-            tokio_scoped::scope(
-                |scope| {
-                    scope.spawn(
-                        self._process_trade_curr(
-                            trade_receiver,
-                            metric,
-                            pricing_options,
-                            all_trades,
-                            curr_portfolio,
-                            &mut curr_portfolio_sender2,
-                        )
-                    );
+            tokio_scoped::scope(|scope| {
+                scope.spawn(self._process_trade_curr(
+                    trade_receiver,
+                    metric,
+                    pricing_options,
+                    all_trades,
+                    curr_portfolio,
+                    &mut curr_portfolio_sender2,
+                ));
 
-                    scope.spawn(
-                        self._possible_portf_switch(
-                            new_portfolio_receiver,
-                            all_trades_2,
-                            curr_portfolio_2,
-                            accepted_sender,
-                            curr_portfolio_sender,
-                        )
-                    );
-	            }
-            )
+                scope.spawn(self._possible_portf_switch(
+                    new_portfolio_receiver,
+                    all_trades_2,
+                    curr_portfolio_2,
+                    accepted_sender,
+                    curr_portfolio_sender,
+                ));
+            })
         }
     }
 
@@ -150,25 +154,31 @@ where
         mut curr_trade_receiver: Receiver<<Self as TradeReduce>::ReductionType>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        all_trades: Arc<Mutex<TradeRep::<<Self as TradeReduce>::ReductionType>>>,
+        all_trades: Arc<Mutex<TradeRep<<Self as TradeReduce>::ReductionType>>>,
         curr_portfolio: Arc<Mutex<PortfolioType>>,
-        curr_portfolio_sender2: &mut Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
-    ) -> impl std::future::Future<Output=()> + Send
-        where <Self as TradeReduce>::ReductionType: std::fmt::Debug + ProcessTradeValue
+        curr_portfolio_sender2: &mut Sender<(
+            PortfolioType,
+            TradeRep<<Self as TradeReduce>::ReductionType>,
+        )>,
+    ) -> impl std::future::Future<Output = ()> + Send
+    where
+        <Self as TradeReduce>::ReductionType: std::fmt::Debug + ProcessTradeValue,
     {
         async move {
             loop {
                 match curr_trade_receiver.recv().await {
-		    None => { todo!() },
-		    Some(trade) => {
+                    None => {
+                        todo!()
+                    }
+                    Some(trade) => {
                         info!("CURR processor: Processing trade {:?}.", trade);
                         let valued_trade = self
-			    ._process_trade(&trade, metric, pricing_options, CurrNewMarket::Current)
-			    .await;
+                            ._process_trade(&trade, metric, pricing_options, CurrNewMarket::Current)
+                            .await;
                         debug!("CURR processor: Trade value: {:?}", valued_trade);
 
                         *all_trades.lock().unwrap() += &trade;
-			*curr_portfolio.lock().unwrap() += valued_trade;
+                        *curr_portfolio.lock().unwrap() += valued_trade;
 
                         let (curr_p2, all_t2) = {
                             let c2 = curr_portfolio.lock().expect("cant lock");
@@ -177,11 +187,9 @@ where
                             let t3 = TradeRep(t2.clone());
                             (c3, t3)
                         };
-			let _ = curr_portfolio_sender2
-			    .send((curr_p2, all_t2))
-                            .await;
-		    },
-		}
+                        let _ = curr_portfolio_sender2.send((curr_p2, all_t2)).await;
+                    }
+                }
             }
         }
     }
@@ -191,56 +199,63 @@ where
     ///    switches curr <- new portfolio.
     fn _possible_portf_switch(
         &self,
-        mut new_portfolio_receiver: Receiver<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
-        all_trades_2: Arc<Mutex<TradeRep::<<Self as TradeReduce>::ReductionType>>>,
+        mut new_portfolio_receiver: Receiver<(
+            PortfolioType,
+            TradeRep<<Self as TradeReduce>::ReductionType>,
+        )>,
+        all_trades_2: Arc<Mutex<TradeRep<<Self as TradeReduce>::ReductionType>>>,
         curr_portfolio_2: Arc<Mutex<PortfolioType>>,
         accepted_sender: Sender<i32>,
-        curr_portfolio_sender: &mut Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>,
-    ) -> impl std::future::Future<Output=()> + Send
-       where <Self as TradeReduce>::ReductionType: std::fmt::Debug
+        curr_portfolio_sender: &mut Sender<(
+            PortfolioType,
+            TradeRep<<Self as TradeReduce>::ReductionType>,
+        )>,
+    ) -> impl std::future::Future<Output = ()> + Send
+    where
+        <Self as TradeReduce>::ReductionType: std::fmt::Debug,
     {
         async move {
             loop {
                 let new_portfolio = new_portfolio_receiver.recv().await;
-                debug!("CURR processor: Received new portfolio: {:?}.", new_portfolio);
+                debug!(
+                    "CURR processor: Received new portfolio: {:?}.",
+                    new_portfolio
+                );
                 match new_portfolio {
-			        None => {
+                    None => {
                         //error!("NEW PORTFOLIO RECEIVED NONE");
-			            todo!()
-			        },
-			        Some((new_p, new_trades)) => {
-			            let all_l = all_trades_2.lock().unwrap().len();
-			            let new_l = new_trades.len();
-			            debug!(
-				            "Trades from NEW processor: {}. Trades on CURR processor: {}",
-				            new_l,
-                            all_l,
-			            );
+                        todo!()
+                    }
+                    Some((new_p, new_trades)) => {
+                        let all_l = all_trades_2.lock().unwrap().len();
+                        let new_l = new_trades.len();
+                        debug!(
+                            "Trades from NEW processor: {}. Trades on CURR processor: {}",
+                            new_l, all_l,
+                        );
 
-                        let behind = (all_l as i32) - (new_l as i32);  // how far behind is the
-			            let _ = accepted_sender.send(behind).await;
-			            if new_l >= all_l {
-				            // new processor is further ahead
-				            info!(
-				                "Switching curr_p <- new_p: Nb trades = {}",
-				                new_trades.len()
-				            );
-				            let _ = curr_portfolio_sender
-				                .send((
-                                    new_p.clone(),
-                                    TradeRep(new_trades.clone()),
-                                )).await;
+                        let behind = (all_l as i32) - (new_l as i32); // how far behind is the
+                        let _ = accepted_sender.send(behind).await;
+                        if new_l >= all_l {
+                            // new processor is further ahead
+                            info!(
+                                "Switching curr_p <- new_p: Nb trades = {}",
+                                new_trades.len()
+                            );
+                            let _ = curr_portfolio_sender
+                                .send((new_p.clone(), TradeRep(new_trades.clone())))
+                                .await;
 
-				            self._switch_all_markets().await;  // curr <- new, new <- fut
+                            self._switch_all_markets().await; // curr <- new, new <- fut
                             *curr_portfolio_2.lock().unwrap() = new_p;
-				            *all_trades_2.lock().unwrap() += &new_trades;
-			            } else {
-				            info!("New portfolio behind old one, not switching.");
-			            }
-			        },
-		        }
-		    }
-	    }
+                            *all_trades_2.lock().unwrap() += &new_trades;
+                        } else {
+                            info!("New portfolio behind old one, not switching.");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// processes the trades on the new market.
@@ -252,23 +267,25 @@ where
     ///    fut_mkt_ready_recv: is the futures market ready.
     fn _trade_processor_new(
         &self,
-	    mut new_market_receiver: Receiver<MarketType>,
+        mut new_market_receiver: Receiver<MarketType>,
         mut new_trade_receiver: Receiver<<Self as TradeReduce>::ReductionType>, // receiving new additional trades
-        new_portfolio_sender: Sender<(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)>, // results are sent here
+        new_portfolio_sender: Sender<(
+            PortfolioType,
+            TradeRep<<Self as TradeReduce>::ReductionType>,
+        )>, // results are sent here
         new_publisher: Sender<bool>,
         mut accepted_recv: Receiver<i32>,
-	    mut _fut_mkt_ready_recv: Receiver<bool>,
+        mut _fut_mkt_ready_recv: Receiver<bool>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-    ) -> impl std::future::Future<Output=()> + Send
-        where <Self as TradeReduce>::ReductionType: std::fmt::Debug
+    ) -> impl std::future::Future<Output = ()> + Send
+    where
+        <Self as TradeReduce>::ReductionType: std::fmt::Debug,
     {
         async move {
-
             info!("Starting NEW trade processor.");
             let sleep_duration = core::time::Duration::new(1, 0);
             loop {
-
                 // try to catch the latest _new_mkt, ignore in betweeners.
                 let mut actual_mkt: Option<MarketType> = None;
                 while let Ok(_new_mkt) = new_market_receiver.try_recv() {
@@ -281,28 +298,28 @@ where
                         warn!("No new market, or new_market_receiver dropped.");
                         tokio::task::yield_now().await;
                         let _ = tokio::time::sleep(sleep_duration).await;
-
-                    },
+                    }
                     Some(_new_mkt) => {
                         debug!("Received new market, commencing computations & switching new & fut markets");
-	                    self._switch_new_fut_markets().await;  // switch new market <- fut market
+                        self._switch_new_fut_markets().await; // switch new market <- fut market
 
-	                    // price the trades on the current market
+                        // price the trades on the current market
                         debug!("Pricing trades on the NEW market.");
-                        let (mut new_portfolio, mut all_batches) =
-                            self._new_processor_trade_loop(
-		                        &mut new_trade_receiver,
-		                        metric,
-		                        pricing_options
-		                    ).await;
+                        let (mut new_portfolio, mut all_batches) = self
+                            ._new_processor_trade_loop(
+                                &mut new_trade_receiver,
+                                metric,
+                                pricing_options,
+                            )
+                            .await;
 
-	                    // attempt to send the portfolio to the trade_processor_curr
+                        // attempt to send the portfolio to the trade_processor_curr
                         debug!("Sending new portfolio to curr processor for potential publishing.");
                         let _ = new_portfolio_sender
                             .send((new_portfolio.clone(), TradeRep(all_batches.clone())))
                             .await;
 
-	                    // let ma: Vec<_> = vec![];  // moving average, how far behind are we in this market
+                        // let ma: Vec<_> = vec![];  // moving average, how far behind are we in this market
                         // let mut curr_attempt = 0;
                         // let nb_attempts = 100; // try 5 times before aborting and starting on a new market
                         // info!("FUTURE MKT READY: {:?}", _fut_mkt_ready_recv.try_recv());
@@ -312,13 +329,16 @@ where
                                 info!("New portfolio accepted. Publishing and starting new market loop.");
                             } else {
                                 // attempt with the newest batch
-                                debug!("New portfolio _NOT_ accepted. Retrying w/ additional trades.");
+                                debug!(
+                                    "New portfolio _NOT_ accepted. Retrying w/ additional trades."
+                                );
                                 let (new_portfolio_inner, all_batches_inner) = self
                                     ._new_processor_trade_loop(
                                         &mut new_trade_receiver,
                                         metric,
                                         pricing_options,
-                                    ).await;
+                                    )
+                                    .await;
                                 new_portfolio += new_portfolio_inner;
                                 all_batches += &all_batches_inner;
                                 // try again to send the new portfolio results.
@@ -331,7 +351,7 @@ where
                     }
                 }
             }
-	    }
+        }
     }
 
     /// loop untill all the trade are exhausted on the receiver
@@ -340,7 +360,12 @@ where
         new_trade_receiver: &mut Receiver<<Self as TradeReduce>::ReductionType>,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-    ) -> impl std::future::Future<Output=(PortfolioType, TradeRep<<Self as TradeReduce>::ReductionType>)> + Send {
+    ) -> impl std::future::Future<
+        Output = (
+            PortfolioType,
+            TradeRep<<Self as TradeReduce>::ReductionType>,
+        ),
+    > + Send {
         async move {
             let mut portfolio = PortfolioType::default();
             let mut all_batches = TradeRep::<<Self as TradeReduce>::ReductionType>::default();
@@ -348,12 +373,9 @@ where
             let mut new_batch = self._get_trades_from_recv(new_trade_receiver).await;
 
             while new_batch.len() > 0 {
-                let new_portfolio = self._price_existing_trades(
-                    &new_batch,
-                    metric,
-                    pricing_options,
-                    CurrNewMarket::New,
-                ).await;
+                let new_portfolio = self
+                    ._price_existing_trades(&new_batch, metric, pricing_options, CurrNewMarket::New)
+                    .await;
                 portfolio += new_portfolio;
                 all_batches += &new_batch;
 
@@ -365,11 +387,12 @@ where
     }
 
     fn _get_trades_from_recv(
-	    &self,
-	    trade_receiver: &mut Receiver<<Self as TradeReduce>::ReductionType>,
-    ) -> impl std::future::Future<Output=TradeRep<<Self as TradeReduce>::ReductionType>> + Send {
+        &self,
+        trade_receiver: &mut Receiver<<Self as TradeReduce>::ReductionType>,
+    ) -> impl std::future::Future<Output = TradeRep<<Self as TradeReduce>::ReductionType>> + Send
+    {
         async move {
-            let mut new_trades = TradeRep::<<Self as TradeReduce>::ReductionType >::default();
+            let mut new_trades = TradeRep::<<Self as TradeReduce>::ReductionType>::default();
 
             while let Ok(trade) = trade_receiver.try_recv() {
                 new_trades += &trade;

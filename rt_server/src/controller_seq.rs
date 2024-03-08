@@ -1,35 +1,30 @@
-use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::mpsc::channel;
-use tracing::{info, warn, instrument, error, debug};
 use core::convert::From;
-use std::collections::HashMap;
-use tokio::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex};
-use rdkafka::consumer::{StreamConsumer, CommitMode};
+use rdkafka::consumer::{CommitMode, StreamConsumer};
 use rdkafka::message::BorrowedMessage;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc::channel;
+use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tracing::{debug, error, info, instrument, warn};
 
-
+use crate::market::{CurrNewMarket, MarketGeneral};
+use crate::portfolio::PricingResults;
 use crate::ref_deref::TryFromRef;
 use crate::trade::TradeDirection;
-use crate::portfolio::PricingResults;
-use crate::market::{MarketGeneral, CurrNewMarket,};
 
 use crate::ao_trade::{AOTrade, AOTradeRep};
-use crate::market::{
-    MarketSwitching, MarketType, MktMsgParams,
-};
+use crate::market::{MarketSwitching, MarketType, MktMsgParams};
 use crate::mkt_handler::MktEventHandler;
 use crate::portfolio::PortfolioType;
 use crate::portfolio_sender::connect_with_retries_rd;
-use crate::pricer::{
-    Decoder, MarketPricingOptions, PricingMetric, PricingStruct, RestPricerSpark,
-};
+use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, PricingStruct, RestPricerSpark};
 use crate::process_trade::ObtainMarket;
+use crate::process_trade::ProcessTradeValue;
 use crate::publish::PublishResults;
 use crate::streaming::Streaming;
 use crate::trade::{BaseTrade, TradeReduce, TradeRep};
-use crate::process_trade::ProcessTradeValue;
 
 pub type PricingParams = HashMap<String, f64>;
 
@@ -46,7 +41,7 @@ pub struct ControllerSeq {
     trade_pricer: String,
     metric: PricingMetric,
     curr_mkt: Arc<Mutex<MarketType>>,
-    trades: Arc<Mutex<TradeRep::<AOTradeRep>>>,
+    trades: Arc<Mutex<TradeRep<AOTradeRep>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -79,7 +74,6 @@ impl PublishResults for ControllerSeq {
 }
 
 impl MktEventHandler for ControllerSeq {
-
     /// _handle_mkt_msg - for controller
     ///    the message is sent to update future_market.
     ///    future_market becomes new_market when the trade
@@ -90,10 +84,9 @@ impl MktEventHandler for ControllerSeq {
         new_mkt_sender: Sender<MarketType>,
         _mkt_params: MktMsgParams,
     ) {
-	    **(self.curr_mkt.lock().expect("Could not lock current")) = market_obj.into();
+        **(self.curr_mkt.lock().expect("Could not lock current")) = market_obj.into();
     }
 }
-
 
 // TradeReduce reduces the trade to empty,
 // we dont need any additional information from the trade.
@@ -106,16 +99,11 @@ impl TradeReduce for ControllerSeq {
     }
 }
 
-
-
 // implementation of decoder for results on the portfolio.
 impl Decoder for ControllerSeq {}
 
 impl ObtainMarket for ControllerSeq {
-    fn get_market(
-        &self,
-        curr_new_mkt: CurrNewMarket,
-    ) -> MarketGeneral {
+    fn get_market(&self, curr_new_mkt: CurrNewMarket) -> MarketGeneral {
         MarketGeneral::MarketRemote(curr_new_mkt)
     }
 }
@@ -143,7 +131,6 @@ impl RestPricerSpark<AOTradeRep> for ControllerSeq {
 
 // Controller is generic over MarketType type, which originally was (String, Date)
 impl ControllerSeq {
-
     pub fn new(
         pricing_params_: Option<PricingParams>,
         kafka_server_name: String,
@@ -196,14 +183,13 @@ impl ControllerSeq {
         ))
     }
 
-    fn _process_trade<'a> (
+    fn _process_trade<'a>(
         &'a self,
         trade: AOTradeRep,
         metric: PricingMetric,
         pricing_options: &'a MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> impl std::future::Future<Output=PortfolioType> + Send + 'a {
-
+    ) -> impl std::future::Future<Output = PortfolioType> + Send + 'a {
         async move {
             // let _trade_id = trade.id();
             // let trade_direction = tr.direction();
@@ -242,7 +228,7 @@ impl ControllerSeq {
         metric: PricingMetric,
         pricing_options: &'a MarketPricingOptions,
         result_sender: Sender<(PortfolioType, TradeRep<AOTradeRep>)>,
-    ) -> impl std::future::Future<Output=()> + Send + 'a {
+    ) -> impl std::future::Future<Output = ()> + Send + 'a {
         async move {
             loop {
                 let mut curr_portfolio = PortfolioType::default();
@@ -259,8 +245,10 @@ impl ControllerSeq {
                     curr_portfolio += trade_value;
                 }
                 info!("SENDING {:?}", curr_portfolio);
-                let _ = result_sender.send((curr_portfolio, TradeRep(all_trades))).await;
-                tokio::time::sleep(tokio::time::Duration::new(1,0)).await;
+                let _ = result_sender
+                    .send((curr_portfolio, TradeRep(all_trades)))
+                    .await;
+                tokio::time::sleep(tokio::time::Duration::new(1, 0)).await;
             }
         }
     }
@@ -269,24 +257,24 @@ impl ControllerSeq {
     fn _send_trade_fut<'a>(
         &'a self,
         position_listener: StreamConsumer,
-    ) -> impl std::future::Future<Output=()> + Send + 'a {
+    ) -> impl std::future::Future<Output = ()> + Send + 'a {
         async move {
             loop {
                 let trade = position_listener.recv().await;
                 info!("Got trade: {:?}", trade);
-                let message = trade.unwrap();  // TODO: FIX UNWRAP
-		        match AOTrade::try_from_ref(&message) {
-			        Err(e) => {
-			            warn!("Problem w/ trade: {:?}", e);
-			        }
-			        Ok(trade) => {
-			            info!("Sending trade {:?} to CURR & NEW processor.", &trade);
+                let message = trade.unwrap(); // TODO: FIX UNWRAP
+                match AOTrade::try_from_ref(&message) {
+                    Err(e) => {
+                        warn!("Problem w/ trade: {:?}", e);
+                    }
+                    Ok(trade) => {
+                        info!("Sending trade {:?} to CURR & NEW processor.", &trade);
 
-			            // add trades to trade_reduce
-			            let tr = self.reduce(&trade);
-			            *self.trades.lock().unwrap() += &tr;
-			        }
-		        }
+                        // add trades to trade_reduce
+                        let tr = self.reduce(&trade);
+                        *self.trades.lock().unwrap() += &tr;
+                    }
+                }
                 // match position_listener.commit_message(&message, CommitMode::Async) {
                 //     Ok(_) => {
                 //         debug!("Successful commit of message!");
@@ -295,7 +283,7 @@ impl ControllerSeq {
                 //         error!("Something wrong with {:?}: {:?}", message, e);
                 //     },
                 // }
-		    }
+            }
         }
     }
 
@@ -308,8 +296,7 @@ impl ControllerSeq {
         results_topic: String,
         mkt_params: MktMsgParams,
         pricing_options: &'a MarketPricingOptions,
-    ) -> impl std::future::Future<Output=()> + Send + 'a {
-
+    ) -> impl std::future::Future<Output = ()> + Send + 'a {
         async move {
             let buffer_size = 10000;
 
@@ -317,32 +304,17 @@ impl ControllerSeq {
                 channel::<(PortfolioType, TradeRep<AOTradeRep>)>(buffer_size);
             let bootstrap_servers = format!("{}:{}", self.kafka_server_name(), self.kafka_port(),);
 
-            let position_listener = connect_with_retries_rd(
-                bootstrap_servers.as_str(),
-                position_topic.as_str(),
-            );
-            tokio_scoped::scope(
-                |scope| {
-                    scope.spawn(
-                        self._send_trade_fut(
-                            position_listener
-                        )
-                    );
-                    scope.spawn(
-                        self._price_new_trades(
-                            self.metric,
-                            pricing_options,
-                            curr_portfolio_sender
-                        )
-                    );
-                    scope.spawn(
-                        self._publish_results(
-                            curr_portfolio_recv,
-                            results_topic
-                        )
-                    );
-                }
-            )
+            let position_listener =
+                connect_with_retries_rd(bootstrap_servers.as_str(), position_topic.as_str());
+            tokio_scoped::scope(|scope| {
+                scope.spawn(self._send_trade_fut(position_listener));
+                scope.spawn(self._price_new_trades(
+                    self.metric,
+                    pricing_options,
+                    curr_portfolio_sender,
+                ));
+                scope.spawn(self._publish_results(curr_portfolio_recv, results_topic));
+            })
         }
     }
 }

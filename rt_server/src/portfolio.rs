@@ -1,9 +1,9 @@
 use log::warn;
 use serde::Serialize;
+use std::default::Default;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Deref, DerefMut, Mul, MulAssign, Neg};
 use std::{collections::HashMap, ops::SubAssign};
-use std::default::Default;
 
 use crate::pricer::PricingMetric;
 use crate::ref_deref_trait;
@@ -273,7 +273,6 @@ pub enum PricingResults {
     PV01(PV01Results),
     PnL(PortfolioType), // same as PV type
 }
-
 
 impl PricingResults {
     #[allow(dead_code)]

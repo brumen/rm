@@ -10,12 +10,10 @@ use crate::trader::LETFHedger;
 
 #[allow(dead_code)]
 pub async fn main_letf_trader() {
-
     letf_risk().await;
 }
 
 // start trader w/ RuST_LOG=debug cargo r "CONFIG FILE"
-
 
 /// starts the risk engine of the letf trader.
 async fn letf_risk() {
@@ -32,27 +30,16 @@ async fn letf_risk() {
         pricing_endpoint: "pv".to_owned(),           //config_map.metric.to_owned(),  // "pv"
     };
 
-    tokio_scoped::scope(
-        |scope| {
-            scope.spawn(
-                rtrm_local.hedge(
-                    "letf.positions".to_string(),
-                    "letf.results".to_string(),
-                )
-            );
-            scope.spawn(
-                rtrm_local.start(
-                    config_map.results_topic,
-                    config_map.mkt_topic,
-                    config_map.risk_topic,
-                    market::MktMsgParams::LETFParams(
-                        LETFP {
-                            curr_mkt: Arc::new(Mutex::new(MarketType::new())),
-                        }
-                    ),
-                    &market_pricing_options,
-                )
-            );
-        }
-    );
+    tokio_scoped::scope(|scope| {
+        scope.spawn(rtrm_local.hedge("letf.positions".to_string(), "letf.results".to_string()));
+        scope.spawn(rtrm_local.start(
+            config_map.results_topic,
+            config_map.mkt_topic,
+            config_map.risk_topic,
+            market::MktMsgParams::LETFParams(LETFP {
+                curr_mkt: Arc::new(Mutex::new(MarketType::new())),
+            }),
+            &market_pricing_options,
+        ));
+    });
 }

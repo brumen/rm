@@ -1,5 +1,5 @@
-use rdkafka::message::{BorrowedMessage, Message};
 use log::{debug, error, warn};
+use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
 use std::marker::Sync;
 use std::ops::{Deref, DerefMut};
@@ -8,11 +8,11 @@ use crate::market::{CurrNewMarket, MarketGeneral};
 use crate::portfolio::PV01Results;
 use crate::portfolio::PricingResults;
 use crate::pricer::{Decoder, MarketPricingOptions, PriceTradeAsync, PricingMetric};
+use crate::process_trade::ProcessTradeValue;
 use crate::ref_deref::TryFromRef;
 use crate::ref_deref_trait;
 use crate::trade::BaseTrade;
 use crate::trade::{TradeDirection, TradeError};
-use crate::process_trade::ProcessTradeValue;
 
 // structure of the AOTrade payload, possibly can be simplified.
 //
@@ -54,11 +54,8 @@ impl ProcessTradeValue for AOTrade {
                 MarketGeneral::MarketLocal(_) => panic!(),
             };
 
-            self.value_by_metric(
-                metric,
-                pricing_options,
-                market_remote,
-            ).await
+            self.value_by_metric(metric, pricing_options, market_remote)
+                .await
         }
     }
 }
@@ -73,7 +70,8 @@ impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
         &self,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> Option<f64> {  //impl Future<Output = Option<f64>> + Send {
+    ) -> Option<f64> {
+        //impl Future<Output = Option<f64>> + Send {
         let trade_id = self.id();
 
         let results_pricing = self
@@ -157,7 +155,7 @@ impl TryFromRef<BorrowedMessage<'_>> for AOTrade {
     type Error = TradeError;
 
     fn try_from_ref(value: &BorrowedMessage<'_>) -> Result<Self, Self::Error> {
-	let msg_val = value.payload().unwrap();  // TODO: FIX THIS UNWRAP
+        let msg_val = value.payload().unwrap(); // TODO: FIX THIS UNWRAP
         let msg_utf = std::str::from_utf8(msg_val)?;
         debug!("try_from_ref: Message received: {}", msg_utf);
 
@@ -187,7 +185,6 @@ impl BaseTrade for AOTradeRep {
     }
 }
 
-
 impl ProcessTradeValue for AOTradeRep {
     fn value_by_metric2(
         &self,
@@ -201,11 +198,8 @@ impl ProcessTradeValue for AOTradeRep {
                 MarketGeneral::MarketLocal(_) => panic!(),
             };
 
-            self.value_by_metric(
-                metric,
-                pricing_options,
-                market_remote,
-            ).await
+            self.value_by_metric(metric, pricing_options, market_remote)
+                .await
         }
     }
 }

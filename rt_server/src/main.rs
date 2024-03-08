@@ -1,10 +1,11 @@
 // Starts the controller.
 use tracing::Level;
 
-
 mod ao_risk;
+mod ao_risk_seq;
 mod ao_trade;
 mod controller;
+mod controller_seq;
 mod encdec;
 mod engine;
 mod letf_trader;
@@ -13,6 +14,7 @@ mod mkt_handler;
 mod portfolio;
 mod portfolio_sender;
 mod pricer;
+mod process_trade;
 mod publish;
 mod ref_deref;
 mod rm_local;
@@ -20,13 +22,9 @@ mod streaming;
 mod trade;
 mod trade_procs;
 mod trader;
-mod process_trade;
-mod controller_seq;
-mod ao_risk_seq;
 
 #[tokio::main]
 async fn main() {
-
     // console_subscriber::init();
 
     let tracing_level = Level::INFO;
