@@ -68,7 +68,14 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
             loop {
                 let trade = position_listener.recv().await;
                 debug!("Got trade: {:?}", trade);
-                let message = trade.unwrap(); // TODO: FIX UNWRAP
+                let message = match trade {
+		    Ok(kafka_msg) => kafka_msg,
+		    Err(e) => {
+			error!("Error receiving a message from Kafka: {:?}", e);
+			continue;
+		    },
+		};
+
                 match <Self as TradeReduce>::TradeType::try_from_ref(&message) {
                     Err(e) => {
                         warn!("Problem w/ trade: {:?}", e);
@@ -126,12 +133,12 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
     }
 }
 
+// TODO: CONSIDER AUTO-TRAIT
 impl<T> PortfolioSender for T
 where
     T: Streaming + TradeReduce + std::fmt::Debug + Sync,
     for<'a> <T as TradeReduce>::TradeType: TryFromRef<BorrowedMessage<'a>> + std::fmt::Debug,
-{
-}
+{ }
 
 /// attempts to connect the RDKafka consumer to Kafka
 ///  if it cant, returns the KafkaErr TODO: TO BE CHANGED.

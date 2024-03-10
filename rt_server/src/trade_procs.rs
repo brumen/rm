@@ -43,6 +43,8 @@ where
         )>,
     ) -> impl std::future::Future<Output = ()> + Send;
 
+    /// computes the value of the trade and reports results,
+    /// depending on direction (create, etc.)
     fn _process_trade<TR: Send + Sync + BaseTrade + ProcessTradeValue>(
         &self,
         trade: &TR,
@@ -51,15 +53,11 @@ where
         curr_new_mkt: CurrNewMarket,
     ) -> impl std::future::Future<Output = PortfolioType> + Send {
         async move {
-            // let _trade_id = trade.id();
-            // let trade_direction = tr.direction();
-
             let market = self.get_market(curr_new_mkt);
             let trade_v = trade
                 .value_by_metric2(metric, pricing_options, market)
                 .await;
 
-            // TODO: MAYBE REMOVE OR INCORPORATE
             let trade_v_dir = match trade.direction() {
                 TradeDirection::Create => trade_v,
                 TradeDirection::Delete => -trade_v,
@@ -71,15 +69,6 @@ where
                 PricingResults::PV01(pv01) => pv01.aggregate(),
                 PricingResults::PnL(pnl) => pnl,
             };
-
-            // let mut cp = curr_portfolio.lock().unwrap();
-            //TradeDirection::Create => *cp += trade_portf,
-
-            //match trade_direction {
-            //    TradeDirection::Create => trade_portf,
-            //    TradeDirection::Delete => - trade_portf,
-            //    _ => todo!(),
-            //}
         }
     }
 
@@ -148,6 +137,8 @@ where
         }
     }
 
+    /// processes new trades coming in on the current market. Adds them to
+    /// current portfolio results.
     //#[instrument]
     fn _process_trade_curr(
         &self,
@@ -303,7 +294,7 @@ where
                         debug!("Received new market, commencing computations & switching new & fut markets");
                         self._switch_new_fut_markets().await; // switch new market <- fut market
 
-                        // price the trades on the current market
+                        // price the trades on the new market
                         debug!("Pricing trades on the NEW market.");
                         let (mut new_portfolio, mut all_batches) = self
                             ._new_processor_trade_loop(

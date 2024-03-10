@@ -47,6 +47,7 @@ where
     {
         async move {
             let buffer_size = 10000;
+
             // 2 trade senders, 1 for current market, 1 for new market.
             let (pos_sender_curr, pos_recv_curr) =
                 channel::<<T as TradeReduce>::ReductionType>(buffer_size);

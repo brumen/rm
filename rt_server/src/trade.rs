@@ -1,18 +1,18 @@
 use core::cmp::Eq;
-use tracing::{debug, warn};
 use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::default::Default;
 use std::ops::{AddAssign, Deref, DerefMut};
 use thiserror::Error;
-use std::default::Default;
+use tracing::{debug, warn};
 
-use crate::market::{MarketType, MarketGeneral};
+use crate::market::{MarketGeneral, MarketType};
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
-use crate::pricer::{PriceTrade, Decoder, PricingMetric};
+use crate::pricer::{Decoder, PriceTrade, PricingMetric};
+use crate::process_trade::ProcessTradeValue;
 use crate::ref_deref::TryFromRef;
 use crate::ref_deref_trait;
-use crate::process_trade::ProcessTradeValue;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
@@ -33,6 +33,8 @@ pub enum TradeError {
     CantConvertUtf8(#[from] std::str::Utf8Error),
     #[error("Cant convert to trade type")]
     CantConvertToTrade(#[from] serde_json::Error),
+    #[error("No payload in the message")]
+    NoPayload,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -116,20 +118,19 @@ impl LETFTrade {
     /// stock_value : value of the stock that we are hedging LETF with.
     pub fn hedge(&mut self, market: &MarketType) -> Vec<LETFHedge> {
         let stock_name = &self.stock;
-        let stock_value = market.get(stock_name);
-
-        if stock_value.is_none() {
-            warn!(
-                "hedge: Could not find {:?} in the market. Leaving unhedged: {:?}",
-                stock_name,
-                self,
-            );
-            return vec![]; // Cant do much w/ it.
-        }
+        let stock = match market.get(stock_name) {
+	    None => {
+		warn!(
+                    "hedge: Could not find {:?} in the market. Leaving unhedged: {:?}",
+                    stock_name, self,
+		);
+		return vec![]; // Cant do much w/ it.
+            },
+	    Some(sv) => *sv,
+	};
 
         let trade_id = self.id();
-        let stock = stock_value.unwrap();
-        self.stock_value = Some(*stock); // adding the actual value into the LETF
+        self.stock_value = Some(stock); // adding the actual value into the LETF  WEIRD
         let beta = self.beta;
         let amount = self.amount;
 
@@ -153,7 +154,10 @@ impl TryFromRef<BorrowedMessage<'_>> for TradeTypes {
     type Error = TradeError;
 
     fn try_from_ref(value: &BorrowedMessage) -> Result<Self, Self::Error> {
-	let msg_value = value.payload().unwrap();  // TODO: FIX THIS UNWRAP
+        let msg_value = match value.payload() {
+	    None => {return Err(TradeError::NoPayload);},
+	    Some(msg_payload) => msg_payload,
+	};
         let msg_utf = std::str::from_utf8(msg_value)?;
 
         Ok(serde_json::from_str::<TradeTypes>(msg_utf)?)
@@ -298,35 +302,25 @@ impl ProcessTradeValue for TradeTypes {
         curr_new_mkt: crate::market::MarketGeneral,
     ) -> impl std::future::Future<Output = PricingResults> + Send {
         async move {
-
             // TODO: THIS CAN BE BETTER IMPLEMENTED
             let actual_market = match curr_new_mkt {
-                MarketGeneral::MarketRemote(_) => panic!(),  // we should not be getting this
+                MarketGeneral::MarketRemote(_) => panic!(), // we should not be getting this
                 MarketGeneral::MarketLocal(mkt_local) => mkt_local,
             };
 
             match metric {
                 PricingMetric::PV => {
                     let price = self.price(&actual_market);
-                    PricingResults::PV(
-                        PortfolioType::from([(
-                            self.id(),
-                            price.unwrap(),
-                        )])
-                    )
-                },
+                    PricingResults::PV(PortfolioType::from([(self.id(), price.unwrap())]))
+                }
                 PricingMetric::PV01 => {
                     let pv01 = self.pv01(&actual_market);
                     PricingResults::PV01(pv01)
-                },
+                }
                 PricingMetric::PnL => {
                     let pnl = self.pnl(&actual_market);
-                    PricingResults::PV(
-                        PortfolioType::from([(
-                            self.id(),
-                            pnl.unwrap_or(0.01),
-                        )]))
-                },
+                    PricingResults::PV(PortfolioType::from([(self.id(), pnl.unwrap_or(0.01))]))
+                }
             }
         }
     }

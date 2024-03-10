@@ -59,11 +59,6 @@ where
                 self._handle_mkt_msg(market_obj, new_mkt_sender.clone(), mkt_params.clone())
                     .await;
 
-                // TODO: CHECK THIS AT SOME LATER STAGE???
-                //if let Err(e) = fut_mkt_ready_s.send(true).await {
-                //    warn!("Could not send a message that future market is ready: {:?}", e);
-                //}
-
                 match mkt_listener_.commit_message(&borrowed_msg, CommitMode::Sync) {
                     Ok(_) => {
                         debug!("Successful commit of market message");

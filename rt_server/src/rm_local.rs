@@ -110,7 +110,7 @@ impl MarketSwitching for RTRMLocal {
     }
 
     fn _future_mkt(&self) -> Arc<Mutex<MarketType>> {
-        self.future_market.clone() // TODO: CAN THIS BE DONE W/O cloning???
+        self.future_market.clone()
     }
 }
 
@@ -193,11 +193,9 @@ impl RiskProcessors for RTRMLocal {
             debug!("_trade_processor_curr: Received good trade {:?}", trade);
 
             let new_trade = !all_trades.contains(&trade.id());
-            if new_trade {
-                *all_trades += &trade;
-            }
 
             if new_trade {
+                *all_trades += &trade;
                 *curr_portfolio += self
                     ._process_trade(&trade, metric, pricing_options, curr_new_mkt)
                     .await;
