@@ -33,6 +33,6 @@ async fn main() {
         .init();
 
     // letf_trader::main_letf_trader().await;
-    // ao_risk::ao_main_risk().await;
-    ao_risk_seq::ao_risk_seq().await;
+    ao_risk::ao_main_risk().await;
+    // ao_risk_seq::ao_risk_seq().await;
 }

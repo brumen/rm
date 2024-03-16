@@ -38,19 +38,20 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
             let existing_trades = Arc::new(Mutex::new(TradeRep::<
                 <Self as TradeReduce>::ReductionType,
             >::default()));
-            let existing_trades_2 = Arc::clone(&existing_trades);
-            let sender_new_2 = sender_new.clone();
+            //let existing_trades_2 = Arc::clone(&existing_trades);
+            //let sender_new_2 = sender_new.clone();
 
-            tokio_scoped::scope(|scope| {
-                scope.spawn(self._send_trade_fut(
+            //tokio_scoped::scope(|scope| {
+            //scope.spawn(
+            self._send_trade_fut(
                     position_listener,
                     sender_new,
                     sender_curr,
                     existing_trades,
-                ));
+                ).await;
 
-                scope.spawn(self._resend_value(resend_existing, existing_trades_2, sender_new_2));
-            });
+                //scope.spawn(self._resend_value(resend_existing, existing_trades_2, sender_new_2));
+            //});
         }
     }
 
@@ -69,12 +70,12 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
                 let trade = position_listener.recv().await;
                 debug!("Got trade: {:?}", trade);
                 let message = match trade {
-		    Ok(kafka_msg) => kafka_msg,
-		    Err(e) => {
-			error!("Error receiving a message from Kafka: {:?}", e);
-			continue;
-		    },
-		};
+		            Ok(kafka_msg) => kafka_msg,
+		            Err(e) => {
+			            error!("Error receiving a message from Kafka: {:?}", e);
+			            continue;
+		            },
+		        };
 
                 match <Self as TradeReduce>::TradeType::try_from_ref(&message) {
                     Err(e) => {
@@ -90,6 +91,7 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
                         *existing_trades.lock().unwrap() += &tr;
                     }
                 }
+
                 match position_listener.commit_message(&message, CommitMode::Async) {
                     Ok(_) => {
                         debug!("Successful commit of message!");
@@ -102,35 +104,35 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
         }
     }
 
-    /// future handling the resending of the trades.
-    ///   resend_existing: channel whether to resend.
-    fn _resend_value(
-        &self,
-        mut resend_existing: Receiver<bool>,
-        existing_trades_2: Arc<Mutex<TradeRep<<Self as TradeReduce>::ReductionType>>>,
-        sender_new_2: Sender<<Self as TradeReduce>::ReductionType>,
-    ) -> impl std::future::Future<Output = ()> + Send {
-        async move {
-            loop {
-                let resend = resend_existing.recv().await;
-                match resend {
-                    Some(resend_val) => {
-                        debug!("Got a resend value {}", resend_val);
-                        if resend_val {
-                            // fill sender_new with existing trades
-                            let curr_trades = existing_trades_2.lock().unwrap().clone();
-                            for (_tid, trade) in curr_trades.iter() {
-                                let _ = sender_new_2.send(trade.clone()).await;
-                            }
-                        }
-                    }
-                    None => {
-                        error!("Resend channel problems. This should NOT happen.");
-                    }
-                }
-            }
-        }
-    }
+    // future handling the resending of the trades.
+    //   resend_existing: channel whether to resend.
+    // fn _resend_value(
+    //     &self,
+    //     mut resend_existing: Receiver<bool>,
+    //     existing_trades_2: Arc<Mutex<TradeRep<<Self as TradeReduce>::ReductionType>>>,
+    //     sender_new_2: Sender<<Self as TradeReduce>::ReductionType>,
+    // ) -> impl std::future::Future<Output = ()> + Send {
+    //     async move {
+    //         loop {
+    //             let resend = resend_existing.recv().await;
+    //             match resend {
+    //                 Some(resend_val) => {
+    //                     debug!("Got a resend value {}", resend_val);
+    //                     if resend_val {
+    //                         // fill sender_new with existing trades
+    //                         let curr_trades = existing_trades_2.lock().unwrap().clone();
+    //                         for (_tid, trade) in curr_trades.iter() {
+    //                             let _ = sender_new_2.send(trade.clone()).await;
+    //                         }
+    //                     }
+    //                 }
+    //                 None => {
+    //                     error!("Resend channel problems. This should NOT happen.");
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 // TODO: CONSIDER AUTO-TRAIT
