@@ -263,6 +263,7 @@ where
     ///   accepted_recv:
     ///   metric: which metric is being computed.
     ///   pricing_options: options for the pricing engine.
+    ///    fut_mkt_ready_recv: is the futures market ready to be published.
     fn _trade_processor_new(
         &self,
         mut new_market_receiver: Receiver<MarketType>,
