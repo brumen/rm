@@ -6,7 +6,7 @@ mod ao_risk_seq;
 mod ao_trade;
 mod controller;
 mod controller_seq;
-mod encdec;
+//mod encdec;
 mod engine;
 mod letf_trader;
 mod market;

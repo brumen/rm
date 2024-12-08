@@ -3,7 +3,7 @@
 pub mod ao_trade;
 pub mod controller;
 pub mod controller_seq;
-pub mod encdec;
+// pub mod encdec;
 pub mod engine;
 pub mod market;
 pub mod mkt_handler;
