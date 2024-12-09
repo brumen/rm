@@ -12,7 +12,7 @@ if '/home/brumen/work/' not in sys.path:
 from json import loads
 from enum import Enum
 from requests import get as requests_get
-from typing import List, Dict, Tuple, Any, Optional
+from typing import List, Dict, Tuple, Any, Optional, Generator
 from pyspark import SparkContext, SparkConf
 from sqlalchemy.exc import OperationalError
 from functools import lru_cache
@@ -35,6 +35,7 @@ default_params: Dict[str, Any] = {'default_price': 200., 'nb_sim': 500}
 # ao_session = sessionmaker(bind=ao_engine)
 
 PRICING_SERVER_NAME = 'http://localhost:8000'
+
 
 class CurrNewMarket(Enum):
     CURRENT = 'c'
@@ -153,7 +154,7 @@ def _compute_trades_from_id(
     )
 
 
-@ lru_cache
+@lru_cache
 def _set_spark_env() -> SparkContext:
     """ Creates the spark context.
     """
@@ -242,7 +243,9 @@ def _value_trade_spark(
 
 # TODO: FIX THE RETURN ARGUMENTS OF THIS FUNCTION - THIS ONLY WORKS FOR PV.
 def _price_explicit_trade(
-        trade_mkt_date_mkt_id: Tuple[AOTrade, datetime.date, CurrNewMarket, PriceMetric, ],
+        trade_mkt_date_mkt_id: Tuple[
+            AOTrade, datetime.date, CurrNewMarket, PriceMetric,
+        ],
         server_name: str = PRICING_SERVER_NAME,
 ) -> Dict[str, float]:
     """ Function to be sent to spark to price a trade.
@@ -280,7 +283,7 @@ def price_trades(
         trade_ids: List[int],
         curr_new_mkt: CurrNewMarket,
         metric: PriceMetric = PriceMetric.PV,
-) -> Dict[str, float]:
+) -> Generator[Dict[str, float], None]:
     """ Prices trades using the spark parallelization.
 
     :param trade_ids: trades that should be valued.
@@ -315,10 +318,12 @@ def price_trades(
                 [metric, ] * nb_trades
                 ))\
         .map(_price_explicit_trade)\
-        .collect()  # TODO: YOU CAN REDUCE THIS ON SPARK AS WELL
+        .toLocalIterator()  # trade_vals is a generator
 
-    result_pv = {}
-    for result_trade in trade_vals:
-        result_pv |= result_trade
+    yield from trade_vals
 
-    return result_pv
+    # old stuff
+    # result_pv = {}
+    # for result_trade in trade_vals:
+    #     result_pv |= result_trade
+    # return result_pv

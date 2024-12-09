@@ -70,6 +70,18 @@ ao_engine = create_engine(ao_db)
 ao_session = sessionmaker(bind=ao_engine)
 
 
+def price_trades_json(
+        market_date: datetime.date,
+        trade_ids: List[int],
+        curr_new_mkt: CurrNewMarket,
+        metric: PriceMetric = PriceMetric.PV,
+):
+    for trade_result in price_trades(
+            market_date, trade_ids, curr_new_mkt, metric
+    ):
+        yield dumps(trade_result)
+
+
 def trade_pv_market(
         trade_ids: List[int],
         market_: MARKET_TYPE,
@@ -179,12 +191,10 @@ def trade_pv_spark() -> Response:
 
     # response of the priced trades
     return Response(
-        dumps(
-            price_trades(
-                MKT_DATE,
-                trades,
-                CurrNewMarket.CURRENT
-            )
+        price_trades_json(
+            MKT_DATE,
+            trades,
+            CurrNewMarket.CURRENT
         )
     )
 
@@ -211,15 +221,13 @@ def trade_pv01_spark() -> Response:
     if not trades:  # list is empty
         return Response(dumps({}))
 
-    # response of the priced trades
+    # price_trades is a generator
     return Response(
-        dumps(
-            price_trades(
-                MKT_DATE,
-                trades,
-                CurrNewMarket.CURRENT,
-                PriceMetric.PV01,
-            )
+        price_trades_json(
+            MKT_DATE,
+            trades,
+            CurrNewMarket.CURRENT,
+            PriceMetric.PV01,
         )
     )
 
@@ -241,10 +249,13 @@ def trade_pv_spark_new() -> Response:
     if not trades:
         return Response(dumps({}))
 
-    priced_trades = price_trades(MKT_DATE, trades, CurrNewMarket.NEW)
-    logger.info(f"PV {len(priced_trades.keys())} on NEW market using SPARK.")
-
-    return Response(dumps(priced_trades))
+    return Response(
+        price_trades_json(
+            MKT_DATE,
+            trades,
+            CurrNewMarket.NEW
+        )
+    )
 
 
 @pv_rester.route('/pv01/spark_new', methods=['POST', ])
@@ -264,15 +275,14 @@ def trade_pv01_spark_new() -> Response:
     if not trades:
         return Response(dumps({}))
 
-    priced_trades = price_trades(
-        MKT_DATE,
-        trades,
-        CurrNewMarket.NEW,
-        PriceMetric.PV01,
+    return Response(
+        price_trades_json(
+            MKT_DATE,
+            trades,
+            CurrNewMarket.NEW,
+            PriceMetric.PV01,
+        )
     )
-    logger.info(f"PV01 {len(priced_trades.keys())} on NEW market using SPARK.")
-
-    return Response(dumps(priced_trades))
 
 
 @pv_rester.route('/results', methods=['GET', ])
@@ -363,7 +373,9 @@ def get_future_market() -> Response:
     global FUTURE_MARKET
     if request.method == 'GET':
         return Response(
-            dumps(AOMarketService.encode_from_tuple(FUTURE_MARKET))
+            dumps(
+                AOMarketService.encode_from_tuple(FUTURE_MARKET)
+            )
         )
 
     # post method
