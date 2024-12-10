@@ -18,3 +18,9 @@ pub mod streaming;
 pub mod trade;
 pub mod trade_procs;
 pub mod trader;
+
+// actor framework new
+pub mod trade_sender;
+pub mod mkt_handler_actor;
+pub mod processor_curr;
+pub mod processor_new;

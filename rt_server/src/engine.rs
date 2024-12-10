@@ -1,6 +1,7 @@
 use rdkafka::message::BorrowedMessage;
 use tokio::sync::mpsc::channel;
 use tracing::info;
+use futures::future::join_all;
 
 use crate::market::MarketType;
 use crate::market::MktMsgParams;
@@ -115,4 +116,27 @@ where
             });
         }
     }
+
+    async fn start2(
+        &self,
+        pos_topic: String,     // position topic on kafka
+        mkt_topic: String,     // market topic
+        results_topic: String, // publish the results topic
+        mkt_params: MktMsgParams,
+        pricing_options: &MarketPricingOptions,
+    ) {
+	let (_trade_capture_a, _trade_capture_handle) = Actor::spawn(None, TradeProducer, (1, 2, 3, 4, 5));
+
+	let entire_engine = vec![
+	    _trade_capture_handle,
+	];
+	
+	// start all the actors, not sequentially
+	let result = join_all(entire_engine).await;
+
+	// _trade_capture_handle
+	//     .await
+	//     .expect("Trade capture actor failed");
+    }
+
 }
