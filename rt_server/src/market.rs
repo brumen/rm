@@ -19,7 +19,7 @@ use crate::ref_deref_trait;
 //    it has to be hashable, and it copyable for now
 pub type MarketInner = HashMap<String, f64>;
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct MarketType(pub MarketInner);
 
 impl Into<MarketInner> for MarketType {

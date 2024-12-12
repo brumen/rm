@@ -1,19 +1,18 @@
 use rdkafka::consumer::{CommitMode, Consumer};
-use tokio::sync::mpsc::Sender;
-use tracing::{debug, error, info};
+use tracing::warn;
 use rdkafka::consumer::StreamConsumer;
 
 use ractor::{cast, async_trait, Actor, ActorRef, ActorProcessingErr};
 
+use crate::pricer::MarketPricingOptions;
+use crate::trade::TradeRep;
 use crate::pricer::PricingMetric;
 use crate::market::{MarketType, MktMsgParams};
 use crate::portfolio_sender::connect_with_retries_rd;
+use crate::portfolio::PortfolioType;
 use crate::ref_deref::TryFromRef;
-use crate::streaming::Streaming;
 
 
-/// ProcessorNew is actor representation of the
-///    new processor.
 pub struct MarketProducer<'a, ReductionType>{
     metric: PricingMetric,
     pricing_options: &'a MarketPricingOptions,
@@ -24,7 +23,9 @@ pub struct MarketProducer<'a, ReductionType>{
 
 
 #[async_trait]
-impl<'a, ReductionType> Actor for MarketProducer<'a, ReductionType> {
+impl<'a, ReductionType> Actor for MarketProducer<'a, ReductionType>
+where ReductionType: Send + Sync
+{
     type Msg = MarketType;
     type State = ();
     type Arguments = (String, String, String);
@@ -40,7 +41,8 @@ impl<'a, ReductionType> Actor for MarketProducer<'a, ReductionType> {
         let bootstrap_servers = format!("{}:{}", server_name, server_port);	
         self.mkt_listener = connect_with_retries_rd(&bootstrap_servers, &mkt_topic);
 
-	let new_mkt = self.mkt_listener.recv();
+	let new_mkt_msg = self.mkt_listener.recv().await?;
+	let new_mkt = MarketType::try_from_ref(&new_mkt_msg)?;
 	cast!(myself, new_mkt);
 	
 	Ok(())

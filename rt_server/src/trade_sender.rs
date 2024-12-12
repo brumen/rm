@@ -4,12 +4,13 @@
 
 use tracing::{warn, debug};
 use rdkafka::consumer::StreamConsumer;
-use ractor::{cast, async_trait, Actor, ActorRef, ActorProcessingErr};
+use ractor::{cast, Actor, ActorRef, ActorProcessingErr};
 
 use crate::pricer::PricingMetric;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::MarketPricingOptions;
 use crate::trade::TradeRep;
+use crate::ao_trade::AOTrade;
 
 // new and current processors.
 use crate::processor_curr::{ProcessorCurr, ProcessorCurrMessage};
@@ -20,41 +21,55 @@ use crate::processor_new::{ProcessorNew, ProcessorNewMessage};
 pub struct TradeProducer<'a, ReductionType>{
     metric: PricingMetric,
     pricing_options: &'a MarketPricingOptions,
-    all_trades: TradeRep<ReductionType>,
-    existing_trades: TradeRep<ReductionType>,
     position_listener: StreamConsumer,
-    processor_curr: ProcessorCurr,
-    processor_new: ProcessorNew<'a, ReductionType>,
+    processor_curr: ActorRef<ProcessorCurr<'a, ReductionType>>,
+    processor_new: ActorRef<ProcessorNew<'a, ReductionType>>,
 }
 
 
-#[async_trait]
-impl<'a, ReductionType> Actor for TradeProducer<'a, ReductionType>
+impl<'a, ReductionType> TradeProducer<'a, ReductionType> {
+    fn new(
+	metric: PricingMetric,
+	kafka_server: String,
+	kafka_port: String,
+	pos_topic: String,
+	pricing_options: &'a MarketPricingOptions,
+	processor_curr: ActorRef<ProcessorNew<'a, ReductionType>>,
+	processor_new: ActorRef<ProcessorNew<'a, ReductionType>>,
+    ) -> Self {
+
+        let bootstrap_servers = format!("{}:{}", kafka_server, kafka_port);
+        let position_listener = connect_with_retries_rd(&bootstrap_servers, &pos_topic);
+
+	Self {
+	    metric,
+	    pricing_options,
+	    position_listener,
+	    processor_curr,
+	    processor_new,
+	}
+    }
+}
+
+
+impl<'a, ReductionType, TradeType> Actor for TradeProducer<'a, ReductionType>
 where ReductionType: Send + Sync
 {
-    type Msg = Trade;
-    type State = ();
-    type Arguments = (String, String, String, ProcessorCurr, ProcessorNew);  // initialization args.
+    type Msg = TradeType;
+    type State = TradeRep<ReductionType>;  // list of existing trades.
+    // (kafka server, kafka port, position topic)
+    type Arguments = ();
 
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
-        args: Self::Arguments,
+        _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
-	// creating the connection server.
-	let (kafka_server, kafka_port, pos_topic, processor_curr, processor_new) = args;
-	self.processor_new = processor_new;
-	self.processor_curr = processor_curr;
-        let bootstrap_servers = format!("{}:{}", kafka_server, kafka_port);
-        self.position_listener = connect_with_retries_rd(&bootstrap_servers, &pos_topic);
-
-        self.existing_trades = TradeRep::<ReductionType>::default();
-
 	let trade_1 = self.position_listener.recv();
-        cast!(myself, trade_1)?;  // first message
+        myself.send_message(trade_1)?;  // first message
 
-        Ok(())
+        Ok(TradeRep::default())  // default empty state.
     }
 
     async fn handle(
@@ -63,7 +78,7 @@ where ReductionType: Send + Sync
 	message: Self::Msg,
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr>  {
-	let new_trade = message;
+
         match TradeReduce::TradeType::try_from_ref(&message) {
             Err(e) => {
                 warn!("Problem w/ trade: {:?}. Ignoring this trade!", e);
@@ -72,21 +87,17 @@ where ReductionType: Send + Sync
                 debug!("Sending trade {:?} to CURR & NEW processor.", &trade);
 		
                 // add trades to trade_reduce
-                let tr = self.reduce(&trade);
-		cast!(
-		    self.processor_curr,
-		    ProcessorCurrMessage(NewTrade(tr.clone()))
-		)?;
-                cast!(
-		    self.processor_new,
-		    ProcessorNewMessage(NewTrade(tr.clone()))
-		)?;
+                let tr = trade.reduce();
 
-                *self.existing_trades.lock().unwrap() += &tr;
+		self.processor_curr.send_message(ProcessorCurrMessage::NewTrade(tr.clone()))?;
+		self.processor_new.send_message(ProcessorNewMessage::NewTrade(tr.clone()))?;
+
+                *state += &tr;
             }
         }
-	let new_trade = self.position_listener.recv();
-	cast!(myself, new_trade)?;  // new position attempts to be handled.
+
+	let new_trade = self.position_listener.recv().await;  // gives control to others.
+	myself.send_message(&new_trade)?;
 
 	Ok(())
     }
