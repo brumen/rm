@@ -17,7 +17,7 @@ use crate::streaming::Streaming;
 /// to the results topic.
 pub trait PublishResults: Streaming
 where
-    Self: std::fmt::Debug + Sync,
+    Self: Sync,  // std::fmt::Debug + Sync,
 {
     fn metric(&self) -> PricingMetric;
 
@@ -73,32 +73,6 @@ where
                 let _ = res_publisher.send(market_record2, Timeout::Never).await;
             }
         }
-    }
-
-    /// creates a record from the current portfolio to publish
-    ///    onto the publisher bus.
-    fn _create_record<'a, 'b>(
-	&self,
-	curr_portfolio: &'a PortfolioType,
-	results_topic: &'b String,
-    ) -> Result<FutureRecord<'a, [u8], [u8]>, Error> {
-        let curr_mkt_json = serde_json::ser::to_string(curr_portfolio)?;
-        let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric(), curr_mkt_json);
-
-        // implements bytearray(str(dumps(self.curr_market)), ascii))
-        // TODO: REMOVE THE NEXT 2 lines later.
-        //let market_record =
-        //    kafka::producer::Record::from_value(&results_topic, curr_mkt_pv.as_bytes()).with_partition(0);
-        Ok(
-	    FutureRecord {
-		topic: results_topic,
-		partition: Some(0),
-		payload: Some(curr_mkt_pv.as_bytes()),
-		key: None, // TODO: pub key: Option<&'a K>,
-		timestamp: None,
-		headers: None,
-            }
-	)
     }
 }
 

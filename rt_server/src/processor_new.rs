@@ -1,4 +1,4 @@
-use ractor::{Actor, ActorProcessingErr, ActorRef};
+use ractor::{cast, Actor, ActorProcessingErr, ActorRef};
 
 use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery};
 use crate::portfolio::{PortfolioType, PricingResults};
@@ -6,14 +6,15 @@ use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpar
 use crate::process_trade::{ObtainMarket, ProcessTradeValue};
 use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeRep};
 use crate::processor_curr::{ProcessorCurr, ProcessorCurrMessage};
-use crate::ao_trade::AOTrade;
+use crate::ao_trade::{AOTrade, AOTradeRep};
 use crate::pricer::{PriceTrade, PriceTradeAsync,};
+use crate::market::MarketGeneral;
 
 
 pub struct ProcessorNew{
     metric: PricingMetric,
     pricing_options: MarketPricingOptions,
-    processor_curr: ActorRef<ProcessorCurr>,
+    processor_curr: ActorRef<ProcessorCurrMessage>,
 }
 
 #[derive(Debug, Clone)]
@@ -28,6 +29,8 @@ pub enum ProcessorNewState {
     Idle(MarketType),
 }
 
+
+impl Decoder for ProcessorNew {}
 
 impl<ReductionType> RestPricerSpark<ReductionType> for ProcessorNew
 where
@@ -79,28 +82,42 @@ impl Actor for ProcessorNew
 	// match on what message did we get and what state are we in
 	let (trade_l, portf, pns) = state;
 
+	let market_pricing = MarketPricingOptions {
+	    self._pricing_server_spark(),
+	    self._pricing_server_endpoint(),
+	};
+	
 	match message {
 	    ProcessorNewMessage::NewTrade(new_trade) => {
-		*trade_l += new_trade;  // we add the trade to the list.
+		*trade_l += &new_trade;  // we add the trade to the list.
 
 		match pns {  // what is the processor doing right now.
 		    ProcessorNewState::Calculating(market) => {
 			// add the trade to the new portfolio and
 			//   attempt again.
-			let new_trade_price = new_trade.price(market);
-			portf += new_trade_price;  // portfolio update
-			self.processor_curr.cast(
+			let new_trade_price = new_trade.value_by_metric2(
+			    self.metric, &self.pricing_options, MarketGeneral::MarketRemote(CurrNewMarket::New)
+			).await;
+			*portf += new_trade_price;  // portfolio update
+
+			// we send the computed portfolio & trades to the current processor
+			//   hoping that we are ahead.
+			cast!(
+			    self.processor_curr,
 			    ProcessorCurrMessage::NewTradePortfolio((*trade_l, *portf))
-			);
+			)?;
 		    },
 		    ProcessorNewState::Idle(market) => {
 			// start the new portfolio construction.
 			let new_portfolio = self.price_trades_on_spark(
-			    &trade_l, self.metric, self.pricing_options, CurrNewMarket::New
+			    &trade_l, self.metric, &self.pricing_options, CurrNewMarket::New
 			).await;
 			portf = &mut new_portfolio;
 			pns = &mut ProcessorNewState::Calculating(*market);
-			self.processor_curr.cast((trade_l, portf));
+			cast!(
+			    self.processor_curr,
+			    ProcessorCurrMessage::NewTradePortfolio((*trade_l, *portf))
+			)?;
 		    }
 		}
 	    },
@@ -110,13 +127,16 @@ impl Actor for ProcessorNew
 		    ProcessorNewState::Idle(market) => {
 			// we are idle, we can start calculating, start calculating
 			let new_portfolio = self.price_trades_on_spark(
-			    &trade_l, self.metric, self.pricing_options, CurrNewMarket::New,
+			    &trade_l, self.metric, &self.pricing_options, CurrNewMarket::New,
 			).await;
 			// update the state portfolio, calculating, no new trades.
-			portf = new_portfolio;
+			portf = &mut new_portfolio;
 			pns = &mut ProcessorNewState::Calculating(*market);
 			// send the message to the current processor
-			self.processor_curr.cast((*trade_l, *portf));
+			cast!(
+			    self.processor_curr,
+			    ProcessorCurrMessage::NewTradePortfolio((*trade_l, *portf))
+			)?;
 		    },
 
 		    ProcessorNewState::Calculating(market) => {
