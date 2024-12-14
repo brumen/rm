@@ -7,12 +7,13 @@ use crate::process_trade::{ObtainMarket, ProcessTradeValue};
 use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeRep};
 use crate::processor_curr::{ProcessorCurr, ProcessorCurrMessage};
 use crate::ao_trade::AOTrade;
+use crate::pricer::{PriceTrade, PriceTradeAsync,};
 
 
-pub struct ProcessorNew<'a>{
+pub struct ProcessorNew{
     metric: PricingMetric,
-    pricing_options: &'a MarketPricingOptions,
-    processor_curr: ActorRef<ProcessorCurr<'a>>,
+    pricing_options: MarketPricingOptions,
+    processor_curr: ActorRef<ProcessorCurr>,
 }
 
 #[derive(Debug, Clone)]
@@ -28,10 +29,10 @@ pub enum ProcessorNewState {
 }
 
 
-impl<'a, ReductionType> RestPricerSpark<ReductionType> for ProcessorNew<'a>
+impl<ReductionType> RestPricerSpark<ReductionType> for ProcessorNew
 where
     ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
-    ProcessorNew<'a>: Decoder,
+    ProcessorNew: Decoder,
 {
 
     fn _pricing_server_spark(&self) -> String {
@@ -45,7 +46,7 @@ where
 }
 
 
-impl Actor for ProcessorNew<'_>
+impl Actor for ProcessorNew
 //where ReductionType: PartialEq + Clone + BaseTrade + Send + Sync,
 {
     type Msg = ProcessorNewMessage;

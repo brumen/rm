@@ -1,8 +1,11 @@
 use ractor::{async_trait, cast, Actor, ActorProcessingErr, ActorRef};
 
+use rdkafka::util::Timeout;
+use serde_json::Error;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info, instrument, warn};
+use rdkafka::producer::{FutureProducer, FutureRecord};
 
 use crate::ao_trade::AOTrade;
 use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery};
@@ -10,16 +13,29 @@ use crate::portfolio::{PortfolioType, PricingResults};
 use crate::portfolio_sender::PortfolioSender;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::process_trade::{ObtainMarket, ProcessTradeValue};
+use crate::publish::PublishResults;
 use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeRep};
 use crate::processor_new::{ProcessorNew, ProcessorNewMessage};
+use crate::streaming::Streaming;
 
 /// ProcessorNew is actor representation of the
 ///    new processor.
-pub struct ProcessorCurr<'a>{
+#[derive(Debug)]
+pub struct ProcessorCurr{
     metric: PricingMetric,
-    pricing_options: &'a MarketPricingOptions,
-    new_processor: ActorRef<ProcessorNew<'a>>,
-    // TODO: PUBLISHER IS MISSING!!!
+    pricing_options: MarketPricingOptions,
+    new_processor: ActorRef<ProcessorNew>,
+    result_publisher: FutureProducer,
+}
+
+impl Streaming for ProcessorCurr {
+    fn kafka_server_name(&self) -> String {
+	self.pricing_options.pricing_server.clone()  // TODO: CHECK THE CLONGING HERE!!!
+    }
+
+    fn kafka_port(&self) -> i32 {
+	5000  // TODO: THIS IS WRONG
+    }
 }
 
 pub enum ProcessorCurrMessage {
@@ -27,96 +43,43 @@ pub enum ProcessorCurrMessage {
     NewTradePortfolio((TradeRep<AOTrade>, PortfolioType)),
 }
 
-pub enum ProcessorCurrState {
-    
-}
+impl ProcessorCurr {
 
-pub trait SwitchPortfolio<'a, ReductionType> {
+    async fn _send_portfolio(
+	&self,
+	portf: PortfolioType,
+	results_topic: String
+    ) -> Result<(), Error> {
+	// sends to publisher actor
+	let curr_mkt_json = serde_json::ser::to_string(&portf.clone())?;
+        let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric(), curr_mkt_json);
 
-    fn procs_new(self) -> ProcessorNew<'a, ReductionType>;
+        // implements bytearray(str(dumps(self.curr_market)), ascii))
+        let portf_record = FutureRecord::<'_, [u8], [u8]> {
+		topic: &results_topic,
+		partition: Some(0),
+		payload: Some(curr_mkt_pv.as_bytes()),
+		key: None, // TODO: pub key: Option<&'a K>,
+		timestamp: None,
+		headers: None,
+        };
 
-    async fn _switch_all_markets(self);
-
-    /// number of trades that new processor is behind
-    ///   current processor
-    async fn _new_behind_curr(
-        &self,
-	new_portfolio: (PortfolioType, TradeRep<ReductionType>),
-    ) -> i32 {
-        let (new_p, new_trades) = new_portfolio; 
-        let all_l = self.all_trades.len();  // trades on curr processor
-        let new_l = new_trades.len();  // trades on new processor
-
-	// how far behind is the new processor
-        (all_l as i32) - (new_l as i32);
-        // let _ = accepted_sender.send(behind).await;
-    }
-
-    async fn _possible_portf_switch(
-        &self,
-	new_portfolio: (PortfolioType, TradeRep<ReductionType>),
-        all_trades_2: TradeRep<ReductionType>,
-        curr_portfolio_2: PortfolioType,
-        accepted_sender: Sender<i32>,
-        curr_portfolio_sender: &mut (
-            PortfolioType,
-            TradeRep<ReductionType>,
-        ),
-    ) {
-        // debug!(
-        //     "Trades from NEW processor: {}. Trades on CURR processor: {}",
-        //     new_l, all_l,
-        // );
-
-        let behind = self._new_behind_curr(new_portfolio).await;
-
-	cast!(
-	    self.procs_new(),
-	    ProcessorNewMessage::Behind(behind)
-	);
-
-        // if new_l >= all_l {
-	if behind < 0 {
-            // new processor is further ahead
-            // info!(
-            //     "Switching curr_p <- new_p: Nb trades = {}",
-            //     new_trades.len()
-            // );
-
-            // let _ = curr_portfolio_sender
-            //     .send((new_p.clone(), TradeRep(new_trades.clone())))
-            //     .await;
-	    let (new_p, new_trades) = new_portfolio;
-	    cast!(
-		self.publisher(),
-		(new_p.clone(), TradeRep(new_trades.clone())),
-	    );
-	    
-            self._switch_all_markets().await; // curr <- new, new <- fut
-
-            self.curr_portfolio = new_p;
-            self.all_trades += &new_trades;
-
-        } else {
-            info!(
-		"New portfolio behind old one by {:?}, not switching.",
-		behind
-	    );
-        }
+	self.result_publisher.send(
+	    portf_record, Timeout::Never
+	).await;
     }
 
 }
 
 
-impl<'a, ReductionType> SwitchPortfolio<ReductionType> for ProcessorCurr<'a, ReductionType> {
-
-    fn procs_new(self) -> ProcessorNew<'a,ReductionType> {
-	self.processor_new
+impl PublishResults for ProcessorCurr {
+    fn metric(&self) -> PricingMetric {
+	self.metric
     }
 }
 
 
-impl Actor for ProcessorCurr<'_> {
+impl<'a> Actor for ProcessorCurr {
     type Msg = ProcessorCurrMessage;
     // state is a tuple of current trades,
     //    and current portfolio.
@@ -129,7 +92,7 @@ impl Actor for ProcessorCurr<'_> {
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
-	let initial_trades = TradeRep::<ReductionType>::default();
+	let initial_trades = TradeRep::<AOTrade>::default();
 	let initial_curr_portf = PortfolioType::default();
 
 	Ok((initial_trades, initial_curr_portf))
@@ -157,22 +120,24 @@ impl Actor for ProcessorCurr<'_> {
 		*trades += &trade;
 		*portf += valued_trade;
 
-		// TODO: send to the publisher actor
+		self._send_portfolio(portf.clone(), results_topic);
             },
 
 	    ProcessorCurrMessage::NewTradePortfolio((new_trades, new_portfolio)) => {
-		// Switch portfolios 
-		if self._possible_portf_switch(new_portfolio, ) {
-		    // replace the portfolio w/ new and trades
+		// we got a new portfolio, possibly switch it
+		let new_behind_curr = (new_trades.len() as i32) - (trades.len() as i32);
+		if new_behind_curr > 0 {
+		    self.new_processor.cast(ProcessorNewMessage::Behind(new_behind_curr));
+		} else {
+		    // switch the portfolio
 		    portf = &mut new_portfolio;
-		    trades = &mut new_trades;
+		    trades = &mut new_trades;		    
+
+		    self._send_portfolio(portf.clone(), results_topic);
+		    // TODO: IMPLEMENT THIS CORRECTLY
+		    // self._switch_all_markets().await; // curr <- new, new <- fut
 		}
 	    }
         }
-
-	// sends to publisher actor
-	self.publisher.cast(portf);
-	
-	Ok(())
     }
 }
