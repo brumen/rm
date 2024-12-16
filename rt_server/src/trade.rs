@@ -415,7 +415,7 @@ impl PriceTrade for TradeTypesRep {
 }
 
 /// Internal representations of trades.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct TradeRep<TR>(pub HashMap<String, TR>);
 
 impl<TR> Deref for TradeRep<TR> {

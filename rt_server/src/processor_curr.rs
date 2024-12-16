@@ -1,21 +1,16 @@
-use ractor::{ cast, Actor, ActorProcessingErr, ActorRef};
+use ractor::{ async_trait, cast, Actor, ActorProcessingErr, ActorRef};
 
 use rdkafka::util::Timeout;
-use serde_json::Error;
-use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, error, info, instrument, warn};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 
 use crate::ao_trade::AOTrade;
-use crate::market::{CurrNewMarket, MarketType, TradeMarketDiscovery};
-use crate::portfolio::{PortfolioType, PricingResults};
-use crate::portfolio_sender::PortfolioSender;
+use crate::market::{CurrNewMarket, MarketType};
+use crate::portfolio::PortfolioType;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
-use crate::process_trade::{ObtainMarket, ProcessTradeValue};
+use crate::process_trade::ProcessTradeValue;
 use crate::publish::PublishResults;
-use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeRep};
-use crate::processor_new::{ProcessorNew, ProcessorNewMessage};
+use crate::trade::TradeRep;
+use crate::processor_new::ProcessorNewMessage;
 use crate::streaming::Streaming;
 use crate::market::MarketGeneral;
 
@@ -83,7 +78,8 @@ impl PublishResults for ProcessorCurr {
 }
 
 
-impl<'a> Actor for ProcessorCurr {
+#[async_trait]
+impl Actor for ProcessorCurr {
     type Msg = ProcessorCurrMessage;
     // state is a tuple of current trades,
     //    and current portfolio.
