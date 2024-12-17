@@ -13,10 +13,10 @@ use crate::market::MarketGeneral;
 
 
 pub struct ProcessorNew{
-    metric: PricingMetric,
-    pricing_options: MarketPricingOptions,
-    processor_curr: ActorRef<ProcessorCurrMessage>,
-    processor_bulk: ActorRef<ProcessorBulkMessage>,
+    pub metric: PricingMetric,
+    pub pricing_options: MarketPricingOptions,
+    pub processor_curr: ActorRef<ProcessorCurrMessage>,
+    pub processor_bulk: ActorRef<ProcessorBulkMessage>,
 }
 
 #[derive(Debug, Clone)]
@@ -113,7 +113,7 @@ impl Actor for ProcessorNew
 			cast!(
 			    self.processor_bulk,
 			    ProcessorBulkMessage::NewBulk(
-				(market.clone(), trade_l.clone())
+				(market.clone(), trade_l.clone(), myself)
 			    )
 			);
 
@@ -130,7 +130,7 @@ impl Actor for ProcessorNew
 			// we are idle, we can start calculating, start calculating
 			cast!(
 			    self.processor_bulk,
-			    ProcessorBulkMessage::NewBulk((market.clone(), trade_l.clone()))  // TODO: CAN WE SEND REFERENCES TO MARKET!!!
+			    ProcessorBulkMessage::NewBulk((market.clone(), trade_l.clone(), myself))
 			);
 			*pns = ProcessorNewState::CalculatingBulk(market.clone());
 			// TODO: MAYBE SOMETHING ELSE

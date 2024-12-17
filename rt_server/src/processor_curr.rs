@@ -18,10 +18,9 @@ use crate::market::MarketGeneral;
 /// ProcessorNew is actor representation of the
 ///    new processor.
 pub struct ProcessorCurr{
-    metric: PricingMetric,
-    pricing_options: MarketPricingOptions,
-    new_processor: ActorRef<ProcessorNewMessage>,
-    result_publisher: FutureProducer,
+    pub metric: PricingMetric,
+    pub pricing_options: MarketPricingOptions,
+    pub result_publisher: FutureProducer,
 }
 
 impl Streaming for ProcessorCurr {
@@ -36,7 +35,7 @@ impl Streaming for ProcessorCurr {
 
 pub enum ProcessorCurrMessage {
     NewTrade(AOTrade),
-    NewTradePortfolio((TradeRep<AOTrade>, PortfolioType)),
+    NewTradePortfolio((TradeRep<AOTrade>, PortfolioType, ActorRef<ProcessorCurrMessage>)),
 }
 
 impl ProcessorCurr {
@@ -123,12 +122,12 @@ impl Actor for ProcessorCurr {
 		self._send_portfolio(portf.clone(), results_topic);
             },
 
-	    ProcessorCurrMessage::NewTradePortfolio((new_trades, new_portfolio)) => {
+	    ProcessorCurrMessage::NewTradePortfolio((new_trades, new_portfolio, new_processor)) => {
 		// we got a new portfolio, possibly switch it
 		let new_behind_curr = (new_trades.len() as i32) - (trades.len() as i32);
 		if new_behind_curr > 0 {
 		    cast!(
-			self.new_processor,
+			new_processor,
 			ProcessorNewMessage::Behind(new_behind_curr)
 		    );
 		} else {
