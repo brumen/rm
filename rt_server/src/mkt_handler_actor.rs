@@ -1,6 +1,7 @@
 use rdkafka::consumer::StreamConsumer;
 
 use ractor::{async_trait, cast, Actor, ActorProcessingErr, ActorRef};
+use rdkafka::message::BorrowedMessage;
 
 use crate::pricer::MarketPricingOptions;
 use crate::processor_new::ProcessorNewMessage;
@@ -10,10 +11,10 @@ use crate::ref_deref::TryFromRef;
 
 
 pub struct MarketProducer{
-    metric: PricingMetric,
-    pricing_options: MarketPricingOptions,
-    mkt_listener: StreamConsumer,  // listening for market events.
-    new_processor: ActorRef<ProcessorNewMessage>,
+    pub metric: PricingMetric,
+    pub pricing_options: MarketPricingOptions,
+    pub mkt_listener: StreamConsumer,  // listening for market events.
+    pub new_processor: ActorRef<ProcessorNewMessage>,
 }
 
 
@@ -39,7 +40,7 @@ impl Actor for MarketProducer
 
     async fn handle(
         &self,
-	_myself: ActorRef<Self::Msg>,
+	myself: ActorRef<Self::Msg>,
 	message: Self::Msg,
 	_state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
@@ -61,6 +62,10 @@ impl Actor for MarketProducer
         //     }
         // }
 
+	let new_msg = self.mkt_listener.recv().await?;
+	let new_mkt_msg = MarketType::try_from_ref(&new_msg)?;
+	cast!(myself, new_mkt_msg);
+	
 	Ok(())
     }
 }

@@ -78,7 +78,7 @@ impl Actor for ProcessorNew
 
     async fn handle(
         &self,
-	_myself: ActorRef<Self::Msg>,
+	myself: ActorRef<Self::Msg>,
 	message: Self::Msg,
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
@@ -105,7 +105,9 @@ impl Actor for ProcessorNew
 			//   hoping that we are ahead.
 			cast!(
 			    self.processor_curr,
-			    ProcessorCurrMessage::NewTradePortfolio((trade_l.clone(), portf.clone()))
+			    ProcessorCurrMessage::NewTradePortfolio(
+				(trade_l.clone(), portf.clone(), myself)
+			    )
 			)?;
 		    },
 		    ProcessorNewState::Idle(market) => {
@@ -185,7 +187,9 @@ impl Actor for ProcessorNew
 			
 			cast!(
 			    self.processor_curr,
-			    ProcessorCurrMessage::NewTradePortfolio((trade_l.clone(), portf.clone()))
+			    ProcessorCurrMessage::NewTradePortfolio(
+				(trade_l.clone(), portf.clone(), myself)
+			    )
 			);
 		    },
 		    ProcessorNewState::CalculatingSingle(_market) => {

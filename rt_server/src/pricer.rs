@@ -165,7 +165,7 @@ pub trait PriceTrade: BaseTrade {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MarketPricingOptions {
     pub pricing_server: String,
     pub pricing_endpoint: String,

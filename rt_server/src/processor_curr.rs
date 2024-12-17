@@ -35,7 +35,7 @@ impl Streaming for ProcessorCurr {
 
 pub enum ProcessorCurrMessage {
     NewTrade(AOTrade),
-    NewTradePortfolio((TradeRep<AOTrade>, PortfolioType, ActorRef<ProcessorCurrMessage>)),
+    NewTradePortfolio((TradeRep<AOTrade>, PortfolioType, ActorRef<ProcessorNewMessage>)),
 }
 
 impl ProcessorCurr {

@@ -28,7 +28,7 @@ pub struct TradeProducer{
 
 
 impl TradeProducer {
-    fn new(
+    pub fn new(
 	metric: PricingMetric,
 	kafka_server: String,
 	kafka_port: String,
