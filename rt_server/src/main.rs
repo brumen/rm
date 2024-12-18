@@ -1,5 +1,5 @@
 // Starts the controller.
-use tracing::Level;
+// use tracing::Level;
 
 //mod ao_risk;
 //mod ao_risk_seq;
@@ -32,7 +32,7 @@ pub mod processor_bulk;
 pub mod engine_actor;
 
 
-use crate::market::MktMsgParams;
+// use crate::market::MktMsgParams;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::engine_actor::start2;
 use futures::future::join_all;
@@ -41,11 +41,12 @@ use futures::future::join_all;
 #[tokio::main]
 async fn main() {
 
+    let kafka_server = "localhost:9010".to_string();
     let metric = PricingMetric::PV;
     let pos_topic = "positions".to_string();
     let mkt_topic = "market".to_string();
-    let results_topic = "results".to_string();
-    let mkt_params = MktMsgParams::AOParams();
+    let results_topic = "ao_results".to_string();
+    // let mkt_params = MktMsgParams::AOParams();
     let pricing_options = MarketPricingOptions {
 	pricing_server: "localhost".to_string(),
 	pricing_endpoint: "pv".to_string(),
@@ -53,7 +54,7 @@ async fn main() {
 
     
     let result = start2(
-	metric, pos_topic, mkt_topic, results_topic, mkt_params, &pricing_options,
+	kafka_server, metric, pos_topic, mkt_topic, results_topic, &pricing_options,
     ).await;
     join_all(result).await;
 }

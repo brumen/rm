@@ -17,6 +17,7 @@ use crate::market::MarketGeneral;
 
 pub struct ProcessorCurr{
     pub metric: PricingMetric,
+    pub results_topic: String,
     pub pricing_options: MarketPricingOptions,
     pub result_publisher: FutureProducer,
 }
@@ -42,16 +43,15 @@ impl ProcessorCurr {
     async fn _send_portfolio(
 	&self,
 	portf: PortfolioType,
-	results_topic: String
     ) -> Result<(), KafkaError> {
 	// sends to publisher actor
 	// TODO: ERROR HANDLING HERE
-	let curr_mkt_json = serde_json::ser::to_string(&portf.clone()).unwrap();  // TODO: ? 
+	let curr_mkt_json = serde_json::ser::to_string(&portf.clone()).unwrap();
         let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric, curr_mkt_json);
 
         // implements bytearray(str(dumps(self.curr_market)), ascii))
         let portf_record = FutureRecord::<'_, [u8], [u8]> {
-		topic: &results_topic,
+		topic: &self.results_topic,
 		partition: Some(0),
 		payload: Some(curr_mkt_pv.as_bytes()),
 		key: None, // TODO: pub key: Option<&'a K>,
@@ -103,7 +103,6 @@ impl Actor for ProcessorCurr {
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 	let (trades, portf, _curr_market) = state;
-	let results_topic = "ao_results".to_string();
 	
         match message {
 	    ProcessorCurrMessage::NewTrade(trade) => {
@@ -116,23 +115,24 @@ impl Actor for ProcessorCurr {
 		*trades += &trade;
 		*portf += valued_trade;
 
-		self._send_portfolio(portf.clone(), results_topic).await?
+		self._send_portfolio(portf.clone()).await?
             },
 
 	    ProcessorCurrMessage::NewTradePortfolio((new_trades, new_portfolio, new_processor)) => {
 		// we got a new portfolio, possibly switch it
 		let new_behind_curr = (new_trades.len() as i32) - (trades.len() as i32);
-		if new_behind_curr > 0 {
-		    new_processor.send_message(
-			ProcessorNewMessage::Behind(new_behind_curr)
-		    )?;
-		} else {
+		new_processor.send_message(
+		    ProcessorNewMessage::Behind(new_behind_curr)
+		)?;
+
+		if new_behind_curr < 0 {
 		    // switch the portfolio
 		    *portf = new_portfolio;
 		    *trades = new_trades;
 
-		    self._send_portfolio(portf.clone(), results_topic).await?
-		    // TODO: IMPLEMENT THIS CORRECTLY
+		    // publish portfolio
+		    self._send_portfolio(portf.clone()).await?
+		    // TODO: WHERE DOES THE MARKET SWITCH??? HERE??? 
 		    // self._switch_all_markets().await; // curr <- new, new <- fut
 		}
 	    }

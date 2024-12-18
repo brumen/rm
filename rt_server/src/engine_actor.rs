@@ -1,8 +1,8 @@
 
 use ractor::Actor;
-use tokio::task::{JoinError, JoinHandle};
+use tokio::task::JoinHandle;
 
-use crate::market::MktMsgParams;
+// use crate::market::MktMsgParams;
 use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
@@ -15,12 +15,13 @@ use crate::processor_new::ProcessorNew;
 use crate::processor_bulk::ProcessorBulk;
 
 
+/// initializes all the actors 
 pub async fn start2(
-    metric: PricingMetric,
+    kafka_server: String,  // server including the port.  'localhost:9010'
+    metric: PricingMetric,  // pricing metric, like PV
     pos_topic: String,     // position topic on kafka
     mkt_topic: String,     // market topic
     results_topic: String, // publish the results topic
-    mkt_params: MktMsgParams,
     pricing_options: &MarketPricingOptions,
 ) -> Vec<JoinHandle<()>> {
 
@@ -34,16 +35,15 @@ pub async fn start2(
     ).await
     .expect("Could not start bulk processor");
 
-    let kafka_bootstrap = "localhost:9010".to_string();
-    //let kafka_bootstrap = format!("{}/{}", 1)
     let result_publisher = connect_with_retries_producer_rd(
-	&kafka_bootstrap
+	&kafka_server
     );
     
     let (_processor_curr_a, processor_curr_handle) = Actor::spawn(
 	None,
 	ProcessorCurr {
 	    metric,
+	    results_topic,
 	    pricing_options: (*pricing_options).clone(),
 	    result_publisher,
 	},
@@ -69,7 +69,7 @@ pub async fn start2(
 	    metric,
 	    pricing_options: (*pricing_options).clone(),
 	    mkt_listener: connect_with_retries_rd(
-		&kafka_bootstrap, &mkt_topic
+		&kafka_server, &mkt_topic
 	    ),
 	    new_processor: _processor_new_a.clone(),
 	},
@@ -77,11 +77,8 @@ pub async fn start2(
     ).await
     .expect("Could not start market producer");
     
-    let kafka_server = "localhost".to_string();
-    let kafka_port = 9010.to_string();
     let trade_producer = TradeProducer::new(
 	kafka_server,
-	kafka_port,
 	pos_topic,
 	_processor_curr_a,
 	_processor_new_a,
@@ -98,6 +95,5 @@ pub async fn start2(
 	processor_new_handle,
 	processor_bulk_handle,
 	mkt_producer_handle,
-    ]
-    
+    ]    
 }

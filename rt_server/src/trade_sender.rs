@@ -24,14 +24,11 @@ pub struct TradeProducer{
 impl TradeProducer {
     pub fn new(
 	kafka_server: String,
-	kafka_port: String,
 	pos_topic: String,
 	processor_curr: ActorRef<ProcessorCurrMessage>,
 	processor_new: ActorRef<ProcessorNewMessage>,
     ) -> Self {
-
-        let listener_server = format!("{}:{}", kafka_server, kafka_port);
-        let position_listener = connect_with_retries_rd(&listener_server, &pos_topic);
+        let position_listener = connect_with_retries_rd(&kafka_server, &pos_topic);
 
 	Self {
 	    position_listener,
