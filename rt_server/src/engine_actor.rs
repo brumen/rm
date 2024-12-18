@@ -80,11 +80,9 @@ pub async fn start2(
     let kafka_server = "localhost".to_string();
     let kafka_port = 9010.to_string();
     let trade_producer = TradeProducer::new(
-	metric,
 	kafka_server,
 	kafka_port,
 	pos_topic,
-	(*pricing_options).clone(),
 	_processor_curr_a,
 	_processor_new_a,
     );

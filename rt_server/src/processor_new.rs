@@ -1,4 +1,4 @@
-use ractor::{async_trait, cast, Actor, ActorProcessingErr, ActorRef};
+use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::market::{CurrNewMarket, MarketType};
 use crate::portfolio::PortfolioType;
@@ -53,14 +53,12 @@ where
 }
 
 #[async_trait]
-impl Actor for ProcessorNew
-//where ReductionType: PartialEq + Clone + BaseTrade + Send + Sync,
-{
+impl Actor for ProcessorNew {
     type Msg = ProcessorNewMessage;
     // first argument is list of trades, second is the
-    //   computation state.
+    //   current new portfolio, third is the computation state.
     type State = (TradeRep<AOTrade>, PortfolioType, ProcessorNewState);
-    type Arguments = ();  // initialization args.
+    type Arguments = ();
 
     // initialization of the new processor
     async fn pre_start(
@@ -103,8 +101,7 @@ impl Actor for ProcessorNew
 			
 			// we send the computed portfolio & trades to the current processor
 			//   hoping that we are ahead.
-			cast!(
-			    self.processor_curr,
+			self.processor_curr.send_message(
 			    ProcessorCurrMessage::NewTradePortfolio(
 				(trade_l.clone(), portf.clone(), myself)
 			    )
@@ -112,12 +109,11 @@ impl Actor for ProcessorNew
 		    },
 		    ProcessorNewState::Idle(market) => {
 			// start the new portfolio construction.
-			cast!(
-			    self.processor_bulk,
+			self.processor_bulk.send_message(
 			    ProcessorBulkMessage::NewBulk(
 				(market.clone(), trade_l.clone(), myself)
 			    )
-			);
+			)?;
 
 			*pns = ProcessorNewState::CalculatingBulk(market.clone());
 			*trade_l += &new_trade;
@@ -130,10 +126,9 @@ impl Actor for ProcessorNew
 
 		    ProcessorNewState::Idle(market) => {
 			// we are idle, we can start calculating, start calculating
-			cast!(
-			    self.processor_bulk,
+			self.processor_bulk.send_message(
 			    ProcessorBulkMessage::NewBulk((market.clone(), trade_l.clone(), myself))
-			);
+			)?;
 			*pns = ProcessorNewState::CalculatingBulk(market.clone());
 			// TODO: MAYBE SOMETHING ELSE
 		    },
@@ -184,13 +179,11 @@ impl Actor for ProcessorNew
 
 			*portf = computed_portf;
 			*trade_l = new_trade_l;
-			
-			cast!(
-			    self.processor_curr,
+			self.processor_curr.send_message(
 			    ProcessorCurrMessage::NewTradePortfolio(
 				(trade_l.clone(), portf.clone(), myself)
 			    )
-			);
+			)?;
 		    },
 		    ProcessorNewState::CalculatingSingle(_market) => {
 			// result of computation has arrived.

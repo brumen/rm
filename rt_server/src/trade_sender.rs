@@ -3,11 +3,9 @@
 //   ProcessorNew
 
 use rdkafka::consumer::StreamConsumer;
-use ractor::{async_trait, cast, Actor, ActorProcessingErr, ActorRef};
+use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
-use crate::pricer::PricingMetric;
 use crate::portfolio_sender::connect_with_retries_rd;
-use crate::pricer::MarketPricingOptions;
 use crate::ref_deref::TryFromRef;
 use crate::trade::TradeRep;
 use crate::ao_trade::AOTrade;
@@ -16,11 +14,7 @@ use crate::ao_trade::AOTrade;
 use crate::processor_curr::ProcessorCurrMessage;
 use crate::processor_new::ProcessorNewMessage;
 
-/// ProcessorNew is actor representation of the
-///    new processor.
 pub struct TradeProducer{
-    metric: PricingMetric,
-    pricing_options: MarketPricingOptions,
     position_listener: StreamConsumer,
     processor_curr: ActorRef<ProcessorCurrMessage>,
     processor_new: ActorRef<ProcessorNewMessage>,
@@ -29,21 +23,17 @@ pub struct TradeProducer{
 
 impl TradeProducer {
     pub fn new(
-	metric: PricingMetric,
 	kafka_server: String,
 	kafka_port: String,
 	pos_topic: String,
-	pricing_options: MarketPricingOptions,
 	processor_curr: ActorRef<ProcessorCurrMessage>,
 	processor_new: ActorRef<ProcessorNewMessage>,
     ) -> Self {
 
-        let bootstrap_servers = format!("{}:{}", kafka_server, kafka_port);
-        let position_listener = connect_with_retries_rd(&bootstrap_servers, &pos_topic);
+        let listener_server = format!("{}:{}", kafka_server, kafka_port);
+        let position_listener = connect_with_retries_rd(&listener_server, &pos_topic);
 
 	Self {
-	    metric,
-	    pricing_options,
 	    position_listener,
 	    processor_curr,
 	    processor_new,
@@ -81,12 +71,10 @@ impl Actor for TradeProducer {
         // add trades to trade_reduce
         let tr = message;
 
-	cast!(
-	    self.processor_curr,
+	self.processor_curr.send_message(
 	    ProcessorCurrMessage::NewTrade(tr.clone())
 	)?;
-	cast!(
-	    self.processor_new,
+	self.processor_new.send_message(
 	    ProcessorNewMessage::NewTrade(tr.clone())
 	)?;
 	
