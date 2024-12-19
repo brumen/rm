@@ -127,9 +127,9 @@ impl Actor for ProcessorNew {
 		    ProcessorNewState::Idle(market) => {
 			// we are idle, we can start calculating, start calculating
 			self.processor_bulk.send_message(
-			    ProcessorBulkMessage::NewBulk((market.clone(), trade_l.clone(), myself))
+			    ProcessorBulkMessage::NewBulk((_new_market.clone(), trade_l.clone(), myself))
 			)?;
-			*pns = ProcessorNewState::CalculatingBulk(market.clone());
+			*pns = ProcessorNewState::CalculatingBulk(_new_market.clone());
 			// TODO: MAYBE SOMETHING ELSE
 		    },
 
@@ -181,7 +181,7 @@ impl Actor for ProcessorNew {
 			*trade_l = new_trade_l;
 			self.processor_curr.send_message(
 			    ProcessorCurrMessage::NewTradePortfolio(
-				(trade_l.clone(), portf.clone(), myself)
+				(trade_l.clone(), portf.clone(), _market.clone(), myself)
 			    )
 			)?;
 		    },

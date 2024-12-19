@@ -34,7 +34,7 @@ impl Streaming for ProcessorCurr {
 
 pub enum ProcessorCurrMessage {
     NewTrade(AOTrade),
-    NewTradePortfolio((TradeRep<AOTrade>, PortfolioType, ActorRef<ProcessorNewMessage>)),
+    NewTradePortfolio((TradeRep<AOTrade>, PortfolioType, MarketType, ActorRef<ProcessorNewMessage>)),
 }
 
 impl ProcessorCurr {
@@ -102,13 +102,14 @@ impl Actor for ProcessorCurr {
 	message: Self::Msg,
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-	let (trades, portf, _curr_market) = state;
+	let (trades, portf, market, _curr_market) = state;
 	
         match message {
 	    ProcessorCurrMessage::NewTrade(trade) => {
 
 		let valued_trade = trade.value_by_metric2(
-		    self.metric, &self.pricing_options, MarketGeneral::MarketRemote(CurrNewMarket::New)
+		    self.metric, &self.pricing_options,
+		    MarketGeneral::MarketRemote(CurrNewMarket::Current)
 		).await;
 
 		// updating the portfolio
@@ -118,7 +119,7 @@ impl Actor for ProcessorCurr {
 		self._send_portfolio(portf.clone()).await?
             },
 
-	    ProcessorCurrMessage::NewTradePortfolio((new_trades, new_portfolio, new_processor)) => {
+	    ProcessorCurrMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {
 		// we got a new portfolio, possibly switch it
 		let new_behind_curr = (new_trades.len() as i32) - (trades.len() as i32);
 		new_processor.send_message(
@@ -129,8 +130,9 @@ impl Actor for ProcessorCurr {
 		    // switch the portfolio
 		    *portf = new_portfolio;
 		    *trades = new_trades;
+		    *market = new_market;
 
-		    // publish portfolio
+		    // publish the new portfolio
 		    self._send_portfolio(portf.clone()).await?
 		    // TODO: WHERE DOES THE MARKET SWITCH??? HERE??? 
 		    // self._switch_all_markets().await; // curr <- new, new <- fut
