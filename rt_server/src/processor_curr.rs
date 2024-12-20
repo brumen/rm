@@ -102,7 +102,7 @@ impl Actor for ProcessorCurr {
 	message: Self::Msg,
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-	let (trades, portf, market, _curr_market) = state;
+	let (trades, portf, market, ) = state;
 	
         match message {
 	    ProcessorCurrMessage::NewTrade(trade) => {

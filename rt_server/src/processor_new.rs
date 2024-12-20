@@ -82,8 +82,6 @@ impl Actor for ProcessorNew {
     ) -> Result<(), ActorProcessingErr> {
 
 	// match on what message did we get and what state are we in
-
-	// TODO: THIS IS WRONG HERE!!! MUTABLE REFERENCE PATTERN!!!
 	let (trade_l, portf, pns) = state;
 	
 	match message {
@@ -103,7 +101,7 @@ impl Actor for ProcessorNew {
 			//   hoping that we are ahead.
 			self.processor_curr.send_message(
 			    ProcessorCurrMessage::NewTradePortfolio(
-				(trade_l.clone(), portf.clone(), myself)
+				(trade_l.clone(), portf.clone(), _market.clone(), myself)
 			    )
 			)?;
 		    },
@@ -124,7 +122,7 @@ impl Actor for ProcessorNew {
 	    ProcessorNewMessage::NewMarket(_new_market) => {
 		match pns { // what is the processor doing right now
 
-		    ProcessorNewState::Idle(market) => {
+		    ProcessorNewState::Idle(_market) => {
 			// we are idle, we can start calculating, start calculating
 			self.processor_bulk.send_message(
 			    ProcessorBulkMessage::NewBulk((_new_market.clone(), trade_l.clone(), myself))
