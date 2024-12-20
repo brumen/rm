@@ -9,6 +9,7 @@ start proper server with:
 
 import logging
 import datetime
+import six.moves
 from typing import List, Dict, Any, Tuple, Optional
 from markupsafe import escape
 from flask import Response, request, Flask
@@ -23,6 +24,10 @@ logger.setLevel(logging.DEBUG)
 
 
 import sys
+
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
+
 if '/home/brumen/work/' not in sys.path:
     sys.path.append('/home/brumen/work/')
 

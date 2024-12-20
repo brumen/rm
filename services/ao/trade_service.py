@@ -3,7 +3,11 @@
 
 import sys
 import logging
+import six.moves
 logger = logging.getLogger(__name__)
+
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
 
 sys.path.append('/home/brumen/work/')
 
