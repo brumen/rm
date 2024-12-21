@@ -1,0 +1,51 @@
+#
+#
+
+Starting kafka:
+   in archive/software/kafka start:
+       ./start_kafka
+       ./start_kafka_connect
+
+Starting kafka from the services folder:
+   ./show_msg kafka  (starts kafka & kafka_connect)
+   ./show_msg monitors (starts monitors for kafka)
+
+Trade service:
+    services/ao/trade_service.py
+
+Market script is:
+    services/ao/ao_market_service.py - to start the market service for ao.
+
+The API script is: trade_api.py, single threaded can be spawned as:
+   python3 services/ao/trade_api.py
+
+   # single server:
+      python trade_api_single.py
+   # multuple threads:  - launches on 8000
+      ./trade_api_multi  - launches on 8001
+
+Deploying trade_api.py in multithreading:
+gunicorn -w 8 trade_api:application 
+
+(application is the flask application to be launched).
+Gunnicorn launches on a different port. 
+
+
+Start the controller in the rt_server folder.
+    RUST_LOG=info cargo r > /tmp/ao 2>&1   # this will log messages & errors into /tmp/ao
+
+
+Kafka topics as follows:
+
+    Kafka server is by default on localhost:9092
+
+   - kafka folder: ~/archive/software/kafka/kafka-3.4.0-src/bin/
+   - list topics: ./kafka-topics.sh --list --boostrap-server localhost:9092
+   - list content on topic: ./kafka-console-consumer 
+   
+   -air_options.ao.mkt_events  - market events
+       sample events: {"UA160|20170501": 200.0, "UA150|20170501": 150.0, "UA155|20170501": 150.0}
+
+   - air_options.ao.results - results of the PV, PV01, or PnL computations.
+
+   - air_options.ao.flights_live - flights
