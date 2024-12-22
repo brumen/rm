@@ -1,11 +1,9 @@
 import logging
 
-# IMPORTANT: This logging config MUST BE HERE ON TOP, OTHERWISE IT DOES NOT WORK
 logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
 import sys

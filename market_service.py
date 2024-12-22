@@ -13,7 +13,6 @@ from kafka.errors import NoBrokersAvailable
 from kafka.consumer.fetcher import ConsumerRecord
 from json import loads, dumps
 
-
 logger = getLogger(__name__)
 
 
@@ -140,11 +139,12 @@ class MarketService:
                 self.__prev_market_id = self.__new_market_id
                 self.__new_market_id = uuid4()
                 self.__new_market_snap_time = datetime.datetime.now()
-                logger.info(f"_operate_markets: Market sent: {self.encode_mkt()}")
-                print("Sending message");
+                mkt_sent = self.encode_mkt()
+                logger.warn(f"_operate_markets: Market sent: {mkt_sent}")
+                # print("MARKET SENT", mkt_sent)
                 self.__mkt_producer.send(
                     self.__mkt_producer_topic,
-                    value=bytearray(str(self.encode_mkt()), 'ascii'),
+                    value=bytearray(str(mkt_sent), 'ascii'),
                 )
 
             else:

@@ -283,7 +283,7 @@ def price_trades(
         trade_ids: List[int],
         curr_new_mkt: CurrNewMarket,
         metric: PriceMetric = PriceMetric.PV,
-) -> Generator[Dict[str, float], None]:
+) -> Generator[Dict[str, float], None, Dict]:
     """ Prices trades using the spark parallelization.
 
     :param trade_ids: trades that should be valued.
