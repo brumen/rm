@@ -51,12 +51,12 @@ async fn main() {
     info!("Starting main system controller.");
     let kafka_server = "localhost:9092".to_string();
     let metric = PricingMetric::PV;
-    let pos_topic = "air_options.ao.positions".to_string();
+    let pos_topic = "air_options.ao.option_positions".to_string();
     let mkt_topic = "air_options.ao.mkt_events".to_string();
     let results_topic = "air_options.ao.results".to_string();
     // let mkt_params = MktMsgParams::AOParams();
     let pricing_options = MarketPricingOptions {
-	pricing_server: "localhost".to_string(),
+	pricing_server: "localhost:8000".to_string(),
 	pricing_endpoint: "pv".to_string(),
     };
 
