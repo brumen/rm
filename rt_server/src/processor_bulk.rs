@@ -1,4 +1,5 @@
 /// Processor which gets a bulk of work, and finishes it.
+use tracing::{info, debug};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::market::{CurrNewMarket, MarketType};
@@ -18,6 +19,7 @@ pub enum ProcessorBulkMessage {
     NewBulk((MarketType, TradeRep<AOTrade>, ActorRef<ProcessorNewMessage>))
 }
 
+#[derive(Debug)]
 pub enum ProcessorBulkState {
     Calculating(MarketType),
     Idle,
@@ -55,6 +57,8 @@ impl Actor for ProcessorBulk
         _myself: ActorRef<Self::Msg>,
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
+
+	info!("Initializing ProcessorBulk");
 	Ok(())
     }
 
@@ -67,9 +71,11 @@ impl Actor for ProcessorBulk
 
 	let ProcessorBulkMessage::NewBulk((_market, new_trades, processor_new)) = message;
 	// start the long-running pricing procedure
+	debug!("BULK Processor TRADES: {:?}", new_trades);
 	let new_portfolio = self.price_trades_on_spark(
 	    &new_trades, self.metric, &self.pricing_options, CurrNewMarket::New,
 	).await;
+	debug!("BULK Processor TO NEW: {:?}", new_portfolio);
 	processor_new.send_message(
 	    ProcessorNewMessage::BulkReceive(
 		(new_trades, new_portfolio)

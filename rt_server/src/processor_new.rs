@@ -28,6 +28,7 @@ pub enum ProcessorNewMessage {
     BulkReceive((TradeRep<AOTrade>, PortfolioType)),  // message from Bulk computation
 }
 
+#[derive(Debug)]
 pub enum ProcessorNewState {
     CalculatingSingle(MarketType),  // when bulk has finished and we're only calculating single trades.
     CalculatingBulk(MarketType),  // when we're still calculating bulk
@@ -82,9 +83,13 @@ impl Actor for ProcessorNew {
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	info!("NEW PROCESOR GETTING MESSAGE");
+	debug!("NEW Processor MSG: {:?}", message);
+	
 	// match on what message did we get and what state are we in
 	let (trade_l, portf, pns) = state;
+
+	debug!("NEW Processor STATE: {:?}", pns);
+	debug!("NEW Processor TRADES: {:?}", trade_l);
 	
 	match message {
 	    ProcessorNewMessage::NewTrade(new_trade) => {
@@ -133,6 +138,14 @@ impl Actor for ProcessorNew {
 			// TODO: MAYBE SOMETHING ELSE
 		    },
 
+		    ProcessorNewState::CalculatingSingle(_market) => {
+			// attempt to send it to processor current
+			self.processor_curr.send_message(
+			    ProcessorCurrMessage::NewTradePortfolio(
+				(trade_l.clone(), portf.clone(), _market.clone(), myself)
+			    )
+			)?;  //(TradeRep<AOTrade>, PortfolioType, MarketType, ActorRef<ProcessorNewMessage>)),
+		    }
 		    // ignore if new market comes in, no
 		    //   action taken.
 		    _ => {},
@@ -184,6 +197,7 @@ impl Actor for ProcessorNew {
 				(trade_l.clone(), portf.clone(), _market.clone(), myself)
 			    )
 			)?;
+			*pns = ProcessorNewState::CalculatingSingle(_market.clone());
 		    },
 		    ProcessorNewState::CalculatingSingle(_market) => {
 			// result of computation has arrived.
