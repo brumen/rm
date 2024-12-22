@@ -2,6 +2,7 @@
 // Trade producer, reads from kafka and informs ProcessorCurr and
 //   ProcessorNew
 
+use tracing::info;
 use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
@@ -28,7 +29,9 @@ impl TradeProducer {
 	processor_curr: ActorRef<ProcessorCurrMessage>,
 	processor_new: ActorRef<ProcessorNewMessage>,
     ) -> Self {
-        let position_listener = connect_with_retries_rd(&kafka_server, &pos_topic);
+
+	info!("Starting trade producer on {:?}", pos_topic);
+	let position_listener = connect_with_retries_rd(&kafka_server, &pos_topic);
 
 	Self {
 	    position_listener,
@@ -51,8 +54,10 @@ impl Actor for TradeProducer {
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
+	info!("Initiating TradeProducer");
 	let trade_msg = self.position_listener.recv().await?;
 	let trade_1 = AOTrade::try_from_ref(&trade_msg)?;
+	info!("First trade: {:?}", trade_1);
         myself.send_message(trade_1)?;  // first message
 
         Ok(TradeRep::default())  // default empty state.
