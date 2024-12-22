@@ -4,6 +4,8 @@
 import sys
 import logging
 import six.moves
+
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 if sys.version_info >= (3, 12, 0):
