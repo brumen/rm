@@ -1,3 +1,4 @@
+use tracing::{info, debug};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::market::{CurrNewMarket, MarketType};
@@ -81,6 +82,7 @@ impl Actor for ProcessorNew {
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
+	info!("NEW PROCESOR GETTING MESSAGE");
 	// match on what message did we get and what state are we in
 	let (trade_l, portf, pns) = state;
 	

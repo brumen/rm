@@ -1,3 +1,6 @@
+use std::error::Error;
+
+use tracing::{info, debug, error};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use rdkafka::error::KafkaError;
@@ -11,7 +14,6 @@ use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
 use crate::trade::TradeRep;
 use crate::processor_new::ProcessorNewMessage;
-use crate::streaming::Streaming;
 use crate::market::MarketGeneral;
 
 
@@ -20,16 +22,6 @@ pub struct ProcessorCurr{
     pub results_topic: String,
     pub pricing_options: MarketPricingOptions,
     pub result_publisher: FutureProducer,
-}
-
-impl Streaming for ProcessorCurr {
-    fn kafka_server_name(&self) -> String {
-	self.pricing_options.pricing_server.clone()  // TODO: CHECK THE CLONGING HERE!!!
-    }
-
-    fn kafka_port(&self) -> i32 {
-	5000  // TODO: THIS IS WRONG
-    }
 }
 
 pub enum ProcessorCurrMessage {
@@ -45,8 +37,7 @@ impl ProcessorCurr {
 	portf: PortfolioType,
     ) -> Result<(), KafkaError> {
 	// sends to publisher actor
-	// TODO: ERROR HANDLING HERE
-	let curr_mkt_json = serde_json::ser::to_string(&portf.clone()).unwrap();
+	let curr_mkt_json = serde_json::ser::to_string(&portf.clone()).unwrap();  // TODO: HANDLE EXCEPTIONS HERE!!
         let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric, curr_mkt_json);
 
         // implements bytearray(str(dumps(self.curr_market)), ascii))

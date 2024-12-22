@@ -1,8 +1,9 @@
-use log::{debug, error, warn};
+use tracing::{info, debug, error, warn};
 use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
 use std::marker::Sync;
 use std::ops::{Deref, DerefMut};
+
 
 use crate::market::{CurrNewMarket, MarketGeneral};
 use crate::portfolio::PV01Results;
@@ -71,13 +72,11 @@ impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
     ) -> Option<f64> {
-        //impl Future<Output = Option<f64>> + Send {
         let trade_id = self.id();
-
         let results_pricing = self
             ._pricing_request(PricingMetric::PV, pricing_options, curr_new_mkt)
             .await;
-
+	
         match results_pricing {
             Ok(result_price) => {
                 let unwrapped_price = self
