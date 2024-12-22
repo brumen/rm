@@ -1,6 +1,7 @@
 
 use ractor::Actor;
 use tokio::task::JoinHandle;
+use tracing::info;
 
 // use crate::market::MktMsgParams;
 use crate::mkt_handler_actor::MarketProducer;
@@ -63,14 +64,16 @@ pub async fn start2(
     ).await
     .expect("Could not start new processor");
 
+    info!("Connecting to market topic {:?}", mkt_topic);
+    let mkt_listener = connect_with_retries_rd(
+	&kafka_server, &mkt_topic
+    );
     let (_mkt_producer_a, mkt_producer_handle) = Actor::spawn(
 	None,
 	MarketProducer {
 	    metric,
 	    pricing_options: (*pricing_options).clone(),
-	    mkt_listener: connect_with_retries_rd(
-		&kafka_server, &mkt_topic
-	    ),
+	    mkt_listener,
 	    new_processor: _processor_new_a.clone(),
 	},
 	(),

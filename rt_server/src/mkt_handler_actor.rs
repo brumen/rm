@@ -1,3 +1,4 @@
+use tracing::info;
 use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
@@ -28,6 +29,7 @@ impl Actor for MarketProducer {
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
+	info!("Initializing MarketProducer. Waiting on first message");
 	let new_mkt_msg = self.mkt_listener.recv().await?;
 	let new_mkt = MarketType::try_from_ref(&new_mkt_msg)?;
 	myself.send_message(new_mkt)?;
@@ -42,8 +44,7 @@ impl Actor for MarketProducer {
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	// let market_obj = MarketType::try_from_ref(&message)?;
-    
+	info!("Handling market message: {:?}", message);
 	let market = state;
 	*market += &message;  // adding the new market message to the market.
 	self.new_processor.send_message(
