@@ -1,7 +1,5 @@
 use rdkafka::consumer::StreamConsumer;
-
-use ractor::{async_trait, cast, Actor, ActorProcessingErr, ActorRef};
-use rdkafka::message::BorrowedMessage;
+use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::pricer::MarketPricingOptions;
 use crate::processor_new::ProcessorNewMessage;
@@ -19,8 +17,7 @@ pub struct MarketProducer{
 
 
 #[async_trait]
-impl Actor for MarketProducer
-{
+impl Actor for MarketProducer {
     type Msg = MarketType;
     type State = MarketType;
     type Arguments = ();
@@ -33,7 +30,7 @@ impl Actor for MarketProducer
 
 	let new_mkt_msg = self.mkt_listener.recv().await?;
 	let new_mkt = MarketType::try_from_ref(&new_mkt_msg)?;
-	cast!(myself, new_mkt);
+	myself.send_message(new_mkt)?;
 	
 	Ok(MarketType::new())
     }
@@ -42,29 +39,21 @@ impl Actor for MarketProducer
         &self,
 	myself: ActorRef<Self::Msg>,
 	message: Self::Msg,
-	_state: &mut Self::State,
+	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-        // let market_obj = MarketType::try_from_ref(&message)?;
+	// let market_obj = MarketType::try_from_ref(&message)?;
+    
+	let market = state;
+	*market += &message;  // adding the new market message to the market.
+	self.new_processor.send_message(
+	    ProcessorNewMessage::NewMarket(market.clone())
+	)?;
 
-	cast!(
-	    self.new_processor,
-	    ProcessorNewMessage::NewMarket(message)
-	);
-
-	// TODO: ONE HAS TO COMMIT? CHECK IF REALLY NEC?
-        // match self.mkt_listener_.commit_message(&borrowed_msg, CommitMode::Sync) {
-        //     Ok(_) => {
-        //         debug!("Successful commit of market message");
-        //     }
-        //     Err(e) => {
-        //         error!("Message could not be committed to Kafka. Continuing in best hopes: {:?}", e);
-        //     }
-        // }
-
+	// wait for new message
 	let new_msg = self.mkt_listener.recv().await?;
 	let new_mkt_msg = MarketType::try_from_ref(&new_msg)?;
-	cast!(myself, new_mkt_msg);
+	myself.send_message(new_mkt_msg)?;
 	
 	Ok(())
     }
