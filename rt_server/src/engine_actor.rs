@@ -26,6 +26,7 @@ pub async fn start2(
     pricing_options: &MarketPricingOptions,
 ) -> Vec<JoinHandle<()>> {
 
+    info!("Starting bulk processor.");
     let (_processor_bulk_a, processor_bulk_handle) = Actor::spawn(
 	None,
 	ProcessorBulk {

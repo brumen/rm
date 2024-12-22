@@ -33,6 +33,8 @@ pub mod engine_actor;
 
 
 // use crate::market::MktMsgParams;
+use tracing::{info, Level};
+use tracing_subscriber;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::engine_actor::start2;
 use futures::future::join_all;
@@ -41,6 +43,12 @@ use futures::future::join_all;
 #[tokio::main]
 async fn main() {
 
+    let tracing_level = Level::INFO;
+    tracing_subscriber::fmt()
+        .with_max_level(tracing_level)
+        .init();
+
+    info!("Starting main system controller.");
     let kafka_server = "localhost:9092".to_string();
     let metric = PricingMetric::PV;
     let pos_topic = "air_options.ao.positions".to_string();
@@ -53,8 +61,8 @@ async fn main() {
     };
 
 
-    let result = start2(
+   let result = start2(
 	kafka_server, metric, pos_topic, mkt_topic, results_topic, &pricing_options,
-    ).await;
-    join_all(result).await;
+   ).await;
+   join_all(result).await;
 }
