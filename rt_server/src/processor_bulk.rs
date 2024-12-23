@@ -1,6 +1,7 @@
 /// Processor which gets a bulk of work, and finishes it.
 use tracing::{info, debug};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
+use std::fmt::Display;
 
 use crate::market::{CurrNewMarket, MarketType};
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
@@ -40,8 +41,25 @@ where
     }
 
     fn _pricing_endpoint_spark(&self, market_: CurrNewMarket, metric: PricingMetric) -> String {
-	// TODO: THIS IS PROBABLY WRONG!!!
-	format!("{}/{:?}/{}", self.pricing_options.pricing_endpoint, market_, metric)
+
+	let metric_display = match metric {
+	    PricingMetric::PV => "pv".to_string(),
+	    PricingMetric::PV01 => "pv01".to_string(),
+	    PricingMetric::PnL => "pnl".to_string(),
+	};
+
+	let endpoint = match market_ {
+	    CurrNewMarket::Current => format!("{}/", metric_display),
+	    CurrNewMarket::New => format!("{}/new", metric_display)
+	};
+	
+	let endpoint = format!(
+	    "{}/{}",
+	    <ProcessorBulk as RestPricerSpark<ReductionType>>::_pricing_server_spark(self),
+	    endpoint
+	);
+	debug!("ENDPOINT = {:?}", endpoint);
+	endpoint
     }
 }
 
