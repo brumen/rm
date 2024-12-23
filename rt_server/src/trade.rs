@@ -3,7 +3,7 @@ use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default::Default;
-use std::ops::{AddAssign, Deref, DerefMut};
+use std::ops::{AddAssign, Deref, DerefMut, SubAssign, Sub};
 use thiserror::Error;
 use tracing::{debug, warn};
 
@@ -470,6 +470,30 @@ impl<TR: Clone + BaseTrade> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
         }
     }
 }
+
+impl<TR: Clone + BaseTrade> SubAssign<&TradeRep<TR>> for TradeRep<TR> {
+    fn sub_assign(&mut self, other: &TradeRep<TR>) {
+        for (trade_id, _) in other.iter() {
+	    self.remove(trade_id); 
+	}
+    }
+}
+
+impl<TR: Clone + BaseTrade> Sub<&TradeRep<TR>> for TradeRep<TR> {
+    type Output = Self;
+
+    fn sub(self, other: &TradeRep<TR>) -> Self::Output {
+	// create a separate hashmap.
+	let mut res_traderep = Self::default();
+	for (trade_id, trade_rr) in self.iter() {
+	    if !other.contains(trade_id) {
+		res_traderep.insert(trade_id.clone(), trade_rr.clone());  // TODO: CHECK IF CLONE IS GOOD!!!
+	    }
+	}
+	res_traderep
+    }
+}
+
 
 impl<TR: Clone + BaseTrade> AddAssign<&TR> for TradeRep<TR> {
     fn add_assign(&mut self, other: &TR) {

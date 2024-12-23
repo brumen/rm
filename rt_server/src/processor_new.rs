@@ -24,7 +24,7 @@ pub struct ProcessorNew{
 pub enum ProcessorNewMessage {
     NewTrade(AOTrade),
     NewMarket(MarketType),
-    Behind(i32),  // message from ProcessorCurr
+    Behind(TradeRep<AOTrade>),  // message from ProcessorCurr, missing trades to calculate.
     BulkReceive((TradeRep<AOTrade>, PortfolioType)),  // message from Bulk computation
 }
 
@@ -152,37 +152,79 @@ impl Actor for ProcessorNew {
 		}
 	    },
 
-	    ProcessorNewMessage::Behind(behind) => {
+	    // this only comes from ProcessorBulk, so we already launched a bulk request.
+	    ProcessorNewMessage::Behind(trades_behind) => {
 		// we are behind trades behind the current processor
 		match pns { // what is the processor doing right now
 		    ProcessorNewState::CalculatingSingle(market) => {
-			if behind < 0 {
+			// TODO: HERE PERHAPS CONSIDER DEPENDING ON HOW MANY
+			// TRADES ARE BEHIND,
+			//    < 10 -> continue in single mode
+			//    > 10 -> continue in bulk mode.
+			if trades_behind.is_empty() {
 			    // new processor is ahead, reset the
 			    //    new processor to the new default state.
 			    *portf = PortfolioType::default();
-			    *pns = ProcessorNewState::Idle(market.clone());  // TODO: CHECK THIS CLONE
-			    // TODO: CONSIDER TRADES!!!
-			}  // otherwise dont do anything.
+			    *pns = ProcessorNewState::Idle(market.clone());
+			} else {
+			    // we are still behind the current processor.
+			    self.processor_bulk.send_message(
+				ProcessorBulkMessage::NewBulk(
+				    (market.clone(), trades_behind.clone(), myself)
+				)
+			    )?;
+			    *pns = ProcessorNewState::CalculatingBulk(market.clone());
+			    *trade_l += &trades_behind;
+			}
 		    },
 
 		    ProcessorNewState::CalculatingBulk(market) => {
-			if behind < 0 {
+			if trades_behind.is_empty() {
 			    // new processor is ahead, reset the
 			    //    new processor to the new default state.
 			    *portf = PortfolioType::default();
-			    *pns = ProcessorNewState::Idle(market.clone());  // TODO: CHECK THIS 
-			    // TODO: CONSIDER TRADES!!!
-			    
-			}  // otherwise dont do anything.
+			    *pns = ProcessorNewState::Idle(market.clone());			    
+			} else {
+			    // new processor is behind, calculate the remaining trades.
+			    // we are still behind the current processor.
+			    self.processor_bulk.send_message(
+				ProcessorBulkMessage::NewBulk(
+				    (market.clone(), trades_behind.clone(), myself)
+				)
+			    )?;
+			    *pns = ProcessorNewState::CalculatingBulk(market.clone());
+			    *trade_l += &trades_behind;
+			}
 		    },
-		    _ => {},
+
+		    ProcessorNewState::Idle(market) => {
+			if !trades_behind.is_empty() {
+			    self.processor_bulk.send_message(
+				ProcessorBulkMessage::NewBulk(
+				    (market.clone(), trades_behind.clone(), myself)
+				)
+			    )?;
+			    *pns = ProcessorNewState::CalculatingBulk(market.clone());
+			    *trade_l += &trades_behind;
+			}
+		    },
 		}
 	    },
 
 	    ProcessorNewMessage::BulkReceive((new_trade_l, computed_portf)) => {
 		match pns {
+		    
 		    ProcessorNewState::Idle(_market) => {
-			// TODO: WEIRD THIS SHOULDNT BE HERE
+		    // 	*portf = computed_portf;
+		    // 	*trade_l += &new_trade_l;
+		    // 	self.processor_curr.send_message(
+		    // 	    ProcessorCurrMessage::NewTradePortfolio(
+		    // 		(trade_l.clone(), portf.clone(), _market.clone(), myself)
+		    // 	    )
+		    // 	)?;
+		    // 	*pns = ProcessorNewState::CalculatingSingle(_market.clone());
+			
+			// TODO: ThE ABOVE SHOULDNT HAPPEN,
 			panic!("Received bulk while state = Idle");
 		    },
 
@@ -190,8 +232,8 @@ impl Actor for ProcessorNew {
 			// result of computation has arrived.
 			// TODO: FINISH THIS HERE!!!
 
-			*portf = computed_portf;
-			*trade_l = new_trade_l;
+			*portf += &computed_portf;
+			*trade_l += &new_trade_l;
 			self.processor_curr.send_message(
 			    ProcessorCurrMessage::NewTradePortfolio(
 				(trade_l.clone(), portf.clone(), _market.clone(), myself)

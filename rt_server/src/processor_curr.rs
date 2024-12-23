@@ -26,7 +26,9 @@ pub struct ProcessorCurr{
 
 pub enum ProcessorCurrMessage {
     NewTrade(AOTrade),
-    NewTradePortfolio((TradeRep<AOTrade>, PortfolioType, MarketType, ActorRef<ProcessorNewMessage>)),
+    NewTradePortfolio(
+	(TradeRep<AOTrade>, PortfolioType, MarketType, ActorRef<ProcessorNewMessage>)
+    ),
 }
 
 impl ProcessorCurr {
@@ -112,22 +114,22 @@ impl Actor for ProcessorCurr {
 
 	    ProcessorCurrMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {
 		// we got a new portfolio, possibly switch it
-		let new_behind_curr = (new_trades.len() as i32) - (trades.len() as i32);
+		let new_behind_curr = new_trades.clone() - trades;
 		new_processor.send_message(
-		    ProcessorNewMessage::Behind(new_behind_curr)
+		    ProcessorNewMessage::Behind(new_behind_curr.clone())
 		)?;
 
-		if new_behind_curr < 0 {
+		if !new_behind_curr.is_empty() {
 		    // switch the portfolio
 		    *portf = new_portfolio;
-		    *trades = new_trades;
+		    *trades += &new_trades;
 		    *market = new_market;
 
 		    // publish the new portfolio
 		    self._send_portfolio(portf.clone()).await?
 		    // TODO: WHERE DOES THE MARKET SWITCH??? HERE??? 
 		    // self._switch_all_markets().await; // curr <- new, new <- fut
-		}
+		} // otherwise dont do anything.
 	    }
         }
 	Ok(())
