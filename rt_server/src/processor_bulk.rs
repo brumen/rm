@@ -52,14 +52,15 @@ where
 	    CurrNewMarket::Current => format!("{}/", metric_display),
 	    CurrNewMarket::New => format!("{}/new", metric_display)
 	};
-	
-	let endpoint = format!(
-	    "{}/{}",
-	    <ProcessorBulk as RestPricerSpark<ReductionType>>::_pricing_server_spark(self),
-	    endpoint
-	);
-	debug!("ENDPOINT = {:?}", endpoint);
+
 	endpoint
+	// let endpoint = format!(
+	//     "{}/{}",
+	//     <ProcessorBulk as RestPricerSpark<ReductionType>>::_pricing_server_spark(self),
+	//     endpoint
+	// );
+	// debug!("ENDPOINT = {:?}", endpoint);
+	// endpoint
     }
 }
 

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use string_join::Join;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, warn, error};
 
 use crate::market::{CurrNewMarket, MarketType};
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
@@ -313,12 +313,14 @@ where
             let all_trade_ids = ",".join(trades.all_trade_names());
             let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
             let market_endpoint = pricing_endpoint_spark.as_str();
+	    let client_endpoint = format!(
+                "http://{}/{}",
+                self._pricing_server_spark(),
+                market_endpoint
+            );
+	    debug!("CLIENT ENDPOINT: {:?}", client_endpoint);
             let result_pricing = pricing_client
-                .post(format!(
-                    "http://{}/{}",
-                    self._pricing_server_spark(),
-                    market_endpoint
-                ))
+                .post(client_endpoint)
                 .form(&HashMap::from([("trades", &all_trade_ids)]))
                 .send();
 
@@ -326,12 +328,14 @@ where
             let priced_portfolio = match result_pricing.await {
                 Ok(result_price) => self._unwrap_pricing_results_a(result_price, metric).await,
                 Err(e) => {
-                    warn!("Trades could not price correctly: {}", e);
+                    error!("Trades could not price correctly: {}", e);
                     return PortfolioType::default(); // TODO: What to do if the trade cant convert
                 }
             };
 
             // let's do the aggregation here.  TODO: CHECK IF THIS IS NECESSARY
+	    debug!("REST PRICER: {:?}", priced_portfolio);
+
             match priced_portfolio {
                 PricingResults::PV(pv_portfolio) => pv_portfolio,
                 PricingResults::PV01(pv01_results) => pv01_results.aggregate(),
