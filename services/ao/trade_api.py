@@ -407,7 +407,7 @@ def switch_markets() -> Response:
 
 # pv rester start
 def main():
-    pv_rester.run(port=8000)
+    pv_rester.run(host='192.168.1.107', port=8000)
 
 
 # IMPORTANT: this has to be called application, for mod_express

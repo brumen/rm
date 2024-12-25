@@ -19,5 +19,8 @@ if sys.version_info >= (3, 12, 0):
     sys.modules['kafka.vendor.six.moves'] = six.moves
 
 # starting the service
-aom = AOMarketServiceLocal(time_interval=1)
+aom = AOMarketServiceLocal(
+    server_port_topic=('192.168.1.107', 9092, 'air_options.ao.flights_live', ),
+    time_interval=1
+)
 aom.run(sleep_delay=0.2, testing_shift=(1., 5.))
