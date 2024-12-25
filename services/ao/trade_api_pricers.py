@@ -34,7 +34,7 @@ default_params: Dict[str, Any] = {'default_price': 200., 'nb_sim': 500}
 # ao_engine = create_engine(ao_db)
 # ao_session = sessionmaker(bind=ao_engine)
 
-PRICING_SERVER_NAME = 'http://localhost:8000'
+PRICING_SERVER_NAME = 'http://192.168.1.107:8000'
 
 
 class CurrNewMarket(Enum):
