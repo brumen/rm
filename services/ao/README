@@ -1,6 +1,14 @@
 #
 #
 
+/home/brumen/work should be added to PYTHONPATH env variable
+  - PYTHONPATH=$PYTHONPATH:/home/brumen/work
+
+Virtual environment:
+   work/rm/venv usually
+   source bin/activate
+   - then you are in the environment.
+
 Starting kafka:
    in archive/software/kafka start:
        ./start_kafka

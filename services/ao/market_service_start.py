@@ -8,15 +8,17 @@
 """
 
 import logging
-import six.moves
 import sys
+import six.moves
+
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
+
 from rm.market_service import AOMarketService, AOMarketServiceLocal
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-if sys.version_info >= (3, 12, 0):
-    sys.modules['kafka.vendor.six.moves'] = six.moves
 
 # starting the service
 aom = AOMarketServiceLocal(

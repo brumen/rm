@@ -2,6 +2,8 @@
 """
 
 import datetime
+import sys
+import six.moves
 
 from logging import getLogger
 from typing import Optional, Dict, Tuple, Union
@@ -14,6 +16,10 @@ from kafka.consumer.fetcher import ConsumerRecord
 from json import loads, dumps
 
 logger = getLogger(__name__)
+
+
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
 
 
 class MarketService:

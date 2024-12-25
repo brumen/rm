@@ -5,13 +5,14 @@ import sys
 import logging
 import six.moves
 
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
+
 from rm.trade_service import AOTradeProducer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-if sys.version_info >= (3, 12, 0):
-    sys.modules['kafka.vendor.six.moves'] = six.moves
 
 
 # start the leveraged etf market producer
