@@ -43,20 +43,20 @@ use futures::future::join_all;
 #[tokio::main]
 async fn main() {
 
-    let tracing_level = Level::INFO;
+    let tracing_level = Level::DEBUG;
     tracing_subscriber::fmt()
         .with_max_level(tracing_level)
         .init();
 
     info!("Starting main system controller.");
-    let kafka_server = "localhost:9092".to_string();
+    let kafka_server = "192.168.1.107:9092".to_string();
     let metric = PricingMetric::PV;
     let pos_topic = "air_options.ao.option_positions".to_string();
     let mkt_topic = "air_options.ao.mkt_events".to_string();
     let results_topic = "air_options.ao.results".to_string();
     // let mkt_params = MktMsgParams::AOParams();
     let pricing_options = MarketPricingOptions {
-	pricing_server: "localhost:8000".to_string(),
+	pricing_server: "192.168.1.107:8000".to_string(),
 	pricing_endpoint: "pv".to_string(),
     };
 

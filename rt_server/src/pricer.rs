@@ -317,13 +317,24 @@ where
                 "http://{}/{}",
                 self._pricing_server_spark(),
                 market_endpoint
+		
             );
-	    debug!("CLIENT ENDPOINT: {:?}", client_endpoint);
-            let result_pricing = pricing_client
-                .post(client_endpoint)
-                .form(&HashMap::from([("trades", &all_trade_ids)]))
-                .send();
+	    let client_endpoint_get = format!(
+                "http://{}/{}/{}",
+                self._pricing_server_spark(),
+                market_endpoint,
+		all_trade_ids,		
+            );
 
+            // let result_pricing = pricing_client
+            //     .post(client_endpoint)
+            //     .form(&HashMap::from([("trades", &all_trade_ids)]))
+            //     .send();
+
+	    let result_pricing = pricing_client
+		.get(client_endpoint_get)
+		.send();
+	    
             // unwrap the result_pricing
             let priced_portfolio = match result_pricing.await {
                 Ok(result_price) => self._unwrap_pricing_results_a(result_price, metric).await,
