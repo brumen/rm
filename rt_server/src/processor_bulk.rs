@@ -1,14 +1,14 @@
 /// Processor which gets a bulk of work, and finishes it.
-use tracing::{info, debug};
+use tracing::{info, debug, error};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
-use std::fmt::Display;
 
-use crate::market::{CurrNewMarket, MarketType};
+use crate::market::{CurrNewMarket, MarketGeneral, MarketType};
+use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::trade::{BaseTrade, TradeRep};
 use crate::ao_trade::AOTrade;
 use crate::processor_new::ProcessorNewMessage;
-
+use crate::process_trade::ProcessTradeValue;
 
 pub struct ProcessorBulk{
     pub metric: PricingMetric,
@@ -17,7 +17,7 @@ pub struct ProcessorBulk{
 
 #[derive(Debug, Clone)]
 pub enum ProcessorBulkMessage {
-    NewBulk((MarketType, TradeRep<AOTrade>, ActorRef<ProcessorNewMessage>))
+    NewBulk((MarketType, TradeRep<AOTrade>, ActorRef<ProcessorNewMessage>)),
 }
 
 #[derive(Debug)]
@@ -42,33 +42,19 @@ where
 
     fn _pricing_endpoint_spark(&self, market_: CurrNewMarket, metric: PricingMetric) -> String {
 
-	let metric_display = match metric {
-	    PricingMetric::PV => "pv".to_string(),
-	    PricingMetric::PV01 => "pv01".to_string(),
-	    PricingMetric::PnL => "pnl".to_string(),
-	};
-
 	let endpoint = match market_ {
-	    CurrNewMarket::Current => format!("{}/", metric_display),
-	    CurrNewMarket::New => format!("{}/new", metric_display)
+	    CurrNewMarket::Current => format!("{}/", metric),
+	    CurrNewMarket::New => format!("{}/new", metric)
 	};
 
 	endpoint
-	// let endpoint = format!(
-	//     "{}/{}",
-	//     <ProcessorBulk as RestPricerSpark<ReductionType>>::_pricing_server_spark(self),
-	//     endpoint
-	// );
-	// debug!("ENDPOINT = {:?}", endpoint);
-	// endpoint
     }
 }
 
 #[async_trait]
-impl Actor for ProcessorBulk
-{
+impl Actor for ProcessorBulk {
     type Msg = ProcessorBulkMessage;
-    type State = ();
+    type State = i32;  // The number of attempts to run the bulk on, default = 5
     type Arguments = ();
 
     async fn pre_start(
@@ -78,28 +64,64 @@ impl Actor for ProcessorBulk
     ) -> Result<Self::State, ActorProcessingErr> {
 
 	info!("Initializing ProcessorBulk");
-	Ok(())
+	Ok(0)  // intialized to 0 attempts.
     }
 
     async fn handle(
         &self,
-	_myself: ActorRef<Self::Msg>,
+	myself: ActorRef<Self::Msg>,
 	message: Self::Msg,
-	_state: &mut Self::State,
+	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	let ProcessorBulkMessage::NewBulk((_market, new_trades, processor_new)) = message;
+	let ProcessorBulkMessage::NewBulk((_market, new_trades, processor_new)) = message; 
 	// start the long-running pricing procedure
 	debug!("BULK Processor TRADES: {:?}", new_trades);
 	let new_portfolio = self.price_trades_on_spark(
 	    &new_trades, self.metric, &self.pricing_options, CurrNewMarket::New,
 	).await;
-	debug!("BULK Processor TO NEW: {:?}", new_portfolio);
-	processor_new.send_message(
-	    ProcessorNewMessage::BulkReceive(
-		(new_trades, new_portfolio)
-	    )
-	)?;
+
+	match new_portfolio {
+	    Ok(np) => {
+		debug!("BULK Processor TO NEW: {:?}", np);
+		processor_new.send_message(
+		    ProcessorNewMessage::BulkReceive(
+			(new_trades, np, TradeRep::<AOTrade>::default())
+		    )
+		)?;
+	    },
+	    Err(e) => {
+		error!("BULK processor ERROR: {}", e);
+		error!("Retrying the bulk calculation");
+		if *state < 5 {  // TODO: THIS 5 SHOULDNT BE HARDCODED HERE!!!
+		    *state += 1;
+		    myself.send_message(
+			ProcessorBulkMessage::NewBulk(
+			    (_market, new_trades, processor_new)
+			)
+		    )?;
+		} else {
+
+		    // compute trades one by one
+		    let mut offending_trades = TradeRep::<AOTrade>::default();
+		    let mut new_portfolio = PortfolioType::default();
+		    for (_, trade) in new_trades.iter() {
+			let valued_trade = (*trade).value_by_metric2(
+			    self.metric, &self.pricing_options,
+			    MarketGeneral::MarketRemote(CurrNewMarket::Current)
+			).await;
+			// TODO: WHERE IS THE FAILURE HERE???
+			new_portfolio += valued_trade;
+		    }
+		    
+		    processor_new.send_message(
+			ProcessorNewMessage::BulkReceive(
+			    (new_trades, new_portfolio, offending_trades)
+			)
+		    )?;
+		}		
+	    },
+	}
 	Ok(())
     }
 }

@@ -22,7 +22,7 @@ pub enum PricingMetric {
 impl fmt::Display for PricingMetric {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PricingMetric::PV => write!(f, "PV"),
+            PricingMetric::PV => write!(f, "pv"),  // "PV"),
             PricingMetric::PV01 => write!(f, "PV01"),
             PricingMetric::PnL => write!(f, "PnL"),
         }
@@ -297,7 +297,9 @@ where
     // server used by spark to price trades, like localhost:5010
     fn _pricing_server_spark(&self) -> String;
 
-    // endpoint on the pricing server, like "price_spark_new"
+    /// endpoint on the pricing server, like "price_spark_new", or "pv/", "pv/spark/",
+    ///   what you would normally attach to the server. so the complete enpoint would
+    ///   be localhost:5010/pv/spark
     fn _pricing_endpoint_spark(&self, market_: CurrNewMarket, metric: PricingMetric) -> String;
 
     // prices the trades on the spark
@@ -307,18 +309,23 @@ where
         pricing_client: &Client,
         market_: CurrNewMarket,
         metric: PricingMetric,
-    ) -> impl std::future::Future<Output = PortfolioType> + Send {
+    ) -> impl Future<Output = Result<PortfolioType, Error>> + Send {
         async move {
             // joins all trades with commas, like 190,191,192
             let all_trade_ids = ",".join(trades.all_trade_names());
             let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
             let market_endpoint = pricing_endpoint_spark.as_str();
-	    let client_endpoint = format!(
-                "http://{}/{}",
-                self._pricing_server_spark(),
-                market_endpoint
-		
-            );
+
+	    // let client_endpoint = format!(
+            //     "http://{}/{}",
+            //     self._pricing_server_spark(),
+            //     market_endpoint		
+            // );
+            // let result_pricing = pricing_client
+            //     .post(client_endpoint)
+            //     .form(&HashMap::from([("trades", &all_trade_ids)]))
+            //     .send();
+
 	    let client_endpoint_get = format!(
                 "http://{}/{}/{}",
                 self._pricing_server_spark(),
@@ -326,31 +333,19 @@ where
 		all_trade_ids,		
             );
 
-            // let result_pricing = pricing_client
-            //     .post(client_endpoint)
-            //     .form(&HashMap::from([("trades", &all_trade_ids)]))
-            //     .send();
 
 	    let result_pricing = pricing_client
 		.get(client_endpoint_get)
-		.send();
-	    
-            // unwrap the result_pricing
-            let priced_portfolio = match result_pricing.await {
-                Ok(result_price) => self._unwrap_pricing_results_a(result_price, metric).await,
-                Err(e) => {
-                    error!("Trades could not price correctly: {}", e);
-                    return PortfolioType::default(); // TODO: What to do if the trade cant convert
-                }
-            };
+		.send()
+		.await?;
+
+	    let priced_portfolio = self._unwrap_pricing_results_a(result_pricing, metric).await;
 
             // let's do the aggregation here.  TODO: CHECK IF THIS IS NECESSARY
-	    debug!("REST PRICER: {:?}", priced_portfolio);
-
             match priced_portfolio {
-                PricingResults::PV(pv_portfolio) => pv_portfolio,
-                PricingResults::PV01(pv01_results) => pv01_results.aggregate(),
-                PricingResults::PnL(pnl_portfolio) => pnl_portfolio,
+                PricingResults::PV(pv_portfolio) => Ok(pv_portfolio),
+                PricingResults::PV01(pv01_results) => Ok(pv01_results.aggregate()),
+                PricingResults::PnL(pnl_portfolio) => Ok(pnl_portfolio),
             }
         }
     }
@@ -364,7 +359,7 @@ where
         metric: PricingMetric,
         _pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> impl std::future::Future<Output = PortfolioType> + Send {
+    ) -> impl Future<Output = Result<PortfolioType, Error>> + Send {
         async move {
             let mut curr_portfolio = PortfolioType::default();
 
@@ -384,7 +379,7 @@ where
                     info!("Pricing {:?} trades on spark.", curr_trade_nb);
                     let portfolio = self
                         .price_trades_spark(&curr_trade_rep, &pricing_client, curr_new_mkt, metric)
-                        .await;
+                        .await?;
 
                     curr_portfolio += portfolio;
                     curr_trade_nb = 0;
@@ -395,9 +390,9 @@ where
             // remaining part of trades
             curr_portfolio += self
                 .price_trades_spark(&curr_trade_rep, &pricing_client, curr_new_mkt, metric)
-                .await;
+                .await?;
 
-            curr_portfolio
+            Ok(curr_portfolio)
         }
     }
 
@@ -409,7 +404,7 @@ where
         pricing_client: &Client,
         market_: CurrNewMarket,
         metric: PricingMetric,
-    ) -> impl std::future::Future<Output = Result<PortfolioType, Error>> + Send {
+    ) -> impl Future<Output = Result<PortfolioType, Error>> + Send {
         async move {
             // joins all trades with commas, like 190,191,192
             let all_trade_ids = ",".join(trades.all_trade_names());

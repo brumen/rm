@@ -1,4 +1,4 @@
-use tracing::{info, debug};
+use tracing::{info, debug, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::market::{CurrNewMarket, MarketType};
@@ -13,6 +13,7 @@ use crate::ao_trade::AOTrade;
 use crate::market::MarketGeneral;
 
 
+#[derive(Debug)]
 pub struct ProcessorNew{
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
@@ -25,7 +26,10 @@ pub enum ProcessorNewMessage {
     NewTrade(AOTrade),
     NewMarket(MarketType),
     Behind(TradeRep<AOTrade>),  // message from ProcessorCurr, missing trades to calculate.
-    BulkReceive((TradeRep<AOTrade>, PortfolioType)),  // message from Bulk computation
+    // first elt: all trades,
+    // second: portfolio from computed trades
+    // third: offending trades.
+    BulkReceive((TradeRep<AOTrade>, PortfolioType, TradeRep<AOTrade>)),  // message from Bulk computation
 }
 
 #[derive(Debug)]
@@ -57,9 +61,11 @@ where
 #[async_trait]
 impl Actor for ProcessorNew {
     type Msg = ProcessorNewMessage;
-    // first argument is list of trades, second is the
-    //   current new portfolio, third is the computation state.
-    type State = (TradeRep<AOTrade>, PortfolioType, ProcessorNewState);
+    // first argument is list of trades,
+    //   second is the list of trades that didnt price correctly
+    //   third is the current portfolio result of correctly pricing trades.
+    //   fourth is the computation state.
+    type State = (TradeRep<AOTrade>, TradeRep<AOTrade>, PortfolioType, ProcessorNewState);
     type Arguments = ();
 
     // initialization of the new processor
@@ -71,11 +77,15 @@ impl Actor for ProcessorNew {
 
 	let no_market = MarketType::new();
 	let empty_portfolio = PortfolioType::default();
-        Ok(
-	    (TradeRep::<AOTrade>::default(), empty_portfolio, ProcessorNewState::Idle(no_market))
+        Ok((
+	    TradeRep::<AOTrade>::default(),
+	    TradeRep::<AOTrade>::default(),
+	    empty_portfolio,
+	    ProcessorNewState::Idle(no_market))
 	)
     }
 
+    #[instrument]
     async fn handle(
         &self,
 	myself: ActorRef<Self::Msg>,
@@ -86,7 +96,7 @@ impl Actor for ProcessorNew {
 	debug!("NEW Processor MSG: {:?}", message);
 	
 	// match on what message did we get and what state are we in
-	let (trade_l, portf, pns) = state;
+	let (trade_l, trades_non_pricing, portf, pns) = state;
 
 	debug!("NEW Processor STATE: {:?}", pns);
 	debug!("NEW Processor TRADES: {:?}", trade_l);
@@ -211,7 +221,7 @@ impl Actor for ProcessorNew {
 		}
 	    },
 
-	    ProcessorNewMessage::BulkReceive((new_trade_l, computed_portf)) => {
+	    ProcessorNewMessage::BulkReceive((new_trade_l, computed_portf, offending_trades)) => {
 		match pns {
 		    
 		    ProcessorNewState::Idle(_market) => {
@@ -234,6 +244,7 @@ impl Actor for ProcessorNew {
 
 			*portf += &computed_portf;
 			*trade_l += &new_trade_l;
+			*trades_non_pricing += &offending_trades;
 			self.processor_curr.send_message(
 			    ProcessorCurrMessage::NewTradePortfolio(
 				(trade_l.clone(), portf.clone(), _market.clone(), myself)
