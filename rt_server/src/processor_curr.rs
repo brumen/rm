@@ -1,11 +1,12 @@
-use std::error::Error;
-
+use rdkafka::message::OwnedMessage;
 use tracing::{info, debug, error};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use rdkafka::error::KafkaError;
 use rdkafka::util::Timeout;
 use rdkafka::producer::{FutureProducer, FutureRecord};
+use serde_json;
+use thiserror;
 
 use crate::ao_trade::AOTrade;
 use crate::market::{CurrNewMarket, MarketType};
@@ -31,15 +32,24 @@ pub enum ProcessorCurrMessage {
     ),
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum SendError {
+    #[error("Cant send to kafka")]
+    // KafkaError(#[from] KafkaError),
+    KafkaErr(KafkaError),
+    #[error("Cant serialize")]
+    SerializeError(#[from] serde_json::Error),
+}
+
 impl ProcessorCurr {
 
     /// encodes and sends the portfolio to Kafka client.
     async fn _send_portfolio(
 	&self,
 	portf: PortfolioType,
-    ) -> Result<(), KafkaError> {
+    ) -> Result<(), SendError> {
 	// sends to publisher actor
-	let curr_mkt_json = serde_json::ser::to_string(&portf.clone()).unwrap();  // TODO: HANDLE EXCEPTIONS HERE!!
+	let curr_mkt_json = serde_json::ser::to_string(&portf.clone())?;
         let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric, curr_mkt_json);
 
         // implements bytearray(str(dumps(self.curr_market)), ascii))
@@ -58,10 +68,8 @@ impl ProcessorCurr {
 	// OwnedMessage - copy of the original message. 
 	// Result<(i32, i64), (KafkaError, OwnedMessage)>;
 	match self.result_publisher.send(portf_record, Timeout::Never).await {
-	    Err((ke, _)) => {
-		Err(ke)
-	    },
-	    _ => {Ok(())},
+	    Err((ke, _)) => Err(SendError::KafkaErr(ke)),
+	    _ => Ok(()),
 	}
     }
 }
@@ -119,7 +127,9 @@ impl Actor for ProcessorCurr {
 		    ProcessorNewMessage::Behind(new_behind_curr.clone())
 		)?;
 
-		if !new_behind_curr.is_empty() {
+		debug!("CURR: {:?}", new_behind_curr);
+		let send_cnd = !new_behind_curr.is_empty() | (new_market != *market);
+		if send_cnd {  // when to send the portfolio to publisher.
 		    // switch the portfolio
 		    *portf = new_portfolio;
 		    *trades += &new_trades;

@@ -85,7 +85,6 @@ impl Actor for ProcessorNew {
 	)
     }
 
-    #[instrument]
     async fn handle(
         &self,
 	myself: ActorRef<Self::Msg>,
@@ -93,13 +92,13 @@ impl Actor for ProcessorNew {
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	debug!("NEW Processor MSG: {:?}", message);
+	//debug!("NEW Processor MSG: {:?}", message);
 	
 	// match on what message did we get and what state are we in
 	let (trade_l, trades_non_pricing, portf, pns) = state;
 
-	debug!("NEW Processor STATE: {:?}", pns);
-	debug!("NEW Processor TRADES: {:?}", trade_l);
+	//debug!("NEW Processor STATE: {:?}", pns);
+	//debug!("NEW Processor TRADES: {:?}", trade_l);
 	
 	match message {
 	    ProcessorNewMessage::NewTrade(new_trade) => {
@@ -154,7 +153,7 @@ impl Actor for ProcessorNew {
 			    ProcessorCurrMessage::NewTradePortfolio(
 				(trade_l.clone(), portf.clone(), _market.clone(), myself)
 			    )
-			)?;  //(TradeRep<AOTrade>, PortfolioType, MarketType, ActorRef<ProcessorNewMessage>)),
+			)?;
 		    }
 		    // ignore if new market comes in, no
 		    //   action taken.
@@ -242,6 +241,8 @@ impl Actor for ProcessorNew {
 			// result of computation has arrived.
 			// TODO: FINISH THIS HERE!!!
 
+			debug!("NEW: SENDING MESSAGE TO CURR");
+			
 			*portf += &computed_portf;
 			*trade_l += &new_trade_l;
 			*trades_non_pricing += &offending_trades;
