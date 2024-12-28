@@ -1,9 +1,10 @@
+use ractor::async_trait;
 use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
 use std::collections::{hash_map::IntoIter, HashMap};
 use std::ops::{AddAssign, Deref, DerefMut};
 use std::sync::mpsc::{Receiver, Sender};
-use tracing::debug;
+use tracing::{debug, info};
 
 use std::default::Default;
 use std::iter::IntoIterator;
@@ -118,6 +119,41 @@ pub struct LETFP {
 pub enum MktMsgParams {
     AOParams(),
     LETFParams(LETFP),
+}
+
+
+#[async_trait]
+pub trait MarketSwitching {
+
+    /// endpoint where the market is posted.
+    ///   could be for current, new or any other
+    ///   market.
+    ///   E.g. format!("http://{0}/market", pricing_server))
+    fn market_endpoint(&self) -> String;
+    
+    /// Sets current and new markets to the ones
+    ///   specified in this function.
+    ///
+    async fn switch_market(
+	&self,
+	market: MarketType,
+    ) -> Result<(), reqwest::Error> {
+        info!("Setting market to: {:?}.", market);
+
+        let client = reqwest::Client::new();  // TODO: THIS CAN BE STORED!!!
+
+	// TODO: MAKE SURE THIS IS A ATOMIC OPERATION.
+        client
+	    .post(self.market_endpoint())
+            .json(&HashMap::from([(
+                "market",
+		market
+            )]))
+            .send()
+            .await?;
+
+	Ok(())
+    }
 }
 
 // trait that deals with when we switch from

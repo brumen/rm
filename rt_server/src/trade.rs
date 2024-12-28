@@ -494,7 +494,6 @@ impl<TR: Clone + BaseTrade> Sub<&TradeRep<TR>> for TradeRep<TR> {
     }
 }
 
-
 impl<TR: Clone + BaseTrade> AddAssign<&TR> for TradeRep<TR> {
     fn add_assign(&mut self, other: &TR) {
         self.insert(other.id().clone(), other.clone());

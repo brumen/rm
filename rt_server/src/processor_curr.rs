@@ -17,7 +17,7 @@ use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
 use crate::trade::TradeRep;
 use crate::processor_new::ProcessorNewMessage;
-use crate::market::MarketGeneral;
+use crate::market::{MarketGeneral, MarketSwitching};
 
 
 pub struct ProcessorCurr{
@@ -74,59 +74,11 @@ impl ProcessorCurr {
 	    _ => Ok(()),
 	}
     }
+}
 
-    async fn _switch_all_markets(
-	&self,
-	curr_market: MarketType,
-	new_market: MarketType,
-    ) -> Result<(), reqwest::Error> {
-        // info!("_switch_markets: Switching markets: current <- new.");
-        // self._internal_switch_all_markets(); // curr <- new, new <- future
-        //                                      // update the markets on the server.
-
-        let client = reqwest::Client::new(); // async client
-
-	let pricing_server = self.pricing_options.pricing_server.clone();
-
-        client
-            .post(format!("http://{0}/market", pricing_server))
-            .json(&HashMap::from([(
-                "market",
-		curr_market
-            )])) // It's fine if this panics.
-            .send()
-            .await?;
-
-        client
-            .post(format!("http://{0}/new_market", pricing_server))
-            .json(&HashMap::from([("market", new_market)]))
-            .send()
-            .await?;
-
-        // let future_market_post = client
-        //     .post(format!("http://{0}/future_market", self.trade_pricer))
-        //     .json(&HashMap::from([(
-        //         "market",
-        //         &*self.future_mkt.lock().unwrap(),
-        //     )]))
-        //     .send();
-
-        // let (curr_market_post_res, new_market_post_res) =
-        //     tokio::join!(market_post, new_market_post);
-
-        // // handling potential errors
-        // for (mkt_name, mkt_result) in vec![
-        //     ("CURRENT", curr_market_post_res),
-        //     ("NEW", new_market_post_res),
-        // ] {
-        //     match mkt_result {
-        //         Ok(_) => {}
-        //         Err(mpe) => {
-        //             error!("Error posting to {:?} market: {:?}", mkt_name, mpe);
-        //         }
-        //     }
-        // }
-	Ok(())
+impl MarketSwitching for ProcessorCurr {
+    fn market_endpoint(&self) -> String {
+	format!("http://{0}/market", self.pricing_options.pricing_server.clone())
     }
 }
 
@@ -173,24 +125,25 @@ impl Actor for ProcessorCurr {
 		*trades += &trade;
 		*portf += valued_trade;
 
+		info!("LEN 1 = {:?}", portf.len());
 		self._send_portfolio(portf.clone()).await?
             },
 
 	    ProcessorCurrMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {
 		// we got a new portfolio, possibly switch it
-		let new_behind_curr = new_trades.clone() - trades;
+		let new_behind_curr = trades.clone() - &new_trades.clone();
 		new_processor.send_message(
 		    ProcessorNewMessage::Behind(new_behind_curr.clone())
 		)?;
 
-		debug!("CURR: {:?}", new_behind_curr);
-		let send_cnd = !new_behind_curr.is_empty() | (new_market != *market);
+		info!("CURR: {:?}", new_behind_curr);
+		let send_cnd = new_behind_curr.is_empty();
 		if send_cnd {  // when to send the portfolio to publisher.
 		    // publish the new portfolio
+		    info!("LEN 2 = {:?}", new_portfolio.len());
+		    info!("LEN 3 = {:?}", new_trades.len());
 		    self._send_portfolio(new_portfolio.clone()).await?;
-		    self._switch_all_markets(
-			market.clone(), new_market.clone()
-		    ).await?; // curr <- new, new <- fut
+		    self.switch_market(new_market.clone()).await?; // setting new_market to be the current market
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;

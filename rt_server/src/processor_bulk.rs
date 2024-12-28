@@ -74,7 +74,7 @@ impl Actor for ProcessorBulk {
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	let ProcessorBulkMessage::NewBulk((_market, new_trades, processor_new)) = message; 
+	let ProcessorBulkMessage::NewBulk((market, new_trades, processor_new)) = message; 
 	// start the long-running pricing procedure
 	debug!("BULK Processor TRADES: {:?}", new_trades);
 	let new_portfolio = self.price_trades_on_spark(
@@ -86,7 +86,7 @@ impl Actor for ProcessorBulk {
 		debug!("BULK Processor TO NEW: {:?}", np);
 		processor_new.send_message(
 		    ProcessorNewMessage::BulkReceive(
-			(new_trades, np, TradeRep::<AOTrade>::default())
+			(new_trades, np, TradeRep::<AOTrade>::default(), market)
 		    )
 		)?;
 	    },
@@ -97,7 +97,7 @@ impl Actor for ProcessorBulk {
 		    *state += 1;
 		    myself.send_message(
 			ProcessorBulkMessage::NewBulk(
-			    (_market, new_trades, processor_new)
+			    (market, new_trades, processor_new)
 			)
 		    )?;
 		} else {
@@ -116,7 +116,7 @@ impl Actor for ProcessorBulk {
 		    
 		    processor_new.send_message(
 			ProcessorNewMessage::BulkReceive(
-			    (new_trades, new_portfolio, offending_trades)
+			    (new_trades, new_portfolio, offending_trades, market)
 			)
 		    )?;
 		}		
