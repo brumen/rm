@@ -1,8 +1,7 @@
-use tracing::{info, debug, instrument};
+use tracing::info;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
-use std::collections::HashMap;
 
-use crate::market::{CurrNewMarket, MarketSwitching, MarketType};
+use crate::market::{CurrNewMarket, MarketSwitching, MarketType, MarketGeneral};
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;
@@ -10,8 +9,6 @@ use crate::processor_bulk::ProcessorBulkMessage;
 use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_curr::ProcessorCurrMessage;
 use crate::ao_trade::AOTrade;
-
-use crate::market::MarketGeneral;
 
 
 #[derive(Debug)]
@@ -195,7 +192,9 @@ impl Actor for ProcessorNew {
 			    // new processor is ahead, reset the
 			    //    new processor to the new default state.
 			    *portf = PortfolioType::default();
+			    let _ = self.switch_market(market.clone()).await;
 			    *pns = ProcessorNewState::Idle(market.clone());
+
 			} else {
 			    // we are still behind the current processor.
 			    *trade_l += &trades_behind;
@@ -214,18 +213,20 @@ impl Actor for ProcessorNew {
 			    // new processor is ahead, reset the
 			    //    new processor to the new default state.
 			    *portf = PortfolioType::default();
-			    *pns = ProcessorNewState::Idle(market.clone());			    
-			} else {
-			    // new processor is behind, calculate the remaining trades.
-			    // we are still behind the current processor.
-			    self.processor_bulk.send_message(
-				ProcessorBulkMessage::NewBulk(
-				    (market.clone(), trades_behind.clone(), myself)
-				)
-			    )?;
-			    *pns = ProcessorNewState::CalculatingBulk(market.clone());
-			    // *trade_l += &trades_behind;
+			    *pns = ProcessorNewState::Idle(market.clone());
 			}
+			// otherwise we wait for the results of bulk computation.
+			
+			// } else {
+			//     // new processor is behind, calculate the remaining trades.
+			//     // we are still behind the current processor.
+			//     self.processor_bulk.send_message(
+			// 	ProcessorBulkMessage::NewBulk(
+			// 	    (market.clone(), trades_behind.clone(), myself)
+			// 	)
+			//     )?;
+			//     // *trade_l += &trades_behind;
+			// }
 		    },
 
 		    ProcessorNewState::Idle(market) => {
@@ -242,30 +243,16 @@ impl Actor for ProcessorNew {
 		}
 	    },
 
-	    ProcessorNewMessage::BulkReceive((new_trade_l, computed_portf, offending_trades, bulk_market)) => {
+	    ProcessorNewMessage::BulkReceive((new_trade_l, computed_portf, offending_trades, _bulk_market)) => {
 		match pns {
 		    
 		    ProcessorNewState::Idle(_market) => {
-			panic!("Received BulkReceive while state = Idle");
-			
-			// TODO: CHECK - THIS IS WEIRD, MAYBE THIS SHOULDNT HAPPEN
-			*portf = computed_portf;
-			*trade_l += &new_trade_l;
-			self.processor_curr.send_message(
-			    ProcessorCurrMessage::NewTradePortfolio(
-				(trade_l.clone(), portf.clone(), _market.clone(), myself)
-			    )
-			)?;
-			*pns = ProcessorNewState::CalculatingSingle(_market.clone());
-			// panic!("Received bulk while state = Idle");
+			info!("Ignoring bulk receive.");
 		    },
 
 		    ProcessorNewState::CalculatingBulk(market) => {
 			// result of computation has arrived.
-			// TODO: FINISH THIS HERE!!!
-
-			debug!("NEW: SENDING MESSAGE TO CURR");
-			
+			// TODO: FINISH THIS HERE!!!			
 			*portf += &computed_portf;
 			*trade_l += &new_trade_l;
 			*trades_non_pricing += &offending_trades;
@@ -278,8 +265,9 @@ impl Actor for ProcessorNew {
 		    },
 		    ProcessorNewState::CalculatingSingle(_market) => {
 			// result of computation has arrived.
+			//  add it to the computation
 			// TODO: FINISH THIS HERE!!!
-			panic!("Received BulkReceive while calculating single - Weird");
+			// panic!("Received BulkReceive while calculating single - Weird");
 
 			*portf = computed_portf;
 			*trade_l += &new_trade_l;
@@ -288,191 +276,10 @@ impl Actor for ProcessorNew {
 				(trade_l.clone(), portf.clone(), _market.clone(), myself)
 			    )
 			)?;
-			*pns = ProcessorNewState::CalculatingSingle(_market.clone());
 		    },		    
 		}
 	    }
 	}
 	Ok(())
     }
-
-    // async fn handle(
-    //     &self,
-    // 	myself: ActorRef<Self::Msg>,
-    // 	message: Self::Msg,
-    // 	state: &mut Self::State,
-    // ) -> Result<(), ActorProcessingErr> {
-	
-    // 	let (trade_l, trades_non_pricing, portf, pns) = state;
-
-    // 	match pns {
-    // 	    ProcessorNewState::CalculatingSingle(market) => {
-    // 		match message {
-    // 		    ProcessorNewMessage::NewTrade(new_trade) => {
-    // 			let new_trade_price = new_trade.value_by_metric2(
-    // 			    self.metric, &self.pricing_options, MarketGeneral::MarketRemote(CurrNewMarket::New)
-    // 			).await;
-    // 			*portf += new_trade_price;  // portfolio update
-    // 			*trade_l += &new_trade;  // we add the trade to the list.
-			
-    // 			// we send the computed portfolio & trades to the current processor
-    // 			//   hoping that we are ahead.
-    // 			self.processor_curr.send_message(
-    // 			    ProcessorCurrMessage::NewTradePortfolio(
-    // 				(trade_l.clone(), portf.clone(), market.clone(), myself)
-    // 			    )
-    // 			)?;
-    // 		    },
-
-    // 		    ProcessorNewMessage::NewMarket(new_market) => {
-    // 			// immediately switch to bulk computation
-    // 			*pns = ProcessorNewState::CalculatingBulk(new_market);
-    // 			self.processor_bulk.send_message(
-    // 			    ProcessorBulkMessage::NewBulk(
-    // 				(market.clone(), trade_l.clone(), myself)
-    // 			    )
-    // 			)?;
-    // 		    },
-
-    // 		    ProcessorNewMessage::Behind(trades_behind) => {
-    // 			// TODO: DEPENDING HOW MANY TRADES ARE BEHIND
-    // 			for (_, trade) in trades_behind.iter() {
-    // 			    myself.send_message(
-    // 				ProcessorNewMessage::NewTrade(trade.clone())
-    // 			    )?;
-    // 			}
-    // 		    },
-
-    // 		    ProcessorNewMessage::BulkReceive((new_trade_l, computed_portf, offending_trades, computed_market)) => {
-    // 			// TODO: THINK WHAT THIS MIGHT BE!!!
-    // 			if (*market == computed_market) & cmp_tr(&new_trade_l, trade_l) {  // TODO: THIS > HAS TO BE IMPLEMENTED new_trade_l > trade_l
-    // 			    // replace the market and the trades
-    // 			    *portf = computed_portf;
-    // 			    *trade_l = new_trade_l;
-    // 			    *trades_non_pricing = offending_trades;
-
-    // 			    // send the portfolio to current
-    // 			    self.processor_curr.send_message(
-    // 				ProcessorCurrMessage::NewTradePortfolio(
-    // 				    (trade_l.clone(), portf.clone(), computed_market.clone(), myself)
-    // 				)
-    // 			    )?;
-    // 			}  // otherwise ignore this case
-    // 		    },
-    // 		}		
-    // 	    },
-
-    // 	    ProcessorNewState::Idle(market) => {
-    // 		match message {
-    // 		    ProcessorNewMessage::NewTrade(new_trade) => {
-    // 			*pns = ProcessorNewState::CalculatingSingle(market.clone());
-    // 			let new_trade_price = new_trade.value_by_metric2(
-    // 			    self.metric, &self.pricing_options, MarketGeneral::MarketRemote(CurrNewMarket::New)
-    // 			).await;
-    // 			*portf += new_trade_price;  // portfolio update
-    // 			*trade_l += &new_trade;  // we add the trade to the list.
-			
-    // 			// we send the computed portfolio & trades to the current processor
-    // 			//   hoping that we are ahead.
-    // 			self.processor_curr.send_message(
-    // 			    ProcessorCurrMessage::NewTradePortfolio(
-    // 				(trade_l.clone(), portf.clone(), market.clone(), myself)
-    // 			    )
-    // 			)?;
-    // 			*pns = ProcessorNewState::Idle(market.clone());
-    // 		    },
-    // 		    ProcessorNewMessage::NewMarket(new_market) => {
-    // 			// immediately switch to bulk computation
-    // 			*pns = ProcessorNewState::CalculatingBulk(new_market);
-    // 			self.processor_bulk.send_message(
-    // 			    ProcessorBulkMessage::NewBulk(
-    // 				(market.clone(), trade_l.clone(), myself)
-    // 			    )
-    // 			)?;
-    // 		    },
-
-    // 		    ProcessorNewMessage::Behind(trades_behind) => {
-    // 			// TODO: DEPENDING HOW MANY TRADES ARE BEHIND
-    // 			*pns = ProcessorNewState::CalculatingSingle(market.clone());
-    // 			for (trade_id, trade) in trades_behind.iter() {
-    // 			    myself.send_message(
-    // 				ProcessorNewMessage::NewTrade(trade.clone())
-    // 			    )?;
-    // 			}
-    // 		    },
-
-    // 		    ProcessorNewMessage::BulkReceive(
-    // 			(new_trade_l, computed_portf, offending_trades, computed_market)
-    // 		    ) => {
-    // 			// TODO: THINK WHAT THIS MIGHT BE!!!
-    // 			if (*market == computed_market) & cmp_tr(&new_trade_l, trade_l) { // new_trade_l > trade_l) {  // TODO: THIS > HAS TO BE IMPLEMENTED
-    // 			    // replace the market and the trades
-    // 			    *portf = computed_portf;
-    // 			    *trade_l = new_trade_l;
-    // 			    *trades_non_pricing = offending_trades;
-
-    // 			    // send the portfolio to current
-    // 			    self.processor_curr.send_message(
-    // 				ProcessorCurrMessage::NewTradePortfolio(
-    // 				    (trade_l.clone(), portf.clone(), computed_market.clone(), myself)
-    // 				)
-    // 			    )?;
-    // 			}  // otherwise ignore this case
-    // 		    },
-    // 		}		
-    // 	    },
-	    
-    // 	    ProcessorNewState::CalculatingBulk(market) => {
-    // 		match message {
-    // 		    ProcessorNewMessage::NewTrade(new_trade) => {
-    // 			// compute the trade and continue waiting for the bulk
-    // 			let new_trade_price = new_trade.value_by_metric2(
-    // 			    self.metric, &self.pricing_options, MarketGeneral::MarketRemote(CurrNewMarket::New)
-    // 			).await;
-    // 			*portf += new_trade_price;  // portfolio update
-    // 			*trade_l += &new_trade;  // we add the trade to the list.
-    // 		    },
-
-    // 		    ProcessorNewMessage::NewMarket(new_market) => {
-    // 			// immediately switch to bulk computation
-    // 			*pns = ProcessorNewState::CalculatingBulk(new_market);
-    // 			self.processor_bulk.send_message(
-    // 			    ProcessorBulkMessage::NewBulk(
-    // 				(market.clone(), trade_l.clone(), myself)
-    // 			    )
-    // 			)?;
-    // 		    },
-
-    // 		    ProcessorNewMessage::Behind(trades_behind) => {
-    // 			// TODO: DEPENDING HOW MANY TRADES ARE BEHIND
-    // 			*pns = ProcessorNewState::CalculatingSingle(*market);
-    // 			for (trade_id, trade) in trades_behind.iter() {
-    // 			    myself.send_message(
-    // 				ProcessorNewMessage::NewTrade(trade.clone())
-    // 			    )?;
-    // 			}
-    // 		    },
-
-    // 		    ProcessorNewMessage::BulkReceive(
-    // 			(new_trade_l, computed_portf, offending_trades, computed_market)
-    // 		    ) => {
-    // 			// TODO: THINK WHAT THIS MIGHT BE!!!
-    // 			// replace the market and the trades
-    // 			*portf = computed_portf;
-    // 			*trade_l = new_trade_l;
-    // 			*trades_non_pricing = offending_trades;
-			
-    // 			// send the portfolio to current
-    // 			self.processor_curr.send_message(
-    // 			    ProcessorCurrMessage::NewTradePortfolio(
-    // 				(trade_l.clone(), portf.clone(), computed_market.clone(), myself)
-    // 			    )
-    // 			)?;
-    // 			*pns = ProcessorNewState::Idle(computed_market);
-    // 		    },
-    // 		}		
-    // 	    }
-    // 	}
-    // 	Ok(())
-    // }
 }

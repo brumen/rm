@@ -136,7 +136,7 @@ impl Actor for ProcessorCurr {
 		    ProcessorNewMessage::Behind(new_behind_curr.clone())
 		)?;
 
-		info!("CURR: {:?}", new_behind_curr);
+		info!("NEW behind CURR: {:?}", new_behind_curr);
 		let send_cnd = new_behind_curr.is_empty();
 		if send_cnd {  // when to send the portfolio to publisher.
 		    // publish the new portfolio
