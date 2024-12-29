@@ -1,10 +1,13 @@
 import logging
 import sys
+import six.moves
+
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-sys.path.append('/home/brumen/work/')
 
 from rm.result_publisher_by_trade import (
     ResultPublisherRester,
@@ -29,12 +32,12 @@ def main_letf(result_idx='PV'):
 
 def main_ao(result_idx='PV'):
 
-    server_port_topic = ('localhost', 9092, 'air_options.ao.results')
+    server_port_topic = ('192.168.1.107', 9092, 'air_options.ao.results')
 
     if result_idx == 'PV':
         rp = ResultPublisherKafkaPV(
             server_port_topic=server_port_topic,
-            metric=result_idx,
+            metric='pv',  # result_idx,
         )
 
     elif result_idx == 'PV01':
