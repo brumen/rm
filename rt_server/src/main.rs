@@ -43,7 +43,7 @@ use futures::future::join_all;
 #[tokio::main]
 async fn main() {
 
-    let tracing_level = Level::DEBUG;
+    let tracing_level = Level::INFO;
     tracing_subscriber::fmt()
         .with_max_level(tracing_level)
         .init();
