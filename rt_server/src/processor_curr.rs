@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-
-use rdkafka::message::OwnedMessage;
 use tracing::{info, debug, error};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
