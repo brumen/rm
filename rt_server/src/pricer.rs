@@ -199,6 +199,30 @@ pub trait PriceTradeAsync: BaseTrade {
         pricing_request
     }
 
+    fn _endpoint2(
+        &self,
+        metric: PricingMetric,
+        pricing_options: &MarketPricingOptions,
+        curr_new_mkt: CurrNewMarket,
+    ) -> String {
+	let pricing_server = pricing_options.pricing_server.clone();
+	let metric = metric.to_string().to_lowercase();
+	let market = match curr_new_mkt {
+	    CurrNewMarket::Current => "",
+	    CurrNewMarket::New => "new",
+	};
+	let trades = self.id();
+	
+	let _endpoint = format!(
+            "http://{pricing_server}/pricing?metric={metric}&market={market}&trade_ids={trades}"
+	);
+	    
+        debug!("_endpoint: {:?}", _endpoint);
+
+        _endpoint
+    }
+
+    
     /// computes the pricing request.
     fn _pricing_request(
         &self,

@@ -119,57 +119,36 @@ def trade_pv_market(
         return result
 
 
-@pv_rester.route('/pv/<trade_id>')
-def trade_pv(trade_id):
-    """ Returns the PV of the trade.
-           Trade can be either in the form of 200, or a list of trades,
-           separated by e.g. 200, 201, 202
+@pv_rester.route('/pricing')
+def pricing():
+    """ Get request for different markets, pricing metrics,
+       and trade ids.
+       Need to provide:
+         market: Current or New
+         metric: PV, PV01, PnL
+         trade_ids: string like 200,201,202...
     """
 
-    trade_ids = extract_trade_ids(escape(trade_id))
+    global MARKET, NEW_MARKET
 
-    return trade_pv_market(trade_ids, MARKET)
+    args = request.args
 
+    _market = CurrNewMarket.from_string(args.get('market'))
+    if _market == CurrNewMarket.CURRENT:
+        _market = MARKET
+    else:
+        _market = NEW_MARKET
 
-@pv_rester.route('/pv01/<trade_id>')
-def trade_pv01(trade_id):
-    """ Returns the PV of the trade.
-            Trade can be either in the form of 200, or a list of trades,
-            separated by e.g. 200, 201, 202
-    """
+    _metric = PriceMetric.from_string(args.get('metric'))
 
-    trade_ids = extract_trade_ids(escape(trade_id))
+    _trade_ids = args.get('trade_ids')
+    _trade_ids = extract_trade_ids(escape(_trade_ids))
 
-    return trade_pv_market(trade_ids, MARKET, PriceMetric.PV01)
-
-
-@pv_rester.route('/pv/new/<trade_id>')
-def trade_pv_new(trade_id):
-    """ Returns the PV of the trade.
-            Trade can be either in the form of 200, or a list of trades,
-            separated by e.g. 200, 201, 202
-    """
-
-    trade_ids = extract_trade_ids(escape(trade_id))
-
-    return trade_pv_market(trade_ids, NEW_MARKET)
-
-
-@pv_rester.route('/pv01/new/<trade_id>')
-def trade_pv01_new(trade_id):
-    """ Returns the PV of the trade.
-            Trade can be either in the form of 200, or a list of trades,
-            separated by e.g. 200, 201, 202
-    """
-
-    trade_ids = extract_trade_ids(escape(trade_id))
-
-    return trade_pv_market(trade_ids, NEW_MARKET, PriceMetric.PV01)
+    return trade_pv_market(_trade_ids, _market, _metric)
 
 
 # to test this:
 # curl -X POST -F 'trades=189,190' localhost:8000/pv/spark
-
 @pv_rester.route('/spark', methods=['POST', ])
 def trade_pv_spark() -> Response:
     """ Returns the PV of the trades presented.
@@ -248,81 +227,41 @@ def get_market() -> Response:
     """ Returns the market type
     """
 
-    global MARKET
+    global MARKET, NEW_MARKET, FUTURE_MARKET
+
     if request.method == 'GET':  # get method
-        return Response(dumps(AOMarketService.encode_from_tuple(MARKET)))
+        args = request.args
+
+        args_market = args.get('market')
+        if args_market == 'Current':
+            market = MARKET
+        elif args_market == 'New':
+            market = NEW_MARKET
+        else:
+            market = FUTURE_MARKET
+
+        return Response(dumps(AOMarketService.encode_from_tuple(market)))
 
     # post method
-    new_market = loads(request.data).get('market')
+    request_data = loads(request.data)
+    new_market = request_data.get('market')
+    market_type = request_data.get('market_type')
+
     if new_market is None:
         return Response(None)
 
-    decoded_new_mkt: Dict[Tuple[str, datetime.date],
-                          float] = AOMarketService.decode_mkt_data(new_market)
-    MARKET = decoded_new_mkt  # update the market.
+    decoded_new_mkt: Dict[
+        Tuple[str, datetime.date], float
+    ] = AOMarketService.decode_mkt_data(new_market)
+
+    if market_type == 'Current':
+        MARKET = decoded_new_mkt  # update the market.
+    elif market_type == 'New':
+        NEW_MARKET = decoded_new_mkt
+    else:
+        FUTURE_MARKET = decoded_new_mkt
 
     return Response("Updated CURRENT market.")
-
-
-@pv_rester.route('/new_market', methods=['GET', 'POST', ])
-def get_new_market() -> Response:
-    """ Storage for the new market.
-    """
-
-    global NEW_MARKET
-    if request.method == 'GET':  # get method
-        return Response(dumps(AOMarketService.encode_from_tuple(NEW_MARKET)))
-
-    # post method
-    replace_new_market = loads(request.data).get('market')
-    if replace_new_market is None:
-        return Response(None)
-
-    decoded_replaced_new_mkt: Dict[Tuple[str, datetime.date], float] = \
-        AOMarketService.decode_mkt_data(replace_new_market)
-    NEW_MARKET = decoded_replaced_new_mkt  # update the market.
-
-    return Response("Updated NEW market.")
-
-
-@pv_rester.route('/future_market', methods=['GET', 'POST', ])
-def get_future_market() -> Response:
-    """ Storage for the future market. This market replaces the new market.
-    """
-
-    global FUTURE_MARKET
-    if request.method == 'GET':
-        return Response(
-            dumps(
-                AOMarketService.encode_from_tuple(FUTURE_MARKET)
-            )
-        )
-
-    # post method
-    replace_future_market = loads(request.data).get('market')
-    if replace_future_market is None:
-        return Response(None)
-
-    decoded_replaced_future_mkt: Dict[Tuple[str, datetime.date], float] = \
-        AOMarketService.decode_mkt_data(replace_future_market)
-    FUTURE_MARKET = decoded_replaced_future_mkt  # update the market.
-
-    return Response("Updated NEW market.")
-
-
-@pv_rester.route('/switch_markets', methods=['GET', ])
-def switch_markets() -> Response:
-    """ Switches the following markets:
-        1. market <- new_market
-        2. new_market <- future_market
-    """
-
-    global MARKET, NEW_MARKET, FUTURE_MARKET
-
-    MARKET = NEW_MARKET
-    NEW_MARKET = FUTURE_MARKET
-
-    return Response('Replaced current/new markets')
 
 
 # pv rester start
