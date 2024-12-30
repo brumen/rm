@@ -60,7 +60,10 @@ where
     }
 
     fn _pricing_endpoint_spark(&self, market_: CurrNewMarket, metric: PricingMetric) -> String {
-	format!("{}/{:?}/{}", self.pricing_options.pricing_endpoint, market_, metric)
+	return match market_ {
+	    CurrNewMarket::Current => format!("{}/", metric),
+	    CurrNewMarket::New => format!("{}/new", metric),
+	};
     }
 }
 
@@ -92,13 +95,11 @@ impl Actor for ProcessorNew {
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
-	let no_market = MarketType::new();
-	let empty_portfolio = PortfolioType::default();
         Ok((
 	    TradeRep::<AOTrade>::default(),
 	    TradeRep::<AOTrade>::default(),
-	    empty_portfolio,
-	    ProcessorNewState::Idle(no_market))
+	    PortfolioType::default(),
+	    ProcessorNewState::Idle(MarketType::new()))
 	)
     }
 

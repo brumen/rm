@@ -41,6 +41,16 @@ class CurrNewMarket(Enum):
     CURRENT = 'c'
     NEW = 'n'
 
+    @classmethod
+    def from_string(cls, market: str):
+        if market == 'Current':
+            return cls.CURRENT
+
+        if market == 'New':
+            return cls.NEW
+
+        raise ValueError('market can be only Current, New')
+
 
 class TradeDirection(Enum):
     LONG = 'c'
@@ -51,6 +61,19 @@ class PriceMetric(Enum):
     PV = 'pv'
     PV01 = 'pv01'
     PNL = 'pnl'
+
+    @classmethod
+    def from_string(cls, metric: str):
+        if metric == 'PV':
+            return cls.PV
+
+        if metric == 'PV01':
+            return cls.PV01
+
+        if metric == 'PNL':
+            return cls.PNL
+
+        raise ValueError('metric can be PV, PV01, PNL')
 
 
 def extract_trade_ids(trades: str) -> List[int]:

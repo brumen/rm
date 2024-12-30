@@ -170,7 +170,7 @@ def trade_pv01_new(trade_id):
 # to test this:
 # curl -X POST -F 'trades=189,190' localhost:8000/pv/spark
 
-@pv_rester.route('/pv/spark', methods=['POST', ])
+@pv_rester.route('/spark', methods=['POST', ])
 def trade_pv_spark() -> Response:
     """ Returns the PV of the trades presented.
             Trade can be either in the form of 200, or a list of trades,
@@ -179,6 +179,8 @@ def trade_pv_spark() -> Response:
 
     # requests has to have a form {"trades": "190,191"}
     initial_trades = request.form.get('trades')
+    metric = request.form.get('metric')  # PV or PV01
+    market = request.form.get('market')  # Current or New
 
     if not initial_trades:
         return Response(dumps({}))
@@ -188,99 +190,17 @@ def trade_pv_spark() -> Response:
 
     if not trades:  # list is empty
         return Response(dumps({}))
+
+    price_metric: PriceMetric = PriceMetric.from_string(metric)
+    price_market: CurrNewMarket = CurrNewMarket.from_string(market)
 
     # response of the priced trades
     return Response(
         price_trades_json(
             MKT_DATE,
             trades,
-            CurrNewMarket.CURRENT
-        )
-    )
-
-
-# to test this:
-# curl -X POST -F 'trades=189,190' localhost:8000/pv/spark
-
-@pv_rester.route('/pv01/spark', methods=['POST', ])
-def trade_pv01_spark() -> Response:
-    """ Returns the PV of the trades presented.
-           Trade can be either in the form of 200, or a list of trades,
-           separated by , e.g. 200, 201, 202
-    """
-
-    # requests has to have a form {"trades": "190,191"}
-    initial_trades = request.form.get('trades')
-
-    if not initial_trades:
-        return Response(dumps({}))
-
-    # list of trade ids in the json encoded format
-    trades: List[int] = extract_trade_ids(escape(initial_trades))
-
-    if not trades:  # list is empty
-        return Response(dumps({}))
-
-    # price_trades is a generator
-    return Response(
-        price_trades_json(
-            MKT_DATE,
-            trades,
-            CurrNewMarket.CURRENT,
-            PriceMetric.PV01,
-        )
-    )
-
-
-@pv_rester.route('/pv/spark_new', methods=['POST', ])
-def trade_pv_spark_new() -> Response:
-    """ Returns the PV of the trade.
-            Trade can be either in the form of 200, or a list of trades,
-            separated by , e.g. 200, 201, 202
-    """
-
-    initial_trades = request.form.get('trades')
-
-    if not initial_trades:
-        return Response(dumps({}))
-
-    trades: List[int] = extract_trade_ids(escape(initial_trades))
-
-    if not trades:
-        return Response(dumps({}))
-
-    return Response(
-        price_trades_json(
-            MKT_DATE,
-            trades,
-            CurrNewMarket.NEW
-        )
-    )
-
-
-@pv_rester.route('/pv01/spark_new', methods=['POST', ])
-def trade_pv01_spark_new() -> Response:
-    """ Returns the PV of the trade.
-            Trade can be either in the form of 200, or a list of trades,
-            separated by e.g. 200, 201, 202
-    """
-
-    initial_trades = request.form.get('trades')
-
-    if not initial_trades:
-        return Response(dumps({}))
-
-    trades: List[int] = extract_trade_ids(escape(initial_trades))
-
-    if not trades:
-        return Response(dumps({}))
-
-    return Response(
-        price_trades_json(
-            MKT_DATE,
-            trades,
-            CurrNewMarket.NEW,
-            PriceMetric.PV01,
+            curr_new_mkt=price_market,
+            price_metric=price_metric,
         )
     )
 

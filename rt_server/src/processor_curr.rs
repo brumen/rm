@@ -86,7 +86,8 @@ impl Actor for ProcessorCurr {
     // state is a tuple of current trades,
     //    and current portfolio, and the current market
     //    representation.
-    type State = (TradeRep<AOTrade>, PortfolioType, MarketType);  
+    type State = (TradeRep<AOTrade>, PortfolioType, MarketType);
+    // type State = (TradeRep<impl Clone + for <'a> AddAssign<&'a AOTrade> >, PortfolioType, MarketType);
     type Arguments = ();
 
     async fn pre_start(
@@ -122,7 +123,6 @@ impl Actor for ProcessorCurr {
 		*trades += &trade;
 		*portf += valued_trade;
 
-		info!("LEN 1 = {:?}", portf.len());
 		self._send_portfolio(portf.clone()).await?
             },
 
@@ -133,12 +133,9 @@ impl Actor for ProcessorCurr {
 		    ProcessorNewMessage::Behind(new_behind_curr.clone())
 		)?;
 
-		info!("NEW behind CURR: {:?}", new_behind_curr);
 		let send_cnd = new_behind_curr.is_empty();
 		if send_cnd {  // when to send the portfolio to publisher.
 		    // publish the new portfolio
-		    info!("LEN 2 = {:?}", new_portfolio.len());
-		    info!("LEN 3 = {:?}", new_trades.len());
 		    self._send_portfolio(new_portfolio.clone()).await?;
 		    self.switch_market(new_market.clone()).await?; // setting new_market to be the current market
 
