@@ -340,28 +340,42 @@ where
             let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
             let market_endpoint = pricing_endpoint_spark.as_str();
 
-	    // let client_endpoint = format!(
-            //     "http://{}/{}",
-            //     self._pricing_server_spark(),
-            //     market_endpoint		
-            // );
-            // let result_pricing = pricing_client
-            //     .post(client_endpoint)
-            //     .form(&HashMap::from([("trades", &all_trade_ids)]))
-            //     .send();
-
-	    let client_endpoint_get = format!(
-                "http://{}/{}/{}",
+	    let client_endpoint = format!(
+                "http://{}/{}",
                 self._pricing_server_spark(),
-                market_endpoint,
-		all_trade_ids,		
+                market_endpoint		
             );
+	    let metric_s = match metric {
+		PricingMetric::PV => "PV".to_string(),
+		PricingMetric::PV01 => "PV01".to_string(),
+		PricingMetric::PnL => "PnL".to_string(),
+	    };
+	    let market_s = match market_ {
+		CurrNewMarket::Current => "Current".to_string(),
+		CurrNewMarket::New => "New".to_string(),
+	    };
+            let result_pricing = pricing_client
+                .post(client_endpoint)
+                .form(&[
+		    ("trades", &all_trade_ids),
+		    ("metric", &metric_s),
+		    ("market", &market_s),
+		])
+                .send()
+                .await?;
+
+	    // let client_endpoint_get = format!(
+            //     "http://{}/{}/{}",
+            //     self._pricing_server_spark(),
+            //     market_endpoint,
+	    // 	all_trade_ids,		
+            // );
 
 
-	    let result_pricing = pricing_client
-		.get(client_endpoint_get)
-		.send()
-		.await?;
+	    // let result_pricing = pricing_client
+	    // 	.get(client_endpoint_get)
+	    // 	.send()
+	    // 	.await?;
 
 	    let priced_portfolio = self._unwrap_pricing_results_a(result_pricing, metric).await;
 
