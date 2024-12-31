@@ -6,8 +6,13 @@
 import logging
 import datetime
 import sys
-if '/home/brumen/work/' not in sys.path:
-    sys.path.append('/home/brumen/work/')
+import six.moves
+
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
+
+# if '/home/brumen/work/' not in sys.path:
+#     sys.path.append('/home/brumen/work/')
 
 from json import loads
 from enum import Enum

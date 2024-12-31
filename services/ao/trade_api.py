@@ -179,7 +179,7 @@ def trade_pv_spark() -> Response:
             MKT_DATE,
             trades,
             curr_new_mkt=price_market,
-            price_metric=price_metric,
+            metric=price_metric,
         )
     )
 
