@@ -48,6 +48,7 @@ pub async fn start2(
 	    results_topic,
 	    pricing_options: (*pricing_options).clone(),
 	    result_publisher,
+	    r_client: Some(reqwest::Client::new()),
 	},
 	(),
     ).await
@@ -60,6 +61,7 @@ pub async fn start2(
 	    pricing_options: (*pricing_options).clone(),
 	    processor_curr: _processor_curr_a.clone(),
 	    processor_bulk: _processor_bulk_a,
+	    r_client: Some(reqwest::Client::new()),
 	},
 	(),
     ).await

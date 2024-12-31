@@ -1,6 +1,7 @@
 use ractor::async_trait;
 use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::{hash_map::IntoIter, HashMap};
 use std::ops::{AddAssign, Deref, DerefMut};
 use std::sync::mpsc::{Receiver, Sender};
@@ -130,6 +131,8 @@ pub trait MarketSwitching {
     ///   market.
     ///   E.g. format!("http://{0}/market", pricing_server))
     fn market_endpoint(&self) -> String;
+    /// reqwest client to implement market switching
+    fn r_client(&self) -> &reqwest::Client;  
     
     /// Sets current and new markets to the ones
     ///   specified in this function.
@@ -137,86 +140,27 @@ pub trait MarketSwitching {
     async fn switch_market(
 	&self,
 	market: MarketType,
+	curr_new_mkt: CurrNewMarket,
     ) -> Result<(), reqwest::Error> {
         info!("Setting market to: {:?}.", market);
 
-        let client = reqwest::Client::new();  // TODO: THIS CAN BE STORED!!!
+	let client = self.r_client();
+	let cnm = match curr_new_mkt {
+	    CurrNewMarket::Current => "Current".to_string(),
+	    CurrNewMarket::New => "New".to_string(),
+	};
 
-	// TODO: MAKE SURE THIS IS A ATOMIC OPERATION.
+	let payload = json!({
+	    "market": market,
+	    "market_type": cnm,
+	});
+
         client
 	    .post(self.market_endpoint())
-            .json(&HashMap::from([(
-                "market",
-		market
-            )]))
+            .json(&payload)
             .send()
             .await?;
 
 	Ok(())
     }
 }
-
-// trait that deals with when we switch from
-//  current market to new market.
-// pub trait MarketSwitching {
-//     fn _switch_all_markets(&self) -> impl std::future::Future<Output = ()> + Send;
-//     fn _switch_new_fut_markets(&self) -> impl std::future::Future<Output = ()> + Send;
-
-//     /// switches curr <- new; new <- future
-//     fn _internal_switch_all_markets(&self) {
-//         // replace current market w/ new market
-//         **self
-//             ._curr_mkt()
-//             .lock()
-//             .expect("_switch_markets: Could not lock current market") = self
-//             ._new_mkt()
-//             .lock()
-//             .expect("_switch_markets: Could not lock new market.")
-//             .clone();
-
-//         // replace new market with future market
-//         **self._new_mkt().lock().expect("Could not lock new market") = self
-//             ._future_mkt()
-//             .lock()
-//             .expect("_internal_switch_markets: Could not lock future market")
-//             .clone();
-//     }
-
-//     /// switches only new_market <- future_market
-//     fn _internal_switch_new_fut_markets(&self) {
-//         // replace current market with new market
-//         **self._new_mkt().lock().expect("Could not lock new market") = self
-//             ._future_mkt()
-//             .lock()
-//             .expect("_internal_switch_markets: Could not lock future market")
-//             .clone();
-//     }
-
-//     fn _curr_mkt(&self) -> Arc<Mutex<MarketType>>;
-//     fn _new_mkt(&self) -> Arc<Mutex<MarketType>>;
-//     fn _future_mkt(&self) -> Arc<Mutex<MarketType>>;
-//     // is future market ready, i.e. is there any update to the futures market.
-//     fn _future_mkt_ready(&self) -> bool;
-// }
-
-// /// trait that detects new events and potentially skips some.
-// pub trait TradeMarketDiscovery: MarketSwitching {
-//     /// indicator if there is a new market present.
-//     /// consumes the new market events to come to the last one.
-//     fn _new_market_event(
-//         &self,
-//         new_market_receiver: &Receiver<MarketType>,
-//         fut_market_sender: &Sender<MarketType>,
-//     ) {
-//         // handling new market event - roll to the latest new market, ignore in between markets
-
-//         while let Ok(new_stock_mkt) = new_market_receiver.recv() {
-//             *self
-//                 ._future_mkt()
-//                 .lock()
-//                 .expect("_new_market_event: Could not lock!") += &new_stock_mkt;
-//             let fm = self._future_mkt().lock().unwrap().clone();
-//             let _ = fut_market_sender.send(MarketType(fm));
-//         }
-//     }
-// }

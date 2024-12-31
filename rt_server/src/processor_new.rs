@@ -17,6 +17,7 @@ pub struct ProcessorNew{
     pub pricing_options: MarketPricingOptions,
     pub processor_curr: ActorRef<ProcessorCurrMessage>,
     pub processor_bulk: ActorRef<ProcessorBulkMessage>,
+    pub r_client: Option<reqwest::Client>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,8 +41,15 @@ pub enum ProcessorNewState {
 
 
 impl MarketSwitching for ProcessorNew {
+    fn r_client(&self) ->  &reqwest::Client {
+	match &self.r_client {
+	    Some(rc) => return &rc,
+	    None => panic!("Need client for market switching"),
+	}
+    }
+
     fn market_endpoint(&self) -> String {
-	format!("http://{0}/new/market", self.pricing_options.pricing_server.clone()) // TODO: CHECK THE PATH 
+	format!("http://{0}/market", self.pricing_options.pricing_server.clone())
     }
 }
 
@@ -193,7 +201,9 @@ impl Actor for ProcessorNew {
 			    // new processor is ahead, reset the
 			    //    new processor to the new default state.
 			    *portf = PortfolioType::default();
-			    let _ = self.switch_market(market.clone()).await;
+			    let _ = self.switch_market(
+				market.clone(), CurrNewMarket::New
+			    ).await;
 			    *pns = ProcessorNewState::Idle(market.clone());
 
 			} else {

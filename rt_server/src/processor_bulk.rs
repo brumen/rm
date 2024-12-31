@@ -41,13 +41,12 @@ where
     }
 
     fn _pricing_endpoint_spark(&self, market_: CurrNewMarket, metric: PricingMetric) -> String {
-
-	let endpoint = match market_ {
-	    CurrNewMarket::Current => format!("{}/", metric),
-	    CurrNewMarket::New => format!("{}/new", metric)
-	};
-
-	endpoint
+	"spark".to_string()
+	// let endpoint = match market_ {
+	//     CurrNewMarket::Current => format!("{}/", metric),
+	//     CurrNewMarket::New => format!("{}/new", metric)
+	// };
+	// endpoint
     }
 }
 

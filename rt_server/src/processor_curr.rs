@@ -22,6 +22,7 @@ pub struct ProcessorCurr{
     pub results_topic: String,
     pub pricing_options: MarketPricingOptions,
     pub result_publisher: FutureProducer,
+    pub r_client: Option<reqwest::Client>,
 }
 
 pub enum ProcessorCurrMessage {
@@ -74,6 +75,13 @@ impl ProcessorCurr {
 }
 
 impl MarketSwitching for ProcessorCurr {
+    fn r_client(&self) -> &reqwest::Client {
+	match &self.r_client {
+	    Some(rc) => return &rc,
+	    None => panic!("Need client for market switching"),
+	}
+    }
+    
     fn market_endpoint(&self) -> String {
 	format!("http://{0}/market", self.pricing_options.pricing_server.clone())
     }
@@ -137,7 +145,9 @@ impl Actor for ProcessorCurr {
 		if send_cnd {  // when to send the portfolio to publisher.
 		    // publish the new portfolio
 		    self._send_portfolio(new_portfolio.clone()).await?;
-		    self.switch_market(new_market.clone()).await?; // setting new_market to be the current market
+		    self.switch_market(
+			new_market.clone(), CurrNewMarket::Current
+		    ).await?; // setting new_market to be the current market
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;
