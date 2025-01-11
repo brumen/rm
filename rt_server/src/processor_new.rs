@@ -1,4 +1,4 @@
-use tracing::info;
+use tracing::{info, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::market::{CurrNewMarket, MarketSwitching, MarketType, MarketGeneral};
@@ -75,16 +75,6 @@ where
     }
 }
 
-/// first >= second
-fn cmp_tr(first: &TradeRep<AOTrade>, second: &TradeRep<AOTrade>) -> bool {
-    for (trade_id, _) in first.iter() {
-	if !second.contains(trade_id) {
-	    return false;
-	}
-    }
-    true
-}
-
 
 #[async_trait]
 impl Actor for ProcessorNew {
@@ -111,6 +101,7 @@ impl Actor for ProcessorNew {
 	)
     }
 
+    #[instrument]
     async fn handle(
         &self,
 	myself: ActorRef<Self::Msg>,

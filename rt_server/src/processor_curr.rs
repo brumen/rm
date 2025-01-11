@@ -1,4 +1,4 @@
-use tracing::{info, debug, error};
+use tracing::{info, debug, error, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use rdkafka::error::KafkaError;
@@ -25,6 +25,16 @@ pub struct ProcessorCurr{
     pub r_client: Option<reqwest::Client>,
 }
 
+
+impl std::fmt::Debug for ProcessorCurr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+	// TODO: THIS HAS TO BE MORE ELABORATE, PERHAPS JUST IGNORE FutureProducer
+	f.write_str("Help")
+    }
+}
+
+
+#[derive(Debug)]
 pub enum ProcessorCurrMessage {
     NewTrade(AOTrade),
     NewTradePortfolio(
@@ -111,6 +121,7 @@ impl Actor for ProcessorCurr {
 	Ok((initial_trades, initial_curr_portf, initial_market))
     }
 
+    #[instrument]
     async fn handle(
         &self,
 	_myself: ActorRef<Self::Msg>,

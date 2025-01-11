@@ -1,5 +1,5 @@
 /// Processor which gets a bulk of work, and finishes it.
-use tracing::{info, debug, error};
+use tracing::{info, debug, error, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::market::{CurrNewMarket, MarketGeneral, MarketType};
@@ -10,6 +10,7 @@ use crate::ao_trade::AOTrade;
 use crate::processor_new::ProcessorNewMessage;
 use crate::process_trade::ProcessTradeValue;
 
+#[derive(Debug)]
 pub struct ProcessorBulk{
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
@@ -66,6 +67,7 @@ impl Actor for ProcessorBulk {
 	Ok(0)  // intialized to 0 attempts.
     }
 
+    #[instrument]
     async fn handle(
         &self,
 	myself: ActorRef<Self::Msg>,
