@@ -101,7 +101,6 @@ impl Actor for ProcessorNew {
 	)
     }
 
-    #[instrument]
     async fn handle(
         &self,
 	myself: ActorRef<Self::Msg>,

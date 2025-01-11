@@ -142,7 +142,7 @@ pub trait MarketSwitching {
 	market: MarketType,
 	curr_new_mkt: CurrNewMarket,
     ) -> Result<(), reqwest::Error> {
-        info!("Setting market to: {:?}.", market);
+        info!("Switching markets. New market = {:?}.", market);
 
 	let client = self.r_client();
 	let cnm = match curr_new_mkt {

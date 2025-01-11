@@ -67,7 +67,6 @@ impl Actor for ProcessorBulk {
 	Ok(0)  // intialized to 0 attempts.
     }
 
-    #[instrument]
     async fn handle(
         &self,
 	myself: ActorRef<Self::Msg>,

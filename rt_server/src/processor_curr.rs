@@ -22,14 +22,13 @@ pub struct ProcessorCurr{
     pub results_topic: String,
     pub pricing_options: MarketPricingOptions,
     pub result_publisher: FutureProducer,
-    pub r_client: Option<reqwest::Client>,
+    pub r_client: Option<reqwest::Client>,  // request client
 }
 
 
 impl std::fmt::Debug for ProcessorCurr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-	// TODO: THIS HAS TO BE MORE ELABORATE, PERHAPS JUST IGNORE FutureProducer
-	f.write_str("Help")
+	f.write_str("CurrentProcessor")
     }
 }
 
@@ -121,7 +120,6 @@ impl Actor for ProcessorCurr {
 	Ok((initial_trades, initial_curr_portf, initial_market))
     }
 
-    #[instrument]
     async fn handle(
         &self,
 	_myself: ActorRef<Self::Msg>,
@@ -133,6 +131,7 @@ impl Actor for ProcessorCurr {
         match message {
 	    ProcessorCurrMessage::NewTrade(trade) => {
 
+		info!("Adding new trade: {:?}", trade);
 		let valued_trade = trade.value_by_metric2(
 		    self.metric, &self.pricing_options,
 		    MarketGeneral::MarketRemote(CurrNewMarket::Current)
@@ -151,6 +150,7 @@ impl Actor for ProcessorCurr {
 		new_processor.send_message(
 		    ProcessorNewMessage::Behind(new_behind_curr.clone())
 		)?;
+		info!("Received new trade portfolio, behind: {:?}", new_behind_curr.len());
 
 		let send_cnd = new_behind_curr.is_empty();
 		if send_cnd {  // when to send the portfolio to publisher.

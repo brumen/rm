@@ -35,6 +35,7 @@ pub mod engine_actor;
 // use crate::market::MktMsgParams;
 use tracing::{info, Level};
 use tracing_subscriber;
+use tracing_subscriber::fmt::format::FmtSpan;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::engine_actor::start2;
 use futures::future::join_all;
@@ -46,6 +47,7 @@ async fn main() {
     let tracing_level = Level::INFO;
     tracing_subscriber::fmt()
         .with_max_level(tracing_level)
+        .with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
         .init();
 
     info!("Starting main system controller.");
