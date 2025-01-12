@@ -1,7 +1,8 @@
 
-use ractor::Actor;
+use ractor::{Actor, ActorRef};
 use tokio::task::JoinHandle;
 use tracing::info;
+use std::sync::{Arc,Mutex};
 
 // use crate::market::MktMsgParams;
 use crate::mkt_handler_actor::MarketProducer;
@@ -11,9 +12,11 @@ use crate::pricer::{MarketPricingOptions, PricingMetric};
 
 use crate::publish::connect_with_retries_producer_rd;
 use crate::trade_sender::TradeProducer;
-use crate::processor_curr::ProcessorCurr;
+use crate::processor_curr::{ProcessorCurr, ProcessorCurrMessage};
 use crate::processor_new::ProcessorNew;
 use crate::processor_bulk::ProcessorBulk;
+use crate::portfolio::PortfolioType;
+
 
 
 /// initializes all the actors 
@@ -24,7 +27,8 @@ pub async fn start2(
     mkt_topic: String,     // market topic
     results_topic: String, // publish the results topic
     pricing_options: &MarketPricingOptions,
-) -> Vec<JoinHandle<()>> {
+    server_state: Arc<Mutex<PortfolioType>>,
+) -> (ActorRef<ProcessorCurrMessage>, Vec<JoinHandle<()>>) {
 
     info!("Starting bulk processor.");
     let (_processor_bulk_a, processor_bulk_handle) = Actor::spawn(
@@ -49,6 +53,7 @@ pub async fn start2(
 	    pricing_options: (*pricing_options).clone(),
 	    result_publisher,
 	    r_client: Some(reqwest::Client::new()),
+	    portf: server_state,
 	},
 	(),
     ).await
@@ -86,7 +91,7 @@ pub async fn start2(
     let trade_producer = TradeProducer::new(
 	kafka_server,
 	pos_topic,
-	_processor_curr_a,
+	_processor_curr_a.clone(),
 	_processor_new_a,
     );
     
@@ -95,11 +100,14 @@ pub async fn start2(
     ).await
     .expect("Could not start trade producer");
 
-    vec![
-	trade_capture_handle,
-	processor_curr_handle,
-	processor_new_handle,
-	processor_bulk_handle,
-	mkt_producer_handle,
-    ]    
+    (
+	_processor_curr_a, 
+	vec![
+	    trade_capture_handle,
+	    processor_curr_handle,
+	    processor_new_handle,
+	    processor_bulk_handle,
+	    mkt_producer_handle,
+	]
+    )
 }

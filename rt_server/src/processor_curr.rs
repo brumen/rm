@@ -1,5 +1,6 @@
 use tracing::{info, debug, error, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
+use std::sync::{Arc, Mutex};
 
 use rdkafka::error::KafkaError;
 use rdkafka::util::Timeout;
@@ -17,12 +18,13 @@ use crate::processor_new::ProcessorNewMessage;
 use crate::market::{MarketGeneral, MarketSwitching};
 
 
-pub struct ProcessorCurr{
+pub(crate) struct ProcessorCurr{
     pub metric: PricingMetric,
     pub results_topic: String,
     pub pricing_options: MarketPricingOptions,
     pub result_publisher: FutureProducer,
     pub r_client: Option<reqwest::Client>,  // request client
+    pub portf: Arc<Mutex<PortfolioType>>,  // current working portfolio
 }
 
 
@@ -71,6 +73,12 @@ impl ProcessorCurr {
 		headers: None,
         };
 
+	// set up the portfolio in self
+	{
+	    let mut p = self.portf.lock().unwrap();
+	    *p = portf.clone();
+	}
+	
 	// first i32 = partition
 	// second i64 = offset
 	// error is the Kafka error
@@ -80,6 +88,8 @@ impl ProcessorCurr {
 	    Err((ke, _)) => Err(SendError::KafkaErr(ke)),
 	    _ => Ok(()),
 	}
+
+
     }
 }
 
