@@ -3,7 +3,7 @@ use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
 use std::marker::Sync;
 use std::ops::{Deref, DerefMut};
-
+use ractor::async_trait;
 
 use crate::market::{CurrNewMarket, MarketGeneral};
 use crate::portfolio::PV01Results;
@@ -42,22 +42,21 @@ pub struct AOTrade {
 
 impl Decoder for AOTrade {}
 
+#[async_trait]
 impl ProcessTradeValue for AOTrade {
-    fn value_by_metric2(
+    async fn value_by_metric2(
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: MarketGeneral,
-    ) -> impl std::future::Future<Output = PricingResults> + Send {
-        async move {
-            let market_remote = match curr_new_mkt {
-                MarketGeneral::MarketRemote(cn_mkt) => cn_mkt,
-                MarketGeneral::MarketLocal(_) => panic!(),
-            };
+    ) -> PricingResults {
+        let market_remote = match curr_new_mkt {
+            MarketGeneral::MarketRemote(cn_mkt) => cn_mkt,
+            MarketGeneral::MarketLocal(_) => panic!(),
+        };
 
-            self.value_by_metric(metric, pricing_options, market_remote)
-                .await
-        }
+        self.value_by_metric(metric, pricing_options, market_remote)
+            .await
     }
 }
 
@@ -184,21 +183,20 @@ impl BaseTrade for AOTradeRep {
     }
 }
 
+#[async_trait]
 impl ProcessTradeValue for AOTradeRep {
-    fn value_by_metric2(
+    async fn value_by_metric2(
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
         curr_new_mkt: MarketGeneral,
-    ) -> impl std::future::Future<Output = PricingResults> + Send {
-        async move {
-            let market_remote = match curr_new_mkt {
-                MarketGeneral::MarketRemote(cn_mkt) => cn_mkt,
-                MarketGeneral::MarketLocal(_) => panic!(),
-            };
+    ) -> PricingResults {
+        let market_remote = match curr_new_mkt {
+            MarketGeneral::MarketRemote(cn_mkt) => cn_mkt,
+            MarketGeneral::MarketLocal(_) => panic!(),
+        };
 
-            self.value_by_metric(metric, pricing_options, market_remote)
-                .await
-        }
+        self.value_by_metric(metric, pricing_options, market_remote)
+            .await
     }
 }

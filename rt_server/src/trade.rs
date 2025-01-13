@@ -6,6 +6,7 @@ use std::default::Default;
 use std::ops::{AddAssign, Deref, DerefMut, SubAssign, Sub};
 use thiserror::Error;
 use tracing::{debug, warn};
+use ractor::async_trait;
 
 use crate::market::{MarketGeneral, MarketType};
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
@@ -294,33 +295,31 @@ impl TradeTypes {
 
 impl Decoder for TradeTypes {}
 
+#[async_trait]
 impl ProcessTradeValue for TradeTypes {
-    fn value_by_metric2(
+    async fn value_by_metric2(
         &self,
         metric: crate::pricer::PricingMetric,
         _pricing_options: &crate::pricer::MarketPricingOptions,
         curr_new_mkt: crate::market::MarketGeneral,
-    ) -> impl std::future::Future<Output = PricingResults> + Send {
-        async move {
-            // TODO: THIS CAN BE BETTER IMPLEMENTED
-            let actual_market = match curr_new_mkt {
-                MarketGeneral::MarketRemote(_) => panic!(), // we should not be getting this
-                MarketGeneral::MarketLocal(mkt_local) => mkt_local,
-            };
+    ) -> PricingResults  {
+        let actual_market = match curr_new_mkt {
+            MarketGeneral::MarketRemote(_) => panic!(), // we should not be getting this
+            MarketGeneral::MarketLocal(mkt_local) => mkt_local,
+        };
 
-            match metric {
-                PricingMetric::PV => {
-                    let price = self.price(&actual_market);
-                    PricingResults::PV(PortfolioType::from([(self.id(), price.unwrap())]))
-                }
-                PricingMetric::PV01 => {
-                    let pv01 = self.pv01(&actual_market);
-                    PricingResults::PV01(pv01)
-                }
-                PricingMetric::PnL => {
-                    let pnl = self.pnl(&actual_market);
-                    PricingResults::PV(PortfolioType::from([(self.id(), pnl.unwrap_or(0.01))]))
-                }
+        match metric {
+            PricingMetric::PV => {
+                let price = self.price(&actual_market);
+                PricingResults::PV(PortfolioType::from([(self.id(), price.unwrap())]))
+            }
+            PricingMetric::PV01 => {
+                let pv01 = self.pv01(&actual_market);
+                PricingResults::PV01(pv01)
+            }
+            PricingMetric::PnL => {
+                let pnl = self.pnl(&actual_market);
+                PricingResults::PV(PortfolioType::from([(self.id(), pnl.unwrap_or(0.01))]))
             }
         }
     }
