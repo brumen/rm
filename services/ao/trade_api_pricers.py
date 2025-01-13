@@ -18,7 +18,7 @@ from json import loads
 from enum import Enum
 from requests import get as requests_get
 from typing import List, Dict, Tuple, Any, Optional, Generator
-from pyspark import SparkContext, SparkConf
+# from pyspark import SparkContext, SparkConf
 from sqlalchemy.exc import OperationalError
 from functools import lru_cache
 from ao.trade import create_session, AOTrade, DeltaDict
@@ -183,7 +183,7 @@ def _compute_trades_from_id(
 
 
 @lru_cache
-def _set_spark_env() -> SparkContext:
+def _set_spark_env():  #  -> SparkContext:
     """ Creates the spark context.
     """
 
