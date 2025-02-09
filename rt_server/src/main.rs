@@ -89,14 +89,12 @@ async fn main() {
 
     let mut results = vec![axum_process];
     
-    let (processor_curr, mut result) = start2(
+    let mut result = start2(
     	kafka_server, metric, pos_topic, mkt_topic, results_topic, &pricing_options, state,
     ).await;
 
     results.append(&mut result);
     // tokio::join!(results);
-    //axum_process.await.unwrap();
-    // result.insert(0, axum_process);
     join_all(results).await;
 }
 
