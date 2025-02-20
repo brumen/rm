@@ -15,11 +15,12 @@ use crate::ao_trade::AOTrade;
 pub struct ProcessorNew{
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
-    pub processor_curr: ActorRef<ProcessorCurrMessage>,
-    pub processor_bulk: ActorRef<ProcessorBulkMessage>,
+    pub processor_curr: ActorRef<ProcessorCurrMessage>,  // current processor ref.
+    pub processor_bulk: ActorRef<ProcessorBulkMessage>,  // bull processor ref.
     pub r_client: Option<reqwest::Client>,
 }
 
+/// message that the new processor receives
 #[derive(Debug, Clone)]
 pub enum ProcessorNewMessage {
     NewTrade(AOTrade),

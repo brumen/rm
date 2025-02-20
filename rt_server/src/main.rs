@@ -13,6 +13,7 @@ use axum::{
 use std::sync::{Arc, Mutex};
 use std::net::SocketAddr;
 use tokio::task;
+use glommio::LocalExecutorBuilder;
 
 //mod ao_risk;
 //mod ao_risk_seq;
@@ -46,9 +47,22 @@ pub mod engine_actor;
 
 
 
-#[tokio::main]
-async fn main() {
+// testing different 
+fn main() {
+    LocalExecutorBuilder::default()
+        .spawn(|| async move {
+	    // here the async part
+	    run_all().await;
+	});
+}
 
+
+//#[tokio::main]
+async fn main2() {
+    run_all().await;
+}
+
+async fn run_all() {
     let tracing_level = Level::INFO;
     tracing_subscriber::fmt()
         .with_max_level(tracing_level)
