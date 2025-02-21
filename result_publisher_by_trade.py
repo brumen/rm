@@ -40,7 +40,9 @@ class ResultPublisherBase:
         :returns: None, just updates curr_value, new_value, and trades
         """
 
-        raise NotImplemented(f'Implement the function that updates self.curr_value')
+        raise NotImplementedError(
+            f'Implement the function that updates {self.curr_value}'
+        )
 
     def update_results(self):
         """ Updates the pandas table w/ the results.

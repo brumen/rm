@@ -5,10 +5,8 @@ import datetime
 import random
 import numpy as np
 from logging import getLogger
-from time import sleep
 
 from typing import Tuple, List
-from uuid import uuid4
 from time import sleep
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
