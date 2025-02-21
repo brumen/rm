@@ -20,6 +20,7 @@ pub struct ProcessorBulk{
 #[derive(Debug, Clone)]
 pub enum ProcessorBulkMessage {
     NewBulk((MarketType, TradeRep<AOTrade>, ActorRef<ProcessorNewMessage>)),
+    Abandon,
 }
 
 #[derive(Debug)]
@@ -76,34 +77,41 @@ impl Actor for ProcessorBulk {
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	let ProcessorBulkMessage::NewBulk((market, new_trades, processor_new)) = message; 
-	// start the long-running pricing procedure
-	debug!("BULK Processor TRADES: {:?}", new_trades);
+	match message {
+	    ProcessorBulkMessage::NewBulk((market, new_trades, processor_new)) {
+		// start the long-running pricing procedure
+		debug!("BULK Processor TRADES: {:?}", new_trades);
 
-	let mut portfolio = PortfolioType::default();
-	let mut pricing_futs = vec![];
-	for (_, trade) in new_trades.iter() {
-	    info!("BULK single trade: {:?}", trade);
-	    pricing_futs.push(
-		trade.value_by_metric2(
-		    self.metric, &self.pricing_options,
-		    MarketGeneral::MarketRemote(CurrNewMarket::New)
-		)
-	    );
+		let mut portfolio = PortfolioType::default();
+		let mut pricing_futs = vec![];
+		for (_, trade) in new_trades.iter() {
+		    info!("BULK single trade: {:?}", trade);
+		    pricing_futs.push(
+			trade.value_by_metric2(
+			    self.metric, &self.pricing_options,
+			    MarketGeneral::MarketRemote(CurrNewMarket::New)  // TODO: THIS MARKET HAS TO BE CHANGED!!
+			)
+		    );
+		}
+
+		// updating the portfolio
+		let pricing_res = join_all(pricing_futs).await;
+		for pricing in pricing_res.iter() {
+		    portfolio += pricing.aggregate();
+		}
+
+		debug!("BULK Processor TO NEW: {:?}", portfolio);
+		processor_new.send_message(
+		    ProcessorNewMessage::BulkReceive(
+			(new_trades, portfolio, TradeRep::<AOTrade>::default(), market)
+		    )
+		)?;
+
+	    },
+	    ProcessorBulkMessage::Abandon => {
+		// stop the computation and go into idle.
+	    },
 	}
-
-	// updating the portfolio
-	let pricing_res = join_all(pricing_futs).await;
-	for pricing in pricing_res.iter() {
-	    portfolio += pricing.aggregate();
-	}
-
-	debug!("BULK Processor TO NEW: {:?}", portfolio);
-	processor_new.send_message(
-	    ProcessorNewMessage::BulkReceive(
-		(new_trades, portfolio, TradeRep::<AOTrade>::default(), market)
-	    )
-	)?;
 
 	Ok(())
     }
