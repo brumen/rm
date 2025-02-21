@@ -1,4 +1,4 @@
-""" Service for market snapper.
+""" Load simulator for market.
 """
 
 import datetime
