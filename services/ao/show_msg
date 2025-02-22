@@ -5,21 +5,26 @@ server="--bootstrap-server 192.168.1.107:9092 "
 kafka_folder="/home/brumen/archive/software/kafka"
 service_folder="/home/brumen/work/rm/services/ao"
 
+# opens the kafka console monitors for different topics
 if [ "$1" == "monitors" ]; then
     gnome-terminal --tab -- $kafka_console_cmd $server --topic air_options.ao.mkt_events
     gnome-terminal --tab -- $kafka_console_cmd $server --topic air_options.ao.results
     gnome-terminal --tab -- $kafka_console_cmd $server --topic air_options.ao.flights_live
     gnome-terminal --tab -- $kafka_console_cmd $server --topic air_options.ao.option_positions
 
+# starts kafka server and kafka_connect for the mysql
 elif [ "$1" == "kafka" ]; then
     gnome-terminal --tab -- $kafka_folder/start_kafka
     gnome-terminal --tab -- $kafka_folder/start_kafka_connect
 
+# starts trade load generator, market load generator,
+# and API pricing rester (trade_api_single)
 elif [ "$1" == "market" ]; then
     gnome-terminal --tab -- python $service_folder/trade_service.py
     gnome-terminal --tab -- python $service_folder/trade_api_single.py
-    gnome-terminal --tab -- python $service_folder/market_service_start.py
+    gnome-terminal --tab -- python $service_folder/market_service.py
 
+# starts the real time risk monitor controller.
 elif [ "$1" == "server" ]; then
     gnome-terminal --tab -- RUST_LOG=info cargo
 

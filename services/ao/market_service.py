@@ -237,4 +237,4 @@ def _main():
 
 
 # starting the market load simulator.
-_main()
+# _main()

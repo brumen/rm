@@ -16,6 +16,8 @@ from typing import List, Dict, Any, Tuple, Optional
 from markupsafe import escape
 from flask import Response, request, Flask
 from json import dumps, loads
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 # IMPORTANT: This logging config MUST BE HERE ON TOP, OTHERWISE IT DOES NOT WORK
 logging.basicConfig(
@@ -28,7 +30,7 @@ if sys.version_info >= (3, 12, 0):
     sys.modules['kafka.vendor.six.moves'] = six.moves
 
 from ao.trade import AOTrade, DeltaDict, AirOptionFlights
-from rm.market_service import AOMarketService
+from rm.services.ao.market_service import AOMarketService
 from rm.services.ao.trade_api_pricers import (
     _compute_trade_from_mkt,
     _compute_trades_from_id,
@@ -41,9 +43,7 @@ from rm.services.ao.trade_api_pricers import (
     PriceMetric,
     PRICING_SERVER_NAME,
 )
-
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from rm.market_tracker import MarketTracker
 
 
 # rester start
@@ -63,7 +63,7 @@ MARKET: MARKET_TYPE = {}  # current market
 NEW_MARKET: MARKET_TYPE = {}  # new market to price on.
 # future market, which will replace the new_market
 FUTURE_MARKET: MARKET_TYPE = {}
-
+ALL_MARKETS: MarketTracker = MarketTracker()  # list of all usable markets.
 
 ao_db = 'mysql://brumen@localhost/ao'
 ao_engine = create_engine(ao_db)
@@ -217,7 +217,8 @@ def get_market_date() -> Response:
         return Response(None)
 
     MKT_DATE = datetime.datetime.strptime(
-        new_mkt_date, '%Y%m%d')  # 20230205  dates
+        new_mkt_date, '%Y%m%d'
+    )  # 20230205  dates
 
     return Response(MKT_DATE.strftime("%Y%m%d"))
 
@@ -227,25 +228,23 @@ def get_market() -> Response:
     """ Returns the market type
     """
 
-    global MARKET, NEW_MARKET, FUTURE_MARKET
+    global ALL_MARKETS
 
     if request.method == 'GET':  # get method
         args = request.args
 
-        args_market = args.get('market')
-        if args_market == 'Current':
-            market = MARKET
-        elif args_market == 'New':
-            market = NEW_MARKET
-        else:
-            market = FUTURE_MARKET
+        market_name = args.get('market')
+        market: Optional[MARKET_TYPE] = ALL_MARKETS.get(market_name)
+
+        if market is None:
+            return Response(None)
 
         return Response(dumps(AOMarketService.encode_from_tuple(market)))
 
-    # post method
+    # setting the newest market
     request_data = loads(request.data)
     new_market = request_data.get('market')
-    market_type = request_data.get('market_type')
+    market_name = request_data.get('market_type')
 
     if new_market is None:
         return Response(None)
@@ -254,14 +253,9 @@ def get_market() -> Response:
         Tuple[str, datetime.date], float
     ] = AOMarketService.decode_mkt_data(new_market)
 
-    if market_type == 'Current':
-        MARKET = decoded_new_mkt  # update the market.
-    elif market_type == 'New':
-        NEW_MARKET = decoded_new_mkt
-    else:
-        FUTURE_MARKET = decoded_new_mkt
+    ALL_MARKETS.insert_rotate(decoded_new_mkt)
 
-    return Response("Updated CURRENT market.")
+    return Response("New market added.")
 
 
 # pv rester start
