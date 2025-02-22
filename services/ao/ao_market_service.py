@@ -10,13 +10,10 @@
 """
 
 import logging
+from rm.market_service import AOMarketService
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-import sys
-sys.path.append('/home/brumen/work/')
-
-from rm.market_service import AOMarketService
 
 
 # starting the service

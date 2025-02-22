@@ -59,10 +59,7 @@ MKT_DATE = datetime.date(2016, 7, 1)
 # market on which the trades are priced.
 MARKET_TYPE = Optional[Dict[Tuple[str, datetime.date], float]]
 ENCODED_MARKET_TYPE = Optional[Dict[str, float]]
-MARKET: MARKET_TYPE = {}  # current market
-NEW_MARKET: MARKET_TYPE = {}  # new market to price on.
 # future market, which will replace the new_market
-FUTURE_MARKET: MARKET_TYPE = {}
 ALL_MARKETS: MarketTracker = MarketTracker()  # list of all usable markets.
 
 ao_db = 'mysql://brumen@localhost/ao'
@@ -129,20 +126,14 @@ def pricing():
          trade_ids: string like 200,201,202...
     """
 
-    global MARKET, NEW_MARKET
+    global ALL_MARKETS
 
     args = request.args
+    market_name = args.get('market')
 
-    _market = CurrNewMarket.from_string(args.get('market'))
-    if _market == CurrNewMarket.CURRENT:
-        _market = MARKET
-    else:
-        _market = NEW_MARKET
-
+    _market = ALL_MARKETS[market_name]
     _metric = PriceMetric.from_string(args.get('metric'))
-
-    _trade_ids = args.get('trade_ids')
-    _trade_ids = extract_trade_ids(escape(_trade_ids))
+    _trade_ids = extract_trade_ids(escape(args.get('trade_ids')))
 
     return trade_pv_market(_trade_ids, _market, _metric)
 
@@ -249,13 +240,25 @@ def get_market() -> Response:
     if new_market is None:
         return Response(None)
 
-    decoded_new_mkt: Dict[
-        Tuple[str, datetime.date], float
-    ] = AOMarketService.decode_mkt_data(new_market)
+    decoded_new_mkt: Dict[Tuple[str, datetime.date], float] = \
+        AOMarketService.decode_mkt_data(new_market)
 
-    ALL_MARKETS.insert_rotate(decoded_new_mkt)
+    ALL_MARKETS.insert_preserve_names(decoded_new_mkt)
 
     return Response("New market added.")
+
+
+@pv_rester.route('/market_setup', methods=['POST', ])
+def market_setup() -> Response:
+    """ Sets up the number of markets involved.
+
+        TODO: CURRENTLY THEY ARE ONLY SET TO ZERO
+    """
+
+    # currently set up 2 markets - Current and New
+    #  initially they are empty markets
+    ALL_MARKETS.new_market('Current', {})
+    ALL_MARKETS.new_market('New', {})
 
 
 # pv rester start
