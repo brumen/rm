@@ -7,9 +7,8 @@ use crate::market::{CurrNewMarket, MarketSwitching, MarketType, MarketGeneral};
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;
-use crate::processor_bulk::ProcessorBulkMessage;
+use crate::processor_bulk::{ProcessorBulkMessage, ProcessorMiddleMessage};
 use crate::trade::{BaseTrade, TradeRep};
-use crate::processor_curr::ProcessorCurrMessage;
 use crate::ao_trade::AOTrade;
 
 
@@ -17,30 +16,12 @@ use crate::ao_trade::AOTrade;
 pub(crate) struct ProcessorMiddle{
     pub(crate) metric: PricingMetric,
     pub(crate) pricing_options: MarketPricingOptions,
-    market_name: String,
+    pub(crate) market_name: String,
     pub processor_below: ActorRef<ProcessorMiddleMessage>,  // processor below
-    pub processor_above: ActorRef<ProcessorMiddleMessage>,  // processor above
     pub processor_bulk: ActorRef<ProcessorBulkMessage>,  // bull processor ref.
     pub r_client: Option<reqwest::Client>,
 }
 
-/// message that the new processor receives
-#[derive(Debug, Clone)]
-pub enum ProcessorMiddleMessage {
-    NewTrade(AOTrade),
-    NewMarket(MarketType),
-    Behind(TradeRep<AOTrade>),  // message from Processor_below, missing trades to calculate.
-    // first elt: all trades,
-    // second: portfolio from computed trades
-    // third: offending trades.
-    // fourth: market on which these trades were computed.
-    BulkReceive((TradeRep<AOTrade>, PortfolioType, TradeRep<AOTrade>, MarketType)),  // message from Bulk computation
-    // message from the processor above.
-    NewTradePortfolio(
-	(TradeRep<AOTrade>, PortfolioType, MarketType, ActorRef<ProcessorMiddleMessage>)
-    ),
-
-}
 
 #[derive(Debug)]
 pub enum ProcessorMiddleState {
@@ -280,44 +261,58 @@ impl Actor for ProcessorMiddle {
 		    
 		    ProcessorMiddleState::Idle(_market) => {
 			// just pass it to the processor below, dont do anything else
-			self.processor_below.send_message(ntp)?;  // TODO: CHECK THIS!!!
+			self.processor_below.send_message(
+			    ProcessorMiddleMessage::NewTradePortfolio(ntp)
+			)?;
 		    },
 
 		    ProcessorMiddleState::CalculatingBulk(market) => {
 			// we got new portfolio, but we are in the process of computing the portfolresult of computation has arrived.
-			let (trades, potential_portfolio, new_market, _) = ntp;
+			let (potential_trades, potential_portfolio, new_market, _) = ntp;
 			
-			if new_market.is_later_than(market) {  // TODO: THIS IS NOT SUFFICIENT CONDITION
+			//if new_market.is_later_than(market) {  // TODO: THIS IS NOT SUFFICIENT CONDITION
 			    // replace the portfolio, and pass it down
 
 			    // TODO: ALSO, SHOULDNT WE NOTIFY THE BULK PROCESSOR THAT WE ARE ABANDONING THE ATTEMPT.
+			// TODO: WRONG - IMPLEMENT > JUST FOR REFERENCES!!!
+			let new_behind_curr = potential_trades.clone() - &potential_trades;
+			
+			if new_behind_curr.is_empty() {
 			    self.processor_below.send_message(
 				ProcessorMiddleMessage::NewTradePortfolio(
-				    (trades, potential_portfolio, new_market, myself)
+				    (trade_l.clone(), portf.clone(), market.clone(), myself)  // TODO: REMOVE THESE CLONES, SURE SOME ARE UNNECESSARY
 				)
 			    )?;
 			    // set the state of this processor to the state being sent.
 			    *portf = potential_portfolio;
-			    *trade_l = trades;
-			    *state = ProcessorMiddleState::Idle(new_market);
+			    *trade_l = potential_trades;
+			    *pns = ProcessorMiddleState::Idle(new_market);
 			}
 		    },
 		    ProcessorMiddleState::CalculatingSingle(_market) => {
 			// result of computation has arrived.
 			//  add it to the computation
 			// TODO: FINISH THIS HERE!!!
-			// panic!("Received BulkReceive while calculating single - Weird");
 
-			*portf = computed_portf;
-			*trade_l += &new_trade_l;
-			self.processor_below.send_message(
-			    ProcessorMiddleMessage::NewTradePortfolio(
-				(trade_l.clone(), portf.clone(), _market.clone(), myself)  // TODO: MYSELF IS WRONG
-			    )
-			)?;
+			let (potential_trades, potential_portfolio, new_market, _) = ntp;  // new trade portfolio
+
+			// TODO: WRONG - IMPLEMENT > JUST FOR REFERENCES!!!
+			let new_behind_curr = trade_l.clone() - &potential_trades;
+			
+			if new_behind_curr.is_empty() {
+			    // replace the portfolio and trades
+
+			    *portf = potential_portfolio;
+			    *trade_l += &potential_trades;
+			    // TODO: HOW ABOUT pns ???
+			    self.processor_below.send_message(
+				ProcessorMiddleMessage::NewTradePortfolio(
+				    (trade_l.clone(), portf.clone(), _market.clone(), myself)
+				)
+			    )?;
+			}
 		    },		    
 		}
-		
 	    },	    
 	}
 	Ok(())

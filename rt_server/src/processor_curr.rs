@@ -14,7 +14,7 @@ use crate::portfolio::PortfolioType;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
 use crate::trade::TradeRep;
-use crate::processor_new::ProcessorNewMessage;
+use crate::processor_bulk::ProcessorMiddleMessage;
 use crate::market::{MarketGeneral, MarketSwitching};
 
 
@@ -35,13 +35,13 @@ impl std::fmt::Debug for ProcessorCurr {
 }
 
 
-#[derive(Debug)]
-pub enum ProcessorCurrMessage {
-    NewTrade(AOTrade),
-    NewTradePortfolio(
-	(TradeRep<AOTrade>, PortfolioType, MarketType, ActorRef<ProcessorNewMessage>)
-    ),
-}
+// #[derive(Debug, Clone)]
+// pub enum ProcessorCurrMessage {
+//     NewTrade(AOTrade),
+//     NewTradePortfolio(
+// 	(TradeRep<AOTrade>, PortfolioType, MarketType, ActorRef<ProcessorMiddleMessage>)
+//     ),
+// }
 
 #[derive(thiserror::Error, Debug)]
 pub enum SendError {
@@ -109,7 +109,7 @@ impl MarketSwitching for ProcessorCurr {
 
 #[async_trait]
 impl Actor for ProcessorCurr {
-    type Msg = ProcessorCurrMessage;
+    type Msg = ProcessorMiddleMessage;
     // state is a tuple of current trades,
     //    and current portfolio, and the current market
     //    representation.
@@ -139,7 +139,7 @@ impl Actor for ProcessorCurr {
 	let (trades, portf, market, ) = state;
 	
         match message {
-	    ProcessorCurrMessage::NewTrade(trade) => {
+	    ProcessorMiddleMessage::NewTrade(trade) => {
 
 		info!("Adding new trade: {:?}", trade);
 		let valued_trade = trade.value_by_metric2(
@@ -154,11 +154,11 @@ impl Actor for ProcessorCurr {
 		self._send_portfolio(portf.clone()).await?
             },
 
-	    ProcessorCurrMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {
+	    ProcessorMiddleMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {
 		// we got a new portfolio, possibly switch it
 		let new_behind_curr = trades.clone() - &new_trades.clone();
 		new_processor.send_message(
-		    ProcessorNewMessage::Behind(new_behind_curr.clone())
+		    ProcessorMiddleMessage::Behind(new_behind_curr.clone())
 		)?;
 		info!("Received new trade portfolio, behind: {:?}", new_behind_curr.len());
 
@@ -176,7 +176,10 @@ impl Actor for ProcessorCurr {
 		    *market = new_market;
 
 		} // otherwise dont do anything.
-	    }
+	    },
+
+	    _ => {}, // TODO: LETS IMPLEMENT PANIC HERE!!!
+	    
         }
 	Ok(())
     }

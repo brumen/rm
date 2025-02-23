@@ -1,8 +1,9 @@
 
-use ractor::{Actor, ActorRef};
+use ractor::Actor;
 use tokio::task::JoinHandle;
 use tracing::info;
 use std::sync::{Arc,Mutex};
+use ractor::ActorRef;
 
 // use crate::market::MktMsgParams;
 use crate::mkt_handler_actor::MarketProducer;
@@ -13,10 +14,90 @@ use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::publish::connect_with_retries_producer_rd;
 use crate::trade_sender::TradeProducer;
 use crate::processor_curr::ProcessorCurr;
+use crate::processor_middle::ProcessorMiddle;
 use crate::processor_new::ProcessorNew;
-use crate::processor_bulk::ProcessorBulk;
+use crate::processor_bulk::{ProcessorBulk, ProcessorBulkMessage, ProcessorMiddleMessage};
 use crate::portfolio::PortfolioType;
 
+
+// pub(crate) enum Processors {
+//     Middle(ActorRef<ProcessorMiddleMessage>),
+//     Current(ActorRef<ProcessorCurrMessage>),
+// }
+
+/// creates a chain of middle processors and connects 
+///   them accordingly
+async fn create_middle_procs_chain(
+    nb_middle: usize,
+    processor_curr: ActorRef<ProcessorMiddleMessage>,
+    metric: PricingMetric,  // TODO: THIS SHOULD CHANGE
+    pricing_options: MarketPricingOptions,
+) {
+
+    if nb_middle == 0 {
+	return
+    }
+
+    let mut last_middle: ActorRef<ProcessorMiddleMessage> = processor_curr.clone();
+    
+    for middle_nb in 0..nb_middle {
+	let bulk_middle = ProcessorBulk {
+	    metric,
+	    pricing_options: pricing_options.clone(),
+	};
+	
+	let (bulk_spawn, _) = Actor::spawn(
+	    None,
+	    bulk_middle,
+	    (),
+	)
+	    .await
+	    .expect("Could not create bulk middle processor");
+	
+
+	let market_name = format!("market_{}", middle_nb);
+	
+	if middle_nb == 0 {
+	
+	    let proc_middle = ProcessorMiddle {
+		metric,
+		pricing_options: pricing_options.clone(),
+		market_name,
+		processor_below: processor_curr.clone(),
+		processor_bulk: bulk_spawn,
+		r_client: Some(reqwest::Client::new()),
+	    };
+
+	    let (proc_middle_spawn, _) = Actor::spawn(
+		None, proc_middle, ()
+	    )
+		.await
+		.expect("Could not start middle actor");
+
+	    last_middle = proc_middle_spawn;
+	} else {
+	    // we are not at the bottom, we have to
+	    let proc_middle = ProcessorMiddle {
+		metric,
+		pricing_options: pricing_options.clone(),
+		market_name,
+		processor_below: last_middle.clone(),
+		processor_bulk: bulk_spawn,
+		r_client: Some(reqwest::Client::new()),
+	    };
+
+	    let (proc_middle_spawn, _) = Actor::spawn(
+		None, proc_middle, ()
+	    )
+		.await
+		.expect("Could not start middle actor");
+
+	    last_middle = proc_middle_spawn;
+	}
+    }
+
+    // TODO: POTENTIALLY LAST ONE IS DIFFERNT
+}
 
 
 /// initializes all the actors 

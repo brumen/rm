@@ -5,9 +5,8 @@ use crate::market::{CurrNewMarket, MarketSwitching, MarketType, MarketGeneral};
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;
-use crate::processor_bulk::ProcessorBulkMessage;
+use crate::processor_bulk::{ProcessorBulkMessage, ProcessorMiddleMessage,};
 use crate::trade::{BaseTrade, TradeRep};
-use crate::processor_curr::ProcessorCurrMessage;
 use crate::ao_trade::AOTrade;
 
 
@@ -15,23 +14,23 @@ use crate::ao_trade::AOTrade;
 pub struct ProcessorNew{
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
-    pub processor_curr: ActorRef<ProcessorCurrMessage>,  // current processor ref.
+    pub processor_curr: ActorRef<ProcessorMiddleMessage>,  // current processor ref.
     pub processor_bulk: ActorRef<ProcessorBulkMessage>,  // bull processor ref.
     pub r_client: Option<reqwest::Client>,
 }
 
 /// message that the new processor receives
-#[derive(Debug, Clone)]
-pub enum ProcessorNewMessage {
-    NewTrade(AOTrade),
-    NewMarket(MarketType),
-    Behind(TradeRep<AOTrade>),  // message from ProcessorCurr, missing trades to calculate.
-    // first elt: all trades,
-    // second: portfolio from computed trades
-    // third: offending trades.
-    // fourth: market on which these trades were computed.
-    BulkReceive((TradeRep<AOTrade>, PortfolioType, TradeRep<AOTrade>, MarketType)),  // message from Bulk computation
-}
+// #[derive(Debug, Clone)]
+// pub enum ProcessorNewMessage {
+//     NewTrade(AOTrade),
+//     NewMarket(MarketType),
+//     Behind(TradeRep<AOTrade>),  // message from ProcessorCurr, missing trades to calculate.
+//     // first elt: all trades,
+//     // second: portfolio from computed trades
+//     // third: offending trades.
+//     // fourth: market on which these trades were computed.
+//     BulkReceive((TradeRep<AOTrade>, PortfolioType, TradeRep<AOTrade>, MarketType)),  // message from Bulk computation
+// }
 
 #[derive(Debug)]
 pub enum ProcessorNewState {
@@ -79,7 +78,7 @@ where
 
 #[async_trait]
 impl Actor for ProcessorNew {
-    type Msg = ProcessorNewMessage;
+    type Msg = ProcessorMiddleMessage;
     // first argument is list of trades,
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
@@ -112,7 +111,7 @@ impl Actor for ProcessorNew {
 	let (trade_l, trades_non_pricing, portf, pns) = state;
 
 	match message {
-	    ProcessorNewMessage::NewTrade(new_trade) => {
+	    ProcessorMiddleMessage::NewTrade(new_trade) => {
 		//*trade_l += &new_trade;  // we add the trade to the list.
 
 		match pns {  // what is the processor doing right now.
@@ -128,7 +127,7 @@ impl Actor for ProcessorNew {
 			// we send the computed portfolio & trades to the current processor
 			//   hoping that we are ahead.
 			self.processor_curr.send_message(
-			    ProcessorCurrMessage::NewTradePortfolio(
+			    ProcessorMiddleMessage::NewTradePortfolio(
 				(trade_l.clone(), portf.clone(), _market.clone(), myself)
 			    )
 			)?;
@@ -154,7 +153,7 @@ impl Actor for ProcessorNew {
 		    },
 		}
 	    },
-	    ProcessorNewMessage::NewMarket(new_market) => {
+	    ProcessorMiddleMessage::NewMarket(new_market) => {
 		match pns { // what is the processor doing right now
 
 		    ProcessorNewState::Idle(_market) => {
@@ -168,7 +167,7 @@ impl Actor for ProcessorNew {
 		    ProcessorNewState::CalculatingSingle(market) => {
 			// attempt to send it to processor current
 			self.processor_curr.send_message(
-			    ProcessorCurrMessage::NewTradePortfolio(
+			    ProcessorMiddleMessage::NewTradePortfolio(
 				(trade_l.clone(), portf.clone(), market.clone(), myself)
 			    )
 			)?;
@@ -180,7 +179,7 @@ impl Actor for ProcessorNew {
 	    },
 
 	    // this only comes from ProcessorBulk, so we already launched a bulk request.
-	    ProcessorNewMessage::Behind(trades_behind) => {
+	    ProcessorMiddleMessage::Behind(trades_behind) => {
 		// we are behind trades behind the current processor
 		match pns { // what is the processor doing right now
 		    ProcessorNewState::CalculatingSingle(market) => {
@@ -245,7 +244,7 @@ impl Actor for ProcessorNew {
 		}
 	    },
 
-	    ProcessorNewMessage::BulkReceive((new_trade_l, computed_portf, offending_trades, _bulk_market)) => {
+	    ProcessorMiddleMessage::BulkReceive((new_trade_l, computed_portf, offending_trades, _bulk_market)) => {
 		match pns {
 		    
 		    ProcessorNewState::Idle(_market) => {
@@ -259,7 +258,7 @@ impl Actor for ProcessorNew {
 			*trade_l += &new_trade_l;
 			*trades_non_pricing += &offending_trades;
 			self.processor_curr.send_message(
-			    ProcessorCurrMessage::NewTradePortfolio(
+			    ProcessorMiddleMessage::NewTradePortfolio(
 				(trade_l.clone(), portf.clone(), market.clone(), myself)
 			    )
 			)?;
@@ -274,13 +273,19 @@ impl Actor for ProcessorNew {
 			*portf = computed_portf;
 			*trade_l += &new_trade_l;
 			self.processor_curr.send_message(
-			    ProcessorCurrMessage::NewTradePortfolio(
+			    ProcessorMiddleMessage::NewTradePortfolio(
 				(trade_l.clone(), portf.clone(), _market.clone(), myself)
 			    )
 			)?;
 		    },		    
 		}
-	    }
+	    },
+
+	    _ => {
+		// this type shouldnt occur
+		//   TODO: Better error message
+		panic!("Message type shouldnt occur");
+	    },  
 	}
 	Ok(())
     }

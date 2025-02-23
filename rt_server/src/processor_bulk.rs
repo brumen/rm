@@ -6,10 +6,10 @@ use futures::future::join_all;
 use crate::market::{CurrNewMarket, MarketGeneral, MarketType};
 use crate::portfolio::{PortfolioType, PricingResults};
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
+use crate::process_trade::ProcessTradeValue;  // for trade.value_by_metric2
 use crate::trade::{BaseTrade, TradeRep};
 use crate::ao_trade::AOTrade;
-use crate::processor_new::ProcessorNewMessage;
-use crate::process_trade::ProcessTradeValue;
+
 
 #[derive(Debug)]
 pub struct ProcessorBulk{
@@ -17,10 +17,28 @@ pub struct ProcessorBulk{
     pub pricing_options: MarketPricingOptions,
 }
 
+/// message that the new processor receives
+#[derive(Debug, Clone)]
+pub enum ProcessorMiddleMessage {
+    NewTrade(AOTrade),
+    NewMarket(MarketType),
+    Behind(TradeRep<AOTrade>),  // message from Processor_below, missing trades to calculate.
+    // first elt: all trades,
+    // second: portfolio from computed trades
+    // third: offending trades.
+    // fourth: market on which these trades were computed.
+    BulkReceive((TradeRep<AOTrade>, PortfolioType, TradeRep<AOTrade>, MarketType)),  // message from Bulk computation
+    // message from the processor above.
+    NewTradePortfolio(
+	(TradeRep<AOTrade>, PortfolioType, MarketType, ActorRef<ProcessorMiddleMessage>)
+    ),
+}
+
+
 #[derive(Debug, Clone)]
 pub enum ProcessorBulkMessage {
-    NewBulk((MarketType, TradeRep<AOTrade>, ActorRef<ProcessorNewMessage>)),
-    Abandon,
+    NewBulk((MarketType, TradeRep<AOTrade>, ActorRef<ProcessorMiddleMessage>)),
+    Abandon,  // TODO: THIS SHOULD BE 
 }
 
 #[derive(Debug)]
@@ -72,13 +90,13 @@ impl Actor for ProcessorBulk {
 
     async fn handle(
         &self,
-	myself: ActorRef<Self::Msg>,
+	_myself: ActorRef<Self::Msg>,
 	message: Self::Msg,
-	state: &mut Self::State,
+	_state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
 	match message {
-	    ProcessorBulkMessage::NewBulk((market, new_trades, processor_new)) {
+	    ProcessorBulkMessage::NewBulk((market, new_trades, processor_new)) => {
 		// start the long-running pricing procedure
 		debug!("BULK Processor TRADES: {:?}", new_trades);
 
@@ -100,9 +118,9 @@ impl Actor for ProcessorBulk {
 		    portfolio += pricing.aggregate();
 		}
 
-		debug!("BULK Processor TO NEW: {:?}", portfolio);
+		debug!("Bulk processor to middle actor: {:?}", portfolio);
 		processor_new.send_message(
-		    ProcessorNewMessage::BulkReceive(
+		    ProcessorMiddleMessage::BulkReceive(
 			(new_trades, portfolio, TradeRep::<AOTrade>::default(), market)
 		    )
 		)?;

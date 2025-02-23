@@ -3,7 +3,7 @@ use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::pricer::MarketPricingOptions;
-use crate::processor_new::ProcessorNewMessage;
+use crate::processor_bulk::ProcessorMiddleMessage;
 use crate::pricer::PricingMetric;
 use crate::market::MarketType;
 use crate::ref_deref::TryFromRef;
@@ -13,7 +13,7 @@ pub struct MarketProducer{
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
     pub mkt_listener: StreamConsumer,  // listening for market events.
-    pub new_processor: ActorRef<ProcessorNewMessage>,
+    pub new_processor: ActorRef<ProcessorMiddleMessage>,
 }
 
 
@@ -48,7 +48,7 @@ impl Actor for MarketProducer {
 	let market = state;
 	*market += &message;  // adding the new market message to the market.
 	self.new_processor.send_message(
-	    ProcessorNewMessage::NewMarket(market.clone())
+	    ProcessorMiddleMessage::NewMarket(market.clone())
 	)?;
 
 	// wait for new message
