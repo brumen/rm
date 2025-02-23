@@ -32,12 +32,14 @@ async fn create_middle_procs_chain(
     processor_curr: ActorRef<ProcessorMiddleMessage>,
     metric: PricingMetric,  // TODO: THIS SHOULD CHANGE
     pricing_options: MarketPricingOptions,
-) {
+) -> Vec<JoinHandle<()>> {
 
     if nb_middle == 0 {
-	return
+	return vec![]
     }
 
+    let mut actors: Vec<JoinHandle<()>> = vec![];
+    
     let mut last_middle: ActorRef<ProcessorMiddleMessage> = processor_curr.clone();
     
     for middle_nb in 0..nb_middle {
@@ -46,14 +48,15 @@ async fn create_middle_procs_chain(
 	    pricing_options: pricing_options.clone(),
 	};
 	
-	let (bulk_spawn, _) = Actor::spawn(
+	let (bulk_spawn, bulk_handle) = Actor::spawn(
 	    None,
 	    bulk_middle,
 	    (),
 	)
 	    .await
 	    .expect("Could not create bulk middle processor");
-	
+
+	actors.push(bulk_handle);
 
 	let market_name = format!("market_{}", middle_nb);
 	
@@ -68,12 +71,13 @@ async fn create_middle_procs_chain(
 		r_client: Some(reqwest::Client::new()),
 	    };
 
-	    let (proc_middle_spawn, _) = Actor::spawn(
+	    let (proc_middle_spawn, proc_middle_handle) = Actor::spawn(
 		None, proc_middle, ()
 	    )
 		.await
 		.expect("Could not start middle actor");
 
+	    actors.push(proc_middle_handle);	    
 	    last_middle = proc_middle_spawn;
 	} else {
 	    // we are not at the bottom, we have to
@@ -86,17 +90,19 @@ async fn create_middle_procs_chain(
 		r_client: Some(reqwest::Client::new()),
 	    };
 
-	    let (proc_middle_spawn, _) = Actor::spawn(
+	    let (proc_middle_spawn, proc_middle_handle) = Actor::spawn(
 		None, proc_middle, ()
 	    )
 		.await
 		.expect("Could not start middle actor");
 
 	    last_middle = proc_middle_spawn;
+	    actors.push(proc_middle_handle);
 	}
     }
 
     // TODO: POTENTIALLY LAST ONE IS DIFFERNT
+    actors
 }
 
 
@@ -181,11 +187,23 @@ pub async fn start2(
     ).await
     .expect("Could not start trade producer");
 
-    vec![
+    // middle actors
+    let mut all_actors = create_middle_procs_chain(
+	2, // nb_middle: usize,
+	_processor_curr_a,
+	metric,
+	pricing_options.clone(),
+    ).await;
+
+    let mut other_actors = vec![
 	trade_capture_handle,
 	processor_curr_handle,
 	processor_new_handle,
 	processor_bulk_handle,
 	mkt_producer_handle,
-    ]
+    ];
+
+    all_actors.append(&mut other_actors);
+
+    all_actors
 }
