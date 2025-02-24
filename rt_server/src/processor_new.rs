@@ -5,7 +5,7 @@ use crate::market::{CurrNewMarket, MarketSwitching, MarketType, MarketGeneral};
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;
-use crate::processor_bulk::{ProcessorBulkMessage, ProcessorMiddleMessage,};
+use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage,};
 use crate::trade::{BaseTrade, TradeRep};
 use crate::ao_trade::AOTrade;
 
@@ -19,19 +19,6 @@ pub struct ProcessorNew{
     pub r_client: Option<reqwest::Client>,
 }
 
-/// message that the new processor receives
-// #[derive(Debug, Clone)]
-// pub enum ProcessorNewMessage {
-//     NewTrade(AOTrade),
-//     NewMarket(MarketType),
-//     Behind(TradeRep<AOTrade>),  // message from ProcessorCurr, missing trades to calculate.
-//     // first elt: all trades,
-//     // second: portfolio from computed trades
-//     // third: offending trades.
-//     // fourth: market on which these trades were computed.
-//     BulkReceive((TradeRep<AOTrade>, PortfolioType, TradeRep<AOTrade>, MarketType)),  // message from Bulk computation
-// }
-
 #[derive(Debug)]
 pub enum ProcessorNewState {
     CalculatingSingle(MarketType),  // when bulk has finished and we're only calculating single trades.
@@ -41,6 +28,10 @@ pub enum ProcessorNewState {
 
 
 impl MarketSwitching for ProcessorNew {
+    fn market_name(&self) -> String {
+	"New".to_string()
+    }
+    
     fn r_client(&self) ->  &reqwest::Client {
 	match &self.r_client {
 	    Some(rc) => return &rc,
@@ -191,9 +182,7 @@ impl Actor for ProcessorNew {
 			    // new processor is ahead, reset the
 			    //    new processor to the new default state.
 			    *portf = PortfolioType::default();
-			    let _ = self.switch_market(
-				market.clone(), CurrNewMarket::New
-			    ).await;
+			    let _ = self.switch_market(market.clone()).await;
 			    *pns = ProcessorNewState::Idle(market.clone());
 
 			} else {

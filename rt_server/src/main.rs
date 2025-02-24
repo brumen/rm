@@ -43,7 +43,7 @@ pub(crate) mod processor_new;
 pub(crate) mod processor_bulk;
 pub(crate) mod processor_middle;
 pub(crate) mod engine_actor;
-
+pub(crate) mod processor_msg;
 
 
 // testing different 

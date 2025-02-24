@@ -1,22 +1,25 @@
 use rdkafka::consumer::{CommitMode, Consumer};
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info};
+use ractor::async_trait;
 
 use crate::market::{MarketType, MktMsgParams};
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::ref_deref::TryFromRef;
 use crate::streaming::Streaming;
 
+
+#[async_trait]
 pub trait MktEventHandler: Streaming
 where
     Self: std::fmt::Debug + Sync,
 {
-    fn _handle_mkt_msg(
+    async fn _handle_mkt_msg(
         &self,
         market_obj: MarketType,
         new_mkt_sender: Sender<MarketType>,
         mkt_params: MktMsgParams,
-    ) -> impl std::future::Future<Output = ()> + Send;
+    );  //  -> impl std::future::Future<Output = ()> + Send;
 
     /// Loop that handles the market events
     /// mkt_topic - receiving market events from this topic

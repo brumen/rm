@@ -3,7 +3,7 @@ use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::pricer::MarketPricingOptions;
-use crate::processor_bulk::ProcessorMiddleMessage;
+use crate::processor_msg::ProcessorMiddleMessage;
 use crate::pricer::PricingMetric;
 use crate::market::MarketType;
 use crate::ref_deref::TryFromRef;

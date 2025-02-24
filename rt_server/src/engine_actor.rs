@@ -16,14 +16,10 @@ use crate::trade_sender::TradeProducer;
 use crate::processor_curr::ProcessorCurr;
 use crate::processor_middle::ProcessorMiddle;
 use crate::processor_new::ProcessorNew;
-use crate::processor_bulk::{ProcessorBulk, ProcessorBulkMessage, ProcessorMiddleMessage};
+use crate::processor_bulk::ProcessorBulk;
+use crate::processor_msg::ProcessorMiddleMessage;
 use crate::portfolio::PortfolioType;
 
-
-// pub(crate) enum Processors {
-//     Middle(ActorRef<ProcessorMiddleMessage>),
-//     Current(ActorRef<ProcessorCurrMessage>),
-// }
 
 /// creates a chain of middle processors and connects 
 ///   them accordingly

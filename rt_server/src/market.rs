@@ -133,26 +133,28 @@ pub trait MarketSwitching {
     fn market_endpoint(&self) -> String;
     /// reqwest client to implement market switching
     fn r_client(&self) -> &reqwest::Client;  
+
+    fn market_name(&self) -> String;
     
     /// Sets current and new markets to the ones
     ///   specified in this function.
-    ///
+    ///   market: market to be replaced
+    ///   market_name: name of the market to be 
     async fn switch_market(
 	&self,
 	market: MarketType,
-	curr_new_mkt: CurrNewMarket,
     ) -> Result<(), reqwest::Error> {
         info!("Switching markets. New market = {:?}.", market);
 
 	let client = self.r_client();
-	let cnm = match curr_new_mkt {
-	    CurrNewMarket::Current => "Current".to_string(),
-	    CurrNewMarket::New => "New".to_string(),
-	};
+	// let cnm = match curr_new_mkt {
+	//     CurrNewMarket::Current => "Current".to_string(),
+	//     CurrNewMarket::New => "New".to_string(),
+	// };
 
 	let payload = json!({
 	    "market": market,
-	    "market_type": cnm,
+	    "market_type": self.market_name().clone(),
 	});
 
         client

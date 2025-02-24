@@ -27,4 +27,5 @@ pub(crate) mod processor_new;  // TODO: CHECK THIS (crate) modules.
 pub(crate) mod processor_middle;
 pub(crate) mod processor_bulk;
 pub(crate) mod engine_actor;
+pub(crate) mod processor_msg;
 //pub mod all_trades;

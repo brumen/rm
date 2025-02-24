@@ -14,7 +14,7 @@ use crate::portfolio::PortfolioType;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
 use crate::trade::TradeRep;
-use crate::processor_bulk::ProcessorMiddleMessage;
+use crate::processor_msg::ProcessorMiddleMessage;
 use crate::market::{MarketGeneral, MarketSwitching};
 
 
@@ -33,15 +33,6 @@ impl std::fmt::Debug for ProcessorCurr {
 	f.write_str("CurrentProcessor")
     }
 }
-
-
-// #[derive(Debug, Clone)]
-// pub enum ProcessorCurrMessage {
-//     NewTrade(AOTrade),
-//     NewTradePortfolio(
-// 	(TradeRep<AOTrade>, PortfolioType, MarketType, ActorRef<ProcessorMiddleMessage>)
-//     ),
-// }
 
 #[derive(thiserror::Error, Debug)]
 pub enum SendError {
@@ -94,6 +85,10 @@ impl ProcessorCurr {
 }
 
 impl MarketSwitching for ProcessorCurr {
+    fn market_name(&self) -> String {
+	"Current".to_string()
+    }
+
     fn r_client(&self) -> &reqwest::Client {
 	match &self.r_client {
 	    Some(rc) => return &rc,
@@ -166,9 +161,7 @@ impl Actor for ProcessorCurr {
 		if send_cnd {  // when to send the portfolio to publisher.
 		    // publish the new portfolio
 		    self._send_portfolio(new_portfolio.clone()).await?;
-		    self.switch_market(
-			new_market.clone(), CurrNewMarket::Current
-		    ).await?; // setting new_market to be the current market
+		    self.switch_market(new_market.clone()).await?; // setting new_market to be the current market
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;

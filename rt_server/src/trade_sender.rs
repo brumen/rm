@@ -12,7 +12,7 @@ use crate::trade::TradeRep;
 use crate::ao_trade::AOTrade;
 
 // new and current processors.
-use crate::processor_bulk::ProcessorMiddleMessage;
+use crate::processor_msg::ProcessorMiddleMessage;
 
 pub struct TradeProducer{
     position_listener: StreamConsumer,

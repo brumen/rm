@@ -9,36 +9,13 @@ use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpar
 use crate::process_trade::ProcessTradeValue;  // for trade.value_by_metric2
 use crate::trade::{BaseTrade, TradeRep};
 use crate::ao_trade::AOTrade;
+use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
 
 #[derive(Debug)]
 pub struct ProcessorBulk{
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
-}
-
-/// message that the new processor receives
-#[derive(Debug, Clone)]
-pub enum ProcessorMiddleMessage {
-    NewTrade(AOTrade),
-    NewMarket(MarketType),
-    Behind(TradeRep<AOTrade>),  // message from Processor_below, missing trades to calculate.
-    // first elt: all trades,
-    // second: portfolio from computed trades
-    // third: offending trades.
-    // fourth: market on which these trades were computed.
-    BulkReceive((TradeRep<AOTrade>, PortfolioType, TradeRep<AOTrade>, MarketType)),  // message from Bulk computation
-    // message from the processor above.
-    NewTradePortfolio(
-	(TradeRep<AOTrade>, PortfolioType, MarketType, ActorRef<ProcessorMiddleMessage>)
-    ),
-}
-
-
-#[derive(Debug, Clone)]
-pub enum ProcessorBulkMessage {
-    NewBulk((MarketType, TradeRep<AOTrade>, ActorRef<ProcessorMiddleMessage>)),
-    Abandon,  // TODO: THIS SHOULD BE 
 }
 
 #[derive(Debug)]
@@ -61,7 +38,7 @@ where
 	self.pricing_options.pricing_server.clone()
     }
 
-    fn _pricing_endpoint_spark(&self, market_: CurrNewMarket, metric: PricingMetric) -> String {
+    fn _pricing_endpoint_spark(&self, _market_: CurrNewMarket, _metric: PricingMetric) -> String {
 	"spark".to_string()
 	// let endpoint = match market_ {
 	//     CurrNewMarket::Current => format!("{}/", metric),

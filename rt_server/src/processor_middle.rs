@@ -7,8 +7,8 @@ use crate::market::{CurrNewMarket, MarketSwitching, MarketType, MarketGeneral};
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;
-use crate::processor_bulk::{ProcessorBulkMessage, ProcessorMiddleMessage};
-use crate::trade::{BaseTrade, TradeRep};
+use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage};
+use crate::trade::TradeRep;
 use crate::ao_trade::AOTrade;
 
 
@@ -32,6 +32,11 @@ pub enum ProcessorMiddleState {
 
 
 impl MarketSwitching for ProcessorMiddle {
+
+    fn market_name(&self) -> String {
+	self.market_name.clone()
+    }
+    
     fn r_client(&self) ->  &reqwest::Client {
 	match &self.r_client {
 	    Some(rc) => return &rc,
@@ -165,9 +170,7 @@ impl Actor for ProcessorMiddle {
 			    // new processor is ahead, reset the
 			    //    new processor to the new default state.
 			    *portf = PortfolioType::default();
-			    let _ = self.switch_market(
-				market.clone(), CurrNewMarket::New
-			    ).await;
+			    let _ = self.switch_market(market.clone()).await;
 			    *pns = ProcessorMiddleState::Idle(market.clone());
 
 			} else {
