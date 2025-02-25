@@ -9,13 +9,15 @@ import numpy as np
 
 from typing import Tuple, List
 from time import sleep
+
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
+
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
 
 from rm.base_producer import BaseProducer
 
-if sys.version_info >= (3, 12, 0):
-    sys.modules['kafka.vendor.six.moves'] = six.moves
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
