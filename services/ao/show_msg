@@ -22,7 +22,7 @@ elif [ "$1" == "kafka" ]; then
 elif [ "$1" == "market" ]; then
     gnome-terminal --tab -- python $service_folder/trade_service.py
     gnome-terminal --tab -- python $service_folder/trade_api_single.py
-    gnome-terminal --tab -- python $service_folder/market_service.py
+    gnome-terminal --tab -- python $service_folder/ao_market_service.py
 
 # starts the real time risk monitor controller.
 elif [ "$1" == "server" ]; then

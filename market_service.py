@@ -23,7 +23,8 @@ if sys.version_info >= (3, 12, 0):
 
 
 class MarketService:
-    """ Gathering information about the market. Runs on a ticker. For a certain period of time,
+    """ Gathering information about the market. Runs on a ticker.
+        For a certain period of time,
         Market data is collected from the topic air_options.ao.flights_live.
         It is then published on the topic mkt_events in an encoded fashion.
         Market is shown on .new_market property.
@@ -33,16 +34,24 @@ class MarketService:
             self,
             flights: Optional = None,
             time_interval: int = 5,
-            server_port_topic: Tuple[str, str, str] = ('localhost', 9092, 'air_options.ao.flights_live', ),
+            server_port_topic: Tuple[str, str, str] = (
+                'localhost',
+                9092,
+                'air_options.ao.flights_live',
+            ),
             mkt_events_topic: str = 'air_options.ao.mkt_events',
     ):
         """
 
-        :param flights: flights to be in the market. If None, all flights are scheduled.
-        :param time_interval: time interval in seconds between two consecutive markets.
-        :param server_port_topic: tuple of (name of the kafka server, port nb, topic to read from) where the
-                     market related information is read from.
-        :param mkt_events_topic: topic where the UUID of the market is published.
+        :param flights: flights to be in the market. If None, all
+            flights are scheduled.
+        :param time_interval: time interval in seconds between two consecutive
+            markets.
+        :param server_port_topic: tuple of (name of the kafka server, port nb,
+            topic to read from) where the
+            market related information is read from.
+        :param mkt_events_topic: topic where the UUID of the market is
+            published.
         """
 
         self.flights = flights
@@ -52,7 +61,9 @@ class MarketService:
         server_port = f'{server_name}:{port}'
         while True:  # we need mkt listener
             try:
-                self.__mkt_listener = KafkaConsumer(bootstrap_servers=server_port)
+                self.__mkt_listener = KafkaConsumer(
+                    bootstrap_servers=server_port
+                )
                 break
             except NoBrokersAvailable as e:
                 logger.warn(
@@ -86,7 +97,8 @@ class MarketService:
         self.__new_market_snap_time = datetime.datetime.now()
 
     def _update_new_mkt_events(self):
-        """ Worker function processing new events, which eventually comprise new market snap.
+        """ Worker function processing new events, which eventually
+            comprise new market snap.
 
         Function doesnt return anything, just updates self.__new_market_updates
         """
@@ -122,23 +134,31 @@ class MarketService:
 
         raise NotImplementedError('Need to implement the encode_mkt method.')
 
-    def _operate_markets(self, sleep_delay=0.2, testing_shift=(1., 1., )) -> None:
+    def _operate_markets(
+            self,
+            sleep_delay=0.2,
+            testing_shift=(1., 1., )
+    ) -> None:
         """ Switch markets every time_interval seconds.
 
         :param sleep_delay: only issue a new market every sleep_delay seconds.
-        :param testing_shift: alternate between multiplying the market by first or second element.
+        :param testing_shift: alternate between multiplying the market by
+            first or second element.
             IMPORTANT: this latter just for testing purposes.
         """
 
         while True:
             elapsed_time = (datetime.datetime.now() -
                             self.__new_market_snap_time).seconds
-            if elapsed_time >= self.time_interval:  # switch: curr_market <- new_market
+            if elapsed_time >= self.time_interval:
+                # switch: curr_market <- new_market
                 logger.debug(f'Elapsed time: {elapsed_time}')
                 logger.info(
-                    f'Switching market from {self.__prev_market_id} to {self.__new_market_id}'
+                    f'Switching market from {self.__prev_market_id} to '
+                    f'{self.__new_market_id}'
                 )
-                self.__prev_market |= self.__new_market_updates  # updated market
+                # updated market
+                self.__prev_market |= self.__new_market_updates
 
                 self.__new_market_updates = {}  # reset new market updates.
 
@@ -189,5 +209,3 @@ class MarketService:
         switch_markets.start()
 
         return market_events, switch_markets
-
-

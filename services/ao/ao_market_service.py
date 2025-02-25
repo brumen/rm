@@ -10,12 +10,20 @@
 """
 
 import logging
-from rm.market_service import AOMarketService
+import sys
+import six.moves
+
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
+
+
+from rm.services.ao.market_service import AOMarketService
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
 # starting the service
-aom = AOMarketService(time_interval=1)
-aom.run(sleep_delay=5, testing_shift=(1., 5.))
+if __name__ == '__main__':
+    aom = AOMarketService(time_interval=1)
+    aom.run(sleep_delay=5, testing_shift=(1., 5.))
