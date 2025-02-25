@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::net::SocketAddr;
 use tokio::task;
 use glommio::LocalExecutorBuilder;
+use monoio;
 
 //mod ao_risk;
 //mod ao_risk_seq;
@@ -46,8 +47,10 @@ pub(crate) mod engine_actor;
 pub(crate) mod processor_msg;
 
 
+
+
 // testing different 
-fn main() {
+fn main_glommio() {
     LocalExecutorBuilder::default()
         .spawn(|| async move {
 	    // here the async part
@@ -56,9 +59,22 @@ fn main() {
 }
 
 
-//#[tokio::main]
-async fn main2() {
+#[tokio::main]
+async fn main() {
     run_all().await;
+}
+
+fn main_monoio() {
+
+    let mut rt = monoio::RuntimeBuilder::<monoio::FusionDriver>::new()
+        .build()
+        .unwrap();
+
+    rt.block_on(
+	async {
+            run_all().await
+	}
+    );
 }
 
 async fn run_all() {
