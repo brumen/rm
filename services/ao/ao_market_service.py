@@ -25,5 +25,12 @@ logger.setLevel(logging.INFO)
 
 # starting the service
 if __name__ == '__main__':
-    aom = AOMarketService(time_interval=1)
+    aom = AOMarketService(
+        server_port_topic=(
+            '192.168.1.107',
+            9092,
+            'air_options.ao.flights_live',
+        ),
+        time_interval=1
+    )
     aom.run(sleep_delay=5, testing_shift=(1., 5.))

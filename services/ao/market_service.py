@@ -78,7 +78,12 @@ class AOMarketService(MarketService):
 
         msg_d = loads(msg.value)
 
-        msg_payload = msg_d.get('payload')
+        msg_payload = msg_d.get('payload')  # TODO: THIS CAN BE None
+
+        if msg_payload is None:
+            logger.warn('Could not get market payload. Ignoring message')
+            return {}
+
         if msg_payload.get('op') == 'c':  # create, only look at 'after'
             flight_info = msg_payload['after']
             flight_carrier = flight_info.get('carrier')
@@ -87,16 +92,19 @@ class AOMarketService(MarketService):
             flight_date = datetime.date(1970, 1, 1) + \
                 datetime.timedelta(days=flight_info.get('dep_date'))
 
-            return {(f'{flight_carrier}{flight_nb}', flight_date):
-                    flight_info.get('price')
-                    }
+            return {
+                (f'{flight_carrier}{flight_nb}', flight_date):
+                flight_info.get('price')
+            }
 
     @staticmethod
     def encode_from_tuple(
             encode_d: Dict[Tuple[str, datetime.date], float]
     ) -> Dict[str, float]:
-        """ Encodes the dictionary of the form (str, datetime.date): float into a dictionary
-            of Dict[str, float], by combining the str and datetime into a string.
+        """ Encodes the dictionary of the form (str, datetime.date):
+            float into a dictionary
+            of Dict[str, float], by combining the str and datetime
+            into a string.
 
         :param encode_d: dictionary to encode w/ | for the tuple.
         :returns: resulting encoded dictionary.
@@ -113,27 +121,39 @@ class AOMarketService(MarketService):
 
         If the conversion fails, None is returned.
 
-        :param enc_str_date: encoded (flight_id, flight_date) in the format described in _encode_mkt
-        :returns: decoded flight_id, flight_date, or None if there is an error in
+        :param enc_str_date: encoded (flight_id, flight_date) in the
+            format described in _encode_mkt
+        :returns: decoded flight_id, flight_date, or None if there
+            is an error in
         """
 
         try:
             flight_id, flight_date_enc = enc_str_date.split('|')
+
         except Exception as e:
             logger.warning(
-                f'Could not convert {enc_str_date}, continuing and ignoring the element: {e}')
+                f'Could not convert {enc_str_date}, continuing '
+                f'and ignoring the element: {e}')
             return None
 
         try:
-            return flight_id, datetime.datetime.strptime(flight_date_enc, '%Y%m%d').date()
+            flight_date = datetime.datetime.strptime(
+                flight_date_enc, '%Y%m%d'
+            ).date()
+            return flight_id, flight_date
+
         except Exception as e:
             logger.warning(
-                f'Could not convert the date to the datetime.date structure: {e}')
+                f'Could not convert the date to the datetime.date '
+                f'structure: {e}'
+            )
             return None
 
     def encode_mkt(self) -> str:
-        """ Encodes the latest market and market id in json format, to be sent to kafka
-            encoding is in the form ('UA79', datetime.date(2022, 1, 2)) -> 'UA79|20220101'
+        """ Encodes the latest market and market id in json format, to
+                be sent to kafka
+                encoding is in the form
+                ('UA79', datetime.date(2022, 1, 2)) -> 'UA79|20220101'
             using %Y%m%d encoding for date.
 
         :returns: encoded market in the format above.
@@ -141,7 +161,6 @@ class AOMarketService(MarketService):
 
         latest_market_id, latest_market = self.latest_market
 
-        # return dumps((str(latest_market_id), self.encode_from_tuple(latest_market)))
         return dumps(self.encode_from_tuple(latest_market))
 
     @classmethod
@@ -150,8 +169,10 @@ class AOMarketService(MarketService):
             encoded_mkt: Dict[str, float],
     ) -> Dict[Tuple[str, datetime.date], float]:
 
-        return {cls.decode_to_tuple(encoded_nb_date): flight_price
-                for encoded_nb_date, flight_price in encoded_mkt.items()}
+        return {
+            cls.decode_to_tuple(encoded_nb_date): flight_price
+            for encoded_nb_date, flight_price in encoded_mkt.items()
+        }
 
     @classmethod
     def decode_mkt(
@@ -231,8 +252,12 @@ class AOMarketServiceLocal(AOMarketService):
 def _main():
     # starting the service
     aom = AOMarketServiceLocal(
-        server_port_topic=('192.168.1.107', 9092, 'air_options.ao.flights_live', ),
-        time_interval=1
+        server_port_topic=(
+            '192.168.1.107',
+            9092,
+            'air_options.ao.flights_live',
+        ),
+        time_interval=1,
     )
     aom.run(sleep_delay=0.2, testing_shift=(1., 5.))
 
