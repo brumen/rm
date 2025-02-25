@@ -16,14 +16,15 @@ from uuid import UUID
 from typing import Dict, Tuple, Union
 
 # from kafka import KafkaConsumer, TopicPartition, KafkaProducer
-from kafka.consumer.fetcher import ConsumerRecord
 from json import loads, dumps
-
-from rm.market_service import MarketService
 
 
 if sys.version_info >= (3, 12, 0):
     sys.modules['kafka.vendor.six.moves'] = six.moves
+
+# these two things have to be below sys.modules setup
+from kafka.consumer.fetcher import ConsumerRecord
+from rm.market_service import MarketService
 
 
 logging.basicConfig(level=logging.INFO)

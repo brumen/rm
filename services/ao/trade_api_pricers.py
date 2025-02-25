@@ -8,12 +8,6 @@ import datetime
 import sys
 import six.moves
 
-if sys.version_info >= (3, 12, 0):
-    sys.modules['kafka.vendor.six.moves'] = six.moves
-
-# if '/home/brumen/work/' not in sys.path:
-#     sys.path.append('/home/brumen/work/')
-
 from json import loads
 from enum import Enum
 from requests import get as requests_get
@@ -21,8 +15,15 @@ from typing import List, Dict, Tuple, Any, Optional, Generator
 # from pyspark import SparkContext, SparkConf
 from sqlalchemy.exc import OperationalError
 from functools import lru_cache
+
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
+
+# if '/home/brumen/work/' not in sys.path:
+#     sys.path.append('/home/brumen/work/')
+
 from ao.trade import create_session, AOTrade, DeltaDict
-from rm.market_service import AOMarketService
+from rm.services.ao.market_service import AOMarketService
 
 
 logger = logging.getLogger(__name__)
