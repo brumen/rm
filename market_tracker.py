@@ -66,8 +66,9 @@ class MarketTracker:
     #     self._markets.insert(new_market_name, (insertion_time, new_market))
 
     def __repr__(self):
-        # TODO: REMOVE THE NAME
-        return self._markets.__repr__()
+        class_name = self.__class__
+
+        return f'{class_name}: {self._markets.__repr__()}'
 
     def insert_preserve_names(self, new_market, market_name: str = 'Current'):
         """ Inserts the new market by preserving the existing names, where the
@@ -89,6 +90,10 @@ class MarketTracker:
         :param market_name: market name used in case there are no
             other markets.
         """
+
+        _logger.info(
+            f'Inserting new market: {market_name}'
+        )
 
         if not self._markets:
             self._markets.update({market_name: new_market})
