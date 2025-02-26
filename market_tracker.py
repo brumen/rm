@@ -69,14 +69,32 @@ class MarketTracker:
         # TODO: REMOVE THE NAME
         return self._markets.__repr__()
 
-    def insert_preserve_names(self, new_market):
+    def insert_preserve_names(self, new_market, market_name: str = 'Current'):
+        """ Inserts the new market by preserving the existing names, where the
+            original markets are shifted down.
 
-        # first_name = self.get_market_name()
-        # # remove first market
-        # self._markets.pop(first_name)
+            E.g. if we have
 
-        # generate the new markets # TODO: THIS IS BAD
+            Current  Market_1  Market_2
+            M0         M1        M2
 
+            then inserting the market produces
+
+            Current  Market_1  Market_2
+            M1         M2        new_market
+
+            In case there is no new markets, then use market_name
+
+        :param new_market: market to insert into the MarketTracker
+        :param market_name: market name used in case there are no
+            other markets.
+        """
+
+        if not self._markets:
+            self._markets.update({market_name: new_market})
+            return
+
+        # markets are existing, do the moving
         new_markets = OrderedDict()
         for old_idx, (old_name, old_mkt) in enumerate(self._markets.items()):
             if old_idx == 0:
