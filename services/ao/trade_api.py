@@ -225,7 +225,7 @@ def get_market() -> Response:
         args = request.args
 
         market_name = args.get('market')
-        market: Optional[MARKET_TYPE] = ALL_MARKETS.get(market_name)
+        market: Optional[MARKET_TYPE] = ALL_MARKETS[market_name]
 
         if market is None:
             return Response(None)
