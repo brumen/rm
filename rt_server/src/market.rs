@@ -93,11 +93,15 @@ impl TryFromRef<BorrowedMessage<'_>> for MarketType {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
-pub enum CurrNewMarket {
-    Current,
-    New,
-}
+//#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+//pub enum CurrNewMarket {
+//    Current,
+//    New,
+//}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct CurrNewMarket(pub String);
+
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum MarketGeneral {
@@ -134,7 +138,7 @@ pub trait MarketSwitching {
     /// reqwest client to implement market switching
     fn r_client(&self) -> &reqwest::Client;  
 
-    fn market_name(&self) -> String;
+    fn market_name(&self) -> CurrNewMarket;
     
     /// Sets current and new markets to the ones
     ///   specified in this function.
@@ -144,14 +148,10 @@ pub trait MarketSwitching {
 	&self,
 	market: MarketType,
     ) -> Result<(), reqwest::Error> {
-        info!("Switching markets. New market = {:?}.", market);
+
+        info!("Changing market for {:?}", self.market_name());
 
 	let client = self.r_client();
-	// let cnm = match curr_new_mkt {
-	//     CurrNewMarket::Current => "Current".to_string(),
-	//     CurrNewMarket::New => "New".to_string(),
-	// };
-
 	let payload = json!({
 	    "market": market,
 	    "market_type": self.market_name().clone(),

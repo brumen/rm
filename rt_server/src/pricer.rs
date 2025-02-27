@@ -181,14 +181,11 @@ pub trait PriceTradeAsync: BaseTrade {
     ) -> String {
 	let pricing_server = pricing_options.pricing_server.clone();
 	let metric = metric.to_string();
-	let market = match curr_new_mkt {
-	    CurrNewMarket::Current => "Current",
-	    CurrNewMarket::New => "New",
-	};
 	let trades = self.id();
 	
 	let _endpoint = format!(
-            "http://{pricing_server}/pricing?metric={metric}&market={market}&trade_ids={trades}"
+            "http://{pricing_server}/pricing?metric={metric}&market={:?}&trade_ids={trades}",
+	    curr_new_mkt
 	);
 	    
         debug!("_endpoint: {:?}", _endpoint);
@@ -298,7 +295,7 @@ where
     ) -> Result<PortfolioType, Error> {
         // joins all trades with commas, like 190,191,192
         let all_trade_ids = ",".join(trades.all_trade_names());
-        let pricing_endpoint_spark = self._pricing_endpoint_spark(market_, metric);
+        let pricing_endpoint_spark = self._pricing_endpoint_spark(market_.clone(), metric);  // TODO: MAYBE HERE .clone could be omitted
         let market_endpoint = pricing_endpoint_spark.as_str();
 
 	let client_endpoint = format!(
@@ -311,10 +308,7 @@ where
 	    PricingMetric::PV01 => "PV01".to_string(),
 	    PricingMetric::PnL => "PnL".to_string(),
 	};
-	let market_s = match market_ {
-	    CurrNewMarket::Current => "Current".to_string(),
-	    CurrNewMarket::New => "New".to_string(),
-	};
+	let CurrNewMarket(market_s) = market_;
         let result_pricing = pricing_client
             .post(client_endpoint)
             .form(&[
@@ -363,7 +357,7 @@ where
                 // do the computation
                 info!("Pricing {:?} trades on spark.", curr_trade_nb);
                 let portfolio = self
-                    .price_trades_spark(&curr_trade_rep, &pricing_client, curr_new_mkt, metric)
+                    .price_trades_spark(&curr_trade_rep, &pricing_client, curr_new_mkt.clone(), metric)
                     .await?;
 
                 curr_portfolio += portfolio;
@@ -374,7 +368,12 @@ where
 
         // remaining part of trades
         curr_portfolio += self
-            .price_trades_spark(&curr_trade_rep, &pricing_client, curr_new_mkt, metric)
+            .price_trades_spark(
+		&curr_trade_rep,
+		&pricing_client,
+		curr_new_mkt,
+		metric
+	    )
             .await?;
 
         Ok(curr_portfolio)

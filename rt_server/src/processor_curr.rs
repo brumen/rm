@@ -85,8 +85,8 @@ impl ProcessorCurr {
 }
 
 impl MarketSwitching for ProcessorCurr {
-    fn market_name(&self) -> String {
-	"Current".to_string()
+    fn market_name(&self) -> CurrNewMarket {
+	CurrNewMarket("Current".to_string())
     }
 
     fn r_client(&self) -> &reqwest::Client {
@@ -139,7 +139,7 @@ impl Actor for ProcessorCurr {
 		info!("Adding new trade: {:?}", trade);
 		let valued_trade = trade.value_by_metric2(
 		    self.metric, &self.pricing_options,
-		    MarketGeneral::MarketRemote(CurrNewMarket::Current)
+		    MarketGeneral::MarketRemote(self.market_name())
 		).await;
 
 		// updating the portfolio

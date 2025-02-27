@@ -16,7 +16,7 @@ use crate::ao_trade::AOTrade;
 pub(crate) struct ProcessorMiddle{
     pub(crate) metric: PricingMetric,
     pub(crate) pricing_options: MarketPricingOptions,
-    pub(crate) market_name: String,
+    pub(crate) market_name: CurrNewMarket,
     pub processor_below: ActorRef<ProcessorMiddleMessage>,  // processor below
     pub processor_bulk: ActorRef<ProcessorBulkMessage>,  // bull processor ref.
     pub r_client: Option<reqwest::Client>,
@@ -33,7 +33,7 @@ pub enum ProcessorMiddleState {
 
 impl MarketSwitching for ProcessorMiddle {
 
-    fn market_name(&self) -> String {
+    fn market_name(&self) -> CurrNewMarket {
 	self.market_name.clone()
     }
     
@@ -97,7 +97,9 @@ impl Actor for ProcessorMiddle {
 			// add the trade to the new portfolio and
 			//   attempt again.
 			let new_trade_price = new_trade.value_by_metric2(
-			    self.metric, &self.pricing_options, MarketGeneral::MarketRemote(CurrNewMarket::New)
+			    self.metric,
+			    &self.pricing_options,
+			    MarketGeneral::MarketRemote(self.market_name().clone()),
 			).await;
 			*portf += new_trade_price;  // portfolio update
 			*trade_l += &new_trade;  // we add the trade to the list.
@@ -125,7 +127,9 @@ impl Actor for ProcessorMiddle {
 		    ProcessorMiddleState::CalculatingBulk(_market) => {
 			*trade_l += &new_trade;  // we add the trade to the list.
 			let new_trade_price = new_trade.value_by_metric2(
-			    self.metric, &self.pricing_options, MarketGeneral::MarketRemote(CurrNewMarket::New)  // TODO: MARKET HERE IS WRONG
+			    self.metric,
+			    &self.pricing_options,
+			    MarketGeneral::MarketRemote(self.market_name().clone())
 			).await;
 			*portf += new_trade_price;  // portfolio update
 		    },
@@ -297,7 +301,7 @@ impl Actor for ProcessorMiddle {
 			//  add it to the computation
 			// TODO: FINISH THIS HERE!!!
 
-			let (potential_trades, potential_portfolio, new_market, _) = ntp;  // new trade portfolio
+			let (potential_trades, potential_portfolio, _new_market, _) = ntp;  // new trade portfolio
 
 			// TODO: WRONG - IMPLEMENT > JUST FOR REFERENCES!!!
 			let new_behind_curr = trade_l.clone() - &potential_trades;

@@ -28,8 +28,8 @@ pub enum ProcessorNewState {
 
 
 impl MarketSwitching for ProcessorNew {
-    fn market_name(&self) -> String {
-	"New".to_string()
+    fn market_name(&self) -> CurrNewMarket {
+	CurrNewMarket("New".to_string())
     }
     
     fn r_client(&self) ->  &reqwest::Client {
@@ -58,11 +58,8 @@ where
 	self.pricing_options.pricing_server.clone()
     }
 
-    fn _pricing_endpoint_spark(&self, market_: CurrNewMarket, metric: PricingMetric) -> String {
-	return match market_ {
-	    CurrNewMarket::Current => format!("{}/", metric),
-	    CurrNewMarket::New => format!("{}/new", metric),
-	};
+    fn _pricing_endpoint_spark(&self, _market_: CurrNewMarket, _metric: PricingMetric) -> String {
+	"/pricing".to_string()
     }
 }
 
@@ -101,6 +98,8 @@ impl Actor for ProcessorNew {
 	
 	let (trade_l, trades_non_pricing, portf, pns) = state;
 
+	let new_m = CurrNewMarket("new".to_string());
+	
 	match message {
 	    ProcessorMiddleMessage::NewTrade(new_trade) => {
 		//*trade_l += &new_trade;  // we add the trade to the list.
@@ -110,7 +109,9 @@ impl Actor for ProcessorNew {
 			// add the trade to the new portfolio and
 			//   attempt again.
 			let new_trade_price = new_trade.value_by_metric2(
-			    self.metric, &self.pricing_options, MarketGeneral::MarketRemote(CurrNewMarket::New)
+			    self.metric,
+			    &self.pricing_options,
+			    MarketGeneral::MarketRemote(new_m),
 			).await;
 			*portf += new_trade_price;  // portfolio update
 			*trade_l += &new_trade;  // we add the trade to the list.
@@ -138,7 +139,9 @@ impl Actor for ProcessorNew {
 		    ProcessorNewState::CalculatingBulk(_market) => {
 			*trade_l += &new_trade;  // we add the trade to the list.
 			let new_trade_price = new_trade.value_by_metric2(
-			    self.metric, &self.pricing_options, MarketGeneral::MarketRemote(CurrNewMarket::New)
+			    self.metric,
+			    &self.pricing_options,
+			    MarketGeneral::MarketRemote(new_m)
 			).await;
 			*portf += new_trade_price;  // portfolio update
 		    },

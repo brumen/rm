@@ -4,7 +4,7 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use futures::future::join_all;
 
 use crate::market::{CurrNewMarket, MarketGeneral, MarketType};
-use crate::portfolio::{PortfolioType, PricingResults};
+use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;  // for trade.value_by_metric2
 use crate::trade::{BaseTrade, TradeRep};
@@ -14,6 +14,8 @@ use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
 #[derive(Debug)]
 pub struct ProcessorBulk{
+    pub processor_name: String,
+    pub market_name: CurrNewMarket,
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
 }
@@ -34,17 +36,15 @@ where
 {
 
     fn _pricing_server_spark(&self) -> String {
-	// TODO: CHECK IF CLONING IS GOOD
 	self.pricing_options.pricing_server.clone()
     }
 
-    fn _pricing_endpoint_spark(&self, _market_: CurrNewMarket, _metric: PricingMetric) -> String {
+    fn _pricing_endpoint_spark(
+	&self,
+	_market_: CurrNewMarket,
+	_metric: PricingMetric
+    ) -> String {
 	"spark".to_string()
-	// let endpoint = match market_ {
-	//     CurrNewMarket::Current => format!("{}/", metric),
-	//     CurrNewMarket::New => format!("{}/new", metric)
-	// };
-	// endpoint
     }
 }
 
@@ -60,7 +60,7 @@ impl Actor for ProcessorBulk {
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
-	info!("Initializing ProcessorBulk");
+	info!("Initializing Bulk processor: {}", self.processor_name);
 	Ok(0)  // intialized to 0 attempts.
     }
 
@@ -75,16 +75,25 @@ impl Actor for ProcessorBulk {
 	match message {
 	    ProcessorBulkMessage::NewBulk((market, new_trades, processor_new)) => {
 		// start the long-running pricing procedure
-		debug!("BULK Processor TRADES: {:?}", new_trades);
+		let nb_trades = new_trades.len();
+		debug!(
+		    "Bulk processor {} processor. Computing {} trades.",
+		    self.processor_name,
+		    nb_trades,
+		);
 
 		let mut portfolio = PortfolioType::default();
 		let mut pricing_futs = vec![];
 		for (_, trade) in new_trades.iter() {
-		    info!("BULK single trade: {:?}", trade);
+		    info!(
+			"Processor {} valuing single trade: {:?}",
+			self.processor_name,
+			trade
+		    );
 		    pricing_futs.push(
 			trade.value_by_metric2(
 			    self.metric, &self.pricing_options,
-			    MarketGeneral::MarketRemote(CurrNewMarket::New)  // TODO: THIS MARKET HAS TO BE CHANGED!!
+			    MarketGeneral::MarketRemote(self.market_name.clone())
 			)
 		    );
 		}

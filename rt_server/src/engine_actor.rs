@@ -10,7 +10,7 @@ use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 
-
+use crate::market::CurrNewMarket;
 use crate::publish::connect_with_retries_producer_rd;
 use crate::trade_sender::TradeProducer;
 use crate::processor_curr::ProcessorCurr;
@@ -39,7 +39,12 @@ async fn create_middle_procs_chain(
     let mut last_middle: ActorRef<ProcessorMiddleMessage> = processor_curr.clone();
     
     for middle_nb in 0..nb_middle {
+
+	let market_name = CurrNewMarket(format!("market_{}", middle_nb));
+	
 	let bulk_middle = ProcessorBulk {
+	    processor_name: format!("bulk_{}", middle_nb),
+	    market_name: market_name.clone(),
 	    metric,
 	    pricing_options: pricing_options.clone(),
 	};
@@ -54,14 +59,13 @@ async fn create_middle_procs_chain(
 
 	actors.push(bulk_handle);
 
-	let market_name = format!("market_{}", middle_nb);
 	
 	if middle_nb == 0 {
 	
 	    let proc_middle = ProcessorMiddle {
 		metric,
 		pricing_options: pricing_options.clone(),
-		market_name,
+		market_name: market_name.clone(),
 		processor_below: processor_curr.clone(),
 		processor_bulk: bulk_spawn,
 		r_client: Some(reqwest::Client::new()),
@@ -80,7 +84,7 @@ async fn create_middle_procs_chain(
 	    let proc_middle = ProcessorMiddle {
 		metric,
 		pricing_options: pricing_options.clone(),
-		market_name,
+		market_name: market_name.clone(),
 		processor_below: last_middle.clone(),
 		processor_bulk: bulk_spawn,
 		r_client: Some(reqwest::Client::new()),
@@ -117,6 +121,8 @@ pub async fn start2(
     let (_processor_bulk_a, processor_bulk_handle) = Actor::spawn(
 	None,
 	ProcessorBulk {
+	    processor_name: "new_bulk".to_string(),
+	    market_name: CurrNewMarket("new".to_string()),
 	    metric,
 	    pricing_options: (*pricing_options).clone()
 	},
