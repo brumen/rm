@@ -3,7 +3,7 @@ use tracing::{info, debug, error, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use futures::future::join_all;
 
-use crate::market::{CurrNewMarket, MarketGeneral, MarketType};
+use crate::market::{CurrNewMarket, MarketGeneral, MarketType, MarketRef};
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;  // for trade.value_by_metric2
@@ -22,7 +22,7 @@ pub struct ProcessorBulk{
 
 #[derive(Debug)]
 pub enum ProcessorBulkState {
-    Calculating(MarketType),
+    Calculating(CurrNewMarket),  // which market we are computing this on.
     Idle,
 }
 

@@ -1,4 +1,4 @@
-use tracing::{info, debug, error, instrument};
+use tracing::info;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::{Arc, Mutex};
 
@@ -9,7 +9,7 @@ use serde_json;
 use thiserror;
 
 use crate::ao_trade::AOTrade;
-use crate::market::{CurrNewMarket, MarketType};
+use crate::market::{AllMarkets, CurrNewMarket};
 use crate::portfolio::PortfolioType;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
@@ -25,6 +25,7 @@ pub(crate) struct ProcessorCurr{
     pub result_publisher: FutureProducer,
     pub r_client: Option<reqwest::Client>,  // request client
     pub portf: Arc<Mutex<PortfolioType>>,  // current working portfolio
+    pub all_markets: Arc<AllMarkets>,
 }
 
 
@@ -85,10 +86,11 @@ impl ProcessorCurr {
 }
 
 impl MarketSwitching for ProcessorCurr {
-    fn market_name(&self) -> CurrNewMarket {
-	CurrNewMarket("Current".to_string())
-    }
 
+    fn all_markets(&self) -> Arc<AllMarkets> {
+	self.all_markets.clone()
+    }
+    
     fn r_client(&self) -> &reqwest::Client {
 	match &self.r_client {
 	    Some(rc) => return &rc,
@@ -108,7 +110,7 @@ impl Actor for ProcessorCurr {
     // state is a tuple of current trades,
     //    and current portfolio, and the current market
     //    representation.
-    type State = (TradeRep<AOTrade>, PortfolioType, MarketType);
+    type State = (TradeRep<AOTrade>, PortfolioType, CurrNewMarket);
     // type State = (TradeRep<impl Clone + for <'a> AddAssign<&'a AOTrade> >, PortfolioType, MarketType);
     type Arguments = ();
 
@@ -120,7 +122,7 @@ impl Actor for ProcessorCurr {
 
 	let initial_trades = TradeRep::<AOTrade>::default();
 	let initial_curr_portf = PortfolioType::default();
-	let initial_market = MarketType::new();
+	let initial_market = CurrNewMarket("current".to_string());
 	
 	Ok((initial_trades, initial_curr_portf, initial_market))
     }
@@ -139,7 +141,8 @@ impl Actor for ProcessorCurr {
 		info!("Adding new trade: {:?}", trade);
 		let valued_trade = trade.value_by_metric2(
 		    self.metric, &self.pricing_options,
-		    MarketGeneral::MarketRemote(self.market_name())
+		    MarketGeneral::MarketRemote(
+			CurrNewMarket("current".to_string()))
 		).await;
 
 		// updating the portfolio
@@ -161,7 +164,18 @@ impl Actor for ProcessorCurr {
 		if send_cnd {  // when to send the portfolio to publisher.
 		    // publish the new portfolio
 		    self._send_portfolio(new_portfolio.clone()).await?;
-		    self.switch_market(new_market.clone()).await?; // setting new_market to be the current market
+
+		    // TODO: THIS IS SUCH SHIT
+		    let new_middle_mkt = if let Some(mkt_above) = 
+			(*self.all_markets).above_market("current".to_string()) {
+			    mkt_above
+			} else {
+			    CurrNewMarket("new".to_string())
+			};
+		    self.switch_market(
+			CurrNewMarket("current".to_string()),
+			new_middle_mkt,
+		    ).await?; // setting new_market to be the current market
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;

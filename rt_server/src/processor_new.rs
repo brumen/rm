@@ -28,9 +28,6 @@ pub enum ProcessorNewState {
 
 
 impl MarketSwitching for ProcessorNew {
-    fn market_name(&self) -> CurrNewMarket {
-	CurrNewMarket("New".to_string())
-    }
     
     fn r_client(&self) ->  &reqwest::Client {
 	match &self.r_client {
@@ -156,6 +153,8 @@ impl Actor for ProcessorNew {
 			self.processor_bulk.send_message(
 			    ProcessorBulkMessage::NewBulk((new_market.clone(), trade_l.clone(), myself))
 			)?;
+			// update the market on the server
+			
 		    },
 
 		    ProcessorNewState::CalculatingSingle(market) => {

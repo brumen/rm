@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{hash_map::IntoIter, HashMap};
 use std::ops::{AddAssign, Deref, DerefMut};
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::Sender;
 use tracing::{debug, info};
 
 use std::default::Default;
@@ -99,8 +99,30 @@ impl TryFromRef<BorrowedMessage<'_>> for MarketType {
 //    New,
 //}
 
+// MarketRef is market reference, so that not the entire
+// market but only the reference to that market is
+// passed around.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct CurrNewMarket(pub String);
+
+impl Deref for CurrNewMarket {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+	&self.0
+    }
+}
+
+impl CurrNewMarket {
+
+    fn next_market(&self, mn: AllMarkets) -> Option<Self> {
+	let next_market = mn.above_market(self.0.clone());  // TODO: NO NEED TO CLONE HERE!!!
+	match next_market {
+	    None => None,
+	    Some(next_m) => Some(Self(next_m)),
+	}
+    }
+}
 
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -126,39 +148,122 @@ pub enum MktMsgParams {
     LETFParams(LETFP),
 }
 
+pub(crate) enum MarketNames {
+    Current(String),
+    Middle(String),
+    New(String),
+}
+
+/// first elt is Current
+/// second element is Middle vector
+/// third element is the New market
+pub(crate) struct AllMarkets(Vec<String>);
+
+impl AllMarkets {
+
+    /// Default implemnentation of the market names.
+    fn new(nb_middle: usize) -> Self {
+	let mut middle_markets = vec![];
+	middle_markets.push("current".to_string());
+	for middle_nb in 0..nb_middle {
+	    middle_markets.push(
+		format!("new_{middle_nb}")
+	    );
+	}
+	middle_markets.push("new".to_string());
+
+	Self(middle_markets)
+    }
+
+    /// attempts to find the market name in the AllMarkets -
+    /// if it cant find it, returns None
+    fn _find_market(&self, mkt_name: String) -> Option<usize> {
+	self.0.iter().position(|r| *r == mkt_name)
+    }
+
+    /// finds the market above
+    /// returns None if it's already the last market.
+    pub(crate) fn above_market(&self, mkt_name: String) -> Option<CurrNewMarket> {
+
+	match self._find_market(mkt_name) {
+	    None => None,
+	    Some(found_mkt_nb) => {
+		if found_mkt_nb == self.0.len() - 1 {
+		    return None
+		}
+		Some(CurrNewMarket(self.0[found_mkt_nb + 1].clone()))
+	    }
+	}
+    }
+}
+
 
 #[async_trait]
 pub trait MarketSwitching {
 
+    fn all_markets(&self) -> Arc<AllMarkets>;
+    
     /// endpoint where the market is posted.
     ///   could be for current, new or any other
     ///   market.
     ///   E.g. format!("http://{0}/market", pricing_server))
     fn market_endpoint(&self) -> String;
-    /// reqwest client to implement market switching
-    fn r_client(&self) -> &reqwest::Client;  
 
-    fn market_name(&self) -> CurrNewMarket;
+    /// reqwest client to implement market switching
+    fn r_client(&self) -> &reqwest::Client;
     
-    /// Sets current and new markets to the ones
+    /// Sets market_name to the market providedcurrent and new markets to the ones
     ///   specified in this function.
-    ///   market: market to be replaced
-    ///   market_name: name of the market to be 
-    async fn switch_market(
+    ///   market: market to replace the existing market_name
+    ///   market_name: name of the market to be replaced
+    async fn set_market(
 	&self,
 	market: MarketType,
+	market_name: CurrNewMarket,
     ) -> Result<(), reqwest::Error> {
+	
 
-        info!("Changing market for {:?}", self.market_name());
+        info!("Setting market for {:?}", market_name.clone());
 
 	let client = self.r_client();
 	let payload = json!({
 	    "market": market,
-	    "market_type": self.market_name().clone(),
+	    "market_type": market_name.clone(),
 	});
 
         client
 	    .post(self.market_endpoint())
+            .json(&payload)
+            .send()
+            .await?;
+
+	Ok(())
+    }
+
+    /// switches market_below w/ market_above
+    async fn switch_market(
+	&self,
+	market_name_below: CurrNewMarket,
+	market_name_above: CurrNewMarket,
+    ) -> Result<(), reqwest::Error> {
+	
+
+        info!(
+	    "Switching markets {:?} <- {:?}",
+	    market_name_below.clone(),
+	    market_name_above.clone(),
+	);
+
+	let client = self.r_client();
+		
+	// set the market below
+	let payload = json!({
+	    "market_below": *market_name_below,
+	    "market_above": *market_name_above,
+	});
+
+        client
+	    .post(self.market_endpoint())  // TODO: ENDPOINT IS WRONG HERE!!!
             .json(&payload)
             .send()
             .await?;

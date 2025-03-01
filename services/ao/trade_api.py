@@ -248,6 +248,37 @@ def get_market() -> Response:
     return Response("New market added.")
 
 
+@pv_rester.route('/switch_market', methods=['GET', ])
+def switch_market() -> Response:
+    """ switch market name above to below.
+    """
+
+    global ALL_MARKETS
+
+    args = request.args
+
+    market_name_below = args.get('market_below')
+    market_name_above = args.get('market_above')
+
+    market_above = ALL_MARKETS.get(market_name_above)
+    if market_above is None:
+        return Response(
+            f'Could not find market {market_name_above}'
+        )
+
+    if market_name_below not in ALL_MARKETS:
+        return Response(
+            f'Could not find market {market_name_below}'
+        )
+
+    # all is set, switch markets
+    ALL_MARKETS[market_name_below] = market_above
+
+    return Response(
+        f"Markets switched: {market_name_below} <- {market_name_above}"
+    )
+
+
 @pv_rester.route('/market_setup', methods=['POST', ])
 def market_setup() -> Response:
     """ Sets up the number of markets involved.

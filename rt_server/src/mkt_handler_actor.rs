@@ -44,7 +44,8 @@ impl Actor for MarketProducer {
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	info!("Handling market message: {:?}", message);
+	info!("MarketProducer: Handling market message: {:?}", message);
+
 	let market = state;
 	*market += &message;  // adding the new market message to the market.
 	self.new_processor.send_message(
