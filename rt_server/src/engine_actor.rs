@@ -10,7 +10,7 @@ use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 
-use crate::market::CurrNewMarket;
+use crate::market::{AllMarkets, CurrNewMarket};
 use crate::publish::connect_with_retries_producer_rd;
 use crate::trade_sender::TradeProducer;
 use crate::processor_curr::ProcessorCurr;
@@ -28,12 +28,11 @@ async fn create_middle_procs_chain(
     processor_curr: ActorRef<ProcessorMiddleMessage>,
     metric: PricingMetric,  // TODO: THIS SHOULD CHANGE
     pricing_options: MarketPricingOptions,
+    all_markets: Arc<AllMarkets>,
 ) -> Vec<JoinHandle<()>> {
 
-    if nb_middle == 0 {
-	return vec![]
-    }
-
+    //let all_markets = Arc::new(AllMarkets::new(nb_middle));
+    
     let mut actors: Vec<JoinHandle<()>> = vec![];
     
     let mut last_middle: ActorRef<ProcessorMiddleMessage> = processor_curr.clone();
@@ -60,6 +59,7 @@ async fn create_middle_procs_chain(
 	actors.push(bulk_handle);
 
 	
+	
 	if middle_nb == 0 {
 	
 	    let proc_middle = ProcessorMiddle {
@@ -69,6 +69,7 @@ async fn create_middle_procs_chain(
 		processor_below: processor_curr.clone(),
 		processor_bulk: bulk_spawn,
 		r_client: Some(reqwest::Client::new()),
+		all_markets: all_markets.clone(),
 	    };
 
 	    let (proc_middle_spawn, proc_middle_handle) = Actor::spawn(
@@ -88,6 +89,7 @@ async fn create_middle_procs_chain(
 		processor_below: last_middle.clone(),
 		processor_bulk: bulk_spawn,
 		r_client: Some(reqwest::Client::new()),
+		all_markets: all_markets.clone(),
 	    };
 
 	    let (proc_middle_spawn, proc_middle_handle) = Actor::spawn(
@@ -115,6 +117,7 @@ pub async fn start2(
     results_topic: String, // publish the results topic
     pricing_options: &MarketPricingOptions,
     server_state: Arc<Mutex<PortfolioType>>,
+    all_markets: Arc<AllMarkets>,
 ) -> Vec<JoinHandle<()>> {
 
     info!("Starting bulk processor.");
@@ -143,6 +146,7 @@ pub async fn start2(
 	    result_publisher,
 	    r_client: Some(reqwest::Client::new()),
 	    portf: server_state,
+	    all_markets: all_markets.clone(),
 	},
 	(),
     ).await
@@ -156,6 +160,8 @@ pub async fn start2(
 	    processor_curr: _processor_curr_a.clone(),
 	    processor_bulk: _processor_bulk_a,
 	    r_client: Some(reqwest::Client::new()),
+	    market_name: CurrNewMarket("new".to_string()),
+	    all_markets: all_markets.clone(),
 	},
 	(),
     ).await
@@ -195,6 +201,7 @@ pub async fn start2(
 	_processor_curr_a,
 	metric,
 	pricing_options.clone(),
+	all_markets.clone(),
     ).await;
 
     let mut other_actors = vec![

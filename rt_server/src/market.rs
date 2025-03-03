@@ -115,12 +115,8 @@ impl Deref for CurrNewMarket {
 
 impl CurrNewMarket {
 
-    fn next_market(&self, mn: AllMarkets) -> Option<Self> {
-	let next_market = mn.above_market(self.0.clone());  // TODO: NO NEED TO CLONE HERE!!!
-	match next_market {
-	    None => None,
-	    Some(next_m) => Some(Self(next_m)),
-	}
+    pub fn next_market(&self, mn: &AllMarkets) -> Option<Self> {
+	mn.above_market(self.0.clone())
     }
 }
 
@@ -157,12 +153,13 @@ pub(crate) enum MarketNames {
 /// first elt is Current
 /// second element is Middle vector
 /// third element is the New market
+#[derive(Debug)]
 pub(crate) struct AllMarkets(Vec<String>);
 
 impl AllMarkets {
 
     /// Default implemnentation of the market names.
-    fn new(nb_middle: usize) -> Self {
+    pub fn new(nb_middle: usize) -> Self {
 	let mut middle_markets = vec![];
 	middle_markets.push("current".to_string());
 	for middle_nb in 0..nb_middle {

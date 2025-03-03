@@ -1,3 +1,4 @@
+use market::AllMarkets;
 // Starts the controller.
 use tracing::{info, Level, instrument};
 use tracing_subscriber;
@@ -117,9 +118,11 @@ async fn run_all() {
     );
 
     let mut results = vec![axum_process];
+    let all_markets = Arc::new(AllMarkets::new(2));  // TODO: FACTOR THIS OUT: 2 middle markets,
     
     let mut result = start2(
     	kafka_server, metric, pos_topic, mkt_topic, results_topic, &pricing_options, state,
+	all_markets,
     ).await;
 
     results.append(&mut result);

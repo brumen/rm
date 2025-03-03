@@ -1,11 +1,12 @@
 // middle processor, sits between 2 new processors
 
-use tracing::{info, instrument};
+use std::sync::Arc;
+use tracing::info;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
-use crate::market::{AllMarkets, CurrNewMarket, MarketGeneral, MarketSwitching, MarketType};
+use crate::market::{AllMarkets, CurrNewMarket, MarketGeneral, MarketSwitching};
 use crate::portfolio::PortfolioType;
-use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
+use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage};
 use crate::trade::TradeRep;
@@ -176,16 +177,11 @@ impl Actor for ProcessorMiddle {
 			    // new processor is ahead, reset the
 			    //    new processor to the new default state.
 			    *portf = PortfolioType::default();
-			    let mkt_above =
-				if let Some(mkt_internal) = self.all_markets().above_market(self.market_name)
-			    {
-				mkt_internal
-			    } else {
-				CurrNewMarket("new".to_string())
-			    };
+			    let mkt_above = self.market_name.next_market(&self.all_markets).expect("PROBLEM WITH MARKETS");
+
 			    let _ = self.switch_market(
 				market.clone(),
-				mkt_above, 
+				mkt_above,
 			    ).await;
 			    *pns = ProcessorMiddleState::Idle(market.clone());
 
