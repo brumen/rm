@@ -6,6 +6,7 @@ use std::collections::{hash_map::IntoIter, HashMap};
 use std::ops::{AddAssign, Deref, DerefMut};
 use std::sync::mpsc::Sender;
 use tracing::{debug, info};
+use std::fmt;
 
 use std::default::Default;
 use std::iter::IntoIterator;
@@ -104,6 +105,12 @@ impl TryFromRef<BorrowedMessage<'_>> for MarketType {
 // passed around.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct CurrNewMarket(pub String);
+
+impl fmt::Display for CurrNewMarket {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl Deref for CurrNewMarket {
     type Target = String;

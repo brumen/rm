@@ -184,9 +184,7 @@ pub trait PriceTradeAsync: BaseTrade {
 	let trades = self.id();
 	
 	let _endpoint = format!(
-            "http://{pricing_server}/pricing?metric={metric}&market={:?}&trade_ids={trades}",
-	    curr_new_mkt
-	);
+            "http://{pricing_server}/pricing?metric={metric}&market={curr_new_mkt}&trade_ids={trades}");
 	    
         debug!("_endpoint: {:?}", _endpoint);
 
