@@ -157,13 +157,18 @@ impl Actor for ProcessorNew {
 		match pns { // what is the processor doing right now
 
 		    ProcessorNewState::Idle => {
+			// update the "new" market
+			self.set_market(
+			    new_market,
+			    CurrNewMarket("new".to_string()),
+			).await?;
 			// we are idle, we can start calculating, start calculating
 			*pns = ProcessorNewState::CalculatingBulk;
 			self.processor_bulk.send_message(
-			    ProcessorBulkMessage::NewBulk((self.market_name.clone(), trade_l.clone(), myself))
-			)?;
-			// update the market on the server
-			
+			    ProcessorBulkMessage::NewBulk((
+				self.market_name.clone(), trade_l.clone(), myself
+			    ))
+			)?;			
 		    },
 
 		    ProcessorNewState::CalculatingSingle => {
@@ -173,10 +178,22 @@ impl Actor for ProcessorNew {
 				(trade_l.clone(), portf.clone(), self.market_name.clone(), myself)
 			    )
 			)?;
+			// we're calculating, update the future market, not current
+			self.set_market(
+			    new_market,
+			    CurrNewMarket("future".to_string()
+			    )
+			).await?;
 		    }
 		    // ignore if new market comes in, no
 		    //   action taken.
-		    _ => {},
+		    ProcessorNewState::CalculatingBulk => {
+			// just update the future market
+			self.set_market(
+			    new_market,
+			    CurrNewMarket("future".to_string()),
+			).await?;
+		    },
 		}
 	    },
 
