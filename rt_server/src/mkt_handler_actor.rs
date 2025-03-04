@@ -1,4 +1,4 @@
-use tracing::info;
+use tracing::{info, debug};
 use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
@@ -44,7 +44,8 @@ impl Actor for MarketProducer {
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	info!("MarketProducer: Handling market message: {:?}", message);
+	info!("Handling new market message.");
+	debug!("Market message: {:?}", message);
 
 	let market = state;
 	*market += &message;  // adding the new market message to the market.

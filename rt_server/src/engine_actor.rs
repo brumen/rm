@@ -5,7 +5,6 @@ use tracing::info;
 use std::sync::{Arc,Mutex};
 use ractor::ActorRef;
 
-// use crate::market::MktMsgParams;
 use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
@@ -49,61 +48,33 @@ async fn create_middle_procs_chain(
 	};
 	
 	let (bulk_spawn, bulk_handle) = Actor::spawn(
-	    None,
-	    bulk_middle,
-	    (),
+	    None, bulk_middle, (),
 	)
 	    .await
 	    .expect("Could not create bulk middle processor");
 
 	actors.push(bulk_handle);
-
 	
-	
-	if middle_nb == 0 {
-	
-	    let proc_middle = ProcessorMiddle {
-		metric,
-		pricing_options: pricing_options.clone(),
-		market_name: market_name.clone(),
-		processor_below: processor_curr.clone(),
-		processor_bulk: bulk_spawn,
-		r_client: Some(reqwest::Client::new()),
-		all_markets: all_markets.clone(),
-	    };
+	let proc_middle = ProcessorMiddle {
+	    metric,
+	    pricing_options: pricing_options.clone(),
+	    market_name: market_name.clone(),
+	    processor_below: last_middle,
+	    processor_bulk: bulk_spawn,
+	    r_client: Some(reqwest::Client::new()),
+	    all_markets: all_markets.clone(),
+	};
 
-	    let (proc_middle_spawn, proc_middle_handle) = Actor::spawn(
-		None, proc_middle, ()
-	    )
-		.await
-		.expect("Could not start middle actor");
+	let (proc_middle_spawn, proc_middle_handle) = Actor::spawn(
+	    None, proc_middle, ()
+	)
+	    .await
+	    .expect("Could not start middle actor");
 
-	    actors.push(proc_middle_handle);	    
-	    last_middle = proc_middle_spawn;
-	} else {
-	    // we are not at the bottom, we have to
-	    let proc_middle = ProcessorMiddle {
-		metric,
-		pricing_options: pricing_options.clone(),
-		market_name: market_name.clone(),
-		processor_below: last_middle.clone(),
-		processor_bulk: bulk_spawn,
-		r_client: Some(reqwest::Client::new()),
-		all_markets: all_markets.clone(),
-	    };
-
-	    let (proc_middle_spawn, proc_middle_handle) = Actor::spawn(
-		None, proc_middle, ()
-	    )
-		.await
-		.expect("Could not start middle actor");
-
-	    last_middle = proc_middle_spawn;
-	    actors.push(proc_middle_handle);
-	}
+	actors.push(proc_middle_handle);
+	last_middle = proc_middle_spawn;
     }
 
-    // TODO: POTENTIALLY LAST ONE IS DIFFERNT
     actors
 }
 
@@ -196,8 +167,9 @@ pub async fn start2(
     .expect("Could not start trade producer");
 
     // middle actors
+    let nb_middle_mkts = (*all_markets).len();
     let mut all_actors = create_middle_procs_chain(
-	2, // nb_middle: usize,
+	nb_middle_mkts,
 	_processor_curr_a,
 	metric,
 	pricing_options.clone(),

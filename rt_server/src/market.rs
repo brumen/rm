@@ -199,6 +199,10 @@ impl AllMarkets {
 	    }
 	}
     }
+
+    pub(crate) fn len(&self) -> usize {
+	self.0.len()
+    }
 }
 
 
