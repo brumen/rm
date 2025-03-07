@@ -28,7 +28,7 @@ async fn create_middle_procs_chain(
     metric: PricingMetric,  // TODO: THIS SHOULD CHANGE
     pricing_options: MarketPricingOptions,
     all_markets: Arc<AllMarkets>,
-) -> Vec<JoinHandle<()>> {
+) -> (Vec<JoinHandle<()>>, ActorRef<ProcessorMiddleMessage>) {
 
     //let all_markets = Arc::new(AllMarkets::new(nb_middle));
     
@@ -75,7 +75,7 @@ async fn create_middle_procs_chain(
 	last_middle = proc_middle_spawn;
     }
 
-    actors
+    (actors, last_middle)
 }
 
 
@@ -123,13 +123,23 @@ pub async fn start2(
 	(),
     ).await
     .expect("Could not start current processor");
+
+    // middle actors
+    let nb_middle_mkts = (*all_markets).len();
+    let (mut all_actors, last_middle) = create_middle_procs_chain(
+	nb_middle_mkts,
+	_processor_curr_a.clone(),
+	metric,
+	pricing_options.clone(),
+	all_markets.clone(),
+    ).await;
     
     let (_processor_new_a, processor_new_handle) = Actor::spawn(
 	None,
 	ProcessorNew {
 	    metric,
 	    pricing_options: (*pricing_options).clone(),
-	    processor_curr: _processor_curr_a.clone(),
+	    processor_curr: last_middle.clone(),
 	    processor_bulk: _processor_bulk_a,
 	    r_client: Some(reqwest::Client::new()),
 	    market_name: CurrNewMarket("new".to_string()),
@@ -167,15 +177,6 @@ pub async fn start2(
     ).await
     .expect("Could not start trade producer");
 
-    // middle actors
-    let nb_middle_mkts = (*all_markets).len();
-    let mut all_actors = create_middle_procs_chain(
-	nb_middle_mkts,
-	_processor_curr_a,
-	metric,
-	pricing_options.clone(),
-	all_markets.clone(),
-    ).await;
 
     let mut other_actors = vec![
 	trade_capture_handle,

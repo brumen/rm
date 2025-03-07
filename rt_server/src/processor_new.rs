@@ -2,7 +2,7 @@ use tracing::{info, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 
-use crate::market::{AllMarkets, CurrNewMarket, MarketGeneral, MarketSwitching, MarketType};
+use crate::market::{AllMarkets, CurrNewMarket, MarketGeneral, MarketSwitching,};
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;
