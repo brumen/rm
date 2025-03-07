@@ -179,6 +179,10 @@ impl AllMarkets {
 	Self(middle_markets)
     }
 
+    pub fn get(&self, market_nb: usize) -> String {
+	self.0[market_nb].clone()
+    }
+
     /// attempts to find the market name in the AllMarkets -
     /// if it cant find it, returns None
     fn _find_market(&self, mkt_name: String) -> Option<usize> {

@@ -23,26 +23,24 @@ use crate::portfolio::PortfolioType;
 /// creates a chain of middle processors and connects 
 ///   them accordingly
 async fn create_middle_procs_chain(
-    nb_middle: usize,
     processor_curr: ActorRef<ProcessorMiddleMessage>,
     metric: PricingMetric,  // TODO: THIS SHOULD CHANGE
     pricing_options: MarketPricingOptions,
     all_markets: Arc<AllMarkets>,
 ) -> (Vec<JoinHandle<()>>, ActorRef<ProcessorMiddleMessage>) {
-
-    //let all_markets = Arc::new(AllMarkets::new(nb_middle));
     
     let mut actors: Vec<JoinHandle<()>> = vec![];
     
     let mut last_middle: ActorRef<ProcessorMiddleMessage> = processor_curr.clone();
+    let nb_middle = all_markets.len();
     
-    for middle_nb in 0..nb_middle {
+    for middle_nb in 1..(nb_middle-1) {
 
-	let market_name = CurrNewMarket(format!("market_{}", middle_nb));
+	let market_name = all_markets.get(middle_nb);
 	
 	let bulk_middle = ProcessorBulk {
-	    processor_name: format!("bulk_{}", middle_nb),
-	    market_name: market_name.clone(),
+	    processor_name: format!("bulk_{}", market_name),
+	    market_name: CurrNewMarket(market_name.clone()),
 	    metric,
 	    pricing_options: pricing_options.clone(),
 	};
@@ -58,7 +56,7 @@ async fn create_middle_procs_chain(
 	let proc_middle = ProcessorMiddle {
 	    metric,
 	    pricing_options: pricing_options.clone(),
-	    market_name: market_name.clone(),
+	    market_name: CurrNewMarket(market_name.clone()),
 	    processor_below: last_middle,
 	    processor_bulk: bulk_spawn,
 	    r_client: Some(reqwest::Client::new()),
@@ -91,18 +89,20 @@ pub async fn start2(
     all_markets: Arc<AllMarkets>,
 ) -> Vec<JoinHandle<()>> {
 
-    info!("Starting bulk processor.");
+    let current_market = all_markets.get(0);
+    
+    info!("Starting current_bulk processor.");
     let (_processor_bulk_a, processor_bulk_handle) = Actor::spawn(
 	None,
 	ProcessorBulk {
-	    processor_name: "new_bulk".to_string(),
-	    market_name: CurrNewMarket("new".to_string()),
+	    processor_name: format!("{}_bulk", current_market),
+	    market_name: CurrNewMarket(current_market),
 	    metric,
 	    pricing_options: (*pricing_options).clone()
 	},
 	(),
     ).await
-    .expect("Could not start bulk processor");
+    .expect("Could not start current_bulk processor.");
 
     let result_publisher = connect_with_retries_producer_rd(
 	&kafka_server
@@ -111,7 +111,7 @@ pub async fn start2(
     let (_processor_curr_a, processor_curr_handle) = Actor::spawn(
 	None,
 	ProcessorCurr {
-	    market_name: CurrNewMarket("current".to_string()),
+	    market_name: CurrNewMarket(all_markets.get(0)),
 	    metric,
 	    results_topic,
 	    pricing_options: (*pricing_options).clone(),
@@ -125,15 +125,15 @@ pub async fn start2(
     .expect("Could not start current processor");
 
     // middle actors
-    let nb_middle_mkts = (*all_markets).len();
     let (mut all_actors, last_middle) = create_middle_procs_chain(
-	nb_middle_mkts,
 	_processor_curr_a.clone(),
 	metric,
 	pricing_options.clone(),
 	all_markets.clone(),
     ).await;
-    
+
+    let nb_middle_mkts = all_markets.len();
+    let last_market_name = all_markets.get(nb_middle_mkts-1);
     let (_processor_new_a, processor_new_handle) = Actor::spawn(
 	None,
 	ProcessorNew {
@@ -142,7 +142,7 @@ pub async fn start2(
 	    processor_curr: last_middle.clone(),
 	    processor_bulk: _processor_bulk_a,
 	    r_client: Some(reqwest::Client::new()),
-	    market_name: CurrNewMarket("new".to_string()),
+	    market_name: CurrNewMarket(last_market_name),
 	    all_markets: all_markets.clone(),
 	},
 	(),
