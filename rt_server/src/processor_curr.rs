@@ -19,6 +19,7 @@ use crate::market::{MarketGeneral, MarketSwitching};
 
 
 pub(crate) struct ProcessorCurr{
+    pub market_name: CurrNewMarket,
     pub metric: PricingMetric,
     pub results_topic: String,
     pub pricing_options: MarketPricingOptions,
@@ -31,7 +32,7 @@ pub(crate) struct ProcessorCurr{
 
 impl std::fmt::Debug for ProcessorCurr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-	f.write_str("CurrentProcessor")
+	f.write_str("CurrentProcessor({self.market_name})")
     }
 }
 
@@ -122,9 +123,8 @@ impl Actor for ProcessorCurr {
 
 	let initial_trades = TradeRep::<AOTrade>::default();
 	let initial_curr_portf = PortfolioType::default();
-	let initial_market = CurrNewMarket("current".to_string());
 	
-	Ok((initial_trades, initial_curr_portf, initial_market))
+	Ok((initial_trades, initial_curr_portf, self.market_name.clone()))
     }
 
     async fn handle(
@@ -142,7 +142,8 @@ impl Actor for ProcessorCurr {
 		let valued_trade = trade.value_by_metric2(
 		    self.metric, &self.pricing_options,
 		    MarketGeneral::MarketRemote(
-			CurrNewMarket("current".to_string()))
+			self.market_name.clone()
+		    ),
 		).await;
 
 		// updating the portfolio
@@ -165,17 +166,8 @@ impl Actor for ProcessorCurr {
 		    // publish the new portfolio
 		    self._send_portfolio(new_portfolio.clone()).await?;
 
-		    // TODO: THIS IS SUCH SHIT
-		    let new_middle_mkt = if let Some(mkt_above) = 
-			(*self.all_markets).above_market("current".to_string()) {
-			    mkt_above
-			} else {
-			    CurrNewMarket("new".to_string())
-			};
-		    self.switch_market(
-			CurrNewMarket("current".to_string()),
-			new_middle_mkt,
-		    ).await?; // setting new_market to be the current market
+		    // switch markets on the remote server
+		    self.switch_market(self.market_name.clone()).await?;
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;

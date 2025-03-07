@@ -210,7 +210,9 @@ impl Actor for ProcessorNew {
 			    // new processor is ahead, reset the
 			    //    new processor to the new default state.
 			    *portf = PortfolioType::default();
-			    let _ = self.switch_market(
+			    // this is the exception, as "future" market not in
+			    //   the list of markets.
+			    let _ = self._switch_markets(
 				self.market_name.clone(),
 				CurrNewMarket("future".to_string()),
 			    ).await;

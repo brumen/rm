@@ -111,6 +111,7 @@ pub async fn start2(
     let (_processor_curr_a, processor_curr_handle) = Actor::spawn(
 	None,
 	ProcessorCurr {
+	    market_name: CurrNewMarket("current".to_string()),
 	    metric,
 	    results_topic,
 	    pricing_options: (*pricing_options).clone(),

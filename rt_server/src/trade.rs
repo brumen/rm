@@ -460,6 +460,10 @@ impl<TR> TradeRep<TR> {
             .position(|tradeid| tradeid.eq(trade_id))
             .is_some()
     }
+
+    pub fn len(&self) -> usize {
+	self.keys().len()
+    }
 }
 
 impl<TR: Clone + BaseTrade> AddAssign<&TradeRep<TR>> for TradeRep<TR> {

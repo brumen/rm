@@ -249,7 +249,7 @@ pub trait MarketSwitching {
     }
 
     /// switches market_below w/ market_above
-    async fn switch_market(
+    async fn _switch_markets(
 	&self,
 	market_name_below: CurrNewMarket,
 	market_name_above: CurrNewMarket,
@@ -275,6 +275,27 @@ pub trait MarketSwitching {
             .json(&payload)
             .send()
             .await?;
+
+	Ok(())
+    }
+
+    async fn switch_market(
+	&self,
+	market_name: CurrNewMarket
+    ) -> Result<(), reqwest::Error> {
+
+	match market_name.next_market(&self.all_markets()) {
+	    None => {
+		info!(
+		    "Could not find next market of {}. Nothing to do.",
+		    market_name,
+		);
+		return Ok(());
+	    },
+	    Some(above_market) => {
+		self._switch_markets(market_name, above_market).await?;
+	    }
+	}
 
 	Ok(())
     }

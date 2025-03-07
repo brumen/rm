@@ -75,11 +75,10 @@ impl Actor for ProcessorBulk {
 	match message {
 	    ProcessorBulkMessage::NewBulk((market, new_trades, processor_new)) => {
 		// start the long-running pricing procedure
-		let nb_trades = new_trades.len();
-		debug!(
-		    "Bulk processor {} processor. Computing {} trades.",
+		info!(
+		    "BulkProcessor {}: NewBulk - Computing {} trades.",
 		    self.processor_name,
-		    nb_trades,
+		    new_trades.len(),
 		);
 
 		let mut portfolio = PortfolioType::default();

@@ -118,7 +118,7 @@ async fn run_all() {
     );
 
     let mut results = vec![axum_process];
-    let all_markets = Arc::new(AllMarkets::new(2));  // TODO: FACTOR THIS OUT: 2 middle markets,
+    let all_markets = Arc::new(AllMarkets::new(5));
     
     let mut result = start2(
     	kafka_server, metric, pos_topic, mkt_topic, results_topic, &pricing_options, state,
