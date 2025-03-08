@@ -1,7 +1,7 @@
 // middle processor, sits between 2 new processors
 
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::market::{AllMarkets, CurrNewMarket, MarketGeneral, MarketSwitching};
@@ -220,12 +220,20 @@ impl Actor for ProcessorMiddle {
 		}
 	    },
 
-	    (ProcessorMiddleMessage::Behind(trades_behind), ProcessorMiddleState::CalculatingBulk | ProcessorMiddleState::CalculatingBulkMarketSwitch) => {
+	    (
+		ProcessorMiddleMessage::Behind(trades_behind),
+		ProcessorMiddleState::CalculatingBulk | ProcessorMiddleState::CalculatingBulkMarketSwitch
+	    ) => {
 		if trades_behind.is_empty() {
 		    // new processor is ahead, reset the
 		    //    new processor to the new default state.
 		    *portf = PortfolioType::default();
 
+		    info!(
+			"Processor {}, Calculating bulk: Received confirmation \
+			 that lower processor accepted portfolio. Defaulting.",
+			self.market_name
+		    );
 		    // switch markets & put it in CalculatingBulkMarketSwitch
 		    self.switch_market(self.market_name.clone()).await?;
 		    *pns = ProcessorMiddleState::CalculatingBulkMarketSwitch;
@@ -234,6 +242,12 @@ impl Actor for ProcessorMiddle {
 		    // new processor is behind, calculate the remaining trades.
 		    // we are still behind the current processor.
 		    // TODO: MAYBE WE CAN DIFFERENTIATE ON HOW MANY TRADES BEHIND???
+		    info!(
+			"Processor {}, Calculating bulk: Lower processor \
+			 did not accept the portfolio. Adding trades.",
+			self.market_name
+		    );
+
 		    *trade_l += &trades_behind;
 		    self.processor_bulk.send_message(
 			ProcessorBulkMessage::NewBulk(
@@ -245,6 +259,12 @@ impl Actor for ProcessorMiddle {
 
 	    (ProcessorMiddleMessage::Behind(trades_behind), ProcessorMiddleState::Idle) => {
 		if !trades_behind.is_empty() {
+		    info!(
+			"Processor {}, Idle state: Lower processor accepted portfolio. \
+			 Starting new computations.",
+			self.market_name,
+		    );
+
 		    self.processor_bulk.send_message(
 			ProcessorBulkMessage::NewBulk(
 			    (self.market_name.clone(), trades_behind.clone(), myself)
@@ -260,13 +280,22 @@ impl Actor for ProcessorMiddle {
 	    (ProcessorMiddleMessage::BulkReceive(_), ProcessorMiddleState::Idle) => {
 		// Important: This Souldnt happen.
 		// TODO: CHECK WHY THIS IS THE CASE???
-		info!("Ignoring bulk receive.");
+		warn!("Processor {}: Ignoring bulk receive. Should not happen.", self.market_name);
 	    },
 
-	    (ProcessorMiddleMessage::BulkReceive((new_trade_l, computed_portf, offending_trades, _bulk_market)), ProcessorMiddleState::CalculatingBulk) => {
+	    (
+		ProcessorMiddleMessage::BulkReceive((new_trade_l, computed_portf, offending_trades, _bulk_market)),
+		ProcessorMiddleState::CalculatingBulk
+	    ) => {
 		// result of computation has arrived.
 		// TODO: FINISH THIS HERE - what to do w/ offending trades???
 		//    Nothing for now.
+		info!(
+		    "Processor {}: Calculating bulk, received response from bulk. \
+		     Normal case. Going to CalculatingSingle.",
+		    self.market_name
+		);
+			
 		*portf += &computed_portf;
 		*trade_l += &new_trade_l;
 		*trades_non_pricing += &offending_trades;
@@ -278,7 +307,10 @@ impl Actor for ProcessorMiddle {
 		*pns = ProcessorMiddleState::CalculatingSingle;
 	    },
 
-	    (ProcessorMiddleMessage::BulkReceive((new_trade_l, computed_portf, _offending_trades, _bulk_market)), ProcessorMiddleState::CalculatingSingle) => {
+	    (
+		ProcessorMiddleMessage::BulkReceive((new_trade_l, computed_portf, _offending_trades, _bulk_market)),
+		ProcessorMiddleState::CalculatingSingle
+	    ) => {
 		// result of computation has arrived.
 		//  add it to the computation
 		// TODO: WHAT TO DO W/ OFFENDING TRADES???
@@ -363,6 +395,11 @@ impl Actor for ProcessorMiddle {
 		//  add it to the computation
 		// TODO: FINISH THIS HERE!!!
 
+		info!(
+		    "Processor {}. In CalculatingSingle, Received new trade portfolio",
+		    self.market_name,
+		);
+		
 		let (potential_trades, potential_portfolio, _new_market, _) = ntp;  // new trade portfolio
 		
 		// TODO: WRONG - IMPLEMENT > JUST FOR REFERENCES!!!
@@ -371,6 +408,11 @@ impl Actor for ProcessorMiddle {
 		if new_behind_curr.is_empty() {
 		    // replace the portfolio and trades
 
+		    info!(
+			"Processor {}. In CalculatingSingle: Portfolio is good, accepting \
+			 it and passing to processor below",
+			self.market_name,
+		    );
 		    *portf = potential_portfolio;
 		    *trade_l += &potential_trades;
 		    // TODO: HOW ABOUT pns ???
