@@ -1,4 +1,4 @@
-
+// construct and connect all the actors in the framework.
 use ractor::Actor;
 use tokio::task::JoinHandle;
 use tracing::info;
@@ -16,20 +16,35 @@ use crate::processor_curr::ProcessorCurr;
 use crate::processor_middle::ProcessorMiddle;
 use crate::processor_new::ProcessorNew;
 use crate::processor_bulk::ProcessorBulk;
-use crate::processor_msg::ProcessorMiddleMessage;
+use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage, };
 use crate::portfolio::PortfolioType;
 
 
 /// creates a chain of middle processors and connects 
 ///   them accordingly
+/// returns:
+///   (vector of processor actors,
+///    vector of bulk actors,
+///    last middle processor actor - to be used for new_actor, special case)
 async fn create_middle_procs_chain(
     processor_curr: ActorRef<ProcessorMiddleMessage>,
     metric: PricingMetric,  // TODO: THIS SHOULD CHANGE
     pricing_options: MarketPricingOptions,
     all_markets: Arc<AllMarkets>,
-) -> (Vec<JoinHandle<()>>, ActorRef<ProcessorMiddleMessage>) {
+) ->
+    (
+	Vec<ActorRef<ProcessorMiddleMessage>>,
+	Vec<JoinHandle<()>>,
+	Vec<ActorRef<ProcessorBulkMessage>>,
+	Vec<JoinHandle<()>>,
+	ActorRef<ProcessorMiddleMessage>
+    ) {
     
-    let mut actors: Vec<JoinHandle<()>> = vec![];
+    let mut bulk_actors_futures: Vec<JoinHandle<()>> = vec![];
+    let mut bulk_actors: Vec<ActorRef<ProcessorBulkMessage>> = vec![];
+
+    let mut processor_actors_futures: Vec<JoinHandle<()>> = vec![];
+    let mut processor_actors: Vec<ActorRef<ProcessorMiddleMessage>> = vec![];
     
     let mut last_middle: ActorRef<ProcessorMiddleMessage> = processor_curr.clone();
     let nb_middle = all_markets.len();
@@ -45,35 +60,44 @@ async fn create_middle_procs_chain(
 	    pricing_options: pricing_options.clone(),
 	};
 	
-	let (bulk_spawn, bulk_handle) = Actor::spawn(
+	let (bulk_actor, bulk_actor_future) = Actor::spawn(
 	    None, bulk_middle, (),
 	)
 	    .await
 	    .expect("Could not create bulk middle processor");
 
-	actors.push(bulk_handle);
+	bulk_actors_futures.push(bulk_actor_future);
+	bulk_actors.push(bulk_actor.clone());
 	
 	let proc_middle = ProcessorMiddle {
 	    metric,
 	    pricing_options: pricing_options.clone(),
 	    market_name: CurrNewMarket(market_name.clone()),
 	    processor_below: last_middle,
-	    processor_bulk: bulk_spawn,
+	    processor_bulk: bulk_actor,
 	    r_client: Some(reqwest::Client::new()),
 	    all_markets: all_markets.clone(),
 	};
 
-	let (proc_middle_spawn, proc_middle_handle) = Actor::spawn(
+	let (proc_actor, proc_actor_future) = Actor::spawn(
 	    None, proc_middle, ()
 	)
 	    .await
 	    .expect("Could not start middle actor");
 
-	actors.push(proc_middle_handle);
-	last_middle = proc_middle_spawn;
+	processor_actors.push(proc_actor.clone());
+	processor_actors_futures.push(proc_actor_future);
+
+	last_middle = proc_actor;
     }
 
-    (actors, last_middle)
+    (
+	processor_actors,
+	processor_actors_futures,
+	bulk_actors,
+	bulk_actors_futures,
+	last_middle
+    )
 }
 
 
@@ -92,7 +116,7 @@ pub async fn start2(
     let current_market = all_markets.get(0);
     
     info!("Starting current_bulk processor.");
-    let (_processor_bulk_a, processor_bulk_handle) = Actor::spawn(
+    let (_processor_bulk_a, processor_new_bulk_handle) = Actor::spawn(
 	None,
 	ProcessorBulk {
 	    processor_name: format!("{}_bulk", current_market),
@@ -125,12 +149,13 @@ pub async fn start2(
     .expect("Could not start current processor");
 
     // middle actors
-    let (mut all_actors, last_middle) = create_middle_procs_chain(
-	_processor_curr_a.clone(),
-	metric,
-	pricing_options.clone(),
-	all_markets.clone(),
-    ).await;
+    let (processor_actors, mut processor_actor_futures, _bulk_actors, mut bulk_actor_futures, last_middle) = 
+	create_middle_procs_chain(
+	    _processor_curr_a.clone(),
+	    metric,
+	    pricing_options.clone(),
+	    all_markets.clone(),
+	).await;
 
     let nb_middle_mkts = all_markets.len();
     let last_market_name = all_markets.get(nb_middle_mkts-1);
@@ -168,8 +193,7 @@ pub async fn start2(
     let trade_producer = TradeProducer::new(
 	kafka_server,
 	pos_topic,
-	_processor_curr_a.clone(),
-	_processor_new_a,
+	processor_actors,
     );
     
     let (_trade_capture_a, trade_capture_handle) = Actor::spawn(
@@ -177,16 +201,17 @@ pub async fn start2(
     ).await
     .expect("Could not start trade producer");
 
-
-    let mut other_actors = vec![
-	trade_capture_handle,
-	processor_curr_handle,
-	processor_new_handle,
-	processor_bulk_handle,
-	mkt_producer_handle,
+    // special futures
+    let mut all_futures = vec![
+	trade_capture_handle,  // trade producer
+	processor_curr_handle,  // current processor
+	processor_new_handle,   // new processor
+	processor_new_bulk_handle,  // bulk of new processor
+	mkt_producer_handle,  // market producer
     ];
 
-    all_actors.append(&mut other_actors);
+    all_futures.append(&mut processor_actor_futures);  // middle processors
+    all_futures.append(&mut bulk_actor_futures);  // middle bulk processors.
 
-    all_actors
+    all_futures
 }

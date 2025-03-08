@@ -98,6 +98,11 @@ impl Actor for ProcessorMiddle {
 	let (trade_l, trades_non_pricing, portf, pns) = state;
 
 	let pns_old = (*pns).clone();  // otherwise we cant match
+
+	info!(
+	    "Processor: {}. State: {:?}",
+	    self.market_name, pns_old,
+	);
 	
 	match (message, pns_old) {
 	    (ProcessorMiddleMessage::NewTrade(new_trade), ProcessorMiddleState::CalculatingSingle) => {

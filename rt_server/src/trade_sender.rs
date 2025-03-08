@@ -16,8 +16,7 @@ use crate::processor_msg::ProcessorMiddleMessage;
 
 pub struct TradeProducer{
     position_listener: StreamConsumer,
-    processor_curr: ActorRef<ProcessorMiddleMessage>,
-    processor_new: ActorRef<ProcessorMiddleMessage>,
+    processors: Vec<ActorRef<ProcessorMiddleMessage>>,
 }
 
 
@@ -25,8 +24,7 @@ impl TradeProducer {
     pub fn new(
 	kafka_server: String,
 	pos_topic: String,
-	processor_curr: ActorRef<ProcessorMiddleMessage>,
-	processor_new: ActorRef<ProcessorMiddleMessage>,
+	processors: Vec<ActorRef<ProcessorMiddleMessage>>,
     ) -> Self {
 
 	info!("Starting trade producer on {:?}", pos_topic);
@@ -34,8 +32,7 @@ impl TradeProducer {
 
 	Self {
 	    position_listener,
-	    processor_curr,
-	    processor_new,
+	    processors,
 	}
     }
 }
@@ -70,16 +67,15 @@ impl Actor for TradeProducer {
     ) -> Result<(), ActorProcessingErr>  {
 
         // add trades to trade_reduce
-        let tr = message;
+        let trade = message;
 
-	self.processor_curr.send_message(
-	    ProcessorMiddleMessage::NewTrade(tr.clone())
-	)?;
-	self.processor_new.send_message(
-	    ProcessorMiddleMessage::NewTrade(tr.clone())
-	)?;
-	
-        *state += &tr;
+	for processor in &self.processors[..] {
+	    processor.send_message(
+		ProcessorMiddleMessage::NewTrade(trade.clone())
+	    )?;
+	}
+
+        *state += &trade;
 
 	let new_msg = self.position_listener.recv().await?;
 	let new_trade = AOTrade::try_from_ref(&new_msg)?;
