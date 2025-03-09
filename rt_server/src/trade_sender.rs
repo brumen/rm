@@ -2,7 +2,7 @@
 // Trade producer, reads from kafka and informs ProcessorCurr and
 //   ProcessorNew
 
-use tracing::info;
+use tracing::{info, instrument};
 use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 

@@ -1,7 +1,7 @@
 // middle processor, sits between 2 new processors
 
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{info, warn, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::market::{AllMarkets, CurrNewMarket, MarketGeneral, MarketSwitching};
@@ -88,6 +88,7 @@ impl Actor for ProcessorMiddle {
 	)
     }
 
+    #[instrument]
     async fn handle(
         &self,
 	myself: ActorRef<Self::Msg>,

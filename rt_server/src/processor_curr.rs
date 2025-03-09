@@ -1,4 +1,4 @@
-use tracing::info;
+use tracing::{info, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::{Arc, Mutex};
 
@@ -127,6 +127,7 @@ impl Actor for ProcessorCurr {
 	Ok((initial_trades, initial_curr_portf, self.market_name.clone()))
     }
 
+    #[instrument]
     async fn handle(
         &self,
 	_myself: ActorRef<Self::Msg>,
