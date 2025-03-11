@@ -16,6 +16,8 @@ use std::net::SocketAddr;
 use tokio::task;
 use glommio::LocalExecutorBuilder;
 use monoio;
+use dotenv::dotenv;
+
 
 //mod ao_risk;
 //mod ao_risk_seq;
@@ -79,6 +81,8 @@ fn main_monoio() {
 }
 
 async fn run_all() {
+    dotenv().ok();  // .env is loaded.
+
     let tracing_level = Level::INFO;
     tracing_subscriber::fmt()
         .with_max_level(tracing_level)
@@ -86,30 +90,31 @@ async fn run_all() {
         .init();
 
     info!("Starting main system controller.");
-    let kafka_server = "192.168.1.107:9092".to_string();
+    let host = std::env::var("HOST").expect("Could not find HOST in .env");
+    let kafka_port = std::env::var("KAFKA_PORT").expect("Could not find KAFKA_PORT in .env");
+    let kafka_server = format!("{host}:{kafka_port}");
     let metric = PricingMetric::PV;
     let pos_topic = "air_options.ao.option_positions".to_string();
     let mkt_topic = "air_options.ao.mkt_events".to_string();
     let results_topic = "air_options.ao.results".to_string();
-    // let mkt_params = MktMsgParams::AOParams();
     let pricing_options = MarketPricingOptions {
-	pricing_server: "192.168.1.107:8000".to_string(),
-	pricing_endpoint: "pv".to_string(),
+	    pricing_server: format!("{host}:8000"),
+	    pricing_endpoint: "pv".to_string(),
     };
 
     let state = Arc::new(Mutex::new(portfolio::PortfolioType::default()));
     let state2 = state.clone();
-    
+
     let axum_process = task::spawn(
 	async move {
 	    let app = Router::new()
 		.route("/portfolio", get(portfolio_handler))
 		.with_state(state2);
-	    
+
 	    //let listener = tokio::net::TcpListener::bind("192.168.1.51:3000").await.unwrap();
 
 	    info!("Starting axum");
-	    let addr: SocketAddr = "192.168.1.51:3000".parse().unwrap();
+	    let addr: SocketAddr = format!("{host}:3000").parse().unwrap();
 	    //axum::serve(listener, app).await.unwrap();
 	    axum_server::bind(addr).serve(app.into_make_service())
                 .await
@@ -119,7 +124,7 @@ async fn run_all() {
 
     let mut results = vec![axum_process];
     let all_markets = Arc::new(AllMarkets::new(5));
-    
+
     let mut result = start2(
     	kafka_server, metric, pos_topic, mkt_topic, results_topic, &pricing_options, state,
 	all_markets,

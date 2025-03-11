@@ -7,11 +7,13 @@ start proper server with:
         --processes 4 --port 5010
 """
 
+import os
 import logging
 import datetime
 import six.moves
 import sys
 
+from dotenv import load_dotenv
 from typing import List, Dict, Any, Tuple, Optional
 from markupsafe import escape
 from flask import Response, request, Flask
@@ -294,7 +296,9 @@ def market_setup() -> Response:
 
 # pv rester start
 def main():
-    pv_rester.run(host='192.168.1.107', port=8000)
+    load_dotenv()
+    server_host = os.getenv('HOST')
+    pv_rester.run(host=server_host, port=8000)
 
 
 # IMPORTANT: this has to be called application, for mod_express

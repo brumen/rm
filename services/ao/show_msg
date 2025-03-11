@@ -1,7 +1,8 @@
 #!/bin/bash
 
+server="10.36.4.164"  # "192.168.1.107"
 kafka_console_cmd="/home/brumen/archive/software/kafka/kafka-3.4.0-src/bin/kafka-console-consumer.sh "
-server="--bootstrap-server 192.168.1.107:9092 "
+server="--bootstrap-server 10.36.4.164:9092 "
 kafka_folder="/home/brumen/archive/software/kafka"
 service_folder="/home/brumen/work/rm/services/ao"
 

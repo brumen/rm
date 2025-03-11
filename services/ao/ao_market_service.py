@@ -9,9 +9,13 @@
        the uuid4 described above.
 """
 
+import os
 import logging
 import sys
 import six.moves
+
+
+from dotenv import load_dotenv
 
 if sys.version_info >= (3, 12, 0):
     sys.modules['kafka.vendor.six.moves'] = six.moves
@@ -25,10 +29,14 @@ logger.setLevel(logging.INFO)
 
 # starting the service
 if __name__ == '__main__':
+
+    load_dotenv()
+    server_host = os.getenv('HOST')
+    kafka_port = os.getenv('KAFKA_PORT')
     aom = AOMarketService(
         server_port_topic=(
-            '192.168.1.107',
-            9092,
+            server_host,
+            int(kafka_port),
             'air_options.ao.flights_live',
         ),
         time_interval=1

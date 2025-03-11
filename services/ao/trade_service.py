@@ -6,7 +6,9 @@ import logging
 import six.moves
 import datetime
 import numpy as np
+import os
 
+from dotenv import load_dotenv
 from typing import Tuple, List
 from time import sleep
 
@@ -81,11 +83,15 @@ class AOTradeProducer(BaseProducer):
 
 def _main():
     # start the leveraged etf market producer
+    load_dotenv()
+    host = os.getenv('HOST')
+    kafka_port = os.getenv('KAFKA_PORT')
+
     ao_producer = AOTradeProducer(
         flight_ids=['UA150', 'UA155', ],
         server_port_topic=(
-            '192.168.1.107',
-            9092,
+            host,
+            int(kafka_port),
             'air_options.ao.flights_live',
         ),
     )
