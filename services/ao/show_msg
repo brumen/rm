@@ -22,7 +22,8 @@ elif [ "$1" == "kafka" ]; then
 # and API pricing rester (trade_api_single)
 elif [ "$1" == "market" ]; then
     gnome-terminal --tab -- python $service_folder/trade_service.py
-    gnome-terminal --tab -- python $service_folder/trade_api_single.py
+    # gnome-terminal --tab -- python $service_folder/trade_api_single.py
+    gnome-terminal --tab -- ./home/brumen/work/rm/services/ao/trade_api_multi.sh
     gnome-terminal --tab -- python $service_folder/ao_market_service.py
 
 # starts the real time risk monitor controller.
