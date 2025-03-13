@@ -8,16 +8,17 @@ use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;  // for trade.value_by_metric2
 use crate::trade::{BaseTrade, TradeRep};
-use crate::ao_trade::AOTrade;
+//use crate::ao_trade::AOTrade;
 use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
 
 #[derive(Debug)]
-pub struct ProcessorBulk{
+pub struct ProcessorBulk<T>{
     pub processor_name: String,
     pub market_name: CurrNewMarket,
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
+    pub(crate) trades: TradeRep<T>,
 }
 
 #[derive(Debug)]
@@ -27,12 +28,13 @@ pub enum ProcessorBulkState {
 }
 
 
-impl Decoder for ProcessorBulk {}
+impl<T> Decoder for ProcessorBulk<T> {}
 
-impl<ReductionType> RestPricerSpark<ReductionType> for ProcessorBulk
+impl<ReductionType, T> RestPricerSpark<ReductionType> for ProcessorBulk<T>
 where
     ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
-    ProcessorBulk: Decoder,
+    ProcessorBulk<T>: Decoder,
+    T: Send + Sync
 {
 
     fn _pricing_server_spark(&self) -> String {
@@ -49,8 +51,11 @@ where
 }
 
 #[async_trait]
-impl Actor for ProcessorBulk {
-    type Msg = ProcessorBulkMessage;
+impl<T> Actor for ProcessorBulk<T>
+where
+    T: Send + Clone + 'static + BaseTrade + ProcessTradeValue + std::fmt::Debug
+{
+    type Msg = ProcessorBulkMessage<T>;
     type State = i32;  // The number of attempts to run the bulk on, default = 5
     type Arguments = ();
 
@@ -63,7 +68,6 @@ impl Actor for ProcessorBulk {
 	info!("Initializing Bulk processor: {}", self.processor_name);
 	Ok(0)  // intialized to 0 attempts.
     }
-
 
     async fn handle(
         &self,
@@ -106,7 +110,7 @@ impl Actor for ProcessorBulk {
 		debug!("Bulk processor to middle actor: {:?}", portfolio);
 		processor_new.send_message(
 		    ProcessorMiddleMessage::BulkReceive(
-			(new_trades, portfolio, TradeRep::<AOTrade>::default(), market)
+			(new_trades, portfolio, TradeRep::<T>::default(), market)
 		    )
 		)?;
 

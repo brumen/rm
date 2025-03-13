@@ -14,17 +14,17 @@ use crate::ao_trade::AOTrade;
 // new and current processors.
 use crate::processor_msg::ProcessorMiddleMessage;
 
-pub struct TradeProducer{
+pub struct TradeProducer<T>{
     position_listener: StreamConsumer,
-    processors: Vec<ActorRef<ProcessorMiddleMessage>>,
+    processors: Vec<ActorRef<ProcessorMiddleMessage<T>>>,
 }
 
 
-impl TradeProducer {
+impl<T> TradeProducer<T> {
     pub fn new(
 	kafka_server: String,
 	pos_topic: String,
-	processors: Vec<ActorRef<ProcessorMiddleMessage>>,
+	processors: Vec<ActorRef<ProcessorMiddleMessage<T>>>,
     ) -> Self {
 
 	info!("Starting trade producer on {:?}", pos_topic);
@@ -39,7 +39,8 @@ impl TradeProducer {
 
 
 #[async_trait]
-impl Actor for TradeProducer {
+impl<T: 'static> Actor for TradeProducer<T>
+{
     type Msg = AOTrade;
     type State = TradeRep<AOTrade>;  // list of existing trades.
     type Arguments = ();

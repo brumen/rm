@@ -61,7 +61,8 @@ impl<T> Decoder for ProcessorMiddle<T> {}
 
 #[async_trait]
 impl<T> Actor for ProcessorMiddle<T>
-where T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug
+where
+    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + ProcessTradeValue
 {
     type Msg = ProcessorMiddleMessage<T>;
     // first argument is list of trades,

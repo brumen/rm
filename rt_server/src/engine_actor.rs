@@ -2,6 +2,7 @@
 use ractor::Actor;
 use tokio::task::JoinHandle;
 use tracing::info;
+use std::fmt::Debug;
 use std::sync::{Arc,Mutex};
 use ractor::ActorRef;
 
@@ -10,6 +11,7 @@ use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 
 use crate::market::{AllMarkets, CurrNewMarket};
+use crate::process_trade::ProcessTradeValue;
 use crate::publish::connect_with_retries_producer_rd;
 use crate::trade_sender::TradeProducer;
 use crate::processor_curr::ProcessorCurr;
@@ -18,7 +20,8 @@ use crate::processor_new::ProcessorNew;
 use crate::processor_bulk::ProcessorBulk;
 use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage, };
 use crate::portfolio::PortfolioType;
-
+use crate::ao_trade::AOTrade;
+use crate::trade::{BaseTrade, TradeRep};
 
 /// creates a chain of middle processors and connects
 ///   them accordingly
@@ -26,27 +29,27 @@ use crate::portfolio::PortfolioType;
 ///   (vector of processor actors,
 ///    vector of bulk actors,
 ///    last middle processor actor - to be used for new_actor, special case)
-async fn create_middle_procs_chain(
-    processor_curr: ActorRef<ProcessorMiddleMessage>,
+async fn create_middle_procs_chain<T: Send + Clone + Debug + BaseTrade + ProcessTradeValue + 'static> (
+    processor_curr: ActorRef<ProcessorMiddleMessage<T>>,
     metric: PricingMetric,  // TODO: THIS SHOULD CHANGE
     pricing_options: MarketPricingOptions,
     all_markets: Arc<AllMarkets>,
 ) ->
     (
-	Vec<ActorRef<ProcessorMiddleMessage>>,
+	Vec<ActorRef<ProcessorMiddleMessage<T>>>,
 	Vec<JoinHandle<()>>,
-	Vec<ActorRef<ProcessorBulkMessage>>,
+	Vec<ActorRef<ProcessorBulkMessage<T>>>,
 	Vec<JoinHandle<()>>,
-	ActorRef<ProcessorMiddleMessage>
+	ActorRef<ProcessorMiddleMessage<T>>
     ) {
 
     let mut bulk_actors_futures: Vec<JoinHandle<()>> = vec![];
-    let mut bulk_actors: Vec<ActorRef<ProcessorBulkMessage>> = vec![];
+    let mut bulk_actors: Vec<ActorRef<ProcessorBulkMessage<T>>> = vec![];
 
     let mut processor_actors_futures: Vec<JoinHandle<()>> = vec![];
-    let mut processor_actors: Vec<ActorRef<ProcessorMiddleMessage>> = vec![];
+    let mut processor_actors: Vec<ActorRef<ProcessorMiddleMessage<T>>> = vec![];
 
-    let mut last_middle: ActorRef<ProcessorMiddleMessage> = processor_curr.clone();
+    let mut last_middle: ActorRef<ProcessorMiddleMessage<T>> = processor_curr.clone();
     let nb_middle = all_markets.len();
 
     for middle_nb in 1..(nb_middle-1) {
@@ -57,6 +60,7 @@ async fn create_middle_procs_chain(
 	    market_name: CurrNewMarket(market_name.clone()),
 	    metric,
 	    pricing_options: pricing_options.clone(),
+            trades: TradeRep::<T>::default(),
 	};
 
 	let (bulk_actor, bulk_actor_future) = Actor::spawn(
@@ -67,7 +71,7 @@ async fn create_middle_procs_chain(
 
 	bulk_actors_futures.push(bulk_actor_future);
 	bulk_actors.push(bulk_actor.clone());
-	
+
 	let proc_middle = ProcessorMiddle {
 	    metric,
 	    pricing_options: pricing_options.clone(),
@@ -121,7 +125,8 @@ pub async fn start2(
 	    processor_name: format!("{}_bulk", current_market),
 	    market_name: CurrNewMarket(current_market),
 	    metric,
-	    pricing_options: (*pricing_options).clone()
+	    pricing_options: (*pricing_options).clone(),
+            trades: TradeRep::<AOTrade>::default(),
 	},
 	(),
     ).await
@@ -130,7 +135,7 @@ pub async fn start2(
     let result_publisher = connect_with_retries_producer_rd(
 	&kafka_server
     );
-    
+
     let (_processor_curr_a, processor_curr_handle) = Actor::spawn(
 	None,
 	ProcessorCurr {
@@ -142,6 +147,7 @@ pub async fn start2(
 	    r_client: Some(reqwest::Client::new()),
 	    portf: server_state,
 	    all_markets: all_markets.clone(),
+            trades: TradeRep::<AOTrade>::default(),
 	},
 	(),
     ).await
@@ -194,13 +200,13 @@ pub async fn start2(
 	(),
     ).await
     .expect("Could not start market producer");
-    
+
     let trade_producer = TradeProducer::new(
 	kafka_server,
 	pos_topic,
 	processor_actors,
     );
-    
+
     let (_trade_capture_a, trade_capture_handle) = Actor::spawn(
 	None, trade_producer, ()
     ).await

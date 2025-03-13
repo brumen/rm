@@ -70,7 +70,7 @@ where
 #[async_trait]
 impl<T> Actor for ProcessorNew<T>
 where
-    T: Send + Clone + 'static + BaseTrade
+    T: Send + Clone + 'static + BaseTrade + ProcessTradeValue
 {
     type Msg = ProcessorMiddleMessage<T>;
     // first argument is list of trades,

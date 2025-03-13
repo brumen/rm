@@ -8,7 +8,7 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 use serde_json;
 use thiserror;
 
-use crate::ao_trade::AOTrade;
+// use crate::ao_trade::AOTrade;
 use crate::market::{AllMarkets, CurrNewMarket};
 use crate::portfolio::PortfolioType;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
@@ -109,7 +109,7 @@ impl<T> MarketSwitching for ProcessorCurr<T> {
 #[async_trait]
 impl<T> Actor for ProcessorCurr<T>
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug  // TODO: HOW TO IMPLEEMNT value_by_metric (or metric2)
+    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + ProcessTradeValue
 {
     type Msg = ProcessorMiddleMessage<T>;
     // state is a tuple of current trades,
