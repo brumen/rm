@@ -4,6 +4,7 @@ use std::default::Default;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Deref, DerefMut, Mul, MulAssign, Neg};
 use std::{collections::HashMap, ops::SubAssign};
+use std::cmp::PartialOrd;
 
 use crate::pricer::PricingMetric;
 use crate::ref_deref_trait;
@@ -21,6 +22,23 @@ impl Default for PortfolioType {
     fn default() -> Self {
         Self(PortfolioInner::new())
     }
+}
+
+impl PortfolioType {
+    fn len(&self) -> usize {
+        self.keys().count()
+    }
+}
+
+impl PartialOrd for PortfolioType {
+
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.keys().all(|key| other.contains_key(key)) {
+            return Some(std::cmp::Ordering::Less);
+        }
+        None
+    }
+
 }
 
 impl Add for PortfolioType {

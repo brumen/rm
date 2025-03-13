@@ -37,7 +37,7 @@ def main_ao(result_idx='PV'):
     if result_idx == 'PV':
         rp = ResultPublisherKafkaPV(
             server_port_topic=server_port_topic,
-            metric='pv',  # result_idx,
+            metric='PV',  # result_idx,
         )
 
     elif result_idx == 'PV01':

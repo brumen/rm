@@ -88,7 +88,7 @@ impl Actor for ProcessorMiddle {
 	)
     }
 
-    #[instrument]
+    //#[instrument]
     async fn handle(
         &self,
 	myself: ActorRef<Self::Msg>,

@@ -71,11 +71,11 @@ impl ProcessorCurr {
 	    let mut p = self.portf.lock().unwrap();
 	    *p = portf.clone();
 	}
-	
+
 	// first i32 = partition
 	// second i64 = offset
 	// error is the Kafka error
-	// OwnedMessage - copy of the original message. 
+	// OwnedMessage - copy of the original message.
 	// Result<(i32, i64), (KafkaError, OwnedMessage)>;
 	match self.result_publisher.send(portf_record, Timeout::Never).await {
 	    Err((ke, _)) => Err(SendError::KafkaErr(ke)),
@@ -91,14 +91,14 @@ impl MarketSwitching for ProcessorCurr {
     fn all_markets(&self) -> Arc<AllMarkets> {
 	self.all_markets.clone()
     }
-    
+
     fn r_client(&self) -> &reqwest::Client {
 	match &self.r_client {
 	    Some(rc) => return &rc,
 	    None => panic!("Need client for market switching"),
 	}
     }
-    
+
     fn market_endpoint(&self) -> String {
 	format!("http://{0}/market", self.pricing_options.pricing_server.clone())
     }
@@ -123,11 +123,11 @@ impl Actor for ProcessorCurr {
 
 	let initial_trades = TradeRep::<AOTrade>::default();
 	let initial_curr_portf = PortfolioType::default();
-	
+
 	Ok((initial_trades, initial_curr_portf, self.market_name.clone()))
     }
 
-    #[instrument]
+    //#[instrument]
     async fn handle(
         &self,
 	_myself: ActorRef<Self::Msg>,
@@ -135,7 +135,7 @@ impl Actor for ProcessorCurr {
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 	let (trades, portf, market, ) = state;
-	
+
         match message {
 	    ProcessorMiddleMessage::NewTrade(trade) => {
 
@@ -162,9 +162,10 @@ impl Actor for ProcessorCurr {
 		)?;
 		info!("Received new trade portfolio, behind: {:?}", new_behind_curr.len());
 
-		let send_cnd = new_behind_curr.is_empty();
-		if send_cnd {  // when to send the portfolio to publisher.
+		//let send_cnd = new_behind_curr.is_empty();  // new portfolio has more trades.
+                if *portf <= new_portfolio {  // when to send the portfolio to publisher.
 		    // publish the new portfolio
+                    info!("Changing portfolio.");
 		    self._send_portfolio(new_portfolio.clone()).await?;
 
 		    // switch markets on the remote server
@@ -178,8 +179,10 @@ impl Actor for ProcessorCurr {
 		} // otherwise dont do anything.
 	    },
 
-	    _ => {}, // TODO: LETS IMPLEMENT PANIC HERE!!!
-	    
+	    _ => {
+                panic!("Unusual message. Shouldnt happen");
+            },
+
         }
 	Ok(())
     }

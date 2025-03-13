@@ -20,7 +20,7 @@ use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage, };
 use crate::portfolio::PortfolioType;
 
 
-/// creates a chain of middle processors and connects 
+/// creates a chain of middle processors and connects
 ///   them accordingly
 /// returns:
 ///   (vector of processor actors,
@@ -39,27 +39,26 @@ async fn create_middle_procs_chain(
 	Vec<JoinHandle<()>>,
 	ActorRef<ProcessorMiddleMessage>
     ) {
-    
+
     let mut bulk_actors_futures: Vec<JoinHandle<()>> = vec![];
     let mut bulk_actors: Vec<ActorRef<ProcessorBulkMessage>> = vec![];
 
     let mut processor_actors_futures: Vec<JoinHandle<()>> = vec![];
     let mut processor_actors: Vec<ActorRef<ProcessorMiddleMessage>> = vec![];
-    
+
     let mut last_middle: ActorRef<ProcessorMiddleMessage> = processor_curr.clone();
     let nb_middle = all_markets.len();
-    
+
     for middle_nb in 1..(nb_middle-1) {
 
 	let market_name = all_markets.get(middle_nb);
-	
 	let bulk_middle = ProcessorBulk {
 	    processor_name: format!("bulk_{}", market_name),
 	    market_name: CurrNewMarket(market_name.clone()),
 	    metric,
 	    pricing_options: pricing_options.clone(),
 	};
-	
+
 	let (bulk_actor, bulk_actor_future) = Actor::spawn(
 	    None, bulk_middle, (),
 	)
@@ -114,7 +113,7 @@ pub async fn start2(
 ) -> Vec<JoinHandle<()>> {
 
     let current_market = all_markets.get(0);
-    
+
     info!("Starting current_bulk processor.");
     let (_processor_bulk_a, processor_new_bulk_handle) = Actor::spawn(
 	None,
@@ -149,7 +148,13 @@ pub async fn start2(
     .expect("Could not start current processor");
 
     // middle actors
-    let (processor_actors, mut processor_actor_futures, _bulk_actors, mut bulk_actor_futures, last_middle) = 
+    let (
+        processor_actors,
+        mut processor_actor_futures,
+        _bulk_actors,
+        mut bulk_actor_futures,
+        last_middle
+    ) =
 	create_middle_procs_chain(
 	    _processor_curr_a.clone(),
 	    metric,
@@ -164,7 +169,7 @@ pub async fn start2(
 	ProcessorNew {
 	    metric,
 	    pricing_options: (*pricing_options).clone(),
-	    processor_curr: last_middle.clone(),
+	    processor_middle: last_middle.clone(),
 	    processor_bulk: _processor_bulk_a,
 	    r_client: Some(reqwest::Client::new()),
 	    market_name: CurrNewMarket(last_market_name),
