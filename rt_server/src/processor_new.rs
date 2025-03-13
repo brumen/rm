@@ -8,15 +8,15 @@ use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpar
 use crate::process_trade::ProcessTradeValue;
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage,};
 use crate::trade::{BaseTrade, TradeRep};
-use crate::ao_trade::AOTrade;
+// use crate::ao_trade::AOTrade;
 
 
 #[derive(Debug)]
-pub struct ProcessorNew{
+pub struct ProcessorNew<T>{
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
-    pub processor_middle: ActorRef<ProcessorMiddleMessage>,  // current processor ref.
-    pub processor_bulk: ActorRef<ProcessorBulkMessage>,  // bull processor ref.
+    pub processor_middle: ActorRef<ProcessorMiddleMessage<T>>,  // current processor ref.
+    pub processor_bulk: ActorRef<ProcessorBulkMessage<T>>,  // bull processor ref.
     pub r_client: Option<reqwest::Client>,
     pub all_markets: Arc<AllMarkets>,
     pub market_name: CurrNewMarket,
@@ -30,7 +30,7 @@ pub enum ProcessorNewState {
 }
 
 
-impl MarketSwitching for ProcessorNew {
+impl<T> MarketSwitching for ProcessorNew<T> {
 
     fn all_markets(&self) -> std::sync::Arc<AllMarkets> {
 	self.all_markets.clone()
@@ -49,12 +49,12 @@ impl MarketSwitching for ProcessorNew {
 }
 
 
-impl Decoder for ProcessorNew {}
+impl<T> Decoder for ProcessorNew<T> {}
 
-impl<ReductionType> RestPricerSpark<ReductionType> for ProcessorNew
+impl<ReductionType, T> RestPricerSpark<ReductionType> for ProcessorNew<T>
 where
     ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
-    ProcessorNew: Decoder,
+    ProcessorNew<T>: Decoder,
 {
 
     fn _pricing_server_spark(&self) -> String {
@@ -68,13 +68,16 @@ where
 
 
 #[async_trait]
-impl Actor for ProcessorNew {
-    type Msg = ProcessorMiddleMessage;
+impl<T> Actor for ProcessorNew<T>
+where
+    T: Send + Clone + 'static + BaseTrade
+{
+    type Msg = ProcessorMiddleMessage<T>;
     // first argument is list of trades,
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
     //   fourth is the computation state.
-    type State = (TradeRep<AOTrade>, TradeRep<AOTrade>, PortfolioType, ProcessorNewState);
+    type State = (TradeRep<T>, TradeRep<T>, PortfolioType, ProcessorNewState);
     type Arguments = ();
 
     // initialization of the new processor
@@ -86,8 +89,8 @@ impl Actor for ProcessorNew {
 
         Ok(
 	    (
-		TradeRep::<AOTrade>::default(),
-		TradeRep::<AOTrade>::default(),
+		TradeRep::<T>::default(),
+		TradeRep::<T>::default(),
 		PortfolioType::default(),
 		ProcessorNewState::Idle,
 	    )

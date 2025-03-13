@@ -10,16 +10,16 @@ use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage};
 use crate::trade::{TradeRep, BaseTrade};
-use crate::ao_trade::AOTrade;
+//use crate::ao_trade::AOTrade;
 
 
 #[derive(Debug)]
-pub(crate) struct ProcessorMiddle{
+pub(crate) struct ProcessorMiddle<T>{
     pub(crate) metric: PricingMetric,
     pub(crate) pricing_options: MarketPricingOptions,
     pub(crate) market_name: CurrNewMarket,
-    pub processor_below: ActorRef<ProcessorMiddleMessage>,  // processor below
-    pub processor_bulk: ActorRef<ProcessorBulkMessage>,  // bull processor ref.
+    pub processor_below: ActorRef<ProcessorMiddleMessage<T>>,  // processor below
+    pub processor_bulk: ActorRef<ProcessorBulkMessage<T>>,  // bull processor ref.
     pub r_client: Option<reqwest::Client>,
     pub(crate) all_markets: Arc<AllMarkets>,
 }
@@ -35,7 +35,7 @@ pub enum ProcessorMiddleState {
 }
 
 
-impl MarketSwitching for ProcessorMiddle {
+impl<T> MarketSwitching for ProcessorMiddle<T> {
 
     fn all_markets(&self) -> std::sync::Arc<AllMarkets> {
 	self.all_markets.clone()
@@ -54,19 +54,21 @@ impl MarketSwitching for ProcessorMiddle {
     }
 }
 
-impl Decoder for ProcessorMiddle {}
+impl<T> Decoder for ProcessorMiddle<T> {}
 
 
 // TODO: IMPLEMENT RestPricerSpark HERE MISSING
 
 #[async_trait]
-impl Actor for ProcessorMiddle {
-    type Msg = ProcessorMiddleMessage;
+impl<T> Actor for ProcessorMiddle<T>
+where T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug
+{
+    type Msg = ProcessorMiddleMessage<T>;
     // first argument is list of trades,
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
     //   fourth is the computation state.
-    type State = (TradeRep<AOTrade>, TradeRep<AOTrade>, PortfolioType, ProcessorMiddleState);
+    type State = (TradeRep<T>, TradeRep<T>, PortfolioType, ProcessorMiddleState);
     type Arguments = ();
 
     // initialization of the new processor
@@ -80,8 +82,8 @@ impl Actor for ProcessorMiddle {
 	);
         Ok(
 	    (
-		TradeRep::<AOTrade>::default(),
-		TradeRep::<AOTrade>::default(),
+		TradeRep::<T>::default(),
+		TradeRep::<T>::default(),
 		PortfolioType::default(),
 		ProcessorMiddleState::Idle,
 	    )

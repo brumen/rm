@@ -75,7 +75,7 @@ impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
         let results_pricing = self
             ._pricing_request(PricingMetric::PV, pricing_options, curr_new_mkt)
             .await;
-	
+
         match results_pricing {
             Ok(result_price) => {
                 let unwrapped_price = self

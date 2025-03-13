@@ -477,7 +477,7 @@ impl<TR: Clone + BaseTrade> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
 impl<TR: Clone + BaseTrade> SubAssign<&TradeRep<TR>> for TradeRep<TR> {
     fn sub_assign(&mut self, other: &TradeRep<TR>) {
         for (trade_id, _) in other.iter() {
-	    self.remove(trade_id); 
+	    self.remove(trade_id);
 	}
     }
 }

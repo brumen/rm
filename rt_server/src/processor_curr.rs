@@ -13,12 +13,12 @@ use crate::market::{AllMarkets, CurrNewMarket};
 use crate::portfolio::PortfolioType;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
-use crate::trade::TradeRep;
+use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::ProcessorMiddleMessage;
 use crate::market::{MarketGeneral, MarketSwitching};
 
 
-pub(crate) struct ProcessorCurr{
+pub(crate) struct ProcessorCurr<T>{
     pub market_name: CurrNewMarket,
     pub metric: PricingMetric,
     pub results_topic: String,
@@ -27,10 +27,11 @@ pub(crate) struct ProcessorCurr{
     pub r_client: Option<reqwest::Client>,  // request client
     pub portf: Arc<Mutex<PortfolioType>>,  // current working portfolio
     pub all_markets: Arc<AllMarkets>,
+    pub trades: TradeRep<T>,
 }
 
 
-impl std::fmt::Debug for ProcessorCurr {
+impl<T> std::fmt::Debug for ProcessorCurr<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 	f.write_str("CurrentProcessor({self.market_name})")
     }
@@ -45,7 +46,7 @@ pub enum SendError {
     SerializeError(#[from] serde_json::Error),
 }
 
-impl ProcessorCurr {
+impl<T> ProcessorCurr<T> {
 
     /// encodes and sends the portfolio to Kafka client.
     async fn _send_portfolio(
@@ -86,7 +87,7 @@ impl ProcessorCurr {
     }
 }
 
-impl MarketSwitching for ProcessorCurr {
+impl<T> MarketSwitching for ProcessorCurr<T> {
 
     fn all_markets(&self) -> Arc<AllMarkets> {
 	self.all_markets.clone()
@@ -106,12 +107,17 @@ impl MarketSwitching for ProcessorCurr {
 
 
 #[async_trait]
-impl Actor for ProcessorCurr {
-    type Msg = ProcessorMiddleMessage;
+impl<T> Actor for ProcessorCurr<T>
+where
+    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug  // TODO: HOW TO IMPLEEMNT value_by_metric (or metric2)
+{
+    type Msg = ProcessorMiddleMessage<T>;
     // state is a tuple of current trades,
     //    and current portfolio, and the current market
     //    representation.
-    type State = (TradeRep<AOTrade>, PortfolioType, CurrNewMarket);
+    // BELOW IS THE WORKING VERSION:
+    //type State = (TradeRep<AOTrade>, PortfolioType, CurrNewMarket);
+    type State = (TradeRep<T>, PortfolioType, CurrNewMarket);
     // type State = (TradeRep<impl Clone + for <'a> AddAssign<&'a AOTrade> >, PortfolioType, MarketType);
     type Arguments = ();
 
@@ -121,7 +127,7 @@ impl Actor for ProcessorCurr {
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
-	let initial_trades = TradeRep::<AOTrade>::default();
+	let initial_trades = TradeRep::<T>::default();
 	let initial_curr_portf = PortfolioType::default();
 
 	Ok((initial_trades, initial_curr_portf, self.market_name.clone()))
@@ -154,7 +160,7 @@ impl Actor for ProcessorCurr {
 		self._send_portfolio(portf.clone()).await?
             },
 
-	    ProcessorMiddleMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {
+	    ProcessorMiddleMessage::<T>::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {
 		// we got a new portfolio, possibly switch it
 		let new_behind_curr = trades.clone() - &new_trades.clone();
 		new_processor.send_message(
