@@ -230,39 +230,62 @@ def get_market() -> Response:
         market: Optional[MARKET_TYPE] = ALL_MARKETS[market_name]
 
         if market is None:
+            logger.warn(
+                f'Market {market_name} does not exist. Responding None.'
+            )
             return Response(None)
 
+        logger.info(
+            f'Market {market_name} exists - returning decoded market'
+        )
         return Response(dumps(AOMarketService.encode_from_tuple(market)))
 
     # setting the newest market
     request_data = loads(request.data)
     new_market = request_data.get('market')
     market_name = request_data.get('market_type')
+    logger.info(f'Setting market {market_name}.')
 
     if new_market is None:
-        return Response(None)
+        logger.warn(
+            f'Setting {market_name} w/ None - Useless'
+        )
+        ALL_MARKETS.insert_preserve_names(
+            {}, market_name=market_name,
+        )
+        return Response(f"New EMPTY market {market_name} added.")
 
     decoded_new_mkt: Dict[Tuple[str, datetime.date], float] = \
         AOMarketService.decode_mkt_data(new_market)
 
-    ALL_MARKETS.insert_preserve_names(decoded_new_mkt)
+    logger.info(
+        f'Setting market {market_name} w/ actual new market'
+    )
+    ALL_MARKETS.insert_preserve_names(
+        decoded_new_mkt,
+        market_name=market_name,
+    )
 
     return Response("New market added.")
 
 
-@pv_rester.route('/switch_market', methods=['GET', ])
+@pv_rester.route('/switch_market', methods=['POST', ])
 def switch_market() -> Response:
     """ switch market name above to below.
     """
 
     global ALL_MARKETS
 
-    args = request.args
+    args = loads(request.data)
 
     market_name_below = args.get('market_below')
     market_name_above = args.get('market_above')
 
-    market_above = ALL_MARKETS.get(market_name_above)
+    logger.info(
+        f'Switching markets {market_name_below} <- {market_name_above}'
+    )
+
+    market_above = ALL_MARKETS[market_name_above]
     if market_above is None:
         return Response(
             f'Could not find market {market_name_above}'
@@ -281,17 +304,18 @@ def switch_market() -> Response:
     )
 
 
-@pv_rester.route('/market_setup', methods=['POST', ])
-def market_setup() -> Response:
-    """ Sets up the number of markets involved.
+# TODO: REMOVE IN THE NEXT ITERATION!!!
+# @pv_rester.route('/market_setup', methods=['POST', ])
+# def market_setup() -> Response:
+#     """ Sets up the number of markets involved.
 
-        TODO: CURRENTLY THEY ARE ONLY SET TO ZERO
-    """
+#         TODO: CURRENTLY THEY ARE ONLY SET TO ZERO
+#     """
 
-    # currently set up 2 markets - Current and New
-    #  initially they are empty markets
-    ALL_MARKETS.new_market('Current', {})
-    ALL_MARKETS.new_market('New', {})
+#     # currently set up 2 markets - Current and New
+#     #  initially they are empty markets
+#     ALL_MARKETS.new_market('Current', {})
+#     ALL_MARKETS.new_market('New', {})
 
 
 # pv rester start

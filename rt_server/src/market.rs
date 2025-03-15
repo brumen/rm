@@ -214,7 +214,7 @@ impl AllMarkets {
 pub trait MarketSwitching {
 
     fn all_markets(&self) -> Arc<AllMarkets>;
-    
+
     /// endpoint where the market is posted.
     ///   could be for current, new or any other
     ///   market.
@@ -223,7 +223,7 @@ pub trait MarketSwitching {
 
     /// reqwest client to implement market switching
     fn r_client(&self) -> &reqwest::Client;
-    
+
     /// Sets market_name to the market providedcurrent and new markets to the ones
     ///   specified in this function.
     ///   market: market to replace the existing market_name
@@ -233,8 +233,6 @@ pub trait MarketSwitching {
 	market: MarketType,
 	market_name: CurrNewMarket,
     ) -> Result<(), reqwest::Error> {
-	
-
         info!("Setting market for {:?}", market_name.clone());
 
 	let client = self.r_client();
@@ -258,8 +256,6 @@ pub trait MarketSwitching {
 	market_name_below: CurrNewMarket,
 	market_name_above: CurrNewMarket,
     ) -> Result<(), reqwest::Error> {
-	
-
         info!(
 	    "Switching markets {:?} <- {:?}",
 	    market_name_below.clone(),
@@ -267,15 +263,19 @@ pub trait MarketSwitching {
 	);
 
 	let client = self.r_client();
-		
 	// set the market below
 	let payload = json!({
 	    "market_below": *market_name_below,
 	    "market_above": *market_name_above,
 	});
 
+        // replace market with switch_market in the endpoint
+        let switch_market_endpoint = str::replace(
+            self.market_endpoint().as_str(), "market", "switch_market"
+        );
+
         client
-	    .post(self.market_endpoint())  // TODO: ENDPOINT IS WRONG HERE!!!
+	    .post(switch_market_endpoint)
             .json(&payload)
             .send()
             .await?;

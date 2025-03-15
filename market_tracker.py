@@ -95,32 +95,54 @@ class MarketTracker:
             f'Inserting new market: {market_name}'
         )
 
-        if not self._markets:
-            self._markets.update({market_name: new_market})
-            return
+        self._markets[market_name] = new_market
+        _logger.info(
+                f'ALL_MARKETS = {self._markets}'
+        )
+        return
 
         # markets are existing, do the moving
         new_markets = OrderedDict()
-        for old_idx, (old_name, old_mkt) in enumerate(self._markets.items()):
-            if old_idx == 0:
+        if self._markets.items():
+            for old_idx, (old_name, old_mkt) in enumerate(self._markets.items()):
+                if old_idx == 0:
+                    current_name = old_name
+                    continue  # removing this market
+
+                # we are on old_idx == 1...
+                new_markets[current_name] = old_mkt  # this is the switch
                 current_name = old_name
-                continue  # removing this market
 
-            # we are on old_idx == 1...
-            new_markets[current_name] = old_mkt  # this is the switch
-            current_name = old_name
+            # finally we add the new_market
+            new_markets[current_name] = new_market
+        else:
+            new_markets[market_name] = new_market
 
-        # finally we add the new_market
-        new_markets[current_name] = new_market
         self._markets = new_markets
+
+        _logger.info(
+            f'After insertion ALL_MARKETS: {self._markets.keys()}'
+        )
 
     def __getitem__(self, market_name) -> Optional[MARKET_TYPE]:
 
         if isinstance(market_name, str):  # calling by market name
-            return self._markets.get(market_name)
+            potential_market = self._markets.get(market_name)
+            if potential_market is None:
+                _logger.warn(
+                    f"Could not find {market_name} in ALL_MARKETS: {self._markets}"
+                )
+
+            return potential_market
 
         if isinstance(market_name, int):
-            return self.get_latest(market_name)
+            market_under_nb = self.get_latest(market_name)
+            if market_under_nb is None:
+                _logger.warn(
+                    f"Could not find market nb {market_name} in ALL_MARKETS: {self._markets}"
+                )
+
+            return market_under_nb
 
         _logger.warn(
             f'Could not recognize market name: {market_name}'

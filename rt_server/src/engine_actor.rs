@@ -10,7 +10,7 @@ use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 
-use crate::market::{AllMarkets, CurrNewMarket};
+use crate::market::{AllMarkets, CurrNewMarket, MarketSwitching, MarketType};
 use crate::process_trade::ProcessTradeValue;
 use crate::publish::connect_with_retries_producer_rd;
 use crate::trade_sender::TradeProducer;
@@ -81,6 +81,11 @@ async fn create_middle_procs_chain<T: Send + Clone + Debug + BaseTrade + Process
 	    r_client: Some(reqwest::Client::new()),
 	    all_markets: all_markets.clone(),
 	};
+        proc_middle.set_market(
+            MarketType::default(), CurrNewMarket(market_name)
+        )
+            .await
+            .expect("Could not set the {market_name} market.");
 
 	let (proc_actor, proc_actor_future) = Actor::spawn(
 	    None, proc_middle, ()
@@ -104,7 +109,7 @@ async fn create_middle_procs_chain<T: Send + Clone + Debug + BaseTrade + Process
 }
 
 
-/// initializes all the actors 
+/// initializes all the actors
 pub async fn start2(
     kafka_server: String,  // server including the port.  'localhost:9010'
     metric: PricingMetric,  // pricing metric, like PV
@@ -136,20 +141,29 @@ pub async fn start2(
 	&kafka_server
     );
 
+    let processor_curr = ProcessorCurr {
+	market_name: CurrNewMarket(all_markets.get(0)),
+	metric,
+	results_topic,
+	pricing_options: (*pricing_options).clone(),
+	result_publisher,
+	r_client: Some(reqwest::Client::new()),
+	portf: server_state,
+	all_markets: all_markets.clone(),
+        trades: TradeRep::<AOTrade>::default(),
+    };
+
+    // set the initial Current market to empty
+    let current_market_name = all_markets.get(0);  // first market is current
+    processor_curr.set_market(
+        MarketType::default(),
+        CurrNewMarket(current_market_name),
+    )
+        .await
+        .expect("Could not set Current market on REST");
+
     let (_processor_curr_a, processor_curr_handle) = Actor::spawn(
-	None,
-	ProcessorCurr {
-	    market_name: CurrNewMarket(all_markets.get(0)),
-	    metric,
-	    results_topic,
-	    pricing_options: (*pricing_options).clone(),
-	    result_publisher,
-	    r_client: Some(reqwest::Client::new()),
-	    portf: server_state,
-	    all_markets: all_markets.clone(),
-            trades: TradeRep::<AOTrade>::default(),
-	},
-	(),
+	None, processor_curr, ()
     ).await
     .expect("Could not start current processor");
 
@@ -169,19 +183,25 @@ pub async fn start2(
 	).await;
 
     let nb_middle_mkts = all_markets.len();
-    let last_market_name = all_markets.get(nb_middle_mkts-1);
+    let last_market_name = all_markets.get(nb_middle_mkts-1);  // last market name in all_markets, should be "new" or similar
+    let processor_new = ProcessorNew {
+	metric,
+	pricing_options: (*pricing_options).clone(),
+	processor_middle: last_middle.clone(),
+	processor_bulk: _processor_bulk_a.clone(),
+	r_client: Some(reqwest::Client::new()),
+	market_name: CurrNewMarket(last_market_name.clone()),
+	all_markets: all_markets.clone(),
+    };
+    processor_new.set_market(
+        MarketType::default(),
+        CurrNewMarket(last_market_name),
+    )
+        .await
+        .expect("Could not set the NEW market on market rester");
+
     let (_processor_new_a, processor_new_handle) = Actor::spawn(
-	None,
-	ProcessorNew {
-	    metric,
-	    pricing_options: (*pricing_options).clone(),
-	    processor_middle: last_middle.clone(),
-	    processor_bulk: _processor_bulk_a,
-	    r_client: Some(reqwest::Client::new()),
-	    market_name: CurrNewMarket(last_market_name),
-	    all_markets: all_markets.clone(),
-	},
-	(),
+	None, processor_new, (),
     ).await
     .expect("Could not start new processor");
 

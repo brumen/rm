@@ -107,7 +107,7 @@ where
 
 	let (trade_l, trades_non_pricing, portf, pns) = state;
 
-	let new_m = CurrNewMarket("new".to_string());
+	let new_m = self.market_name.clone();
 
 	match message {
 	    ProcessorMiddleMessage::NewTrade(new_trade) => {
@@ -183,7 +183,7 @@ where
                         info!("Idle, NewMarket: setting new market.");
 			self.set_market(
 			    new_market,
-			    CurrNewMarket("new".to_string()),
+			    self.market_name.clone(),
 			).await?;
 			// we are idle, we can start calculating, start calculating
 			*pns = ProcessorNewState::CalculatingBulk;
