@@ -31,7 +31,7 @@ class MarketTracker:
 
     def new_market(self, market_name: str, market: MARKET_TYPE):
         self._markets.update({market_name: market})
-        self._markets_times[market_name] = datetime.datetime.now()  # TODO: CHECK HERE!!!
+        self._markets_times[market_name] = datetime.datetime.now()
 
     def get_market_name(self, elt_nb: int = 0) -> Optional[str]:
         "Returns the name of the "
@@ -96,9 +96,9 @@ class MarketTracker:
         )
 
         self._markets[market_name] = new_market
-        _logger.info(
-                f'ALL_MARKETS = {self._markets}'
-        )
+
+        _logger.info(f'ALL_MARKETS = {self._simplified_markets()}')
+        # TODO: THIS BELOW IS WRONG!!! FIX!
         return
 
         # markets are existing, do the moving
@@ -124,13 +124,19 @@ class MarketTracker:
             f'After insertion ALL_MARKETS: {self._markets.keys()}'
         )
 
+    def _simplified_markets(self):
+        return {
+            market_name: len(market) for market_name, market in self.items()
+        }
+
     def __getitem__(self, market_name) -> Optional[MARKET_TYPE]:
 
         if isinstance(market_name, str):  # calling by market name
             potential_market = self._markets.get(market_name)
             if potential_market is None:
                 _logger.warn(
-                    f"Could not find {market_name} in ALL_MARKETS: {self._markets}"
+                    f"Could not find {market_name} in "
+                    f"ALL_MARKETS: {self._simplified_markets()}"
                 )
 
             return potential_market
@@ -139,7 +145,8 @@ class MarketTracker:
             market_under_nb = self.get_latest(market_name)
             if market_under_nb is None:
                 _logger.warn(
-                    f"Could not find market nb {market_name} in ALL_MARKETS: {self._markets}"
+                    f"Could not find market nb {market_name} "
+                    f"in ALL_MARKETS: {self._simplified_markets()}"
                 )
 
             return market_under_nb
@@ -149,3 +156,13 @@ class MarketTracker:
         )
 
         return None
+
+    def __setitem__(self, market_name, market):
+        self._markets[market_name] = market
+
+    def __iter__(self):
+        for key, value in self._markets.items():
+            yield key, value
+
+    def items(self):
+        return iter(self)

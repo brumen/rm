@@ -37,18 +37,18 @@ impl RestPricerSpark<AOTrade> for SampleController {
 }
 
 
-#[tokio::test]
-async fn test_sample_controller() {
-    let sc = SampleController;
-    let ao_trade = sample_ao_trade();
-    let mut ao_tr = TradeRep::default();
-    ao_tr += &ao_trade;
-    let mpo = MarketPricingOptions {
-	pricing_server: "192.168.1.107:8000".to_string(),
-	pricing_endpoint: "pv/".to_string(),
-    };
-    
-    let res = sc.price_trades_on_spark(&ao_tr, PricingMetric::PV, &mpo, CurrNewMarket::Current).await;
+// #[tokio::test]
+// async fn test_sample_controller() {
+//     let sc = SampleController;
+//     let ao_trade = sample_ao_trade();
+//     let mut ao_tr = TradeRep::default();
+//     ao_tr += &ao_trade;
+//     let mpo = MarketPricingOptions {
+// 	pricing_server: "192.168.1.107:8000".to_string(),
+// 	pricing_endpoint: "pv/".to_string(),
+//     };
 
-    assert_eq!(res.contains_key("42651"), true);    
-}
+//     let res = sc.price_trades_on_spark(&ao_tr, PricingMetric::PV, &mpo, CurrNewMarket::Current).await;
+
+//     assert_eq!(res.contains_key("42651"), true);
+// }

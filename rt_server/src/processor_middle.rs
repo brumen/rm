@@ -79,7 +79,7 @@ where
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 	info!(
-	    "Starting processor {}", self.market_name
+	    "Processor {}: Starting.", self.market_name
 	);
         Ok(
 	    (
@@ -116,7 +116,9 @@ where
 		// add the trade to the new portfolio and
 		//   attempt again.
 		info!(
-		    "In CalculatingSingle, Calculating single trade {}.", new_trade.id()
+		    "Processor {}: CalculatingSingle, Calculating single trade {}.",
+                    self.market_name,
+                    new_trade.id()
 		);
 		let new_trade_price = new_trade.value_by_metric2(
 		    self.metric,
@@ -129,7 +131,7 @@ where
 		// we send the computed portfolio & trades to the current processor
 		//   hoping that we are ahead.
 		info!(
-		    "In CalculatingSingle, sending potential portfolio from {:?} to below",
+		    "Processor {}, CalculatingSingle: sending potential portfolio to below.",
 		    self.market_name,
 		);
 		self.processor_below.send_message(
@@ -142,7 +144,7 @@ where
 	    (ProcessorMiddleMessage::NewTrade(new_trade), ProcessorMiddleState::Idle) => {
 		// start the new portfolio construction.
 		info!(
-		    "In {}, CalculatingSingle, got new trade, starting bulk computation.",
+		    "Processor {}, CalculatingSingle: got NewTrade, starting bulk computation.",
 		    self.market_name,
 		);
 
@@ -157,7 +159,7 @@ where
 
 	    (ProcessorMiddleMessage::NewTrade(new_trade), ProcessorMiddleState::CalculatingBulk | ProcessorMiddleState::CalculatingBulkMarketSwitch) => {
 		info!(
-		    "{}, CaluclatingBulk, got new trade.",
+		    "Processor {}, CaluclatingBulk: got new trade.",
 		    self.market_name,
 		);
 		*trade_l += &new_trade;  // we add the trade to the list.
@@ -168,6 +170,10 @@ where
 		).await;
 		*portf += new_trade_price;  // portfolio update
 		// send downstream the updated portfolio
+                info!(
+                    "Processor {}, CalculatingBulk: Sending new portfolio below",
+                    self.market_name,
+                );
 		self.processor_below.send_message(
 		    ProcessorMiddleMessage::NewTradePortfolio(
 			(trade_l.clone(), portf.clone(), self.market_name.clone(), myself)
@@ -177,7 +183,7 @@ where
 
 	    (ProcessorMiddleMessage::NewMarket(_new_market), _) => {
 		panic!(
-		    "{} received market message. THIS SHOULDNT HAPPEN",
+		    "Processor {}: received market message. THIS SHOULDNT HAPPEN!",
 		    self.market_name,
 		);
 	    },
@@ -194,7 +200,7 @@ where
 		    // this processor is ahead, reset the
 		    //    new processor to the new default state.
 		    info!(
-			"Processor {}: Accepted portfolio from market below. Resetting",
+			"Processor {}, Behind: Accepted portfolio from market below. Resetting",
 			self.market_name,
 		    );
 
@@ -216,10 +222,14 @@ where
 		    //   we add the trades to the trade list, and
 		    //   send it to the bulk processor.
 		    info!(
-			"Processor {}, Behind {} trades.",
+			"Processor {}, Behind: {} trades.",
 			self.market_name, trades_behind.len(),
 		    );
 		    *trade_l += &trades_behind;
+                    info!(
+                        "Processor {}, Behind: Sending bulk compute.",
+                        self.market_name,
+                    );
 		    self.processor_bulk.send_message(
 			ProcessorBulkMessage::NewBulk(
 			    (self.market_name.clone(), trades_behind.clone(), myself)
@@ -243,6 +253,10 @@ where
 			 that lower processor accepted portfolio. Defaulting.",
 			self.market_name
 		    );
+                    info!(
+                        "{}, CalculatingBulk|Switch, Behind: switching markets.",
+                        self.market_name.clone(),
+                    );
 		    // switch markets & put it in CalculatingBulkMarketSwitch
 		    self.switch_market(self.market_name.clone()).await?;
 		    *pns = ProcessorMiddleState::CalculatingBulkMarketSwitch;
@@ -258,6 +272,11 @@ where
 		    );
 
 		    *trade_l += &trades_behind;
+                    info!(
+                        "Processor {}, CalculatingBulk: Sending for bulk compute.",
+                        self.market_name,
+                    );
+
 		    self.processor_bulk.send_message(
 			ProcessorBulkMessage::NewBulk(
 		 	    (self.market_name.clone(), trade_l.clone(), myself)
@@ -269,7 +288,7 @@ where
 	    (ProcessorMiddleMessage::Behind(trades_behind), ProcessorMiddleState::Idle) => {
 		if !trades_behind.is_empty() {
 		    info!(
-			"Processor {}, Idle state: Lower processor accepted portfolio. \
+			"Processor {}, Idle: Lower processor accepted portfolio. \
 			 Starting new computations.",
 			self.market_name,
 		    );
@@ -289,7 +308,10 @@ where
 	    (ProcessorMiddleMessage::BulkReceive(_), ProcessorMiddleState::Idle) => {
 		// Important: This Souldnt happen.
 		// TODO: CHECK WHY THIS IS THE CASE???
-		warn!("Processor {}: Ignoring bulk receive. Should not happen.", self.market_name);
+		warn!(
+                    "Processor {}, Idle: Ignoring bulk receive. Should not happen.",
+                    self.market_name,
+                );
 	    },
 
 	    (
@@ -300,7 +322,7 @@ where
 		// TODO: FINISH THIS HERE - what to do w/ offending trades???
 		//    Nothing for now.
 		info!(
-		    "Processor {}: Calculating bulk, received response from bulk. \
+		    "Processor {}, CalculatingBulk: received response from bulk. \
 		     Normal case. Going to CalculatingSingle.",
 		    self.market_name
 		);
@@ -324,7 +346,7 @@ where
 		//  add it to the computation
 		// TODO: WHAT TO DO W/ OFFENDING TRADES???
 
-		info!("Processor {}: Received bulk, sending to processor below.",
+		info!("Processor {}, BulkReceive: Sending to processor below.",
 		      self.market_name,
 		);
 		*portf = computed_portf;
@@ -339,7 +361,8 @@ where
 	    (ProcessorMiddleMessage::BulkReceive(_), ProcessorMiddleState::CalculatingBulkMarketSwitch) => {
 		// ignore the message from bulk receive,
 		info!(
-		    "Processor Middle {}. Ignoring message from bulk receive as market was switched.",
+		    "Processor {}, CalculatingBulkMarektSwitch: \
+                     Ignoring message from bulk receive as market was switched.",
 		    self.market_name
 		);
 	    }
@@ -349,13 +372,16 @@ where
 	    (ProcessorMiddleMessage::NewTradePortfolio(ntp), ProcessorMiddleState::Idle) => {
 		// just pass it to the processor below, dont do anything else
 		info!(
-		    "Processor {}, Idle, passing portfolio to lower processor",
+		    "Processor {}, Idle: Switching market",
 		    self.market_name,
 		);
 
 		// switch markets as well
 		self.switch_market(self.market_name.clone()).await?;
-
+		info!(
+		    "Processor {}, Idle: passing portfolio to lower processor",
+		    self.market_name,
+		);
 		self.processor_below.send_message(
 		    ProcessorMiddleMessage::NewTradePortfolio(ntp)
 		)?;
@@ -375,7 +401,8 @@ where
 
 		if new_behind_curr.is_empty() {
 		    info!(
-			"Processor {}, CalculatingBulk, received new portfolio, was ahead. Will switch market.",
+			"Processor {}, CalculatingBulk: received new portfolio, \
+                         was ahead, sending portfolio to processor below",
 			self.market_name,
 		    );
 
@@ -385,6 +412,11 @@ where
 			)
 		    )?;
 
+                    info!(
+			"Processor {}, CalculatingBulk|Switch: New portfolio, Switching market.",
+			self.market_name,
+		    );
+
 		    self.switch_market(self.market_name.clone()).await?;
 
 		    // set the state of this processor to the state being sent.
@@ -393,7 +425,7 @@ where
 		    *pns = ProcessorMiddleState::CalculatingBulkMarketSwitch;
 		} else {
 		    info!(
-			"Processor {}, CalculatingBulk, received new portfolio, but was behind. Ignoring.",
+			"Processor {}, CalculatingBulk: received new portfolio, but was behind. Ignoring.",
 			self.market_name,
 		    );
 		}
@@ -405,7 +437,7 @@ where
 		// TODO: FINISH THIS HERE!!!
 
 		info!(
-		    "Processor {}. In CalculatingSingle, Received new trade portfolio",
+		    "Processor {}. CalculatingSingle: Received new trade portfolio",
 		    self.market_name,
 		);
 
@@ -413,12 +445,16 @@ where
 
 		// TODO: WRONG - IMPLEMENT > JUST FOR REFERENCES!!!
 		let new_behind_curr = trade_l.clone() - &potential_trades;
+                info!(
+                    "Processor {}, NewPortfolio: My trades: {}, Potential trades: {}, New trades: {}, New portf: {}",
+                    self.market_name, trade_l.len(), potential_trades.len(), new_behind_curr.len(), potential_portfolio.len(),
+                );
 
 		if new_behind_curr.is_empty() {
 		    // replace the portfolio and trades
 
 		    info!(
-			"Processor {}. In CalculatingSingle: Portfolio is good, accepting \
+			"Processor {}, CalculatingSingle: Portfolio is good, accepting \
 			 it and passing to processor below",
 			self.market_name,
 		    );
@@ -430,6 +466,11 @@ where
 			    (trade_l.clone(), portf.clone(), self.market_name.clone(), myself)
 			)
 		    )?;
+
+                    info!(
+                        "Processor {}, NewPortfolio: switching markets", self.market_name.clone(),
+                    );
+                    self.switch_market(self.market_name.clone()).await?;
 		}
 	    },
 	}

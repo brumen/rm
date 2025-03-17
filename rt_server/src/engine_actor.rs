@@ -81,6 +81,7 @@ async fn create_middle_procs_chain<T: Send + Clone + Debug + BaseTrade + Process
 	    r_client: Some(reqwest::Client::new()),
 	    all_markets: all_markets.clone(),
 	};
+        info!("LAST MIDDLE: {}", proc_middle.market_name);
         proc_middle.set_market(
             MarketType::default(), CurrNewMarket(market_name)
         )
@@ -169,7 +170,7 @@ pub async fn start2(
 
     // middle actors
     let (
-        processor_actors,
+        mut processor_actors,
         mut processor_actor_futures,
         _bulk_actors,
         mut bulk_actor_futures,
@@ -200,10 +201,15 @@ pub async fn start2(
         .await
         .expect("Could not set the NEW market on market rester");
 
+
     let (_processor_new_a, processor_new_handle) = Actor::spawn(
 	None, processor_new, (),
     ).await
     .expect("Could not start new processor");
+
+    // adding all actors to processors
+    processor_actors.push(_processor_curr_a.clone());  // adding current processor to actors.
+    processor_actors.push(_processor_new_a.clone());  // adding new processor to actors.
 
     info!("Connecting to market topic {:?}", mkt_topic);
     let mkt_listener = connect_with_retries_rd(

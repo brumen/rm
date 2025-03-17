@@ -2,7 +2,7 @@
 
 server="192.168.1.107"
 kafka_console_cmd="/home/brumen/archive/software/kafka/kafka-3.4.0-src/bin/kafka-console-consumer.sh "
-server="--bootstrap-server 192.168.1.107:9092 "
+server="--bootstrap-server $server:9092 "
 kafka_folder="/home/brumen/archive/software/kafka"
 service_folder="/home/brumen/work/rm/services/ao"
 
@@ -22,8 +22,8 @@ elif [ "$1" == "kafka" ]; then
 # and API pricing rester (trade_api_single)
 elif [ "$1" == "market" ]; then
     gnome-terminal --tab -- python $service_folder/trade_service.py
-    # gnome-terminal --tab -- python $service_folder/trade_api_single.py
-    gnome-terminal --tab -- ./home/brumen/work/rm/services/ao/trade_api_multi.sh
+    gnome-terminal --tab -- python $service_folder/trade_api_single.py
+    # gnome-terminal --tab -- /home/brumen/work/rm/services/ao/trade_api_multi.sh
     gnome-terminal --tab -- python $service_folder/ao_market_service.py
 
 # starts the real time risk monitor controller.

@@ -226,6 +226,16 @@ def get_market() -> Response:
     if request.method == 'GET':  # get method
         args = request.args
 
+        if not args:
+            return Response(
+                dumps(
+                    {
+                        market_name: AOMarketService.encode_from_tuple(market)
+                        for market_name, market in ALL_MARKETS
+                    }
+                )
+            )
+
         market_name = args.get('market')
         market: Optional[MARKET_TYPE] = ALL_MARKETS[market_name]
 
@@ -286,14 +296,10 @@ def switch_market() -> Response:
     )
 
     market_above = ALL_MARKETS[market_name_above]
+
     if market_above is None:
         return Response(
             f'Could not find market {market_name_above}'
-        )
-
-    if market_name_below not in ALL_MARKETS:
-        return Response(
-            f'Could not find market {market_name_below}'
         )
 
     # all is set, switch markets
@@ -302,20 +308,6 @@ def switch_market() -> Response:
     return Response(
         f"Markets switched: {market_name_below} <- {market_name_above}"
     )
-
-
-# TODO: REMOVE IN THE NEXT ITERATION!!!
-# @pv_rester.route('/market_setup', methods=['POST', ])
-# def market_setup() -> Response:
-#     """ Sets up the number of markets involved.
-
-#         TODO: CURRENTLY THEY ARE ONLY SET TO ZERO
-#     """
-
-#     # currently set up 2 markets - Current and New
-#     #  initially they are empty markets
-#     ALL_MARKETS.new_market('Current', {})
-#     ALL_MARKETS.new_market('New', {})
 
 
 # pv rester start

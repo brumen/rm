@@ -304,3 +304,21 @@ pub trait MarketSwitching {
 	Ok(())
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::{AllMarkets, CurrNewMarket};
+
+    #[test]
+    fn test_first_market() {
+        let all_markets = AllMarkets::new(5);
+
+        let first_market = all_markets.above_market("current".to_string());
+        let last_market = all_markets.above_market("new_4".to_string());
+        // next market from current is "new_0"
+
+        assert_eq!(first_market, Some(CurrNewMarket("new_0".to_string())));
+        assert_eq!(last_market, Some(CurrNewMarket("new".to_string())));
+    }
+}
