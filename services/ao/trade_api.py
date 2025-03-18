@@ -12,11 +12,12 @@ import logging
 import datetime
 import six.moves
 import sys
+import pandas as pd
 
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Tuple, Optional
 from markupsafe import escape
-from flask import Response, request, Flask
+from flask import Response, request, Flask, render_template
 from json import dumps, loads
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -308,6 +309,51 @@ def switch_market() -> Response:
     return Response(
         f"Markets switched: {market_name_below} <- {market_name_above}"
     )
+
+
+def market_to_pd(market: MARKET_TYPE, price_col_name='price') -> pd.DataFrame:
+    market_df = pd.DataFrame\
+                  .from_dict(market, orient='index')\
+                  .reset_index(names='airline_date')\
+                  .rename(columns={0: price_col_name})\
+
+    airlines = market_df['airline_date'].apply(lambda x: x[0])
+    dep_dates = market_df['airline_date'].apply(lambda x: x[1])
+    market_df['airline'] = airlines
+    market_df['dep_date'] = dep_dates
+    market_df = market_df.drop('airline_date', axis='columns')
+
+    return market_df
+
+
+@pv_rester.route('/market_display', methods=['GET',])
+def market_display() -> Response:
+    """ Displays the market in a proper table form.
+    """
+
+    global ALL_MARKETS
+
+    args = request.args
+    market_name = args.get('market')
+
+    if market_name is None:
+        # we concatenate all markets
+        mkt_df = pd.DataFrame()
+        for mkt_idx, (mn, mkt) in enumerate(ALL_MARKETS.items()):
+            curr_mkt_df = market_to_pd(mkt, price_col_name=mn)  # mn = market name
+            mkt_df = mkt_df.join(curr_mkt_df, how='outer', lsuffix=f'_{mn}')
+
+        return Response(mkt_df.to_html())
+
+    # displaying only a single market
+    market: Optional[MARKET_TYPE] = ALL_MARKETS[market_name]
+
+    if market is None:
+        return Response(f"Unknown market name: {market_name}")
+
+    market_df = market_to_pd(market)
+
+    return Response(market_df.to_html())
 
 
 # pv rester start
