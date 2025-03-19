@@ -26,9 +26,10 @@ logger = logging.getLogger(__name__)
 
 
 class AOTradeProducer(BaseProducer):
+    """ Posts a new useless trade to air_options.ao.flights_live.
+    TODO: MAYBE FORMULATE THIS BETTER.
     """
 
-    """
     def __init__(
             self,
             flight_ids: List[str] = [1, 2, 3],

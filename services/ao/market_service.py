@@ -149,7 +149,10 @@ class AOMarketService(MarketService):
             )
             return None
 
-    def encode_mkt(self) -> str:
+    def encode_mkt(
+            self,
+            mkt_to_encode: Dict[Tuple[str, datetime.date], float],
+    ) -> str:
         """ Encodes the latest market and market id in json format, to
                 be sent to kafka
                 encoding is in the form
@@ -159,9 +162,7 @@ class AOMarketService(MarketService):
         :returns: encoded market in the format above.
         """
 
-        latest_market_id, latest_market = self.latest_market
-
-        return dumps(self.encode_from_tuple(latest_market))
+        return dumps(self.encode_from_tuple(mkt_to_encode))
 
     @classmethod
     def decode_mkt_data(

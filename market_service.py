@@ -4,6 +4,7 @@
 import datetime
 import sys
 import six.moves
+import numpy as np
 
 from logging import getLogger
 from typing import Optional, Dict, Tuple
@@ -72,7 +73,8 @@ class MarketService:
                 sleep(5)
 
         self.__mkt_listener.assign(
-            [TopicPartition(topic=mkt_topic, partition=0)])
+            [TopicPartition(topic=mkt_topic, partition=0)]
+        )
         self.__mkt_listener.seek_to_beginning()
 
         # producer of market events
@@ -124,7 +126,10 @@ class MarketService:
 
         return self.__prev_market_id, self.__prev_market
 
-    def encode_mkt(self) -> Tuple[UUID, Dict[str, float]]:
+    def encode_mkt(
+            self,
+            mkt_to_encode: Dict[Tuple[str, datetime.date], float]
+    ) -> str:
         """ Encodes the latest market to be sent over json
             encoding is in the form ('UA79', datetime.date(2022, 1, 2)) -> 'UA79|20220101'
             using %Y%m%d encoding for date.
@@ -133,6 +138,14 @@ class MarketService:
         """
 
         raise NotImplementedError('Need to implement the encode_mkt method.')
+
+    def _shock_latest_market(self, shock_factor: 1.) -> Dict[Tuple[str, datetime.date], float]:
+        _, latest_mkt = self.latest_market
+
+        return {
+            flight_info: price * shock_factor
+            for flight_info, price in latest_mkt.items()
+        }
 
     def _operate_markets(
             self,
@@ -148,8 +161,11 @@ class MarketService:
         """
 
         while True:
-            elapsed_time = (datetime.datetime.now() -
-                            self.__new_market_snap_time).seconds
+            elapsed_time = (
+                datetime.datetime.now() -
+                self.__new_market_snap_time
+            ).seconds
+
             if elapsed_time >= self.time_interval:
                 # switch: curr_market <- new_market
                 logger.debug(f'Elapsed time: {elapsed_time}')
@@ -165,9 +181,17 @@ class MarketService:
                 self.__prev_market_id = self.__new_market_id
                 self.__new_market_id = uuid4()
                 self.__new_market_snap_time = datetime.datetime.now()
-                mkt_sent = self.encode_mkt()
-                logger.warn(f"_operate_markets: Market sent: {mkt_sent}")
-                # print("MARKET SENT", mkt_sent)
+
+                _, latest_mkt = self.latest_market
+                current_shock = np.random.random()
+                shocked_mkt = self._shock_latest_market(
+                    shock_factor=current_shock,
+                )
+                mkt_sent = self.encode_mkt(shocked_mkt)
+                logger.debug(f"_operate_markets: Market sent: {mkt_sent}")
+
+                # send the updated market to the mkt_events topic.
+                logger.info("Sending new market to mkt_events topic.")
                 self.__mkt_producer.send(
                     self.__mkt_producer_topic,
                     value=bytearray(str(mkt_sent), 'ascii'),
@@ -194,11 +218,11 @@ class MarketService:
         returns: market events thread, switch market thread.
         """
 
-        # market event topic reading thread
+        # this thread collects updates to the market.
         market_events = Thread(target=self._update_new_mkt_events)
         market_events.start()
 
-        # market event topic reading thread
+        # this thread emits the new market every 5 seconds.
         switch_markets = Thread(
             target=self._operate_markets,
             kwargs={

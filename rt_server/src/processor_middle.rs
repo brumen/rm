@@ -383,14 +383,25 @@ where
 		    self.market_name,
 		);
 		self.processor_below.send_message(
-		    ProcessorMiddleMessage::NewTradePortfolio(ntp)
+		    ProcessorMiddleMessage::NewTradePortfolio(ntp.clone())
 		)?;
+
+                // acknowledge to the sending processor that it was accepted.
+                let (potential_trades, potential_portfolio, _new_market, upstream_processor) = ntp;
+
+                *trade_l = potential_trades;
+                *portf = potential_portfolio;
+
+                upstream_processor.send_message(
+                   ProcessorMiddleMessage::Behind(TradeRep::<T>::default())
+                );
+
 	    },
 
 	    // TODO: CHECK HERE IF ...MarketSwitch should be handled separately.
 	    (ProcessorMiddleMessage::NewTradePortfolio(ntp), ProcessorMiddleState::CalculatingBulk | ProcessorMiddleState::CalculatingBulkMarketSwitch) => {
 		// we got new portfolio, but we are in the process of computing the portfolresult of computation has arrived.
-		let (potential_trades, potential_portfolio, _new_market, _) = ntp;
+		let (potential_trades, potential_portfolio, _new_market, upstream_processor) = ntp;
 
 		//if new_market.is_later_than(market) {  // TODO: THIS IS NOT SUFFICIENT CONDITION
 		// replace the portfolio, and pass it down
@@ -423,12 +434,17 @@ where
 		    *portf = potential_portfolio;
 		    *trade_l = potential_trades;
 		    *pns = ProcessorMiddleState::CalculatingBulkMarketSwitch;
+
 		} else {
 		    info!(
 			"Processor {}, CalculatingBulk: received new portfolio, but was behind. Ignoring.",
 			self.market_name,
 		    );
 		}
+                // send upstream a message that the portfolio is accepted.
+                upstream_processor.send_message(
+                    ProcessorMiddleMessage::Behind(TradeRep::<T>::default())
+                );
 	    },
 
 	    (ProcessorMiddleMessage::NewTradePortfolio(ntp), ProcessorMiddleState::CalculatingSingle) => {
@@ -441,7 +457,7 @@ where
 		    self.market_name,
 		);
 
-		let (potential_trades, potential_portfolio, _new_market, _) = ntp;  // new trade portfolio
+		let (potential_trades, potential_portfolio, _new_market, upstream_processor) = ntp;  // new trade portfolio
 
 		// TODO: WRONG - IMPLEMENT > JUST FOR REFERENCES!!!
 		let new_behind_curr = trade_l.clone() - &potential_trades;
@@ -472,6 +488,10 @@ where
                     );
                     self.switch_market(self.market_name.clone()).await?;
 		}
+                // sending upstream that we are done.
+                upstream_processor.send_message(
+                    ProcessorMiddleMessage::Behind(TradeRep::<T>::default())
+                );
 	    },
 	}
 	Ok(())
