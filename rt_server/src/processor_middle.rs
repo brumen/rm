@@ -204,7 +204,7 @@ where
 			self.market_name,
 		    );
 
-		    *portf = PortfolioType::default();
+		    // *portf = PortfolioType::default();
 		    let mkt_above = self
 			.market_name
 			.next_market(&self.all_markets)
@@ -246,7 +246,8 @@ where
 		if trades_behind.is_empty() {
 		    // new processor is ahead, reset the
 		    //    new processor to the new default state.
-		    *portf = PortfolioType::default();
+
+                    //*portf = PortfolioType::default();
 
 		    info!(
 			"Processor {}, Calculating bulk: Received confirmation \
@@ -443,7 +444,7 @@ where
 		}
                 // send upstream a message that the portfolio is accepted.
                 upstream_processor.send_message(
-                    ProcessorMiddleMessage::Behind(TradeRep::<T>::default())
+                    ProcessorMiddleMessage::Behind(new_behind_curr)
                 );
 	    },
 
@@ -490,7 +491,7 @@ where
 		}
                 // sending upstream that we are done.
                 upstream_processor.send_message(
-                    ProcessorMiddleMessage::Behind(TradeRep::<T>::default())
+                    ProcessorMiddleMessage::Behind(new_behind_curr)
                 );
 	    },
 	}

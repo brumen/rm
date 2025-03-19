@@ -166,10 +166,15 @@ where
 		new_processor.send_message(
 		    ProcessorMiddleMessage::Behind(new_behind_curr.clone())
 		)?;
-		info!("Received new trade portfolio, behind: {:?}", new_behind_curr.len());
+		info!(
+                    "Received new trade portfolio, behind: {:?}, portf size: {}",
+                    new_behind_curr.len(),
+                    new_portfolio.len(),
+                );
 
 		//let send_cnd = new_behind_curr.is_empty();  // new portfolio has more trades.
                 if *portf <= new_portfolio {  // when to send the portfolio to publisher.
+                //if new_behind_curr.is_empty() {
 		    // publish the new portfolio
                     info!("Changing portfolio.");
 		    self._send_portfolio(new_portfolio.clone()).await?;
