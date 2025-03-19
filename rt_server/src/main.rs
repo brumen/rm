@@ -98,8 +98,10 @@ async fn run_all() {
     let mkt_topic = "air_options.ao.mkt_events".to_string();
     let results_topic = "air_options.ao.results".to_string();
     let pricing_options = MarketPricingOptions {
-	    pricing_server: format!("{host}:8000"),
-	    pricing_endpoint: "pv".to_string(),
+	pricing_server: format!("{host}:8001"),
+	pricing_endpoint: "pv".to_string(),
+        market_server: format!("{host}:8000"),
+        market_endpoint: "market".to_string(),
     };
 
     let state = Arc::new(Mutex::new(portfolio::PortfolioType::default()));

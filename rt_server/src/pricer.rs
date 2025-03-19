@@ -168,6 +168,8 @@ pub trait PriceTrade: BaseTrade {
 pub struct MarketPricingOptions {
     pub pricing_server: String,
     pub pricing_endpoint: String,
+    pub market_server: String,
+    pub market_endpoint: String
 }
 
 /// ASynchronous version of the pricer. Used for REST pricer.

@@ -44,7 +44,7 @@ impl<T> MarketSwitching for ProcessorNew<T> {
     }
 
     fn market_endpoint(&self) -> String {
-	format!("http://{0}/market", self.pricing_options.pricing_server.clone())
+	format!("http://{0}/market", self.pricing_options.market_server.clone())
     }
 }
 
