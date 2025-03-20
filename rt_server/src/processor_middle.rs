@@ -19,8 +19,8 @@ pub(crate) struct ProcessorMiddle<T>{
     pub(crate) pricing_options: MarketPricingOptions,
     pub(crate) market_name: CurrNewMarket,
     pub processor_below: ActorRef<ProcessorMiddleMessage<T>>,  // processor below
-    pub processor_bulk: ActorRef<ProcessorBulkMessage<T>>,  // bull processor ref.
-    pub r_client: Option<reqwest::Client>,
+    pub processor_bulk: ActorRef<ProcessorBulkMessage<T>>,  // bulk processor ref.
+    pub r_client: reqwest::Client,
     pub(crate) all_markets: Arc<AllMarkets>,
 }
 
@@ -42,10 +42,7 @@ impl<T> MarketSwitching for ProcessorMiddle<T> {
     }
 
     fn r_client(&self) ->  &reqwest::Client {
-	match &self.r_client {
-	    Some(rc) => return &rc,
-	    None => panic!("Need client for market switching"),
-	}
+        &self.r_client
     }
 
     fn market_endpoint(&self) -> String {

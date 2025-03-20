@@ -24,7 +24,7 @@ pub(crate) struct ProcessorCurr<T>{
     pub results_topic: String,
     pub pricing_options: MarketPricingOptions,
     pub result_publisher: FutureProducer,
-    pub r_client: Option<reqwest::Client>,  // request client
+    pub r_client: reqwest::Client,  // request client
     pub portf: Arc<Mutex<PortfolioType>>,  // current working portfolio
     pub all_markets: Arc<AllMarkets>,
     pub trades: TradeRep<T>,
@@ -94,10 +94,7 @@ impl<T> MarketSwitching for ProcessorCurr<T> {
     }
 
     fn r_client(&self) -> &reqwest::Client {
-	match &self.r_client {
-	    Some(rc) => return &rc,
-	    None => panic!("Need client for market switching"),
-	}
+        &self.r_client
     }
 
     fn market_endpoint(&self) -> String {

@@ -155,7 +155,9 @@ def get_market() -> Response:
 
 @pv_rester.route('/switch_market', methods=['POST', ])
 def switch_market() -> Response:
-    """ switch market name above to below.
+    """ switch market name above to below, i.e.
+
+    ALL_MARKETS[market_below] = ALL_MARKETS[market_above]
     """
 
     global ALL_MARKETS
@@ -185,6 +187,13 @@ def switch_market() -> Response:
 
 
 def market_to_pd(market: MARKET_TYPE, price_col_name='price') -> pd.DataFrame:
+    """ Presents the market in a dataframe form. the price column is called price.
+
+    :param market: market to be presented in tabular form.
+    :param price_col_name: what should the price column be named.
+    :returns: dataframe with the market in tabular form.
+    """
+
     market_df = pd.DataFrame\
                   .from_dict(market, orient='index')\
                   .reset_index(names='airline_date')\

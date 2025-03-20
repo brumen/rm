@@ -78,7 +78,7 @@ async fn create_middle_procs_chain<T: Send + Clone + Debug + BaseTrade + Process
 	    market_name: CurrNewMarket(market_name.clone()),
 	    processor_below: last_middle,
 	    processor_bulk: bulk_actor,
-	    r_client: Some(reqwest::Client::new()),
+	    r_client: reqwest::Client::new(),
 	    all_markets: all_markets.clone(),
 	};
         info!("LAST MIDDLE: {}", proc_middle.market_name);
@@ -148,7 +148,7 @@ pub async fn start2(
 	results_topic,
 	pricing_options: (*pricing_options).clone(),
 	result_publisher,
-	r_client: Some(reqwest::Client::new()),
+	r_client: reqwest::Client::new(),
 	portf: server_state,
 	all_markets: all_markets.clone(),
         trades: TradeRep::<AOTrade>::default(),
@@ -190,7 +190,7 @@ pub async fn start2(
 	pricing_options: (*pricing_options).clone(),
 	processor_middle: last_middle.clone(),
 	processor_bulk: _processor_bulk_a.clone(),
-	r_client: Some(reqwest::Client::new()),
+	r_client: reqwest::Client::new(),
 	market_name: CurrNewMarket(last_market_name.clone()),
 	all_markets: all_markets.clone(),
     };
