@@ -3,8 +3,8 @@ use market::AllMarkets;
 use tracing::{info, Level, instrument};
 use tracing_subscriber;
 use tracing_subscriber::fmt::format::FmtSpan;
+use trade_letf::TradeTypes;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
-use crate::engine_actor::start2;
 use futures::future::join_all;
 use axum::{
     routing::get,
@@ -47,12 +47,17 @@ pub(crate) mod processor_new;
 pub(crate) mod processor_bulk;
 pub(crate) mod processor_middle;
 pub(crate) mod engine_actor;
+pub(crate) mod engine_ao2;
 pub(crate) mod processor_msg;
+pub(crate) mod trade_letf;
+
+use crate::trade::TradeRep;
+use crate::ao_trade::AOTrade;
+use crate::engine_ao2::start2;
+use crate::trade_letf::LETFTrade;
 
 
-
-
-// testing different 
+// testing different
 fn main_glommio() {
     LocalExecutorBuilder::default()
         .spawn(|| async move {
@@ -94,13 +99,15 @@ async fn run_all() {
     let kafka_port = std::env::var("KAFKA_PORT").expect("Could not find KAFKA_PORT in .env");
     let kafka_server = format!("{host}:{kafka_port}");
     let metric = PricingMetric::PV;
-    let pos_topic = "air_options.ao.option_positions".to_string();
-    let mkt_topic = "air_options.ao.mkt_events".to_string();
-    let results_topic = "air_options.ao.results".to_string();
+    let pos_topic = std::env::var("POSITIONS_TOPIC").expect("Could not find POSITIONS_TOPIC in .env");  // "air_options.ao.option_positions".to_string();
+    let mkt_topic = std::env::var("MKT_TOPIC").expect("Could not find MKT_TOPIC in .env");  // "air_options.ao.mkt_events".to_string();
+    let results_topic = std::env::var("RESULTS_TOPIC").expect("Could not find RESULTS_TOPIC in .env");  //"air_options.ao.results".to_string();
+    let market_port = std::env::var("MARKET_PORT").expect("Could not find MARKET_PORT in .env");
+    let pricing_port = std::env::var("PRICING_PORT").expect("Could not find PRICING_PORT in .env");
     let pricing_options = MarketPricingOptions {
-	pricing_server: format!("{host}:8001"),
+	pricing_server: format!("{host}:{pricing_port}"),
 	pricing_endpoint: "pv".to_string(),
-        market_server: format!("{host}:8000"),
+        market_server: format!("{host}:{market_port}"),
         market_endpoint: "market".to_string(),
     };
 
@@ -125,11 +132,13 @@ async fn run_all() {
     );
 
     let mut results = vec![axum_process];
-    let all_markets = Arc::new(AllMarkets::new(1));
+    let all_markets = Arc::new(AllMarkets::new(1));  // how many in-between markets there are.
+    // let initial_trades = TradeRep::<AOTrade>::default();  // defines the type of trades.
+    let initial_trades = TradeRep::<TradeTypes>::default();  // defines the type of trades.
 
     let mut result = start2(
     	kafka_server, metric, pos_topic, mkt_topic, results_topic, &pricing_options, state,
-	all_markets,
+	all_markets, initial_trades,
     ).await;
 
     results.append(&mut result);

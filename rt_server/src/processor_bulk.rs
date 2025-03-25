@@ -53,7 +53,7 @@ where
 #[async_trait]
 impl<T> Actor for ProcessorBulk<T>
 where
-    T: Send + Clone + 'static + BaseTrade + ProcessTradeValue + std::fmt::Debug
+    T: Send + Clone + 'static + BaseTrade + ProcessTradeValue + std::fmt::Debug + std::fmt::Display
 {
     type Msg = ProcessorBulkMessage<T>;
     type State = i32;  // The number of attempts to run the bulk on, default = 5
@@ -89,7 +89,7 @@ where
 		let mut pricing_futs = vec![];
 		for (_, trade) in new_trades.iter() {
 		    info!(
-			"Processor {} valuing single trade: {:?}",
+			"Processor {} valuing single trade: {}",
 			self.processor_name,
 			trade
 		    );

@@ -3,9 +3,15 @@
 
 import logging
 import json
+import sys
+import six.moves
 
 from typing import Tuple
 from threading import Thread
+
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
+
 from kafka import KafkaProducer
 
 

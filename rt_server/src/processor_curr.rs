@@ -106,7 +106,7 @@ impl<T> MarketSwitching for ProcessorCurr<T> {
 #[async_trait]
 impl<T> Actor for ProcessorCurr<T>
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + ProcessTradeValue
+    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display + ProcessTradeValue
 {
     type Msg = ProcessorMiddleMessage<T>;
     // state is a tuple of current trades,
@@ -142,7 +142,7 @@ where
         match message {
 	    ProcessorMiddleMessage::NewTrade(trade) => {
 
-		info!("Adding new trade: {:?}", trade);
+		info!("Adding new trade: {}", trade);
 		let valued_trade = trade.value_by_metric2(
 		    self.metric, &self.pricing_options,
 		    MarketGeneral::MarketRemote(

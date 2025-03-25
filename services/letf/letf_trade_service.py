@@ -8,19 +8,25 @@
 """
 
 import sys
-import logging
-logger = logging.getLogger(__name__)
+import six.moves
 
-sys.path.append('/home/brumen/work/')
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
 
-from rm.trade_service import LETFTradeProducer
+from rm.services.letf.trade_service import LETFTradeProducer
 from rm.services.letf.letf_market_service import LETFMarketProducer
 
 
 # start the leveraged etf market producer
-letf_market_producer = LETFMarketProducer(['AAPL', 'NVDA', ])
+KAFKA_HOST = '192.168.1.107'
+
+letf_market_producer = LETFMarketProducer(
+    stocks=['AAPL', 'NVDA', ],
+    server_port_topic=(KAFKA_HOST, 9092, 'letf.mkt'),
+)
 letf_trade_producer = LETFTradeProducer(
-    ['AAPL', 'NVDA', ],
+    stocks=['AAPL', 'NVDA', ],
+    server_port_topic=(KAFKA_HOST, 9092, 'letf.positions',),
     mkt_producer=letf_market_producer,
 )
 

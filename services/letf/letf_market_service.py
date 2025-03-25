@@ -7,14 +7,9 @@
     Market service publishes on mkt_events topic, mkt event is the uuid4 described above.
 """
 
-import sys
-from logging import getLogger
 from typing import List, Tuple, Dict
 from numpy import random
 from time import sleep
-
-logger = getLogger(__name__)
-sys.path.append('/home/brumen/work/')
 
 from rm.base_producer import BaseProducer
 

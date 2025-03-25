@@ -184,16 +184,15 @@ pub trait PriceTradeAsync: BaseTrade {
 	let pricing_server = pricing_options.pricing_server.clone();
 	let metric = metric.to_string();
 	let trades = self.id();
-	
+
 	let _endpoint = format!(
             "http://{pricing_server}/pricing?metric={metric}&market={curr_new_mkt}&trade_ids={trades}");
-	    
+
         debug!("_endpoint: {:?}", _endpoint);
 
         _endpoint
     }
 
-    
     /// computes the pricing request.
     async fn _pricing_request(
         &self,
@@ -301,7 +300,7 @@ where
 	let client_endpoint = format!(
             "http://{}/{}",
             self._pricing_server_spark(),
-            market_endpoint		
+            market_endpoint,
         );
 	let metric_s = match metric {
 	    PricingMetric::PV => "PV".to_string(),
@@ -338,7 +337,7 @@ where
         metric: PricingMetric,
         _pricing_options: &MarketPricingOptions,
         curr_new_mkt: CurrNewMarket,
-    ) -> Result<PortfolioType, Error> { 
+    ) -> Result<PortfolioType, Error> {
 
         let mut curr_portfolio = PortfolioType::default();
 

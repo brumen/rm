@@ -3,15 +3,12 @@
 
 import random
 import numpy as np
-from logging import getLogger
 
+from logging import getLogger
 from typing import Tuple, List
 from time import sleep
 
 from rm.base_producer import BaseProducer
-
-
-logger = getLogger(__name__)
 
 
 class LETFTradeProducer(BaseProducer):

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::marker::Sync;
 use std::ops::{Deref, DerefMut};
 use ractor::async_trait;
+use std::fmt;
 
 use crate::market::{CurrNewMarket, MarketGeneral};
 use crate::portfolio::PV01Results;
@@ -42,6 +43,13 @@ pub struct AOTrade {
 
 impl Decoder for AOTrade {}
 
+impl fmt::Display for AOTrade {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let pos_id = self.payload.after.position_id;
+        write!(f, "{}", pos_id)
+    }
+}
+
 #[async_trait]
 impl ProcessTradeValue for AOTrade {
     async fn value_by_metric2(
@@ -61,7 +69,6 @@ impl ProcessTradeValue for AOTrade {
 }
 
 impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
-    //fn initial_pv(&self) -> impl Future<Output = Option<f64>> + Send {
     async fn initial_pv(&self) -> Option<f64> {
         Some(0.)
     }

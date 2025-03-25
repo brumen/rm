@@ -1,7 +1,8 @@
 #!/bin/bash
 
+server_name="192.168.1.107"
 kafka_console_cmd="/home/brumen/archive/software/kafka/kafka-3.4.0-src/bin/kafka-console-consumer.sh "
-server="--bootstrap-server localhost:9092 "
+server="--bootstrap-server $server_name:9092 "
 
 if [ "$1" == "monitors" ]; then
     gnome-terminal --tab -- $kafka_console_cmd $server --topic letf.mkt
