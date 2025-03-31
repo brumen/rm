@@ -7,11 +7,6 @@
     Market service publishes on mkt_events topic, mkt event is the uuid4 described above.
 """
 
-import sys
-import six.moves
-
-if sys.version_info >= (3, 12, 0):
-    sys.modules['kafka.vendor.six.moves'] = six.moves
 
 from rm.services.letf.trade_service import LETFTradeProducer
 from rm.services.letf.letf_market_service import LETFMarketProducer

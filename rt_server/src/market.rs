@@ -2,6 +2,7 @@ use ractor::async_trait;
 use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use uuid::Uuid;
 use std::collections::{hash_map::IntoIter, HashMap};
 use std::ops::{AddAssign, Deref, DerefMut};
 use std::sync::mpsc::Sender;
@@ -20,14 +21,19 @@ use crate::ref_deref_trait;
 // MK ... mnemonic for market key
 // MK used to be (String, Date), now it's generic,
 //    it has to be hashable, and it copyable for now
-pub type MarketInner = HashMap<String, f64>;
+
+pub(crate) type MarketInner = HashMap<String, f64>;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
-pub struct MarketType(pub MarketInner);
+pub struct MarketType {
+    pub market_name: String,
+    pub market: MarketInner,
+}
 
+// TODO: THIS NEEDS TO BE FIXED.
 impl Into<MarketInner> for MarketType {
     fn into(self) -> MarketInner {
-        self.0.into_iter().map(|x| (x.0, x.1)).collect()
+        self.market.into_iter().map(|x| (x.0, x.1)).collect()
     }
 }
 
@@ -37,40 +43,52 @@ impl IntoIterator for MarketType {
     type IntoIter = IntoIter<String, f64>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+        self.market.into_iter()
     }
 }
 
 ref_deref_trait!(MarketType, MarketInner);
 
 impl MarketType {
-    pub fn new() -> Self {
-        Self(MarketInner::new())
+    pub fn new(market_name: String) -> Self {
+        Self{
+            market_name,
+            market: MarketInner::new(),
+        }
     }
 
     pub fn insert(&mut self, key: String, value: f64) {
-        self.0.insert(key, value);
+        self.market.insert(key, value);
+    }
+
+    pub fn next_market(&self, mn: &AllMarkets) -> Option<Self> {
+	mn.above_market(&self.market_name)
     }
 }
 
 // TODO: CHECK THIS STUFF HERE!!!
 impl Default for MarketType {
     fn default() -> Self {
-        Self(MarketInner::new())
+        let uuid_name = Uuid::new_v4();
+
+        MarketType::new(uuid_name.to_string())
     }
 }
 
 impl AddAssign<&MarketType> for MarketType {
     fn add_assign(&mut self, rhs: &MarketType) {
-        for (ticker, value) in rhs.iter() {
-            self.insert(ticker.clone(), *value);
+        for (ticker, value) in rhs.market.iter() {
+            self.market.insert(ticker.clone(), *value);
         }
     }
 }
 
-impl<const N: usize> From<[(String, f64); N]> for MarketType {
-    fn from(arr: [(String, f64); N]) -> Self {
-        Self(MarketInner::from(arr))
+impl<const N: usize> From<(String, [(String, f64); N])> for MarketType {
+    fn from(market_name_arr: (String, [(String, f64); N])) -> Self {
+        Self {
+            market_name: market_name_arr.0,
+            market: MarketInner::from(market_name_arr.1)
+        }
     }
 }
 
@@ -123,16 +141,54 @@ impl Deref for CurrNewMarket {
 impl CurrNewMarket {
 
     pub fn next_market(&self, mn: &AllMarkets) -> Option<Self> {
-	mn.above_market(self.0.clone())
+	mn.above_market(self)
     }
 }
 
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum MarketGeneral {
     MarketRemote(CurrNewMarket),
     MarketLocal(MarketType),
 }
+
+
+impl MarketGeneral {
+    pub(crate) fn next_market(&self, nm: &AllMarkets) -> Option<Self> {
+        match self {
+            MarketGeneral::MarketRemote(curr_new_mkt) =>
+                MarketGeneral::MarketRemote(curr_new_mkt.next_market(nm).unwrap()),
+            MarketGeneral::MarketLocal(ml) =>
+                MarketGeneral::MarketLocal(ml.next_market(nm)),
+        }
+    }
+
+    pub(crate) fn new() -> Self {
+        match Self {
+            MarketGeneral::MarketRemote(_) =>
+                MarketGeneral::MarketRemote
+        }
+
+    }
+
+}
+
+
+impl fmt::Display for MarketGeneral {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            MarketGeneral::MarketRemote(remote_market) => {
+                write!(f, "{}", remote_market)
+            },
+            MarketGeneral::MarketLocal(_local_market) => {
+                // TODO: POSSIBLY INCLUDE A MARKET DESIGNATION!!!
+                let nb_items = _local_market.len();
+                write!(f, "Local mkt with {} items: ", nb_items)
+            }
+        }
+    }
+}
+
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -185,13 +241,13 @@ impl AllMarkets {
 
     /// attempts to find the market name in the AllMarkets -
     /// if it cant find it, returns None
-    fn _find_market(&self, mkt_name: String) -> Option<usize> {
-	self.0.iter().position(|r| *r == mkt_name)
+    fn _find_market(&self, mkt_name: &String) -> Option<usize> {
+	self.0.iter().position(|r| r == mkt_name)
     }
 
     /// finds the market above
     /// returns None if it's already the last market.
-    pub(crate) fn above_market(&self, mkt_name: String) -> Option<CurrNewMarket> {
+    pub(crate) fn above_market(&self, mkt_name: &String) -> Option<CurrNewMarket> {
 
 	match self._find_market(mkt_name) {
 	    None => None,
@@ -222,7 +278,8 @@ pub trait MarketSwitching {
     fn market_endpoint(&self) -> String;
 
     /// reqwest client to implement market switching
-    fn r_client(&self) -> &reqwest::Client;
+    ///   if we dont need the request client, set it to None.
+    fn r_client(&self) -> Option<&reqwest::Client>;
 
     /// Sets market_name to the market providedcurrent and new markets to the ones
     ///   specified in this function.
@@ -231,61 +288,90 @@ pub trait MarketSwitching {
     async fn set_market(
 	&self,
 	market: MarketType,
-	market_name: CurrNewMarket,
+	market_name: MarketGeneral,
     ) -> Result<(), reqwest::Error> {
         info!("Setting market for {:?}", market_name.clone());
 
-	let client = self.r_client();
-	let payload = json!({
-	    "market": market,
-	    "market_type": market_name.clone(),
-	});
+        match market_name {
 
-        client
-	    .post(self.market_endpoint())
-            .json(&payload)
-            .send()
-            .await?;
+            MarketGeneral::MarketRemote(CurrNewMarket(remote_mkt)) => {
 
-	Ok(())
+	        let client = self.r_client();
+	        let payload = json!({
+	            "market": market,
+	            "market_type": remote_mkt.clone(),
+	        });
+
+                client
+	            .post(self.market_endpoint())
+                    .json(&payload)
+                    .send()
+                    .await?;
+
+	        Ok(())
+            },
+
+            MarketGeneral::MarketLocal(ref mut local_mkt) => {
+                *local_mkt = market;
+            },
+        }
     }
 
     /// switches market_below w/ market_above
     async fn _switch_markets(
 	&self,
-	market_name_below: CurrNewMarket,
-	market_name_above: CurrNewMarket,
+	market_name_below: MarketGeneral,  // CurrNewMarket,
+	market_name_above: MarketGeneral,  // CurrNewMarket,
     ) -> Result<(), reqwest::Error> {
         info!(
 	    "Switching markets {:?} <- {:?}",
-	    market_name_below.clone(),
-	    market_name_above.clone(),
+	    market_name_below,
+	    market_name_above,
 	);
 
-	let client = self.r_client();
-	// set the market below
-	let payload = json!({
-	    "market_below": *market_name_below,
-	    "market_above": *market_name_above,
-	});
+        match market_name_below {
 
-        // replace market with switch_market in the endpoint
-        let switch_market_endpoint = str::replace(
-            self.market_endpoint().as_str(), "market", "switch_market"
-        );
+            // they can both be either remote or local,
+            MarketGeneral::MarketRemote(below_remote_mkt) => {
 
-        client
-	    .post(switch_market_endpoint)
-            .json(&payload)
-            .send()
-            .await?;
+                // above remote market
+                let above_remote_mkt_n =
+                    if let MarketGeneral::MarketRemote(above_remote_mkt) = market_name_above {
+                        above_remote_mkt
+                    } else {
+                        panic!("This should not happen!");
+                    };
 
-	Ok(())
+	        // set the market below
+	        let payload = json!({
+	            "market_below": *below_remote_mkt,
+	            "market_above": *above_remote_mkt_n,
+	        });
+
+                // replace market with switch_market in the endpoint
+                let switch_market_endpoint = str::replace(
+                    self.market_endpoint().as_str(), "market", "switch_market"
+                );
+
+                let client = self.r_client();
+                client
+	            .post(switch_market_endpoint)
+                    .json(&payload)
+                    .send()
+                    .await?;
+
+	        Ok(())
+            },
+
+            MarketGeneral::MarketLocal(ref mut below_local_mkt) => {
+                *below_local_mkt = market_name_above;  // TODO: THIS SHOULD BE FIXED.
+            },
+        }
     }
 
     async fn switch_market(
 	&self,
-	market_name: CurrNewMarket
+	market_name: MarketGeneral,  // CurrNewMarket
     ) -> Result<(), reqwest::Error> {
 
 	match market_name.next_market(&self.all_markets()) {

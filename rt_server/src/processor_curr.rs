@@ -19,7 +19,7 @@ use crate::market::{MarketGeneral, MarketSwitching};
 
 
 pub(crate) struct ProcessorCurr<T>{
-    pub market_name: CurrNewMarket,
+    pub market_name: MarketGeneral,
     pub metric: PricingMetric,
     pub results_topic: String,
     pub pricing_options: MarketPricingOptions,
@@ -112,10 +112,7 @@ where
     // state is a tuple of current trades,
     //    and current portfolio, and the current market
     //    representation.
-    // BELOW IS THE WORKING VERSION:
-    //type State = (TradeRep<AOTrade>, PortfolioType, CurrNewMarket);
-    type State = (TradeRep<T>, PortfolioType, CurrNewMarket);
-    // type State = (TradeRep<impl Clone + for <'a> AddAssign<&'a AOTrade> >, PortfolioType, MarketType);
+    type State = (TradeRep<T>, PortfolioType, MarketGeneral);
     type Arguments = ();
 
     async fn pre_start(
@@ -144,10 +141,9 @@ where
 
 		info!("Adding new trade: {}", trade);
 		let valued_trade = trade.value_by_metric2(
-		    self.metric, &self.pricing_options,
-		    MarketGeneral::MarketRemote(
-			self.market_name.clone()
-		    ),
+		    self.metric,
+                    &self.pricing_options,
+		    self.market_name.clone(),
 		).await;
 
 		// updating the portfolio
@@ -176,8 +172,10 @@ where
                     info!("Changing portfolio.");
 		    self._send_portfolio(new_portfolio.clone()).await?;
 
-		    // switch markets on the remote server
-		    self.switch_market(self.market_name.clone()).await?;
+		    // switch markets on the remote server if we are in the remote configuration
+                    if let MarketGeneral::MarketRemote(remote_name) = &self.market_name {
+		        self.switch_market(remote_name.clone()).await?;
+                    }
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;
