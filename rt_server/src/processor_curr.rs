@@ -9,22 +9,22 @@ use serde_json;
 use thiserror;
 
 // use crate::ao_trade::AOTrade;
-use crate::market::{AllMarkets, CurrNewMarket};
+use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
 use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::ProcessorMiddleMessage;
-use crate::market::{MarketGeneral, MarketSwitching};
+use crate::market::{MarketType, MarketSwitching};
 
 
 pub(crate) struct ProcessorCurr<T>{
-    pub market_name: MarketGeneral,
+    pub processor_name: String,
     pub metric: PricingMetric,
     pub results_topic: String,
     pub pricing_options: MarketPricingOptions,
     pub result_publisher: FutureProducer,
-    pub r_client: reqwest::Client,  // request client
+    pub r_client: Option<reqwest::Client>,  // request client
     pub portf: Arc<Mutex<PortfolioType>>,  // current working portfolio
     pub all_markets: Arc<AllMarkets>,
     pub trades: TradeRep<T>,
@@ -33,7 +33,7 @@ pub(crate) struct ProcessorCurr<T>{
 
 impl<T> std::fmt::Debug for ProcessorCurr<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-	f.write_str("CurrentProcessor({self.market_name})")
+        f.write_str("CurrentProcessor({self.processor_name})")
     }
 }
 
@@ -93,8 +93,8 @@ impl<T> MarketSwitching for ProcessorCurr<T> {
 	self.all_markets.clone()
     }
 
-    fn r_client(&self) -> &reqwest::Client {
-        &self.r_client
+    fn r_client(&self) -> Option<&reqwest::Client> {
+        self.r_client.as_ref()
     }
 
     fn market_endpoint(&self) -> String {
@@ -112,7 +112,7 @@ where
     // state is a tuple of current trades,
     //    and current portfolio, and the current market
     //    representation.
-    type State = (TradeRep<T>, PortfolioType, MarketGeneral);
+    type State = (TradeRep<T>, PortfolioType, MarketType);
     type Arguments = ();
 
     async fn pre_start(
@@ -123,8 +123,9 @@ where
 
 	let initial_trades = TradeRep::<T>::default();
 	let initial_curr_portf = PortfolioType::default();
+        let market = MarketType::new(self.processor_name);
 
-	Ok((initial_trades, initial_curr_portf, self.market_name.clone()))
+	Ok((initial_trades, initial_curr_portf, market))
     }
 
     //#[instrument]
@@ -143,7 +144,7 @@ where
 		let valued_trade = trade.value_by_metric2(
 		    self.metric,
                     &self.pricing_options,
-		    self.market_name.clone(),
+		    market,
 		).await;
 
 		// updating the portfolio
@@ -173,8 +174,11 @@ where
 		    self._send_portfolio(new_portfolio.clone()).await?;
 
 		    // switch markets on the remote server if we are in the remote configuration
-                    if let MarketGeneral::MarketRemote(remote_name) = &self.market_name {
-		        self.switch_market(remote_name.clone()).await?;
+                    match self.r_client() {
+                        Some(_) => {
+		            self.switch_market(market).await?;
+                        },
+                        _ => {},
                     }
 
 		    // update the state of current processor.

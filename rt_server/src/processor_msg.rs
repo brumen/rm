@@ -1,7 +1,7 @@
 /// messages for the Actor references.
 /// 
 
-use crate::market::{CurrNewMarket, MarketType, MarketGeneral};
+use crate::market::MarketType;
 //use crate::ao_trade::AOTrade;
 use crate::trade::TradeRep;
 use crate::portfolio::PortfolioType;
@@ -20,17 +20,17 @@ pub enum ProcessorMiddleMessage<T> {
     // third: offending trades.
     // fourth: market reference on which these trades were computed.
     BulkReceive(
-	(TradeRep<T>, PortfolioType, TradeRep<T>, MarketGeneral)
+	(TradeRep<T>, PortfolioType, TradeRep<T>, MarketType)
     ),
     // message from the processor above.
     NewTradePortfolio(
-	(TradeRep<T>, PortfolioType, MarketGeneral, ActorRef<ProcessorMiddleMessage<T>>)
+	(TradeRep<T>, PortfolioType, MarketType, ActorRef<ProcessorMiddleMessage<T>>)
     ),
 }
 
 
 #[derive(Debug, Clone)]
 pub enum ProcessorBulkMessage<T> {
-    NewBulk((MarketGeneral, TradeRep<T>, ActorRef<ProcessorMiddleMessage<T>>)),
+    NewBulk((MarketType, TradeRep<T>, ActorRef<ProcessorMiddleMessage<T>>)),
     Abandon,  // TODO: WHAT TO DO W/ THIS???
 }

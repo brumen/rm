@@ -31,3 +31,5 @@ pub(crate) mod engine_ao2;
 pub(crate) mod processor_msg;
 //pub mod all_trades;
 pub(crate) mod trade_letf;
+pub(crate) mod all_markets;
+pub(crate) mod curr_new_market;

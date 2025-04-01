@@ -4,7 +4,8 @@ use std::sync::Arc;
 use tracing::{info, warn, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
-use crate::market::{AllMarkets, CurrNewMarket, MarketGeneral, MarketSwitching};
+use crate::market::{MarketType, MarketSwitching};
+use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
@@ -42,7 +43,7 @@ impl<T> MarketSwitching for ProcessorMiddle<T> {
     }
 
     fn r_client(&self) ->  Option<&reqwest::Client> {
-        &self.r_client
+        self.r_client.as_ref()
     }
 
     fn market_endpoint(&self) -> String {
@@ -65,7 +66,7 @@ where
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
     //   fourth is the computation state.
-    type State = (TradeRep<T>, TradeRep<T>, PortfolioType, ProcessorMiddleState, MarketGeneral);
+    type State = (TradeRep<T>, TradeRep<T>, PortfolioType, ProcessorMiddleState, MarketType);
     type Arguments = ();
 
     // initialization of the new processor
@@ -78,20 +79,13 @@ where
 	    "Processor {}: Starting.", self.processor_name,
 	);
 
-        let market = match self.r_client() {
-            None =>  // no client needed,
-                MarketGeneral::MarketLocal::new(),
-            Some(_) =>
-                MarketGeneral::MarketRemote::new(),
-        };
-
         Ok(
 	    (
 		TradeRep::<T>::default(),
 		TradeRep::<T>::default(),
 		PortfolioType::default(),
 		ProcessorMiddleState::Idle,
-                market,
+                MarketType::new(self.processor_name),
 	    )
 	)
     }
@@ -205,13 +199,13 @@ where
 		    //    new processor to the new default state.
 		    info!(
 			"Processor {}, Behind: Accepted portfolio from market below. Resetting",
-			market,
+			self.processor_name,
 		    );
 
 		    // *portf = PortfolioType::default();
-		    //let mkt_above = market
-		    //.next_market(&self.all_markets)
-		    //.expect("No next market. PROBLEM!!");
+		    let mkt_above = market
+		        .next_market(&self.all_markets)
+		        .expect("No next market. PROBLEM!!");
 
 		    info!(
 			"Processor {}: Switching markets {} <- {}. Going to Idle.",
@@ -293,7 +287,7 @@ where
 		    info!(
 			"Processor {}, Idle: Lower processor accepted portfolio. \
 			 Starting new computations.",
-			self.market_name,  // TODO: FIX HERE!!!
+			self.processor_name,
 		    );
 
 		    self.processor_bulk.send_message(
@@ -431,12 +425,12 @@ where
 			self.processor_name,
 		    );
 
-                    match market {
-                        MarketGeneral::MarketRemote(remote_mkt) => {
-                            self.switch_market(remote_mkt.clone()).await?;
+                    match self.r_client() {
+                        None => {
+                            *market = _new_market;
                         },
-                        MarketGeneral::MarketLocal(local_mkt) => {
-                            local_mkt = _new_market;  // TODO: FIX THIS!!!
+                        Some(_) => {
+                            self.switch_market(market).await?;
                         },
                     }
 
@@ -497,13 +491,13 @@ where
                         "Processor {}, NewPortfolio: switching markets",
                         self.processor_name,
                     );
-                    match market {
-                        MarketGeneral::MarketRemote(remote_market) => {
+
+                    match self.r_client() {
+                        Some(_) => {
                             self.switch_market(market).await?;
                         },
-                        // TODO: FINISH HERE!!!
-                        MarketGeneral::MarketLocal(ref mut local_mkt) => {
-                            local_mkt = &mut _new_market;
+                        None => {
+                            *market = _new_market;
                         },
                     }
 		}

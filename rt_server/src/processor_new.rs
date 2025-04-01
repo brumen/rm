@@ -2,7 +2,8 @@ use tracing::{info, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 
-use crate::market::{AllMarkets, CurrNewMarket, MarketGeneral, MarketSwitching,};
+use crate::market::{MarketType, MarketSwitching,};
+use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;
@@ -12,13 +13,14 @@ use crate::trade::{BaseTrade, TradeRep};
 
 #[derive(Debug)]
 pub struct ProcessorNew<T>{
+    pub processor_name: String,
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
     pub processor_middle: ActorRef<ProcessorMiddleMessage<T>>,  // current processor ref.
     pub processor_bulk: ActorRef<ProcessorBulkMessage<T>>,  // bull processor ref.
-    pub r_client: reqwest::Client,
+    pub r_client: Option<reqwest::Client>,
     pub all_markets: Arc<AllMarkets>,
-    pub market_name: (MarketGeneral, MarketGeneral),  // first item: new market, second item: future market.
+    pub market_name: (MarketType, MarketType),  // first item: new market, second item: future market.
 }
 
 #[derive(Debug)]
@@ -35,8 +37,8 @@ impl<T> MarketSwitching for ProcessorNew<T> {
 	self.all_markets.clone()
     }
 
-    fn r_client(&self) ->  &reqwest::Client {
-        &self.r_client
+    fn r_client(&self) ->  Option<&reqwest::Client> {
+        self.r_client.as_ref()
     }
 
     fn market_endpoint(&self) -> String {
@@ -57,7 +59,7 @@ where
 	self.pricing_options.pricing_server.clone()
     }
 
-    fn _pricing_endpoint_spark(&self, _market_: CurrNewMarket, _metric: PricingMetric) -> String {
+    fn _pricing_endpoint_spark(&self, _market_: String, _metric: PricingMetric) -> String {
 	"/pricing".to_string()
     }
 }
@@ -74,7 +76,7 @@ where
     //   third is the current portfolio result of correctly pricing trades.
     //   fourth is the computation state.
     //   fifth is the tuple: (new market where we are pricing now, future_market)
-    type State = (TradeRep<T>, TradeRep<T>, PortfolioType, ProcessorNewState, (MarketGeneral, MarketGeneral));
+    type State = (TradeRep<T>, TradeRep<T>, PortfolioType, ProcessorNewState, (MarketType, MarketType));
     type Arguments = ();
 
     // initialization of the new processor
@@ -92,7 +94,7 @@ where
 		TradeRep::<T>::default(),
 		PortfolioType::default(),
 		ProcessorNewState::Idle,
-                self.market_name.clone(),
+                (MarketType::new(self.processor_name), MarketType::new("future".to_string())),  // TODO: FIX THIS HERE
 	    )
 	)
     }
@@ -186,18 +188,16 @@ where
 			// update the "new" market
                         info!("Idle, NewMarket: setting new market.");
 
-                        // TODO: HERE WE HAVE TO DO THE MARKET SWITCH
-                        match new_m {
-                            // TODO: CHECK IF THIS IS CORRECT!!!
-                            MarketGeneral::MarketRemote(remote_name) => {
+                        match self.r_client() {
+                            Some(_) => {
 			        self.set_market(
 			            new_market,
-			            remote_name.clone(),
+			            future_m,
 			        ).await?;
                             },
-                            MarketGeneral::MarketLocal(ref mut local_mkt) => {
-                                *local_mkt = new_market;
-                            },
+                            None => {
+                                *future_m = new_market;
+                            }
                         }
 			// we are idle, we can start calculating, start calculating
                         info!("Idle, NewMarket: sending to bulk. State -> CalculatingBulk");
@@ -225,19 +225,16 @@ where
                         info!(
                             "CalculatingSingle, NewMarket: setting Future market."
                         );
-                        match new_m {
-                            MarketGeneral::MarketRemote(_remote_name) => {
+
+                        match self.r_client() {
+                            Some(_) => {
 			        self.set_market(
 			            new_market,
-			            CurrNewMarket("future".to_string()
-			            )
+                                    future_m,
 			        ).await?;
                             },
-                            // TODO: THIS IS WRONG!!!
-                            MarketGeneral::MarketLocal(local_mkt) => {
-                                // just ignore this market
-                                // TODO: CHECK HERE!!
-                                *local_mkt = new_market;
+                            None => {
+                                *future_m = new_market;
                             }
                         }
 		    }
@@ -246,15 +243,16 @@ where
 		    ProcessorNewState::CalculatingBulk => {
 			// just update the future market
                         info!("CalculatingBulk, NewMarket: Setting Future market.");
-                        match new_m {
-                            MarketGeneral::MarketRemote(_remote_name) => {
+
+                        match self.r_client() {
+                            Some(_) => {
 			        self.set_market(
 			            new_market,
-			            CurrNewMarket("future".to_string()),
+			            future_m,
 			        ).await?;
                             },
-                            MarketGeneral::MarketLocal(local_mkt) => {
-                                *local_mkt = new_market;
+                            None => {
+                                *future_m = new_market;
                             }
                         }
 		    },
@@ -284,16 +282,16 @@ where
                                 new_m.clone(),
                             );
 
-                            match new_m {
-                                MarketGeneral::MarketRemote(remote_mkt) => {
+                            match self.r_client() {
+                                Some(_) => {
                                     self._switch_markets(
-				        remote_mkt.clone(),
-				        CurrNewMarket("future".to_string()),
+				        future_m,
+				        new_m,
 			            ).await;
                                 },
-                                MarketGeneral::MarketLocal(_local_mkt) => {
-                                    // DO NOTHING HERE!!
-                                },
+                                None => {
+                                    *new_m = *future_m;
+                                }
                             }
                             info!("CalculatingSingle, Behind: Going to state Idle.");
                             *pns = ProcessorNewState::Idle;

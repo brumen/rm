@@ -16,6 +16,7 @@ use thiserror::Error;
 
 use crate::ref_deref::TryFromRef;
 use crate::ref_deref_trait;
+//use crate::all_markets::AllMarkets;
 
 // market information = ((flight, market date), value)
 // MK ... mnemonic for market key
@@ -47,7 +48,7 @@ impl IntoIterator for MarketType {
     }
 }
 
-ref_deref_trait!(MarketType, MarketInner);
+// ref_deref_trait!(MarketType, MarketInner);
 
 impl MarketType {
     pub fn new(market_name: String) -> Self {
@@ -112,80 +113,12 @@ impl TryFromRef<BorrowedMessage<'_>> for MarketType {
     }
 }
 
-//#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
-//pub enum CurrNewMarket {
-//    Current,
-//    New,
-//}
 
-// MarketRef is market reference, so that not the entire
-// market but only the reference to that market is
-// passed around.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct CurrNewMarket(pub String);
-
-impl fmt::Display for CurrNewMarket {
+impl fmt::Display for MarketType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Deref for CurrNewMarket {
-    type Target = String;
-
-    fn deref(&self) -> &Self::Target {
-	&self.0
-    }
-}
-
-impl CurrNewMarket {
-
-    pub fn next_market(&self, mn: &AllMarkets) -> Option<Self> {
-	mn.above_market(self)
-    }
-}
-
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub enum MarketGeneral {
-    MarketRemote(CurrNewMarket),
-    MarketLocal(MarketType),
-}
-
-
-impl MarketGeneral {
-    pub(crate) fn next_market(&self, nm: &AllMarkets) -> Option<Self> {
-        match self {
-            MarketGeneral::MarketRemote(curr_new_mkt) =>
-                MarketGeneral::MarketRemote(curr_new_mkt.next_market(nm).unwrap()),
-            MarketGeneral::MarketLocal(ml) =>
-                MarketGeneral::MarketLocal(ml.next_market(nm)),
-        }
-    }
-
-    pub(crate) fn new() -> Self {
-        match Self {
-            MarketGeneral::MarketRemote(_) =>
-                MarketGeneral::MarketRemote
-        }
-
-    }
-
-}
-
-
-impl fmt::Display for MarketGeneral {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            MarketGeneral::MarketRemote(remote_market) => {
-                write!(f, "{}", remote_market)
-            },
-            MarketGeneral::MarketLocal(_local_market) => {
-                // TODO: POSSIBLY INCLUDE A MARKET DESIGNATION!!!
-                let nb_items = _local_market.len();
-                write!(f, "Local mkt with {} items: ", nb_items)
-            }
-        }
+        // TODO: POSSIBLY INCLUDE A MARKET DESIGNATION!!!
+        let nb_items = self.market.len();
+        write!(f, "Local mkt with {} items: ", nb_items)
     }
 }
 
@@ -213,57 +146,6 @@ pub(crate) enum MarketNames {
     New(String),
 }
 
-/// first elt is Current
-/// second element is Middle vector
-/// third element is the New market
-#[derive(Debug)]
-pub(crate) struct AllMarkets(Vec<String>);
-
-impl AllMarkets {
-
-    /// Default implemnentation of the market names.
-    pub fn new(nb_middle: usize) -> Self {
-	let mut middle_markets = vec![];
-	middle_markets.push("current".to_string());
-	for middle_nb in 0..nb_middle {
-	    middle_markets.push(
-		format!("new_{middle_nb}")
-	    );
-	}
-	middle_markets.push("new".to_string());
-
-	Self(middle_markets)
-    }
-
-    pub fn get(&self, market_nb: usize) -> String {
-	self.0[market_nb].clone()
-    }
-
-    /// attempts to find the market name in the AllMarkets -
-    /// if it cant find it, returns None
-    fn _find_market(&self, mkt_name: &String) -> Option<usize> {
-	self.0.iter().position(|r| r == mkt_name)
-    }
-
-    /// finds the market above
-    /// returns None if it's already the last market.
-    pub(crate) fn above_market(&self, mkt_name: &String) -> Option<CurrNewMarket> {
-
-	match self._find_market(mkt_name) {
-	    None => None,
-	    Some(found_mkt_nb) => {
-		if found_mkt_nb == self.0.len() - 1 {
-		    return None
-		}
-		Some(CurrNewMarket(self.0[found_mkt_nb + 1].clone()))
-	    }
-	}
-    }
-
-    pub(crate) fn len(&self) -> usize {
-	self.0.len()
-    }
-}
 
 
 #[async_trait]
@@ -285,21 +167,27 @@ pub trait MarketSwitching {
     ///   specified in this function.
     ///   market: market to replace the existing market_name
     ///   market_name: name of the market to be replaced
+    ///   implements: market_name <- market
     async fn set_market(
 	&self,
 	market: MarketType,
-	market_name: MarketGeneral,
+	market_name: &mut MarketType,
     ) -> Result<(), reqwest::Error> {
-        info!("Setting market for {:?}", market_name.clone());
 
-        match market_name {
+        info!("Setting market for {:?}", market_name.market_name);
 
-            MarketGeneral::MarketRemote(CurrNewMarket(remote_mkt)) => {
+        match self.r_client() {
 
-	        let client = self.r_client();
+            None => {
+                *market_name = market;
+            },
+
+            Some(client) => {
+                let internal_market_name = &market_name.market_name;
+
 	        let payload = json!({
 	            "market": market,
-	            "market_type": remote_mkt.clone(),
+	            "market_type": internal_market_name,
 	        });
 
                 client
@@ -307,45 +195,32 @@ pub trait MarketSwitching {
                     .json(&payload)
                     .send()
                     .await?;
-
-	        Ok(())
-            },
-
-            MarketGeneral::MarketLocal(ref mut local_mkt) => {
-                *local_mkt = market;
             },
         }
+        Ok(())
     }
 
     /// switches market_below w/ market_above
     async fn _switch_markets(
 	&self,
-	market_name_below: MarketGeneral,  // CurrNewMarket,
-	market_name_above: MarketGeneral,  // CurrNewMarket,
+	market_name_below: &mut MarketType,
+	market_name_above: &MarketType,
     ) -> Result<(), reqwest::Error> {
         info!(
 	    "Switching markets {:?} <- {:?}",
-	    market_name_below,
-	    market_name_above,
+	    market_name_below.market_name,
+	    market_name_above.market_name,
 	);
 
-        match market_name_below {
 
-            // they can both be either remote or local,
-            MarketGeneral::MarketRemote(below_remote_mkt) => {
+        match self.r_client() {
 
-                // above remote market
-                let above_remote_mkt_n =
-                    if let MarketGeneral::MarketRemote(above_remote_mkt) = market_name_above {
-                        above_remote_mkt
-                    } else {
-                        panic!("This should not happen!");
-                    };
+            Some(client) => {
 
 	        // set the market below
 	        let payload = json!({
-	            "market_below": *below_remote_mkt,
-	            "market_above": *above_remote_mkt_n,
+	            "market_below": market_name_below.market_name,
+	            "market_above": market_name_above.market_name,
 	        });
 
                 // replace market with switch_market in the endpoint
@@ -353,43 +228,94 @@ pub trait MarketSwitching {
                     self.market_endpoint().as_str(), "market", "switch_market"
                 );
 
-                let client = self.r_client();
                 client
 	            .post(switch_market_endpoint)
                     .json(&payload)
                     .send()
                     .await?;
 
-	        Ok(())
             },
 
-            MarketGeneral::MarketLocal(ref mut below_local_mkt) => {
-                *below_local_mkt = market_name_above;  // TODO: THIS SHOULD BE FIXED.
+            None => {
+                *market_name_below = market_name_above.clone();  // TODO: CHECK HERE!!!
             },
         }
+        Ok(())
     }
 
     async fn switch_market(
 	&self,
-	market_name: MarketGeneral,  // CurrNewMarket
+	market_name: &mut MarketType,
     ) -> Result<(), reqwest::Error> {
 
 	match market_name.next_market(&self.all_markets()) {
 	    None => {
 		info!(
 		    "Could not find next market of {}. Nothing to do.",
-		    market_name,
+		    market_name.market_name,
 		);
 		return Ok(());
 	    },
 	    Some(above_market) => {
-		self._switch_markets(market_name, above_market).await?;
+		self._switch_markets(market_name, &above_market).await?
 	    }
 	}
 
 	Ok(())
     }
 }
+
+
+/// list of (market names, actual market)
+#[derive(Debug)]
+pub(crate) struct AllMarkets(Vec<MarketType>);
+
+impl AllMarkets {
+
+    /// Default implemnentation of the market names.
+    pub fn new(nb_middle: usize) -> Self {
+	let mut middle_markets = vec![];
+	middle_markets.push(MarketType::new("current".to_string()));
+	for middle_nb in 0..nb_middle {
+	    middle_markets.push(
+		MarketType::new(format!("new_{middle_nb}"))
+	    );
+	}
+	middle_markets.push(MarketType::new("new".to_string()));
+
+	Self(middle_markets)
+    }
+
+    pub fn get(&self, market_nb: usize) -> &String {
+	&self.0[market_nb].market_name
+    }
+
+    /// attempts to find the market name in the AllMarkets -
+    /// if it cant find it, returns None
+    fn _find_market(&self, mkt_name: &String) -> Option<usize> {
+	self.0.iter().position(|r| r.market_name == *mkt_name)
+    }
+
+    /// finds the market above
+    /// returns None if it's already the last market.
+    pub(crate) fn above_market(&self, mkt_name: &String) -> Option<MarketType> {
+
+	match self._find_market(mkt_name) {
+	    None => None,
+	    Some(found_mkt_nb) => {
+		if found_mkt_nb == self.0.len() - 1 {
+		    return None
+		}
+		Some(self.0[found_mkt_nb + 1].clone())
+	    }
+	}
+    }
+
+    pub(crate) fn len(&self) -> usize {
+	self.0.len()
+    }
+}
+
 
 
 #[cfg(test)]
