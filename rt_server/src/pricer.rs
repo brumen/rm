@@ -7,7 +7,7 @@ use string_join::Join;
 use tracing::{debug, info, warn, error};
 use ractor::async_trait;
 
-use crate::market::{CurrNewMarket, MarketType};
+use crate::market::MarketType;
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
 use crate::trade::{BaseTrade, TradeRep};
 
@@ -179,7 +179,7 @@ pub trait PriceTradeAsync: BaseTrade {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
+        curr_new_mkt: MarketType,
     ) -> String {
 	let pricing_server = pricing_options.pricing_server.clone();
 	let metric = metric.to_string();
@@ -198,7 +198,7 @@ pub trait PriceTradeAsync: BaseTrade {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
+        curr_new_mkt: MarketType,
     ) -> Result<reqwest::Response, reqwest::Error> {
 	reqwest::get(self._endpoint(metric, pricing_options, curr_new_mkt)).await
     }
@@ -208,19 +208,19 @@ pub trait PriceTradeAsync: BaseTrade {
     fn price(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
+        curr_new_mkt: MarketType,
     ) -> impl Future<Output = Option<f64>> + Send;
 
     fn pv01(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
+        curr_new_mkt: MarketType,
     ) -> impl Future<Output = PV01Results> + Send;
 
     async fn pnl(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
+        curr_new_mkt: MarketType,
     ) -> Option<f64> {
         match self.initial_pv().await {
             None => None,
@@ -236,7 +236,7 @@ pub trait PriceTradeAsync: BaseTrade {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
+        curr_new_mkt: MarketType,
     ) -> PricingResults {
         let trade_name = self.id();
 
@@ -282,14 +282,14 @@ where
     /// endpoint on the pricing server, like "price_spark_new", or "pv/", "pv/spark/",
     ///   what you would normally attach to the server. so the complete enpoint would
     ///   be localhost:5010/pv/spark
-    fn _pricing_endpoint_spark(&self, market_: CurrNewMarket, metric: PricingMetric) -> String;
+    fn _pricing_endpoint_spark(&self, market_: MarketType, metric: PricingMetric) -> String;
 
     /// prices the trades on the spark
     async fn price_trades_spark(
         &self,
         trades: &TradeRep<TR>,
         pricing_client: &Client,
-        market_: CurrNewMarket,
+        market_: MarketType,
         metric: PricingMetric,
     ) -> Result<PortfolioType, Error> {
         // joins all trades with commas, like 190,191,192
@@ -307,13 +307,13 @@ where
 	    PricingMetric::PV01 => "PV01".to_string(),
 	    PricingMetric::PnL => "PnL".to_string(),
 	};
-	let CurrNewMarket(market_s) = market_;
+
         let result_pricing = pricing_client
             .post(client_endpoint)
             .form(&[
 		("trades", &all_trade_ids),
 		("metric", &metric_s),
-		("market", &market_s),
+		("market", &market_.market_name),
 	    ])
             .send()
             .await?;
@@ -336,7 +336,7 @@ where
         trades: &TradeRep<TR>,
         metric: PricingMetric,
         _pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
+        curr_new_mkt: MarketType,
     ) -> Result<PortfolioType, Error> {
 
         let mut curr_portfolio = PortfolioType::default();
@@ -384,7 +384,7 @@ where
         &self,
         trades: &TradeRep<TR>,
         pricing_client: &Client,
-        market_: CurrNewMarket,
+        market_: MarketType,
         metric: PricingMetric,
     ) -> Result<PortfolioType, Error> {
 

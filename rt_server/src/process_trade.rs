@@ -2,7 +2,7 @@
 use ractor::async_trait;
 
 
-use crate::market::{CurrNewMarket, MarketGeneral};
+use crate::market::MarketType;
 use crate::portfolio::PricingResults;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 
@@ -15,7 +15,7 @@ where
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketGeneral,
+        curr_new_mkt: MarketType,
     ) -> PricingResults;
 }
 
@@ -23,5 +23,5 @@ pub trait ObtainMarket
 where
     Self: Sync,
 {
-    fn get_market(&self, curr_new_mkt: CurrNewMarket) -> MarketGeneral;
+    fn get_market(&self, curr_new_mkt: MarketType) -> MarketType;
 }

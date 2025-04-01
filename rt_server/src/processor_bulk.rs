@@ -3,7 +3,7 @@ use tracing::{info, debug, error, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use futures::future::join_all;
 
-use crate::market::{CurrNewMarket, MarketGeneral};
+use crate::market::MarketType;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;  // for trade.value_by_metric2
@@ -15,7 +15,7 @@ use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 #[derive(Debug)]
 pub struct ProcessorBulk<T>{
     pub processor_name: String,
-    pub market_name: CurrNewMarket,
+    pub market_name: MarketType,
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
     pub(crate) trades: TradeRep<T>,
@@ -23,7 +23,7 @@ pub struct ProcessorBulk<T>{
 
 #[derive(Debug)]
 pub enum ProcessorBulkState {
-    Calculating(CurrNewMarket),  // which market we are computing this on.
+    Calculating(MarketType),  // which market we are computing this on.
     Idle,
 }
 
@@ -43,7 +43,7 @@ where
 
     fn _pricing_endpoint_spark(
 	&self,
-	_market_: CurrNewMarket,
+	_market_: MarketType,
 	_metric: PricingMetric
     ) -> String {
 	"spark".to_string()
@@ -56,7 +56,7 @@ where
     T: Send + Clone + 'static + BaseTrade + ProcessTradeValue + std::fmt::Debug + std::fmt::Display
 {
     type Msg = ProcessorBulkMessage<T>;
-    type State = i32;  // The number of attempts to run the bulk on, default = 5
+    type State = (i32, MarketType);  // The number of attempts to run the bulk on, default = 5
     type Arguments = ();
 
     async fn pre_start(
@@ -66,7 +66,9 @@ where
     ) -> Result<Self::State, ActorProcessingErr> {
 
 	info!("Initializing Bulk processor: {}", self.processor_name);
-	Ok(0)  // intialized to 0 attempts.
+	Ok(
+            (0, MarketType::new(self.processor_name.clone()))
+        )  // intialized to 0 attempts.
     }
 
     async fn handle(

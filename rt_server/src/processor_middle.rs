@@ -4,8 +4,7 @@ use std::sync::Arc;
 use tracing::{info, warn, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
-use crate::market::{MarketType, MarketSwitching};
-use crate::all_markets::AllMarkets;
+use crate::market::{MarketType, MarketSwitching, AllMarkets, };
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
@@ -85,7 +84,7 @@ where
 		TradeRep::<T>::default(),
 		PortfolioType::default(),
 		ProcessorMiddleState::Idle,
-                MarketType::new(self.processor_name),
+                MarketType::new(self.processor_name.clone()),
 	    )
 	)
     }
@@ -373,7 +372,7 @@ where
 		    self.processor_name,
 		);
 
-                let (potential_trades, potential_portfolio, _new_market, upstream_processor) = ntp;
+                let (ref potential_trades, ref potential_portfolio, ref _new_market, ref upstream_processor) = ntp;
 
 		// switch markets as well
 		self.switch_market(market).await?;
@@ -386,8 +385,8 @@ where
 		)?;
 
                 // acknowledge to the sending processor that it was accepted.
-                *trade_l = potential_trades;
-                *portf = potential_portfolio;
+                *trade_l = potential_trades.clone();
+                *portf = potential_portfolio.clone();  // TODO: CHECK HERE AND ABOVE
 
                 upstream_processor.send_message(
                    ProcessorMiddleMessage::Behind(TradeRep::<T>::default())

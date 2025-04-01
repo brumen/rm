@@ -2,8 +2,7 @@ use tracing::{info, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 
-use crate::market::{MarketType, MarketSwitching,};
-use crate::all_markets::AllMarkets;
+use crate::market::{MarketType, MarketSwitching, AllMarkets, };
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;
@@ -59,7 +58,7 @@ where
 	self.pricing_options.pricing_server.clone()
     }
 
-    fn _pricing_endpoint_spark(&self, _market_: String, _metric: PricingMetric) -> String {
+    fn _pricing_endpoint_spark(&self, _market_: MarketType, _metric: PricingMetric) -> String {
 	"/pricing".to_string()
     }
 }
@@ -94,7 +93,10 @@ where
 		TradeRep::<T>::default(),
 		PortfolioType::default(),
 		ProcessorNewState::Idle,
-                (MarketType::new(self.processor_name), MarketType::new("future".to_string())),  // TODO: FIX THIS HERE
+                (
+                    MarketType::new(self.processor_name.clone()),
+                    MarketType::new("future".to_string())
+                ),
 	    )
 	)
     }
@@ -106,7 +108,7 @@ where
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	let (trade_l, trades_non_pricing, portf, pns, (new_m, future_m)) = state;
+	let (trade_l, trades_non_pricing, portf, pns, (ref mut new_m, future_m)) = state;
 
         info!(
             "State: {:?}. Portf size: {}, Nb trades: {}",
@@ -286,11 +288,11 @@ where
                                 Some(_) => {
                                     self._switch_markets(
 				        future_m,
-				        new_m,
+				        &new_m,
 			            ).await;
                                 },
                                 None => {
-                                    *new_m = *future_m;
+                                    *new_m = future_m.clone();  // TODO: CHECK IF THIS IS RIGHT????
                                 }
                             }
                             info!("CalculatingSingle, Behind: Going to state Idle.");

@@ -9,13 +9,12 @@ use serde_json;
 use thiserror;
 
 // use crate::ao_trade::AOTrade;
-use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
 use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::ProcessorMiddleMessage;
-use crate::market::{MarketType, MarketSwitching};
+use crate::market::{MarketType, MarketSwitching, AllMarkets};
 
 
 pub(crate) struct ProcessorCurr<T>{
@@ -123,7 +122,7 @@ where
 
 	let initial_trades = TradeRep::<T>::default();
 	let initial_curr_portf = PortfolioType::default();
-        let market = MarketType::new(self.processor_name);
+        let market = MarketType::new(self.processor_name.clone());
 
 	Ok((initial_trades, initial_curr_portf, market))
     }
@@ -144,7 +143,7 @@ where
 		let valued_trade = trade.value_by_metric2(
 		    self.metric,
                     &self.pricing_options,
-		    market,
+		    market.clone(),  // TODO: CHECK IF THIS IS OK! MIGHT BE IMPROVED!!!
 		).await;
 
 		// updating the portfolio

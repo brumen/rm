@@ -37,7 +37,9 @@ where
 	let new_mkt = MarketType::try_from_ref(&new_mkt_msg)?;
 	myself.send_message(new_mkt)?;
 
-	Ok(MarketType::new())
+	Ok(
+            MarketType::new("originating".to_string())  // TODO: THIS HAS TO BE FIXED!!!
+        )
     }
 
     async fn handle(

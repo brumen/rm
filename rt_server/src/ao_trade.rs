@@ -6,7 +6,7 @@ use std::ops::{Deref, DerefMut};
 use ractor::async_trait;
 use std::fmt;
 
-use crate::market::{CurrNewMarket, MarketGeneral};
+use crate::market::MarketType;
 use crate::portfolio::PV01Results;
 use crate::portfolio::PricingResults;
 use crate::pricer::{Decoder, MarketPricingOptions, PriceTradeAsync, PricingMetric};
@@ -56,14 +56,10 @@ impl ProcessTradeValue for AOTrade {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketGeneral,
+        curr_new_mkt: MarketType,
     ) -> PricingResults {
-        let market_remote = match curr_new_mkt {
-            MarketGeneral::MarketRemote(cn_mkt) => cn_mkt,
-            MarketGeneral::MarketLocal(_) => panic!(),
-        };
 
-        self.value_by_metric(metric, pricing_options, market_remote)
+        self.value_by_metric(metric, pricing_options, curr_new_mkt)
             .await
     }
 }
@@ -76,7 +72,7 @@ impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
     async fn price(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
+        curr_new_mkt: MarketType,
     ) -> Option<f64> {
         let trade_id = self.id();
         let results_pricing = self
@@ -113,7 +109,7 @@ impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
     async fn pv01(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
+        curr_new_mkt: MarketType,
     ) -> PV01Results {
         let trade_id = self.id();
         let results_pricing = self
@@ -196,14 +192,10 @@ impl ProcessTradeValue for AOTradeRep {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketGeneral,
+        curr_new_mkt: MarketType,
     ) -> PricingResults {
-        let market_remote = match curr_new_mkt {
-            MarketGeneral::MarketRemote(cn_mkt) => cn_mkt,
-            MarketGeneral::MarketLocal(_) => panic!(),
-        };
 
-        self.value_by_metric(metric, pricing_options, market_remote)
+        self.value_by_metric(metric, pricing_options, curr_new_mkt)
             .await
     }
 }
