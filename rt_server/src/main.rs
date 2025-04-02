@@ -93,14 +93,20 @@ async fn run_all() {
 
     info!("Starting main system controller.");
     let host = std::env::var("HOST").expect("Could not find HOST in .env");
-    let kafka_port = std::env::var("KAFKA_PORT").expect("Could not find KAFKA_PORT in .env");
+    let kafka_port = std::env::var("KAFKA_PORT")
+        .expect("Could not find KAFKA_PORT in .env");
     let kafka_server = format!("{host}:{kafka_port}");
     let metric = PricingMetric::PV;
-    let pos_topic = std::env::var("POSITIONS_TOPIC").expect("Could not find POSITIONS_TOPIC in .env");  // "air_options.ao.option_positions".to_string();
-    let mkt_topic = std::env::var("MKT_TOPIC").expect("Could not find MKT_TOPIC in .env");  // "air_options.ao.mkt_events".to_string();
-    let results_topic = std::env::var("RESULTS_TOPIC").expect("Could not find RESULTS_TOPIC in .env");  //"air_options.ao.results".to_string();
-    let market_port = std::env::var("MARKET_PORT").expect("Could not find MARKET_PORT in .env");
-    let pricing_port = std::env::var("PRICING_PORT").expect("Could not find PRICING_PORT in .env");
+    let pos_topic = std::env::var("POSITIONS_TOPIC")
+        .expect("Could not find POSITIONS_TOPIC in .env");  // "air_options.ao.option_positions"
+    let mkt_topic = std::env::var("MKT_TOPIC")
+        .expect("Could not find MKT_TOPIC in .env");  // "air_options.ao.mkt_events"
+    let results_topic = std::env::var("RESULTS_TOPIC")
+        .expect("Could not find RESULTS_TOPIC in .env");  //"air_options.ao.results"
+    let market_port = std::env::var("MARKET_PORT")
+        .expect("Could not find MARKET_PORT in .env");
+    let pricing_port = std::env::var("PRICING_PORT")
+        .expect("Could not find PRICING_PORT in .env");
     let pricing_options = MarketPricingOptions {
 	pricing_server: format!("{host}:{pricing_port}"),
 	pricing_endpoint: "pv".to_string(),
@@ -108,7 +114,9 @@ async fn run_all() {
         market_endpoint: "market".to_string(),
     };
 
-    let state = Arc::new(Mutex::new(portfolio::PortfolioType::default()));
+    let state = Arc::new(
+        Mutex::new(portfolio::PortfolioType::default())
+    );
     let state2 = state.clone();
 
     let axum_process = task::spawn(
