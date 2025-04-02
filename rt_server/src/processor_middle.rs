@@ -171,7 +171,9 @@ where
                     "Processor {}, CalculatingBulk: Sending new portfolio below",
                     self.processor_name,
                 );
-		self.processor_below.send_message(
+
+                // TODO: CHECK IF THIS SHOULD BE HANDLED???
+                let _ = self.processor_below.send_message(
 		    ProcessorMiddleMessage::NewTradePortfolio(
 			(trade_l.clone(), portf.clone(), market.clone(), myself)
 		    )
@@ -388,7 +390,8 @@ where
                 *trade_l = potential_trades.clone();
                 *portf = potential_portfolio.clone();  // TODO: CHECK HERE AND ABOVE
 
-                upstream_processor.send_message(
+                // TODO: CHECK IF THIS SHOULD BE HANDLED???
+                let _ = upstream_processor.send_message(
                    ProcessorMiddleMessage::Behind(TradeRep::<T>::default())
                 );
 
@@ -445,7 +448,8 @@ where
 		    );
 		}
                 // send upstream a message that the portfolio is accepted.
-                upstream_processor.send_message(
+                // TODO: CHECK IF THIS SHOULD BE BETTER HANDLED
+                let _ = upstream_processor.send_message(
                     ProcessorMiddleMessage::Behind(new_behind_curr)
                 );
 	    },
@@ -501,7 +505,8 @@ where
                     }
 		}
                 // sending upstream that we are done.
-                upstream_processor.send_message(
+                // TODO: CHECK IF THIS SHOULD BE BETTER HANDLED
+                let _ = upstream_processor.send_message(
                     ProcessorMiddleMessage::Behind(new_behind_curr)
                 );
 	    },
