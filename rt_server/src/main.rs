@@ -36,7 +36,6 @@ mod ref_deref;
 //mod rm_local;
 mod streaming;
 mod trade;
-//mod trade_procs;
 //mod trader;
 
 // actor framework new

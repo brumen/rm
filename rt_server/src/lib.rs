@@ -16,7 +16,6 @@ pub mod ref_deref;
 // pub mod rm_local;
 pub mod streaming;
 pub mod trade;
-// pub mod trade_procs;
 // pub mod trader;
 
 // actor framework new
