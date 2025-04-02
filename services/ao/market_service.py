@@ -162,7 +162,10 @@ class AOMarketService(MarketService):
         :returns: encoded market in the format above.
         """
 
-        return dumps(self.encode_from_tuple(mkt_to_encode))
+        return dumps({
+            'market_name': 'future',
+            'market': self.encode_from_tuple(mkt_to_encode)),
+        })
 
     @classmethod
     def decode_mkt_data(

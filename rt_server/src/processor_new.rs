@@ -289,7 +289,7 @@ where
                                     self._switch_markets(
 				        future_m,
 				        &new_m,
-			            ).await;
+			            ).await?;
                                 },
                                 None => {
                                     *new_m = future_m.clone();  // TODO: CHECK IF THIS IS RIGHT????

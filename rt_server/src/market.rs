@@ -16,7 +16,6 @@ use thiserror::Error;
 
 use crate::ref_deref::TryFromRef;
 use crate::ref_deref_trait;
-//use crate::all_markets::AllMarkets;
 
 // market information = ((flight, market date), value)
 // MK ... mnemonic for market key
@@ -51,18 +50,18 @@ impl IntoIterator for MarketType {
 // ref_deref_trait!(MarketType, MarketInner);
 
 impl MarketType {
-    pub fn new(market_name: String) -> Self {
+    pub(crate) fn new(market_name: String) -> Self {
         Self{
             market_name,
             market: MarketInner::new(),
         }
     }
 
-    pub fn insert(&mut self, key: String, value: f64) {
+    pub(crate) fn insert(&mut self, key: String, value: f64) {
         self.market.insert(key, value);
     }
 
-    pub fn next_market(&self, mn: &AllMarkets) -> Option<Self> {
+    pub(crate) fn next_market(&self, mn: &AllMarkets) -> Option<Self> {
 	mn.above_market(&self.market_name)
     }
 }
@@ -134,18 +133,12 @@ pub struct LETFP {
     pub curr_mkt: Arc<Mutex<MarketType>>,
 }
 
+
 #[derive(Debug, Clone)]
 pub enum MktMsgParams {
     AOParams(),
     LETFParams(LETFP),
 }
-
-pub(crate) enum MarketNames {
-    Current(String),
-    Middle(String),
-    New(String),
-}
-
 
 
 #[async_trait]
@@ -273,7 +266,7 @@ pub(crate) struct AllMarkets(Vec<MarketType>);
 impl AllMarkets {
 
     /// Default implemnentation of the market names.
-    pub fn new(nb_middle: usize) -> Self {
+    pub(crate) fn new(nb_middle: usize) -> Self {
 	let mut middle_markets = vec![];
 	middle_markets.push(MarketType::new("current".to_string()));
 	for middle_nb in 0..nb_middle {
@@ -286,7 +279,7 @@ impl AllMarkets {
 	Self(middle_markets)
     }
 
-    pub fn get(&self, market_nb: usize) -> &String {
+    pub(crate) fn get(&self, market_nb: usize) -> &String {
 	&self.0[market_nb].market_name
     }
 
