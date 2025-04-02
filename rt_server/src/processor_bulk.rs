@@ -98,7 +98,7 @@ where
 		    pricing_futs.push(
 			trade.value_by_metric2(
 			    self.metric, &self.pricing_options,
-			    MarketGeneral::MarketRemote(self.market_name.clone())
+			    self.market_name.clone(),  // TODO: CHECK HERE!!
 			)
 		    );
 		}

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use ractor::ActorRef;
 
 use crate::pricer::{MarketPricingOptions, PricingMetric};
-use crate::market::{AllMarkets, CurrNewMarket, MarketSwitching, MarketType};
+use crate::market::{AllMarkets, MarketSwitching, MarketType};
 use crate::process_trade::ProcessTradeValue;
 use crate::processor_middle::ProcessorMiddle;
 use crate::processor_bulk::ProcessorBulk;
@@ -47,7 +47,7 @@ pub(crate) async fn create_middle_procs_chain<T: Send + Clone + Debug + Display 
 	let market_name = all_markets.get(middle_nb);
 	let bulk_middle = ProcessorBulk {
 	    processor_name: format!("bulk_{}", market_name),
-	    market_name: CurrNewMarket(market_name.clone()),
+	    market_name: MarketType::new(market_name.clone()),
 	    metric,
 	    pricing_options: pricing_options.clone(),
             trades: TradeRep::<T>::default(),
@@ -65,14 +65,14 @@ pub(crate) async fn create_middle_procs_chain<T: Send + Clone + Debug + Display 
 	let proc_middle = ProcessorMiddle {
 	    metric,
 	    pricing_options: pricing_options.clone(),
-	    market_name: CurrNewMarket(market_name.clone()),
+	    processor_name: market_name.clone(),
 	    processor_below: last_middle,
 	    processor_bulk: bulk_actor,
-	    r_client: reqwest::Client::new(),
+	    r_client: Some(reqwest::Client::new()),
 	    all_markets: all_markets.clone(),
 	};
         proc_middle.set_market(
-            MarketType::default(), CurrNewMarket(market_name)
+            MarketType::default(), &mut MarketType::new(market_name.to_string())
         )
             .await
             .expect("Could not set the {market_name} market.");
