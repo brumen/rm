@@ -44,7 +44,10 @@ class LETFMarketProducer(BaseProducer):
 
         while True:
 
-            yield self.curr_stocks
+            yield {
+                'market_name': 'future',
+                'market': self.curr_stocks
+            }
 
             for stock in self._stocks:
                 # add some random value to the current stock values

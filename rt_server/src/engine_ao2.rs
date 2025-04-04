@@ -1,5 +1,6 @@
 // construct and connect all the actors for the AirOption framework
 use ractor::Actor;
+use rdkafka::message::BorrowedMessage;
 use tokio::task::JoinHandle;
 use tracing::info;
 use std::sync::{Arc,Mutex};
@@ -11,6 +12,7 @@ use crate::pricer::{MarketPricingOptions, PricingMetric};
 
 use crate::market::{AllMarkets, MarketSwitching, MarketType};
 use crate::publish::connect_with_retries_producer_rd;
+use crate::ref_deref::TryFromRef;
 use crate::trade_sender::TradeProducer;
 use crate::processor_curr::ProcessorCurr;
 use crate::processor_new::ProcessorNew;
@@ -23,7 +25,11 @@ use crate::process_trade::ProcessTradeValue;
 
 
 /// initializes all the actors
-pub(crate) async fn start2<T: Display + Debug + BaseTrade + Clone + Send + Sync + ProcessTradeValue + 'static>(
+
+/// initialize_client: whether the reqwest client is set, or None.
+///   (setting it uses the client for remote pricing, putting it
+///    to None, means pricing is local.)
+pub(crate) async fn start2<T>(
     kafka_server: String,  // server including the port.  'localhost:9010'
     metric: PricingMetric,  // pricing metric, like PV
     pos_topic: String,     // position topic on kafka
@@ -33,7 +39,10 @@ pub(crate) async fn start2<T: Display + Debug + BaseTrade + Clone + Send + Sync 
     server_state: Arc<Mutex<PortfolioType>>,
     all_markets: Arc<AllMarkets>,
     initial_trades: TradeRep::<T>,
-) -> Vec<JoinHandle<()>> {
+    initialize_client: bool,
+) -> Vec<JoinHandle<()>>
+where T: Display + Debug + BaseTrade + Clone + Send + Sync + ProcessTradeValue + 'static + for<'a> TryFromRef<BorrowedMessage<'a>>
+{
 
     let current_market = all_markets.get(0);
 
@@ -55,13 +64,18 @@ pub(crate) async fn start2<T: Display + Debug + BaseTrade + Clone + Send + Sync 
 	&kafka_server
     );
 
+    let current_r_client = match initialize_client {
+        true => Some(reqwest::Client::new()),
+        false => None,
+    };
+
     let processor_curr = ProcessorCurr {
 	processor_name: all_markets.get(0).clone(),
 	metric,
 	results_topic,
 	pricing_options: (*pricing_options).clone(),
 	result_publisher,
-	r_client: Some(reqwest::Client::new()),
+	r_client: current_r_client,
 	portf: server_state,
 	all_markets: all_markets.clone(),
         trades: initial_trades,
@@ -94,16 +108,21 @@ pub(crate) async fn start2<T: Display + Debug + BaseTrade + Clone + Send + Sync 
 	    metric,
 	    pricing_options.clone(),
 	    all_markets.clone(),
+            initialize_client,
 	).await;
 
     let nb_middle_mkts = all_markets.len();
     let last_market_name = all_markets.get(nb_middle_mkts-1);  // last market name in all_markets, should be "new" or similar
+    let new_r_client = match initialize_client {
+        true => Some(reqwest::Client::new()),
+        false => None,
+    };
     let processor_new = ProcessorNew {
 	metric,
 	pricing_options: (*pricing_options).clone(),
 	processor_middle: last_middle.clone(),
 	processor_bulk: _processor_bulk_a.clone(),
-	r_client: Some(reqwest::Client::new()),
+	r_client: new_r_client,
 	processor_name: last_market_name.clone(),
 	all_markets: all_markets.clone(),
         market_name: (

@@ -141,9 +141,11 @@ async fn run_all() {
     // let initial_trades = TradeRep::<AOTrade>::default();  // defines the type of trades.
     let initial_trades = TradeRep::<TradeTypes>::default();  // defines the type of trades.
 
+    let initialize_client = false;
+
     let mut result = start2(
     	kafka_server, metric, pos_topic, mkt_topic, results_topic, &pricing_options, state,
-	all_markets, initial_trades,
+	all_markets, initial_trades, initialize_client,
     ).await;
 
     results.append(&mut result);

@@ -142,8 +142,10 @@ impl TryFromRef<BorrowedMessage<'_>> for TradeTypes {
 
     fn try_from_ref(value: &BorrowedMessage) -> Result<Self, Self::Error> {
         let msg_value = match value.payload() {
-	    None => {return Err(TradeError::NoPayload);},
-	    Some(msg_payload) => msg_payload,
+	   None => {
+               return Err(TradeError::NoPayload);
+           },
+	   Some(msg_payload) => msg_payload,
 	};
         let msg_utf = std::str::from_utf8(msg_value)?;
 

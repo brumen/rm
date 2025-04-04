@@ -24,6 +24,7 @@ pub(crate) async fn create_middle_procs_chain<T: Send + Clone + Debug + Display 
     metric: PricingMetric,  // TODO: THIS SHOULD CHANGE
     pricing_options: MarketPricingOptions,
     all_markets: Arc<AllMarkets>,
+    initialize_client: bool,
 ) ->
     (
 	Vec<ActorRef<ProcessorMiddleMessage<T>>>,
@@ -62,13 +63,17 @@ pub(crate) async fn create_middle_procs_chain<T: Send + Clone + Debug + Display 
 	bulk_actors_futures.push(bulk_actor_future);
 	bulk_actors.push(bulk_actor.clone());
 
+        let middle_r_client = match initialize_client {
+            true => Some(reqwest::Client::new()),
+            false => None,
+        };
 	let proc_middle = ProcessorMiddle {
 	    metric,
 	    pricing_options: pricing_options.clone(),
 	    processor_name: market_name.clone(),
 	    processor_below: last_middle,
 	    processor_bulk: bulk_actor,
-	    r_client: Some(reqwest::Client::new()),
+	    r_client: middle_r_client,
 	    all_markets: all_markets.clone(),
 	};
         proc_middle.set_market(

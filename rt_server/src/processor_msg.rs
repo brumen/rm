@@ -1,5 +1,5 @@
 /// messages for the Actor references.
-/// 
+///
 
 use crate::market::MarketType;
 //use crate::ao_trade::AOTrade;

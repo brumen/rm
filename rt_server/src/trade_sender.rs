@@ -2,13 +2,14 @@
 // Trade producer, reads from kafka and informs ProcessorCurr and
 //   ProcessorNew
 
+use rdkafka::message::BorrowedMessage;
 use tracing::{info, instrument};
 use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::portfolio_sender::connect_with_retries_rd;
-use crate::ref_deref::TryFromRef;
-use crate::trade::TradeRep;
+use crate::ref_deref::{TryFromRef, TryFromRef2,};
+use crate::trade::{BaseTrade, TradeRep};
 use crate::ao_trade::AOTrade;
 
 // new and current processors.
@@ -39,10 +40,12 @@ impl<T> TradeProducer<T> {
 
 
 #[async_trait]
-impl<T: 'static> Actor for TradeProducer<T>
+impl<T> Actor for TradeProducer<T>
+where
+    T: Send + Sync + std::fmt::Debug + Clone + BaseTrade + 'static + for<'a> TryFromRef2<BorrowedMessage<'a>>,
 {
-    type Msg = AOTrade;
-    type State = TradeRep<AOTrade>;  // list of existing trades.
+    type Msg = ProcessorMiddleMessage<T>;
+    type State = TradeRep<T>;  // list of existing trades.
     type Arguments = ();
 
     async fn pre_start(
@@ -52,10 +55,17 @@ impl<T: 'static> Actor for TradeProducer<T>
     ) -> Result<Self::State, ActorProcessingErr> {
 
 	info!("Initiating TradeProducer");
-	let trade_msg = self.position_listener.recv().await?;
-	let trade_1 = AOTrade::try_from_ref(&trade_msg)?;
-	info!("First trade: {:?}", trade_1);
-        myself.send_message(trade_1)?;  // first message
+
+        let msg1 = self.position_listener.recv();
+        let trade_msg = msg1.await?;
+
+        //let trade_1 = AOTrade::try_from_ref(&trade_msg)?;
+        let _trade_1 = T::try_from_ref(&trade_msg)?;
+
+        //info!("First trade: {:?}", trade_1);
+        //myself.send_message(
+        //    ProcessorMiddleMessage::NewTrade(trade_1)
+        //)?;  // first message
 
         Ok(TradeRep::default())  // default empty state.
     }
@@ -68,19 +78,23 @@ impl<T: 'static> Actor for TradeProducer<T>
     ) -> Result<(), ActorProcessingErr>  {
 
         // add trades to trade_reduce
-        let trade = message;
+        let trade_m = message;
 
 	for processor in &self.processors[..] {
-	    processor.send_message(
-		ProcessorMiddleMessage::NewTrade(trade.clone())
-	    )?;
+	    processor.send_message(trade_m)?;
 	}
 
-        *state += &trade;
+
+        if let ProcessorMiddleMessage::NewTrade(trade) = trade_m {
+            *state += &TradeRep::from([trade,]);
+        }  // only this is possible, so it's fine.
 
 	let new_msg = self.position_listener.recv().await?;
-	let new_trade = AOTrade::try_from_ref(&new_msg)?;
-	myself.send_message(new_trade)?;
+
+        let new_trade = T::try_from_ref(new_msg)?;
+	myself.send_message(
+            ProcessorMiddleMessage::NewTrade(new_trade)
+        )?;
 
 	Ok(())
     }
