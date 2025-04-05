@@ -1,5 +1,10 @@
 use std::fmt::Debug;
 
+use rdkafka::{message::BorrowedMessage, Message};
+use serde::Deserialize;
+
+use crate::trade::TradeError;
+
 #[macro_export]
 macro_rules! ref_deref_trait {
     ( $x:ty, $y:ty ) => {
@@ -43,10 +48,20 @@ pub trait TryFromRef<T: Sized> {
 }
 
 
-pub trait TryFromRef2<T: Sized + 'static> {
-    type Error: Debug + Send + Sync + std::error::Error;
+pub trait TryFromRef2
+where
+    for <'a> Self: Deserialize<'a>,
+{
 
-    fn try_from_ref(value: &T) -> Result<Self, Self::Error>
-    where
-        Self: Sized + Debug;
+    fn try_from_ref(value: &BorrowedMessage) -> Result<Self, TradeError> {
+        let msg_value = match value.payload() {
+	    None => {
+                return Err(TradeError::NoPayload);
+            },
+	    Some(msg_payload) => msg_payload,
+	};
+        let msg_utf = std::str::from_utf8(msg_value)?;
+
+        Ok(serde_json::from_str::<Self>(msg_utf)?)
+    }
 }

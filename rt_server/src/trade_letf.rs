@@ -9,7 +9,7 @@ use crate::market::MarketType;
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
 use crate::pricer::{Decoder, PriceTrade, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
-use crate::ref_deref::TryFromRef;
+use crate::ref_deref::{TryFromRef, TryFromRef2};
 use crate::ref_deref_trait;
 use crate::trade::TradeError;
 use crate::trade::BaseTrade;
@@ -134,22 +134,6 @@ impl LETFTrade {
                 amount: beta * amount,
             }),
         ]
-    }
-}
-
-impl TryFromRef<BorrowedMessage<'_>> for TradeTypes {
-    type Error = TradeError;
-
-    fn try_from_ref(value: &BorrowedMessage) -> Result<Self, Self::Error> {
-        let msg_value = match value.payload() {
-	   None => {
-               return Err(TradeError::NoPayload);
-           },
-	   Some(msg_payload) => msg_payload,
-	};
-        let msg_utf = std::str::from_utf8(msg_value)?;
-
-        Ok(serde_json::from_str::<TradeTypes>(msg_utf)?)
     }
 }
 
@@ -295,6 +279,8 @@ impl TradeTypes {
 }
 
 impl Decoder for TradeTypes {}
+impl TryFromRef2 for TradeTypes {}
+
 
 #[async_trait]
 impl ProcessTradeValue for TradeTypes {

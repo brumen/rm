@@ -1,6 +1,7 @@
 // construct and connect all the actors for the AirOption framework
 use ractor::Actor;
 use rdkafka::message::BorrowedMessage;
+use serde::Deserialize;
 use tokio::task::JoinHandle;
 use tracing::info;
 use std::sync::{Arc,Mutex};
@@ -12,13 +13,12 @@ use crate::pricer::{MarketPricingOptions, PricingMetric};
 
 use crate::market::{AllMarkets, MarketSwitching, MarketType};
 use crate::publish::connect_with_retries_producer_rd;
-use crate::ref_deref::TryFromRef;
+use crate::ref_deref::{TryFromRef, TryFromRef2,};
 use crate::trade_sender::TradeProducer;
 use crate::processor_curr::ProcessorCurr;
 use crate::processor_new::ProcessorNew;
 use crate::processor_bulk::ProcessorBulk;
 use crate::portfolio::PortfolioType;
-// use crate::ao_trade::AOTrade;
 use crate::trade::{BaseTrade, TradeRep};
 use crate::engine_actor::create_middle_procs_chain;
 use crate::process_trade::ProcessTradeValue;
@@ -41,7 +41,9 @@ pub(crate) async fn start2<T>(
     initial_trades: TradeRep::<T>,
     initialize_client: bool,
 ) -> Vec<JoinHandle<()>>
-where T: Display + Debug + BaseTrade + Clone + Send + Sync + ProcessTradeValue + 'static + for<'a> TryFromRef<BorrowedMessage<'a>>
+where T: Display + Debug + BaseTrade + Clone + Send + Sync +
+    ProcessTradeValue + 'static + TryFromRef2 +
+    for<'a> Deserialize<'a>
 {
 
     let current_market = all_markets.get(0);
@@ -54,7 +56,7 @@ where T: Display + Debug + BaseTrade + Clone + Send + Sync + ProcessTradeValue +
 	    market_name: MarketType::new(current_market.clone()),
 	    metric,
 	    pricing_options: (*pricing_options).clone(),
-            trades: initial_trades.clone(),  // TradeRep::<T>::default(),  // TradeRep::<AOTrade>::default(),
+            trades: initial_trades.clone(),
 	},
 	(),
     ).await
