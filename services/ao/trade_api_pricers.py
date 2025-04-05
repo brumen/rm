@@ -3,6 +3,7 @@
     writes logs to /tmp/trade_pv_restr.log
 """
 
+import os
 import logging
 import datetime
 import sys
@@ -15,6 +16,7 @@ from typing import List, Dict, Tuple, Any, Optional, Generator
 # from pyspark import SparkContext, SparkConf
 from sqlalchemy.exc import OperationalError
 from functools import lru_cache
+from dotenv import load_dotenv
 
 if sys.version_info >= (3, 12, 0):
     sys.modules['kafka.vendor.six.moves'] = six.moves
@@ -40,7 +42,11 @@ default_params: Dict[str, Any] = {'default_price': 200., 'nb_sim': 500}
 # ao_engine = create_engine(ao_db)
 # ao_session = sessionmaker(bind=ao_engine)
 
-PRICING_SERVER_NAME = 'http://192.168.1.107:8000'
+load_dotenv()
+
+HOST = os.getenv('HOST')
+MARKET_PORT = os.getenv('MARKET_PORT')
+PRICING_SERVER_NAME = f'http://{HOST}:{MARKET_PORT}'
 
 
 class CurrNewMarket(Enum):

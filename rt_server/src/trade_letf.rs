@@ -1,7 +1,7 @@
 use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut, };
-use tracing::{debug, warn};
+use tracing::{debug, warn, info};
 use ractor::async_trait;
 use std::fmt;
 
@@ -295,7 +295,15 @@ impl ProcessTradeValue for TradeTypes {
         match metric {
             PricingMetric::PV => {
                 let price = self.price(&actual_market);
-                PricingResults::PV(PortfolioType::from([(self.id(), price.unwrap())]))
+                match price {
+                    None => {
+                        warn!("Could not price {}", self.id());
+                        PricingResults::PV(PortfolioType::default())
+                    },
+                    Some(actual_price) => {
+                        PricingResults::PV(PortfolioType::from([(self.id(), actual_price)]))
+                    },
+                }
             }
             PricingMetric::PV01 => {
                 let pv01 = self.pv01(&actual_market);
@@ -303,7 +311,15 @@ impl ProcessTradeValue for TradeTypes {
             }
             PricingMetric::PnL => {
                 let pnl = self.pnl(&actual_market);
-                PricingResults::PV(PortfolioType::from([(self.id(), pnl.unwrap_or(0.01))]))
+                match pnl {
+                    None => {
+                        warn!("Could not compute PNL for {}", self.id());
+                        PricingResults::PV(PortfolioType::default())
+                    },
+                    Some(actual_pnl) => {
+                        PricingResults::PV(PortfolioType::from([(self.id(), actual_pnl)]))
+                    },
+                }
             }
         }
     }

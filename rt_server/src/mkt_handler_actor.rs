@@ -38,7 +38,7 @@ where
 	myself.send_message(new_mkt)?;
 
 	Ok(
-            MarketType::new("originating".to_string())  // TODO: THIS HAS TO BE FIXED!!!
+            MarketType::new("new".to_string())  // TODO: THIS HAS TO BE FIXED!!!
         )
     }
 

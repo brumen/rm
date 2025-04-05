@@ -7,21 +7,27 @@
     Market service publishes on mkt_events topic, mkt event is the uuid4 described above.
 """
 
+import os
+from dotenv import load_dotenv
 
 from rm.services.letf.trade_service import LETFTradeProducer
 from rm.services.letf.letf_market_service import LETFMarketProducer
 
 
 # start the leveraged etf market producer
-KAFKA_HOST = '192.168.1.107'
+load_dotenv()
+KAFKA_HOST = os.getenv('HOST')  # '192.168.1.107'
+KAFKA_PORT = os.getenv('KAFKA_PORT')  # 9092
+MKT_TOPIC = os.getenv('MKT_TOPIC')
+POSITIONS_TOPIC = os.getenv('POSITIONS_TOPIC')
 
 letf_market_producer = LETFMarketProducer(
     stocks=['AAPL', 'NVDA', ],
-    server_port_topic=(KAFKA_HOST, 9092, 'letf.mkt'),
+    server_port_topic=(KAFKA_HOST, KAFKA_PORT, MKT_TOPIC),
 )
 letf_trade_producer = LETFTradeProducer(
     stocks=['AAPL', 'NVDA', ],
-    server_port_topic=(KAFKA_HOST, 9092, 'letf.positions',),
+    server_port_topic=(KAFKA_HOST, KAFKA_PORT, POSITIONS_TOPIC, ),
     mkt_producer=letf_market_producer,
 )
 

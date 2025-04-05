@@ -204,9 +204,16 @@ where
 		    );
 
 		    // *portf = PortfolioType::default();
-		    let mkt_above = market
-		        .next_market(&self.all_markets)
-		        .expect("No next market. PROBLEM!!");
+		    let mkt_above = match market.next_market(&self.all_markets) {
+                        None => {
+                            warn!(
+                                "Could not find the next market of: {}. All_Markets: {:?}. Leaving markets as they are.",
+                                market, self.all_markets
+                            );
+                            market.clone()  // TODO: FIX THIS!!!
+                        },
+                        Some(actual_next_market) => actual_next_market,
+                    };
 
 		    info!(
 			"Processor {}: Switching markets {} <- {}. Going to Idle.",

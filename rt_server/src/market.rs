@@ -6,7 +6,7 @@ use uuid::Uuid;
 use std::collections::{hash_map::IntoIter, HashMap};
 use std::ops::{AddAssign, Deref, DerefMut};
 use std::sync::mpsc::Sender;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use std::fmt;
 
 use std::default::Default;
@@ -115,9 +115,8 @@ impl TryFromRef<BorrowedMessage<'_>> for MarketType {
 
 impl fmt::Display for MarketType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // TODO: POSSIBLY INCLUDE A MARKET DESIGNATION!!!
         let nb_items = self.market.len();
-        write!(f, "Local mkt with {} items: ", nb_items)
+        write!(f, "Market: {}, nb_items: {}.", self.market_name, nb_items)
     }
 }
 
@@ -243,9 +242,9 @@ pub trait MarketSwitching {
 
 	match market_name.next_market(&self.all_markets()) {
 	    None => {
-		info!(
-		    "Could not find next market of {}. Nothing to do.",
-		    market_name.market_name,
+		warn!(
+		    "Could not find next market of {}. All markets: {:?}, Leaving as it is.",
+		    market_name.market_name, self.all_markets(),
 		);
 		return Ok(());
 	    },

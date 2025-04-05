@@ -30,6 +30,38 @@ pub enum ProcessorNewState {
 }
 
 
+impl<T> ProcessorNew<T> {
+
+    /// replaces the future_mkt with replace_mkt.
+    ///   either on the server or in the controller.
+    async fn _replace_fut_market(
+        &self,
+        replace_mkt: MarketType,
+        future_mkt: &mut MarketType
+    ) -> Result<(), ActorProcessingErr> {
+        let actual_market = replace_mkt.market;
+        match self.r_client() {
+            Some(_) => {
+		self.set_market(
+		    MarketType{
+                        market_name: "future".to_string(),
+                        market: actual_market
+                    },
+		    future_mkt,
+		).await?;
+            },
+            None => {
+                *future_mkt = MarketType{
+                    market_name: "future".to_string(),
+                    market: actual_market,
+                };
+            }
+        }
+        Ok(())
+    }
+}
+
+
 impl<T> MarketSwitching for ProcessorNew<T> {
 
     fn all_markets(&self) -> std::sync::Arc<AllMarkets> {
@@ -184,23 +216,18 @@ where
 		}
 	    },
 	    ProcessorMiddleMessage::NewMarket(new_market) => {
-		match pns { // what is the processor doing right now
+
+                match pns { // what is the processor doing right now
 
 		    ProcessorNewState::Idle => {
 			// update the "new" market
                         info!("Idle, NewMarket: setting new market.");
 
-                        match self.r_client() {
-                            Some(_) => {
-			        self.set_market(
-			            new_market,
-			            future_m,
-			        ).await?;
-                            },
-                            None => {
-                                *future_m = new_market;
-                            }
-                        }
+                        self._replace_fut_market(
+                            new_market,  //replace_mkt: MarketType,
+                            future_m,  // future_mkt: &mut MarketType
+                        ).await?;
+
 			// we are idle, we can start calculating, start calculating
                         info!("Idle, NewMarket: sending to bulk. State -> CalculatingBulk");
                         *pns = ProcessorNewState::CalculatingBulk;
@@ -228,17 +255,10 @@ where
                             "CalculatingSingle, NewMarket: setting Future market."
                         );
 
-                        match self.r_client() {
-                            Some(_) => {
-			        self.set_market(
-			            new_market,
-                                    future_m,
-			        ).await?;
-                            },
-                            None => {
-                                *future_m = new_market;
-                            }
-                        }
+                        self._replace_fut_market(
+                            new_market,  //replace_mkt: MarketType,
+                            future_m,  // future_mkt: &mut MarketType
+                        ).await?;
 		    }
 		    // ignore if new market comes in, no
 		    //   action taken.
@@ -246,17 +266,10 @@ where
 			// just update the future market
                         info!("CalculatingBulk, NewMarket: Setting Future market.");
 
-                        match self.r_client() {
-                            Some(_) => {
-			        self.set_market(
-			            new_market,
-			            future_m,
-			        ).await?;
-                            },
-                            None => {
-                                *future_m = new_market;
-                            }
-                        }
+                        self._replace_fut_market(
+                            new_market,  //replace_mkt: MarketType,
+                            future_m,  // future_mkt: &mut MarketType
+                        ).await?;
 		    },
 		}
 	    },
