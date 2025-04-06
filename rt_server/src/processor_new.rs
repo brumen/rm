@@ -294,27 +294,31 @@ where
 			    //   the list of markets.
                             info!(
                                 "Behind, CalculatingSingle: Switching markets: {} <- future",
-                                new_m.clone(),
+                                new_m.market_name,
                             );
 
-                            match self.r_client() {
-                                Some(_) => {
-                                    self._switch_markets(
-				        future_m,
-				        &new_m,
-			            ).await?;
-                                },
-                                None => {
-                                    *new_m = future_m.clone();  // TODO: CHECK IF THIS IS RIGHT????
-                                }
-                            }
-                            info!("CalculatingSingle, Behind: Going to state Idle.");
+                            self._switch_markets(future_m, &new_m);
+
+                            // match self.r_client() {
+                            //     Some(_) => {
+                            //         self._switch_markets(
+			    //             future_m,
+			    //             &new_m,
+			    //         ).await?;
+                            //     },
+                            //     None => {
+                            //         new_m.market = future_m.market.clone();  // TODO: CAN YOU DO W/O COPYING
+                            //     }
+                            // }
+                            info!(
+                                "Processor: new, State: (Behind, CalculatingSingle): Going to state Idle."
+                            );
                             *pns = ProcessorNewState::Idle;
 
 			} else {
 			    // we are still behind the current processor.
                             info!(
-                                "Behind, CalculatingSingle: Still behind lower processor,\
+                                "Processor: new, State: (Behind, CalculatingSingle): Still behind lower processor,\
                                  adding trades ({}) and computing bulk.",
                                 trade_l.len(),
                             );

@@ -193,6 +193,7 @@ pub trait MarketSwitching {
     }
 
     /// switches market_below w/ market_above
+    ///   market_name_below <- market_name_above
     async fn _switch_markets(
 	&self,
 	market_name_below: &mut MarketType,
@@ -229,7 +230,8 @@ pub trait MarketSwitching {
             },
 
             None => {
-                *market_name_below = market_name_above.clone();  // TODO: CHECK HERE!!!
+                // TODO: CHECK THIS FOR NOW.
+                market_name_below.market = market_name_above.market.clone();  // leave name the same
             },
         }
         Ok(())

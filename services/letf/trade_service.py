@@ -55,7 +55,7 @@ class LETFTradeProducer(BaseProducer):
                     'stock': letf_stock,
                     'amount': amount,
                     'beta': self._beta,
-                    'stock_value': None,
+                    'stock_value': 30.,  # TODO: WHAT IS THIS SUPPOSED TO BE???
                 }
             }
 

@@ -12,7 +12,7 @@ if [ "$1" == "monitors" ]; then
 
 elif [ "$1" == "kafka" ]; then
     gnome-terminal --tab -- /home/brumen/archive/software/kafka/start_kafka
-    gnome-terminal --tab -- /home/brumen/archive/software/kafka/start_kafka_connect
+    # gnome-terminal --tab -- /home/brumen/archive/software/kafka/start_kafka_connect
 
     # only trade service is needed. Pricer is done in the controller, and
     # market thread is part of the letf_trade_service
@@ -20,5 +20,6 @@ elif [ "$1" == "services" ]; then
     # gnome-terminal --tab -- /home/brumen/archive/software/kafka/start_kafka
     # gnome-terminal --tab -- /home/brumen/archive/software/kafka/start_kafka_connect
     gnome-terminal --tab -- python /home/brumen/work/rm/services/letf/letf_trade_service.py
+    # python /home/brumen/work/rm/services/letf/letf_trade_service.py
     # gnome-terminal --tab -- python /home/brumen/work/rm/services/letf/letf_market_service.py
 fi

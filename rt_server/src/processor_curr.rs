@@ -173,17 +173,18 @@ where
 		    self._send_portfolio(new_portfolio.clone()).await?;
 
 		    // switch markets on the remote server if we are in the remote configuration
-                    match self.r_client() {
-                        Some(_) => {
-		            self.switch_market(market).await?;
-                        },
-                        _ => {},
-                    }
+                    // match self.r_client() {
+                    //     Some(_) => {
+		    //         self.switch_market(market).await?;
+                    //     },
+                    //     _ => {},
+                    // }
+                    self._switch_markets(market, &new_market).await?;
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;
 		    *trades += &new_trades;
-		    *market = new_market;
+		    // *market = new_market;
 
 		} // otherwise dont do anything.
 	    },
