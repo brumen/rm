@@ -8,7 +8,6 @@ use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;  // for trade.value_by_metric2
 use crate::trade::{BaseTrade, TradeRep};
-//use crate::ao_trade::AOTrade;
 use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
 
@@ -92,7 +91,7 @@ where
 		let mut portfolio = PortfolioType::default();
 		let mut pricing_futs = vec![];
 		for (_, trade) in new_trades.iter() {
-		    info!(
+		    debug!(
 			"Processor: {}: valuing single trade: {}",
 			self.processor_name,
 			trade
@@ -112,7 +111,10 @@ where
 		    portfolio += pricing.aggregate();
 		}
 
-		debug!("Bulk processor to middle actor: {:?}", portfolio);
+		debug!(
+                    "Bulk processor {}: portfolio back to middle actor: {:?}",
+                    self.processor_name, portfolio,
+                );
                 // TODO: TRADES THAT DONT PRICE, INCLUDE IN THIS ::default()
 		processor_new.send_message(
 		    ProcessorMiddleMessage::BulkReceive(

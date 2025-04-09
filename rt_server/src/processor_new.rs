@@ -100,7 +100,7 @@ where
 #[async_trait]
 impl<T> Actor for ProcessorNew<T>
 where
-    T: Send + Clone + 'static + BaseTrade + ProcessTradeValue
+    T: Send + Clone + 'static + BaseTrade + ProcessTradeValue + std::fmt::Display
 {
     type Msg = ProcessorMiddleMessage<T>;
     // first argument is list of trades,
@@ -147,9 +147,6 @@ where
             "State: {:?}. Portf size: {}, Nb trades: {}",
             pns, portf.len(), trade_l.len()
         );
-        info!(
-            "new_m: {}, future_m: {}", new_m, future_m,
-        );
 
 	match message {
 	    ProcessorMiddleMessage::NewTrade(new_trade) => {
@@ -160,7 +157,8 @@ where
 			// add the trade to the new portfolio and
 			//   attempt again.
                         info!(
-                            "CalculatingSingle, NewTrade:, computing trade.",
+                            "CalculatingSingle, NewTrade:, computing trade {}.",
+                            new_trade
                         );
 			let new_trade_price = new_trade.value_by_metric2(
 			    self.metric,
@@ -172,7 +170,9 @@ where
 
 			// we send the computed portfolio & trades to the current processor
 			//   hoping that we are ahead.
-                        info!("CalculatingSingle, NewTrade: Sending to middle processor");
+                        info!(
+                            "CalculatingSingle, NewTrade: Sending to middle processor.",
+                        );
 			self.processor_middle.send_message(
 			    ProcessorMiddleMessage::NewTradePortfolio(
 				(trade_l.clone(), portf.clone(), new_m.clone(), myself)
