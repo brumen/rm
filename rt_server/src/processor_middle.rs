@@ -36,6 +36,10 @@ pub enum ProcessorMiddleState {
 
 impl<T> MarketSwitching for ProcessorMiddle<T> {
 
+    fn processor_name(&self) -> String {
+        self.processor_name.clone()
+    }
+
     fn all_markets(&self) -> std::sync::Arc<AllMarkets> {
 	self.all_markets.clone()
     }
@@ -64,6 +68,9 @@ where
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
     //   fourth is the computation state.
+    //   fifth is the market that the processor is operating on.
+    //      for remote pricing markets only market_name is fine,
+    //      for local markets, the name and the market structure.
     type State = (TradeRep<T>, TradeRep<T>, PortfolioType, ProcessorMiddleState, MarketType);
     type Arguments = ();
 
@@ -392,7 +399,6 @@ where
                 // acknowledge to the sending processor that it was accepted.
                 *trade_l = potential_trades.clone();
                 *portf = potential_portfolio.clone();  // TODO: CHECK HERE AND ABOVE
-                *market = new_market.clone();  // TODO: CHECK IF THIS GOES W/O cloning
 
                 // TODO: CHECK IF THIS SHOULD BE HANDLED???
                 let _ = upstream_processor.send_message(
@@ -431,16 +437,6 @@ where
 			self.processor_name,
 		    );
 
-
-
-                    // match self.r_client() {
-                    //     None => {
-                    //         *market = _new_market;
-                    //     },
-                    //     Some(_) => {
-                    //         self.switch_market(market).await?;
-                    //     },
-                    // }
 
 		    // set the state of this processor to the state being sent.
                     self._switch_markets(market, &_new_market).await?;  // changes markets
@@ -503,14 +499,6 @@ where
                     );
 
                     self._switch_markets(market, &_new_market).await?;
-                    // match self.r_client() {
-                    //     Some(_) => {
-                    //         self.switch_market(market).await?;
-                    //     },
-                    //     None => {
-                    //         *market = _new_market;
-                    //     },
-                    // }
 		}
                 // sending upstream that we are done.
                 // TODO: CHECK IF THIS SHOULD BE BETTER HANDLED

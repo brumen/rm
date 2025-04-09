@@ -75,30 +75,33 @@ where
         &self,
 	_myself: ActorRef<Self::Msg>,
 	message: Self::Msg,
-	_state: &mut Self::State,
+	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
 	match message {
 	    ProcessorBulkMessage::NewBulk((market, new_trades, processor_new)) => {
 		// start the long-running pricing procedure
-		info!(
+                let (_, curr_mkt) = state;
+                info!(
 		    "BulkProcessor {}: NewBulk - Computing {} trades.",
 		    self.processor_name,
 		    new_trades.len(),
 		);
+                curr_mkt.market = market.market.clone();
 
 		let mut portfolio = PortfolioType::default();
 		let mut pricing_futs = vec![];
 		for (_, trade) in new_trades.iter() {
 		    info!(
-			"Processor {} valuing single trade: {}",
+			"Processor: {}: valuing single trade: {}",
 			self.processor_name,
 			trade
 		    );
 		    pricing_futs.push(
 			trade.value_by_metric2(
-			    self.metric, &self.pricing_options,
-			    self.market_name.clone(),  // TODO: CHECK HERE!!
+			    self.metric,
+                            &self.pricing_options,
+                            market.clone(),  // TODO: THIS SHOULD BE IMPROVED FOR SURE.
 			)
 		    );
 		}
@@ -110,13 +113,14 @@ where
 		}
 
 		debug!("Bulk processor to middle actor: {:?}", portfolio);
+                // TODO: TRADES THAT DONT PRICE, INCLUDE IN THIS ::default()
 		processor_new.send_message(
 		    ProcessorMiddleMessage::BulkReceive(
 			(new_trades, portfolio, TradeRep::<T>::default(), market)
 		    )
 		)?;
-
 	    },
+
 	    ProcessorBulkMessage::Abandon => {
 		// stop the computation and go into idle.
 	    },

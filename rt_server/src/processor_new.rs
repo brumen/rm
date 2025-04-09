@@ -51,10 +51,7 @@ impl<T> ProcessorNew<T> {
 		).await?;
             },
             None => {
-                *future_mkt = MarketType{
-                    market_name: "future".to_string(),
-                    market: actual_market,
-                };
+                (*future_mkt).market = actual_market;
             }
         }
         Ok(())
@@ -63,6 +60,10 @@ impl<T> ProcessorNew<T> {
 
 
 impl<T> MarketSwitching for ProcessorNew<T> {
+
+    fn processor_name(&self) -> String {
+        self.processor_name.clone()
+    }
 
     fn all_markets(&self) -> std::sync::Arc<AllMarkets> {
 	self.all_markets.clone()
@@ -140,11 +141,14 @@ where
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	let (trade_l, trades_non_pricing, portf, pns, (ref mut new_m, future_m)) = state;
+	let (trade_l, trades_non_pricing, portf, pns, (new_m, future_m)) = state;
 
         info!(
             "State: {:?}. Portf size: {}, Nb trades: {}",
             pns, portf.len(), trade_l.len()
+        );
+        info!(
+            "new_m: {}, future_m: {}", new_m, future_m,
         );
 
 	match message {
@@ -221,11 +225,13 @@ where
 
 		    ProcessorNewState::Idle => {
 			// update the "new" market
-                        info!("Idle, NewMarket: setting new market.");
+                        info!(
+                            "Idle, NewMarket: setting future market: {}", new_market
+                        );
 
                         self._replace_fut_market(
-                            new_market,  //replace_mkt: MarketType,
-                            future_m,  // future_mkt: &mut MarketType
+                            new_market,
+                            future_m,
                         ).await?;
 
 			// we are idle, we can start calculating, start calculating
@@ -297,19 +303,7 @@ where
                                 new_m.market_name,
                             );
 
-                            self._switch_markets(future_m, &new_m);
-
-                            // match self.r_client() {
-                            //     Some(_) => {
-                            //         self._switch_markets(
-			    //             future_m,
-			    //             &new_m,
-			    //         ).await?;
-                            //     },
-                            //     None => {
-                            //         new_m.market = future_m.market.clone();  // TODO: CAN YOU DO W/O COPYING
-                            //     }
-                            // }
+                            self._switch_markets(new_m, future_m).await?;
                             info!(
                                 "Processor: new, State: (Behind, CalculatingSingle): Going to state Idle."
                             );
@@ -317,6 +311,7 @@ where
 
 			} else {
 			    // we are still behind the current processor.
+                            // TODO: HERE COMES IN HEURISTICS, WHETHER TO SWITCH TO THE FUTURE MARKET.
                             info!(
                                 "Processor: new, State: (Behind, CalculatingSingle): Still behind lower processor,\
                                  adding trades ({}) and computing bulk.",
@@ -365,6 +360,7 @@ where
 		}
 	    },
 
+            // _bulk market is not needed, as it is the same as either new_m.
 	    ProcessorMiddleMessage::BulkReceive((new_trade_l, computed_portf, offending_trades, _bulk_market)) => {
 		match pns {
 

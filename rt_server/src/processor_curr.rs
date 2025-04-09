@@ -88,6 +88,10 @@ impl<T> ProcessorCurr<T> {
 
 impl<T> MarketSwitching for ProcessorCurr<T> {
 
+    fn processor_name(&self) -> String {
+        self.processor_name.clone()
+    }
+
     fn all_markets(&self) -> Arc<AllMarkets> {
 	self.all_markets.clone()
     }

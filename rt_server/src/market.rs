@@ -64,6 +64,10 @@ impl MarketType {
     pub(crate) fn next_market(&self, mn: &AllMarkets) -> Option<Self> {
 	mn.above_market(&self.market_name)
     }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.market.is_empty()
+    }
 }
 
 // TODO: CHECK THIS STUFF HERE!!!
@@ -143,6 +147,8 @@ pub enum MktMsgParams {
 #[async_trait]
 pub trait MarketSwitching {
 
+    fn processor_name(&self) -> String;
+
     fn all_markets(&self) -> Arc<AllMarkets>;
 
     /// endpoint where the market is posted.
@@ -199,9 +205,18 @@ pub trait MarketSwitching {
 	market_name_below: &mut MarketType,
 	market_name_above: &MarketType,
     ) -> Result<(), reqwest::Error> {
+
+        if market_name_below.is_empty() {
+            info!("MARKET EMPTY ON {}: {}", self.processor_name(), market_name_below.market_name);
+        }
+        if market_name_above.is_empty() {
+            info!("MARKET EMPTY ON {}: {}", self.processor_name(), market_name_above.market_name);
+        }
+
         info!(
-	    "Switching markets {:?} <- {:?}",
-	    market_name_below.market_name,
+	    "Switching markets: {:?}: {:?} <- {:?}",
+            self.processor_name(),
+            market_name_below.market_name,
 	    market_name_above.market_name,
 	);
 
@@ -209,7 +224,6 @@ pub trait MarketSwitching {
         match self.r_client() {
 
             Some(client) => {
-
 	        // set the market below
 	        let payload = json!({
 	            "market_below": market_name_below.market_name,
@@ -230,8 +244,7 @@ pub trait MarketSwitching {
             },
 
             None => {
-                // TODO: CHECK THIS FOR NOW.
-                market_name_below.market = market_name_above.market.clone();  // leave name the same
+                (*market_name_below).market = market_name_above.market.clone();  // leave name the same
             },
         }
         Ok(())
