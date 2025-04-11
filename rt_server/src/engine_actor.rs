@@ -48,7 +48,6 @@ pub(crate) async fn create_middle_procs_chain<T: Send + Clone + Debug + Display 
 	let market_name = all_markets.get(middle_nb);
 	let bulk_middle = ProcessorBulk {
 	    processor_name: format!("bulk_{}", market_name),
-	    market_name: MarketType::new(market_name.clone()),
 	    metric,
 	    pricing_options: pricing_options.clone(),
             trades: TradeRep::<T>::default(),

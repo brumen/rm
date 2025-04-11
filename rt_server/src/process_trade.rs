@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 // Defining the trait Process Trade value.
 use ractor::async_trait;
 
@@ -15,7 +17,7 @@ where
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketType,
+        curr_new_mkt: &MarketType,
     ) -> PricingResults;
 }
 

@@ -79,7 +79,7 @@ pub trait Decoder {
         &self,
         result_price: reqwest::Response,
         metric: PricingMetric,
-    ) -> PricingResults  { 
+    ) -> PricingResults  {
         match metric {
             PricingMetric::PV => {
                 let results_conv = result_price.json::<HashMap<String, f64>>().await;
@@ -179,7 +179,7 @@ pub trait PriceTradeAsync: BaseTrade {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketType,
+        curr_new_mkt: &MarketType,
     ) -> String {
 	let pricing_server = pricing_options.pricing_server.clone();
 	let metric = metric.to_string();
@@ -198,7 +198,7 @@ pub trait PriceTradeAsync: BaseTrade {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketType,
+        curr_new_mkt: &MarketType,
     ) -> Result<reqwest::Response, reqwest::Error> {
 	reqwest::get(self._endpoint(metric, pricing_options, curr_new_mkt)).await
     }
@@ -208,24 +208,24 @@ pub trait PriceTradeAsync: BaseTrade {
     fn price(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketType,
+        curr_new_mkt: &MarketType,
     ) -> impl Future<Output = Option<f64>> + Send;
 
     fn pv01(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketType,
+        curr_new_mkt: &MarketType,
     ) -> impl Future<Output = PV01Results> + Send;
 
     async fn pnl(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketType,
+        curr_new_mkt: &MarketType,
     ) -> Option<f64> {
         match self.initial_pv().await {
             None => None,
             Some(initial_pv_val) => self
-                .price(pricing_options, curr_new_mkt)
+                .price(pricing_options, &curr_new_mkt)
                 .await
                 .map(|curr_price| curr_price - initial_pv_val),
         }
@@ -236,7 +236,7 @@ pub trait PriceTradeAsync: BaseTrade {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketType,
+        curr_new_mkt: &MarketType,
     ) -> PricingResults {
         let trade_name = self.id();
 

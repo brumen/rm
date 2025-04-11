@@ -57,7 +57,7 @@ impl ProcessTradeValue for AOTrade {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketType,
+        curr_new_mkt: &MarketType,
     ) -> PricingResults {
 
         self.value_by_metric(metric, pricing_options, curr_new_mkt)
@@ -73,7 +73,7 @@ impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
     async fn price(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketType,
+        curr_new_mkt: &MarketType,
     ) -> Option<f64> {
         let trade_id = self.id();
         let results_pricing = self
@@ -110,7 +110,7 @@ impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
     async fn pv01(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketType,
+        curr_new_mkt: &MarketType,
     ) -> PV01Results {
         let trade_id = self.id();
         let results_pricing = self
@@ -178,7 +178,7 @@ impl ProcessTradeValue for AOTradeRep {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketType,
+        curr_new_mkt: &MarketType,
     ) -> PricingResults {
 
         self.value_by_metric(metric, pricing_options, curr_new_mkt)

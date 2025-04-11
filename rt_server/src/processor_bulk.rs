@@ -14,7 +14,6 @@ use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 #[derive(Debug)]
 pub struct ProcessorBulk<T>{
     pub processor_name: String,
-    pub market_name: MarketType,
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
     pub(crate) trades: TradeRep<T>,
@@ -100,7 +99,7 @@ where
 			trade.value_by_metric2(
 			    self.metric,
                             &self.pricing_options,
-                            market.clone(),  // TODO: THIS SHOULD BE IMPROVED FOR SURE.
+                            &market,
 			)
 		    );
 		}

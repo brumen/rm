@@ -53,7 +53,6 @@ where T: Display + Debug + BaseTrade + Clone + Send + Sync +
 	None,
 	ProcessorBulk {
 	    processor_name: format!("{}_bulk", current_market),
-	    market_name: MarketType::new(current_market.clone()),
 	    metric,
 	    pricing_options: (*pricing_options).clone(),
             trades: initial_trades.clone(),

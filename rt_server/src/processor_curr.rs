@@ -1,14 +1,10 @@
 use tracing::{info, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::{Arc, Mutex};
-
 use rdkafka::error::KafkaError;
 use rdkafka::util::Timeout;
 use rdkafka::producer::{FutureProducer, FutureRecord};
-use serde_json;
-use thiserror;
 
-// use crate::ao_trade::AOTrade;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
@@ -81,8 +77,6 @@ impl<T> ProcessorCurr<T> {
 	    Err((ke, _)) => Err(SendError::KafkaErr(ke)),
 	    _ => Ok(()),
 	}
-
-
     }
 }
 
@@ -147,7 +141,7 @@ where
 		let valued_trade = trade.value_by_metric2(
 		    self.metric,
                     &self.pricing_options,
-		    market.clone(),  // TODO: CHECK IF THIS IS OK! MIGHT BE IMPROVED!!!
+	            &market,
 		).await;
 
 		// updating the portfolio
@@ -175,14 +169,6 @@ where
 		    // publish the new portfolio
                     info!("Changing portfolio.");
 		    self._send_portfolio(new_portfolio.clone()).await?;
-
-		    // switch markets on the remote server if we are in the remote configuration
-                    // match self.r_client() {
-                    //     Some(_) => {
-		    //         self.switch_market(market).await?;
-                    //     },
-                    //     _ => {},
-                    // }
                     self._switch_markets(market, &new_market).await?;
 
 		    // update the state of current processor.

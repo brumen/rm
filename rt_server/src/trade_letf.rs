@@ -288,7 +288,7 @@ impl ProcessTradeValue for TradeTypes {
         &self,
         metric: crate::pricer::PricingMetric,
         _pricing_options: &crate::pricer::MarketPricingOptions,
-        curr_new_mkt: crate::market::MarketType,
+        curr_new_mkt: &crate::market::MarketType,
     ) -> PricingResults  {
         let actual_market = curr_new_mkt;
 

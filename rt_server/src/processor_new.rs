@@ -142,6 +142,8 @@ where
     ) -> Result<(), ActorProcessingErr> {
 
 	let (trade_l, trades_non_pricing, portf, pns, (new_m, future_m)) = state;
+        // arc used for pricing.
+        let new_m_arc = Arc::new(new_m.clone());  // TODO: CHECK IF CLONING IS BETTER
 
         info!(
             "State: {:?}. Portf size: {}, Nb trades: {}",
@@ -163,7 +165,7 @@ where
 			let new_trade_price = new_trade.value_by_metric2(
 			    self.metric,
 			    &self.pricing_options,
-			    new_m.clone(),  // TODO: FIX THIS HERE!!
+			    &new_m,
 			).await;
 			*portf += new_trade_price;  // portfolio update
 			*trade_l += &new_trade;  // we add the trade to the list.
@@ -204,7 +206,7 @@ where
 			let new_trade_price = new_trade.value_by_metric2(
 			    self.metric,
 			    &self.pricing_options,
-			    new_m.clone(),  // TODO: CHECK IF THIS IS NECESSARY HERE!!!
+			    &new_m,
 			).await;
 			*portf += new_trade_price;  // portfolio update
                         info!(
