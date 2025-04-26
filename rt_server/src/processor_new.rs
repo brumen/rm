@@ -143,7 +143,7 @@ where
 
 	let (trade_l, trades_non_pricing, portf, pns, (new_m, future_m)) = state;
         // arc used for pricing.
-        let new_m_arc = Arc::new(new_m.clone());  // TODO: CHECK IF CLONING IS BETTER
+        // let new_m_arc = Arc::new(new_m.clone());  // TODO: CHECK IF CLONING IS BETTER
 
         info!(
             "State: {:?}. Portf size: {}, Nb trades: {}",

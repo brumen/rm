@@ -8,7 +8,6 @@ use std::ops::{AddAssign, Deref, DerefMut};
 use std::sync::mpsc::Sender;
 use tracing::{debug, info, warn};
 use std::fmt;
-
 use std::default::Default;
 use std::iter::IntoIterator;
 use std::sync::{Arc, Mutex};
@@ -87,6 +86,7 @@ impl AddAssign<&MarketType> for MarketType {
     }
 }
 
+
 impl<const N: usize> From<(String, [(String, f64); N])> for MarketType {
     fn from(market_name_arr: (String, [(String, f64); N])) -> Self {
         Self {
@@ -96,6 +96,7 @@ impl<const N: usize> From<(String, [(String, f64); N])> for MarketType {
     }
 }
 
+
 #[derive(Error, Debug)]
 pub enum MarketTypeError {
     #[error("Cant convert from utf messsage")]
@@ -103,6 +104,7 @@ pub enum MarketTypeError {
     #[error("Cant convert to MarketType")]
     CantConvertToMarket(#[from] serde_json::Error),
 }
+
 
 impl TryFromRef<BorrowedMessage<'_>> for MarketType {
     type Error = MarketTypeError;
