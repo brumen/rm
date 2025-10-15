@@ -1,4 +1,5 @@
 /// Processor which gets a bulk of work, and finishes it.
+///
 use tracing::{info, debug, error, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use futures::future::join_all;
@@ -12,11 +13,14 @@ use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
 
 #[derive(Debug)]
-pub struct ProcessorBulk<T>{
+pub struct ProcessorBulk<'a, T>{
     pub processor_name: String,
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
-    pub(crate) trades: TradeRep<T>,
+    // we compute the risk/valuation of the trades in trades
+    pub(crate) trade_names: Vec<String>,
+    // all_trades is a reference to the structure that contains all trades.
+    all_trades: &'a TradeRep<T>,
 }
 
 #[derive(Debug)]
@@ -26,12 +30,12 @@ pub enum ProcessorBulkState {
 }
 
 
-impl<T> Decoder for ProcessorBulk<T> {}
+impl<'a, T> Decoder for ProcessorBulk<'a, T> {}
 
-impl<ReductionType, T> RestPricerSpark<ReductionType> for ProcessorBulk<T>
+impl<'a, ReductionType, T> RestPricerSpark<ReductionType> for ProcessorBulk<'a, T>
 where
     ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
-    ProcessorBulk<T>: Decoder,
+    for <'b> ProcessorBulk<'b,  T>: Decoder,
     T: Send + Sync
 {
 
@@ -48,12 +52,13 @@ where
     }
 }
 
+
 #[async_trait]
-impl<T> Actor for ProcessorBulk<T>
+impl<'a, 'b, T> Actor for ProcessorBulk<'a, T>
 where
     T: Send + Clone + 'static + BaseTrade + ProcessTradeValue + std::fmt::Debug + std::fmt::Display
 {
-    type Msg = ProcessorBulkMessage<T>;
+    type Msg = ProcessorBulkMessage<'b, T>;
     type State = (i32, MarketType);  // The number of attempts to run the bulk on, default = 5
     type Arguments = ();
 
@@ -77,7 +82,10 @@ where
     ) -> Result<(), ActorProcessingErr> {
 
 	match message {
-	    ProcessorBulkMessage::NewBulk((market, new_trades, processor_new)) => {
+            // market is where the trades are priced.
+            // new_trades are trades that should be priced.
+            // processor_new ... processor where the result should be sent.
+            ProcessorBulkMessage::NewBulk((market, new_trades, processor_new)) => {
 		// start the long-running pricing procedure
                 let (_, curr_mkt) = state;
                 info!(
@@ -89,12 +97,15 @@ where
 
 		let mut portfolio = PortfolioType::default();
 		let mut pricing_futs = vec![];
-		for (_, trade) in new_trades.iter() {
+		for trade_name in new_trades.iter() {
 		    debug!(
 			"Processor: {}: valuing single trade: {}",
 			self.processor_name,
-			trade
+			trade_name
 		    );
+
+                    let trade = self.all_trades.get(trade_name).unwrap();
+                    // pricing_futs are futures where the
 		    pricing_futs.push(
 			trade.value_by_metric2(
 			    self.metric,
@@ -114,6 +125,7 @@ where
                     "Bulk processor {}: portfolio back to middle actor: {:?}",
                     self.processor_name, portfolio,
                 );
+
                 // TODO: TRADES THAT DONT PRICE, INCLUDE IN THIS ::default()
 		processor_new.send_message(
 		    ProcessorMiddleMessage::BulkReceive(

@@ -1,6 +1,6 @@
 use tracing::{info, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, };
 
 use crate::market::{MarketType, MarketSwitching, AllMarkets, };
 use crate::portfolio::PortfolioType;
@@ -34,12 +34,15 @@ impl<T> ProcessorNew<T> {
 
     /// replaces the future_mkt with replace_mkt.
     ///   either on the server or in the controller.
+    ///   future_mkt <- replace_mkt
     async fn _replace_fut_market(
         &self,
-        replace_mkt: MarketType,
-        future_mkt: &mut MarketType
+        replace_mkt: Arc<Mutex<MarketType>>,
+        future_mkt: &mut Arc<Mutex<MarketType>>,
     ) -> Result<(), ActorProcessingErr> {
-        let actual_market = replace_mkt.market;
+
+        let actual_market = replace_mkt.lock().unwrap().market;
+
         match self.r_client() {
             Some(_) => {
 		self.set_market(
@@ -51,11 +54,12 @@ impl<T> ProcessorNew<T> {
 		).await?;
             },
             None => {
-                (*future_mkt).market = actual_market;
+                future_mkt.lock().unwrap().market = actual_market;
             }
         }
         Ok(())
     }
+
 }
 
 
@@ -108,7 +112,13 @@ where
     //   third is the current portfolio result of correctly pricing trades.
     //   fourth is the computation state.
     //   fifth is the tuple: (new market where we are pricing now, future_market)
-    type State = (TradeRep<T>, TradeRep<T>, PortfolioType, ProcessorNewState, (MarketType, MarketType));
+    type State = (
+        TradeRep<T>,
+        TradeRep<T>,
+        PortfolioType,
+        ProcessorNewState,
+        (Arc<MarketType>, Arc<MarketType>)
+    );
     type Arguments = ();
 
     // initialization of the new processor
@@ -127,8 +137,8 @@ where
 		PortfolioType::default(),
 		ProcessorNewState::Idle,
                 (
-                    MarketType::new(self.processor_name.clone()),
-                    MarketType::new("future".to_string())
+                    Arc::new(MarketType::new(self.processor_name.clone())),
+                    Arc::new(MarketType::new("future".to_string())),
                 ),
 	    )
 	)
@@ -142,8 +152,6 @@ where
     ) -> Result<(), ActorProcessingErr> {
 
 	let (trade_l, trades_non_pricing, portf, pns, (new_m, future_m)) = state;
-        // arc used for pricing.
-        // let new_m_arc = Arc::new(new_m.clone());  // TODO: CHECK IF CLONING IS BETTER
 
         info!(
             "State: {:?}. Portf size: {}, Nb trades: {}",
@@ -177,7 +185,7 @@ where
                         );
 			self.processor_middle.send_message(
 			    ProcessorMiddleMessage::NewTradePortfolio(
-				(trade_l.clone(), portf.clone(), new_m.clone(), myself)
+				(trade_l.clone(), portf.clone(), (*new_m).clone(), myself)
 			    )
 			)?;
 		    },
@@ -350,7 +358,7 @@ where
                             *trade_l += &trades_behind;
                             self.processor_bulk.send_message(
 				ProcessorBulkMessage::NewBulk(
-				    (new_m.clone(), trade_l.clone(), myself)
+				    ((*new_m).clone(), trade_l.clone(), myself)
 				)
 			    )?;
                             info!(

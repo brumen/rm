@@ -3,7 +3,7 @@ use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
-use std::collections::{hash_map::IntoIter, HashMap};
+use std::collections::{hash_map::IntoIter, HashMap};  // , HashMap};
 use std::ops::{AddAssign, Deref, DerefMut};
 use std::sync::mpsc::Sender;
 use tracing::{debug, info, warn};
@@ -12,6 +12,9 @@ use std::default::Default;
 use std::iter::IntoIterator;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
+//use flurry::HashMap;
+use dashmap::DashMap;
+
 
 use crate::ref_deref::TryFromRef;
 use crate::ref_deref_trait;
@@ -21,28 +24,44 @@ use crate::ref_deref_trait;
 // MK used to be (String, Date), now it's generic,
 //    it has to be hashable, and it copyable for now
 
-pub(crate) type MarketInner = HashMap<String, f64>;
+pub(crate) type MarketInner = DashMap<String, f64>;
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MarketType {
     pub market_name: String,
     pub market: MarketInner,
 }
 
+impl PartialEq for MarketType {
+    fn eq(&self, other: &Self) -> bool {
+        if self.market_name != other.market_name {
+            return false;
+        }
+
+        let market_hash = self.market.clone().into_iter().collect::<HashMap<String, f64>>();
+        let other_hash = other.clone().into_iter().collect::<HashMap<String, f64>>();  // TODO: THIS .clone IS KILLING PERFORMANCE
+
+        market_hash != other_hash
+    }
+}
+
+
 // TODO: THIS NEEDS TO BE FIXED.
 impl Into<MarketInner> for MarketType {
     fn into(self) -> MarketInner {
-        self.market.into_iter().map(|x| (x.0, x.1)).collect()
+        self.market.clone()  // TODO: THIS IS GARBAGE HERE AS WELL!!
     }
 }
 
 // making a MarketType an iterator.
 impl IntoIterator for MarketType {
     type Item = (String, f64);
-    type IntoIter = IntoIter<String, f64>;
+    type IntoIter = std::collections::hash_map::IntoIter<String, f64>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.market.into_iter()
+        let k = self.market.clone();
+
+        self.market.clone().into_iter()
     }
 }
 
@@ -110,7 +129,11 @@ impl TryFromRef<BorrowedMessage<'_>> for MarketType {
     type Error = MarketTypeError;
 
     fn try_from_ref(value: &BorrowedMessage) -> Result<Self, Self::Error> {
-        let msg_val = value.payload().unwrap(); // TODO: CAN WE DO THIS WITHOUT DETACHING???
+        let msg_val = value.payload().ok_or(
+            MarketTypeError::CantConvertUtf8(
+                std::str::Utf8Error::from_utf8_error()
+            )
+        )?; // Ensure payload is valid
         let msg_utf = std::str::from_utf8(msg_val)?;
 
         debug!("try_from_ref(MarketType): Msg = {:?}", msg_utf);

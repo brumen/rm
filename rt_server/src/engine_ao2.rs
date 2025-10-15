@@ -168,6 +168,7 @@ where T: Display + Debug + BaseTrade + Clone + Send + Sync +
 	kafka_server,
 	pos_topic,
 	processor_actors,
+        &initial_trades,
     );
 
     let (_trade_capture_a, trade_capture_handle) = Actor::spawn(

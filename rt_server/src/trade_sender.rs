@@ -16,16 +16,19 @@ use crate::trade::{BaseTrade, TradeRep};
 // new and current processors.
 use crate::processor_msg::ProcessorMiddleMessage;
 
-pub struct TradeProducer<T>{
+pub struct TradeProducer<'a, T>{
     position_listener: StreamConsumer,
     processors: Vec<ActorRef<ProcessorMiddleMessage<T>>>,
+    trade_list: &'a TradeRep<T>,
+
 }
 
-impl<T> TradeProducer<T> {
+impl<'a, T> TradeProducer<'a, T> {
     pub fn new(
 	kafka_server: String,
 	pos_topic: String,
 	processors: Vec<ActorRef<ProcessorMiddleMessage<T>>>,
+        trade_list: &'a TradeRep<T>,
     ) -> Self {
 
 	info!("Starting trade producer on {:?}", pos_topic);
@@ -34,15 +37,16 @@ impl<T> TradeProducer<T> {
 	Self {
 	    position_listener,
 	    processors,
+            trade_list,
 	}
     }
 }
 
 
 #[async_trait]
-impl<T> Actor for TradeProducer<T>
+impl<'b, T> Actor for TradeProducer<'b, T>
 where
-    TradeProducer<T>: Send + Sync + 'static,
+    TradeProducer<'b, T>: Send + Sync + 'static,
     T: Send + Sync + std::fmt::Debug + Clone + BaseTrade + for <'a> Deserialize<'a> + TryFromRef2
 {
     type Msg = ProcessorMiddleMessage<T>;
