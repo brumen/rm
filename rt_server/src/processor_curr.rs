@@ -101,11 +101,11 @@ impl<T> MarketSwitching for ProcessorCurr<T> {
 
 
 #[async_trait]
-impl<T> Actor for ProcessorCurr<T>
+impl<'a, T> Actor for ProcessorCurr<T>
 where
     T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display + ProcessTradeValue
 {
-    type Msg = ProcessorMiddleMessage<T>;
+    type Msg = ProcessorMiddleMessage<'a, T>;
     // state is a tuple of current trades,
     //    and current portfolio, and the current market
     //    representation.
