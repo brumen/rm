@@ -11,7 +11,9 @@ use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
 
-use crate::market::{AllMarkets, MarketSwitching, MarketType};
+use crate::market::MarketType;
+use crate::all_markets::AllMarkets;
+use crate::market_switching::MarketSwitching;
 use crate::publish::connect_with_retries_producer_rd;
 use crate::ref_deref::{TryFromRef, TryFromRef2,};
 use crate::trade_sender::TradeProducer;
@@ -22,10 +24,50 @@ use crate::portfolio::PortfolioType;
 use crate::trade::{BaseTrade, TradeRep};
 use crate::engine_actor::create_middle_procs_chain;
 use crate::process_trade::ProcessTradeValue;
+use crate::processor_curr::PortfolioSenderSimple;
+
+
+
+// TODO: MAYBE THIS DOESNT BELONG HERE!!!
+impl<T> PortfolioSenderSimple for ProcessorCurr<T> {
+    async fn _send_portfolio(
+	&self,
+	portf: PortfolioType,
+    ) -> Result<(), SendError> {
+	// sends to publisher actor
+	let curr_mkt_json = serde_json::ser::to_string(&portf.clone())?;
+        let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric, curr_mkt_json);
+
+        // implements bytearray(str(dumps(self.curr_market)), ascii))
+        let portf_record = FutureRecord::<'_, [u8], [u8]> {
+		topic: &self.results_topic,
+		partition: Some(0),
+		payload: Some(curr_mkt_pv.as_bytes()),
+		key: None, // TODO: pub key: Option<&'a K>,
+		timestamp: None,
+		headers: None,
+        };
+
+	// set up the portfolio in self
+	{
+	    let mut p = self.portf.lock().unwrap();
+	    *p = portf.clone();
+	}
+
+	// first i32 = partition
+	// second i64 = offset
+	// error is the Kafka error
+	// OwnedMessage - copy of the original message.
+	// Result<(i32, i64), (KafkaError, OwnedMessage)>;
+	match self.result_publisher.send(portf_record, Timeout::Never).await {
+	    Err((ke, _)) => Err(SendError::KafkaErr(ke)),
+	    _ => Ok(()),
+	}
+    }
+}
 
 
 /// initializes all the actors
-
 /// initialize_client: whether the reqwest client is set, or None.
 ///   (setting it uses the client for remote pricing, putting it
 ///    to None, means pricing is local.)

@@ -3,6 +3,7 @@
 use tracing::{info, debug, error, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use futures::future::join_all;
+use std::sync::Arc;
 
 use crate::market::MarketType;
 use crate::portfolio::PortfolioType;
@@ -13,14 +14,15 @@ use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
 
 #[derive(Debug)]
-pub struct ProcessorBulk<'a, T>{
+pub struct ProcessorBulk<T>{
     pub processor_name: String,
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
     // we compute the risk/valuation of the trades in trades
     pub(crate) trade_names: Vec<String>,
+
     // all_trades is a reference to the structure that contains all trades.
-    all_trades: &'a TradeRep<T>,
+    all_trades: Arc<TradeRep<T>>,
 }
 
 #[derive(Debug)]
@@ -30,12 +32,12 @@ pub enum ProcessorBulkState {
 }
 
 
-impl<'a, T> Decoder for ProcessorBulk<'a, T> {}
+impl<T> Decoder for ProcessorBulk<T> {}
 
-impl<'a, ReductionType, T> RestPricerSpark<ReductionType> for ProcessorBulk<'a, T>
+impl<ReductionType, T> RestPricerSpark<ReductionType> for ProcessorBulk<T>
 where
     ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
-    for <'b> ProcessorBulk<'b,  T>: Decoder,
+    ProcessorBulk<T>: Decoder,
     T: Send + Sync
 {
 
@@ -54,11 +56,11 @@ where
 
 
 #[async_trait]
-impl<'a, 'b, T> Actor for ProcessorBulk<'a, T>
+impl<T> Actor for ProcessorBulk<T>
 where
     T: Send + Clone + 'static + BaseTrade + ProcessTradeValue + std::fmt::Debug + std::fmt::Display
 {
-    type Msg = ProcessorBulkMessage<'b, T>;
+    type Msg = ProcessorBulkMessage;
     type State = (i32, MarketType);  // The number of attempts to run the bulk on, default = 5
     type Arguments = ();
 

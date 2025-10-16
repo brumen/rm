@@ -2,7 +2,9 @@ use tracing::{info, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::{Arc, Mutex, };
 
-use crate::market::{MarketType, MarketSwitching, AllMarkets, };
+use crate::market::MarketType;
+use crate::market_switching::MarketSwitching;
+use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::process_trade::ProcessTradeValue;
@@ -11,12 +13,12 @@ use crate::trade::{BaseTrade, TradeRep};
 
 
 #[derive(Debug)]
-pub struct ProcessorNew<T>{
+pub struct ProcessorNew{
     pub processor_name: String,
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
-    pub processor_middle: ActorRef<ProcessorMiddleMessage<T>>,  // current processor ref.
-    pub processor_bulk: ActorRef<ProcessorBulkMessage<T>>,  // bull processor ref.
+    pub processor_middle: ActorRef<ProcessorMiddleMessage>,  // current processor ref.
+    pub processor_bulk: ActorRef<ProcessorBulkMessage>,  // bull processor ref.
     pub r_client: Option<reqwest::Client>,
     pub all_markets: Arc<AllMarkets>,
     pub market_name: (MarketType, MarketType),  // first item: new market, second item: future market.
@@ -30,7 +32,7 @@ pub enum ProcessorNewState {
 }
 
 
-impl<T> ProcessorNew<T> {
+impl ProcessorNew {
 
     /// replaces the future_mkt with replace_mkt.
     ///   either on the server or in the controller.
@@ -63,7 +65,7 @@ impl<T> ProcessorNew<T> {
 }
 
 
-impl<T> MarketSwitching for ProcessorNew<T> {
+impl MarketSwitching for ProcessorNew {
 
     fn processor_name(&self) -> String {
         self.processor_name.clone()
@@ -83,12 +85,12 @@ impl<T> MarketSwitching for ProcessorNew<T> {
 }
 
 
-impl<T> Decoder for ProcessorNew<T> {}
+impl Decoder for ProcessorNew {}
 
-impl<ReductionType, T> RestPricerSpark<ReductionType> for ProcessorNew<T>
+impl<ReductionType> RestPricerSpark<ReductionType> for ProcessorNew
 where
     ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
-    ProcessorNew<T>: Decoder,
+    ProcessorNew: Decoder,
 {
 
     fn _pricing_server_spark(&self) -> String {
@@ -102,19 +104,19 @@ where
 
 
 #[async_trait]
-impl<T> Actor for ProcessorNew<T>
-where
-    T: Send + Clone + 'static + BaseTrade + ProcessTradeValue + std::fmt::Display
+impl Actor for ProcessorNew
+//where
+//    T: Send + Clone + 'static + BaseTrade + ProcessTradeValue + std::fmt::Display
 {
-    type Msg = ProcessorMiddleMessage<T>;
+    type Msg = ProcessorMiddleMessage;
     // first argument is list of trades,
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
     //   fourth is the computation state.
     //   fifth is the tuple: (new market where we are pricing now, future_market)
     type State = (
-        TradeRep<T>,
-        TradeRep<T>,
+        Vec<String>,
+        Vec<String>,
         PortfolioType,
         ProcessorNewState,
         (Arc<MarketType>, Arc<MarketType>)
@@ -132,8 +134,8 @@ where
 
         Ok(
 	    (
-		TradeRep::<T>::default(),
-		TradeRep::<T>::default(),
+		vec![],
+		vec![],
 		PortfolioType::default(),
 		ProcessorNewState::Idle,
                 (

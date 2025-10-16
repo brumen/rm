@@ -16,11 +16,12 @@ pub mod streaming;
 pub mod trade;
 // pub mod trader;
 
+pub(crate) mod all_markets;
+pub(crate) mod market_switching;
 // actor framework new
 pub(crate) mod trade_sender;
 pub(crate) mod mkt_handler_actor;
 pub(crate) mod processor_curr;
-
 pub(crate) mod processor_new;
 pub(crate) mod processor_middle;
 pub(crate) mod processor_bulk;

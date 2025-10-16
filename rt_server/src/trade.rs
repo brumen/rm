@@ -1,7 +1,7 @@
 use core::cmp::Eq;
 use serde::{Deserialize, Serialize};
 use std::default::Default;
-use std::ops::{AddAssign, Deref, DerefMut, SubAssign, Sub};
+use std::ops::{Add, AddAssign, Deref, DerefMut, SubAssign, Sub};
 use thiserror::Error;
 use dashmap::DashMap;
 
@@ -100,6 +100,15 @@ impl<TR> TradeRep<TR> {
         self.iter().position(|entry| entry.key() == trade_id).is_some()
     }
 }
+
+impl<TR: Clone + BaseTrade> AddAssign<(String, TR)> for TradeRep<TR> {
+    // adds the elements of the other TradeRep to this traderep
+    // uses cloning.
+    fn add_assign(&mut self, other: (String, TR)) {
+        self.insert(other.0, other.1)
+    }
+}
+
 
 impl<TR: Clone + BaseTrade> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
     // adds the elements of the other TradeRep to this traderep

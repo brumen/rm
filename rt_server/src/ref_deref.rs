@@ -54,14 +54,11 @@ where
 {
 
     fn try_from_ref(value: &BorrowedMessage) -> Result<Self, TradeError> {
-        let msg_value = match value.payload() {
-	    None => {
-                return Err(TradeError::NoPayload);
-            },
-	    Some(msg_payload) => msg_payload,
-	};
-        let msg_utf = std::str::from_utf8(msg_value)?;
-
-        Ok(serde_json::from_str::<Self>(msg_utf)?)
+        if let Some(msg_value) = value.payload() {
+            let msg_utf = std::str::from_utf8(msg_value)?;
+            Ok(serde_json::from_str::<Self>(msg_utf)?)
+        } else {
+            return Err(TradeError::NoPayload);
+        }
     }
 }

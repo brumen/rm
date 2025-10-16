@@ -35,6 +35,7 @@ mod ref_deref;
 mod streaming;
 mod trade;
 //mod trader;
+mod all_markets;
 
 // actor framework new
 pub mod trade_sender;

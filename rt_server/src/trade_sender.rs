@@ -8,6 +8,7 @@ use serde::Deserialize;
 use tracing::{info, instrument};
 use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
+use circular_buffer::CircularBuffer;
 
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::ref_deref::{TryFromRef, TryFromRef2,};
@@ -16,28 +17,37 @@ use crate::trade::{BaseTrade, TradeRep};
 // new and current processors.
 use crate::processor_msg::ProcessorMiddleMessage;
 
+const CB_LENGTH: usize = 10;
+
+
 pub struct TradeProducer<'a, T>{
     position_listener: StreamConsumer,
-    processors: Vec<ActorRef<ProcessorMiddleMessage<T>>>,
+    processors: Vec<ActorRef<ProcessorMiddleMessage>>,
     trade_list: &'a TradeRep<T>,
-
+    processing_stat: Vec<CircularBuffer<CB_LENGTH, (chrono::NaiveDateTime, usize)>>,
 }
 
 impl<'a, T> TradeProducer<'a, T> {
     pub fn new(
 	kafka_server: String,
 	pos_topic: String,
-	processors: Vec<ActorRef<ProcessorMiddleMessage<T>>>,
+	processors: Vec<ActorRef<ProcessorMiddleMessage>>,
         trade_list: &'a TradeRep<T>,
     ) -> Self {
 
 	info!("Starting trade producer on {:?}", pos_topic);
 	let position_listener = connect_with_retries_rd(&kafka_server, &pos_topic);
+        let nb_processors = processors.len();
+        let mut processing_queue = vec![];
+        for idx in 0..nb_processors {
+            processing_queue.push(CircularBuffer::<CB_LENGTH, usize>::new());
+        }
 
 	Self {
 	    position_listener,
 	    processors,
             trade_list,
+            processing_stat: processing_queue,
 	}
     }
 }
@@ -49,7 +59,7 @@ where
     TradeProducer<'b, T>: Send + Sync + 'static,
     T: Send + Sync + std::fmt::Debug + Clone + BaseTrade + for <'a> Deserialize<'a> + TryFromRef2
 {
-    type Msg = ProcessorMiddleMessage<T>;
+    type Msg = ProcessorMiddleMessage;
     type State = ();  // TradeRep<T>;  // list of existing trades.
     type Arguments = ();
 
@@ -61,6 +71,7 @@ where
 
 	info!("Initiating TradeProducer");
 
+        // starting w/ the first trade.
         let trade_msg = self.position_listener.recv().await?;
         let trade_1 = T::try_from_ref(&trade_msg)?;
 
@@ -69,7 +80,7 @@ where
             ProcessorMiddleMessage::NewTrade(trade_1)
         )?;  // first message
 
-        Ok(())  // Ok(TradeRep::default()))  // default empty state.
+        Ok(())
     }
 
     async fn handle(
@@ -94,8 +105,10 @@ where
         let new_trade = T::try_from_ref(&new_msg)?;
 
 	myself.send_message(
-            ProcessorMiddleMessage::NewTrade(new_trade)
+            ProcessorMiddleMessage::NewTrade(new_trade.id())  // new trade has id.
         )?;
+
+        // TODO: HERE WE HAVE TO HANDLE ProcessingStat
 
 	Ok(())
     }

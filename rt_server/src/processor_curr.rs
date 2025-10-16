@@ -1,4 +1,4 @@
-use tracing::{info, instrument};
+use tracing::{info, debug, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::{Arc, Mutex};
 use rdkafka::error::KafkaError;
@@ -10,7 +10,8 @@ use crate::pricer::{MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
 use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::ProcessorMiddleMessage;
-use crate::market::{MarketType, MarketSwitching, AllMarkets};
+use crate::all_markets::AllMarkets;
+use crate::market_switching::MarketSwitching;
 
 
 pub(crate) struct ProcessorCurr<T>{
@@ -21,8 +22,11 @@ pub(crate) struct ProcessorCurr<T>{
     pub result_publisher: FutureProducer,
     pub r_client: Option<reqwest::Client>,  // request client
     pub portf: Arc<Mutex<PortfolioType>>,  // current working portfolio
-    pub all_markets: Arc<AllMarkets>,
-    pub trades: TradeRep<T>,
+    pub all_markets: Arc<AllMarkets>,  // all_markets is DashMap
+    pub all_trades: Arc<TradeRep<T>>,  // all_trades is DashMap
+    //    pub curr_trades: Vec<String>,  // current trades that the processor is using
+    // trade_processor where we can send the info when the trades are processed
+    pub trade_processor: ActorRef<ProcessorMiddleMessage>,
 }
 
 
@@ -41,44 +45,15 @@ pub enum SendError {
     SerializeError(#[from] serde_json::Error),
 }
 
-impl<T> ProcessorCurr<T> {
 
-    /// encodes and sends the portfolio to Kafka client.
+// Simple portfolio sender - it could be anything, not kafka
+pub(crate) trait PortfolioSenderSimple {
     async fn _send_portfolio(
 	&self,
 	portf: PortfolioType,
-    ) -> Result<(), SendError> {
-	// sends to publisher actor
-	let curr_mkt_json = serde_json::ser::to_string(&portf.clone())?;
-        let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric, curr_mkt_json);
-
-        // implements bytearray(str(dumps(self.curr_market)), ascii))
-        let portf_record = FutureRecord::<'_, [u8], [u8]> {
-		topic: &self.results_topic,
-		partition: Some(0),
-		payload: Some(curr_mkt_pv.as_bytes()),
-		key: None, // TODO: pub key: Option<&'a K>,
-		timestamp: None,
-		headers: None,
-        };
-
-	// set up the portfolio in self
-	{
-	    let mut p = self.portf.lock().unwrap();
-	    *p = portf.clone();
-	}
-
-	// first i32 = partition
-	// second i64 = offset
-	// error is the Kafka error
-	// OwnedMessage - copy of the original message.
-	// Result<(i32, i64), (KafkaError, OwnedMessage)>;
-	match self.result_publisher.send(portf_record, Timeout::Never).await {
-	    Err((ke, _)) => Err(SendError::KafkaErr(ke)),
-	    _ => Ok(()),
-	}
-    }
+    ) -> Result<(), SendError>;
 }
+
 
 impl<T> MarketSwitching for ProcessorCurr<T> {
 
@@ -100,16 +75,20 @@ impl<T> MarketSwitching for ProcessorCurr<T> {
 }
 
 
+// T is the representation fo the trade
 #[async_trait]
-impl<'a, T> Actor for ProcessorCurr<T>
+impl<T> Actor for ProcessorCurr<T>
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display + ProcessTradeValue
+    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display + ProcessTradeValue,
+    ProcessorCurr<T>: PortfolioSenderSimple,
 {
-    type Msg = ProcessorMiddleMessage<'a, T>;
-    // state is a tuple of current trades,
-    //    and current portfolio, and the current market
-    //    representation.
-    type State = (TradeRep<T>, PortfolioType, MarketType);
+    type Msg = ProcessorMiddleMessage;
+    // state is a tuple of
+    //    current trades,
+    //    current portfolio
+    //    current market name
+    //       representation.
+    type State = (Vec<String>, PortfolioType, String);
     type Arguments = ();
 
     async fn pre_start(
@@ -118,9 +97,9 @@ where
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
-	let initial_trades = TradeRep::<T>::default();
+	let initial_trades = vec![];  // TradeRep::<T>::default();
 	let initial_curr_portf = PortfolioType::default();
-        let market = MarketType::new(self.processor_name.clone());
+        let market = self.processor_name.clone();
 
 	Ok((initial_trades, initial_curr_portf, market))
     }
@@ -138,22 +117,42 @@ where
 	    ProcessorMiddleMessage::NewTrade(trade) => {
 
 		info!("Adding new trade: {}", trade);
-		let valued_trade = trade.value_by_metric2(
+                // TODO: REWRITE THIS SHIT!!!
+                // TODO: WHAT TO DO IF trade_info = None
+                let trade_info = self.all_trades.get(&trade).unwrap();
+
+
+                debug!("Current trade information: {:?}", trade_info);
+                // TODO: THIS SHOULD BE REWRITTEN TOO!!!
+                let market_info = self.all_markets.get_m(market.to_string()).unwrap();
+
+		let valued_trade = trade_info.value_by_metric2(
 		    self.metric,
                     &self.pricing_options,
-	            &market,
+	            &market_info,
 		).await;
 
 		// updating the portfolio
-		*trades += &trade;
+		//*trades += &trade; // TODO: THIS CAN BE FIXED.
+                trades.push(trade);
 		*portf += valued_trade;
+
+                // send information about all the trades to the trade processor
+                self.trade_processor.send_message(
+                    ProcessorMiddleMessage::ProcessingStat(
+                        (self.processor_name.clone(), chrono::NaiveDateTime::now(), trades.len())
+                    )
+                );
 
 		self._send_portfolio(portf.clone()).await?
             },
 
-	    ProcessorMiddleMessage::<T>::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {
+	    ProcessorMiddleMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {
 		// we got a new portfolio, possibly switch it
-		let new_behind_curr = trades.clone() - &new_trades.clone();
+		// let new_behind_curr = trades.clone() - &new_trades.clone();
+                // TODO: This can be better optimized here!!!
+                let new_behind_curr = trades.iter().cloned().filter(|x| !new_trades.contains(x)).collect::<Vec<_>>();
+
 		new_processor.send_message(
 		    ProcessorMiddleMessage::Behind(new_behind_curr.clone())
 		)?;
@@ -169,11 +168,16 @@ where
 		    // publish the new portfolio
                     info!("Changing portfolio.");
 		    self._send_portfolio(new_portfolio.clone()).await?;
+
+                    // TODO: WHAT TO DO W/ THIS SWITCH_MARKETS
                     self._switch_markets(market, &new_market).await?;
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;
-		    *trades += &new_trades;
+		    //*trades += &new_trades;
+                    // TODO: CHECK IF THIS IS OK
+                    trades.extend(new_trades);
+
 		    // *market = new_market;
 
 		} // otherwise dont do anything.

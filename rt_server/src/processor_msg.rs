@@ -1,40 +1,49 @@
 /// messages for the Multiple Actor references.
-///
-
-use crate::market::MarketType;
-use crate::trade::TradeRep;
-use crate::portfolio::PortfolioType;
 use ractor::ActorRef;
+
+use crate::portfolio::PortfolioType;
 
 
 /// message that the new processor receives
 #[derive(Debug, Clone)]
-pub enum ProcessorMiddleMessage<'a, T> {
-    NewTrade(T),  // message from trade producer
-    NewMarket(&'a MarketType),  // message from market handler
+pub enum ProcessorMiddleMessage {
+    NewTrade(String),  // message from trade producer, trade id.
+    NewMarket(String),  // message from market handler, market_name
     Behind(Vec<String>),  // message from Processor_below, missing trades to calculate.
+
     // message from Bulk computation
     // first elt: all trades,
     // second: portfolio from computed trades
     // third: offending trades.
     // fourth: market reference on which these trades were computed.
     BulkReceive(
-	(Vec<String>, PortfolioType, Vec<String>, &'a MarketType)
+	(Vec<String>, PortfolioType, Vec<String>, String)
     ),
+
     // message from the processor above.
+    // elements:
+    //    1st elt: trades for which portfolio was computed.
+    //    2nd elt: portfolio:
+    //    3rd market for which it was computed.
+    //    4th actor where this was sent from.
     NewTradePortfolio(
-	(TradeRep<T>, PortfolioType, &'a MarketType, ActorRef<ProcessorMiddleMessage<'a, T>>)
+	(Vec<String>, PortfolioType, String, ActorRef<ProcessorMiddleMessage>)
     ),
+    // processing stat:
+    //   1st arg: processor name
+    //   2nd arg: when the events ocurred.
+    //   3rd arg: cumulative number of trades processed.
+    ProcessingStat((String, chrono::NaiveDateTime, usize)),
 }
 
 
 #[derive(Debug, Clone)]
-pub enum ProcessorBulkMessage<'a, T> {
-    // is a triple - first is the market type, a reference to a market.
+pub enum ProcessorBulkMessage {
+    // is a triple - first is the market type, a name of the market
     //    second - is a vector of trades that need to be computed.
-    //    third - an actor processing ProcessorMiddleMessage<T>
+    //    third - an actor processing ProcessorMiddleMessage
     NewBulk(
-        (&'a MarketType, Vec<String>, ActorRef<ProcessorMiddleMessage<'a, T>>)
+        (String, Vec<String>, ActorRef<ProcessorMiddleMessage>)
     ),
     Abandon,  // TODO: WHAT TO DO W/ THIS???
 }

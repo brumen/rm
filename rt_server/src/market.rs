@@ -38,34 +38,32 @@ impl PartialEq for MarketType {
             return false;
         }
 
-        let market_hash = self.market.clone().into_iter().collect::<HashMap<String, f64>>();
-        let other_hash = other.clone().into_iter().collect::<HashMap<String, f64>>();  // TODO: THIS .clone IS KILLING PERFORMANCE
+        for self_entry in self.market.iter() {
+            let self_key = self_entry.key();
+            if !other.market.contains_key(self_key) {
+                return false;
+            }
+        }
 
-        market_hash != other_hash
+        for other_entry in other.market.iter() {
+            let other_key = other_entry.key();
+            if !self.market.contains_key(other_key) {
+                return false;
+            }
+        }
+
+        true
     }
 }
 
 
 // TODO: THIS NEEDS TO BE FIXED.
-impl Into<MarketInner> for MarketType {
-    fn into(self) -> MarketInner {
-        self.market.clone()  // TODO: THIS IS GARBAGE HERE AS WELL!!
-    }
-}
+// impl Into<MarketInner> for MarketType {
+//     fn into(self) -> MarketInner {
+//         self.market.clone()  // TODO: THIS IS GARBAGE HERE AS WELL!!
+//     }
+// }
 
-// making a MarketType an iterator.
-impl IntoIterator for MarketType {
-    type Item = (String, f64);
-    type IntoIter = std::collections::hash_map::IntoIter<String, f64>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        let k = self.market.clone();
-
-        self.market.clone().into_iter()
-    }
-}
-
-// ref_deref_trait!(MarketType, MarketInner);
 
 impl MarketType {
     pub(crate) fn new(market_name: String) -> Self {
@@ -77,10 +75,6 @@ impl MarketType {
 
     pub(crate) fn insert(&mut self, key: String, value: f64) {
         self.market.insert(key, value);
-    }
-
-    pub(crate) fn next_market(&self, mn: &AllMarkets) -> Option<Self> {
-	mn.above_market(&self.market_name)
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -99,8 +93,8 @@ impl Default for MarketType {
 
 impl AddAssign<&MarketType> for MarketType {
     fn add_assign(&mut self, rhs: &MarketType) {
-        for (ticker, value) in rhs.market.iter() {
-            self.market.insert(ticker.clone(), *value);
+        for rhs_entry in rhs.market.iter() {
+            self.market.insert(rhs_entry.key().clone(), rhs_entry.value().clone());  // TODO: clone here
         }
     }
 }
@@ -125,21 +119,21 @@ pub enum MarketTypeError {
 }
 
 
-impl TryFromRef<BorrowedMessage<'_>> for MarketType {
-    type Error = MarketTypeError;
+// impl TryFromRef<BorrowedMessage<'_>> for MarketType {
+//     type Error = MarketTypeError;
 
-    fn try_from_ref(value: &BorrowedMessage) -> Result<Self, Self::Error> {
-        let msg_val = value.payload().ok_or(
-            MarketTypeError::CantConvertUtf8(
-                std::str::Utf8Error::from_utf8_error()
-            )
-        )?; // Ensure payload is valid
-        let msg_utf = std::str::from_utf8(msg_val)?;
+//     fn try_from_ref(value: &BorrowedMessage) -> Result<Self, Self::Error> {
+//         let msg_val = value.payload().ok_or(
+//             MarketTypeError::CantConvertUtf8(
+//                 std::str::Utf8Error::from_utf8_error()
+//             )
+//         )?; // Ensure payload is valid
+//         let msg_utf = std::str::from_utf8(msg_val)?;
 
-        debug!("try_from_ref(MarketType): Msg = {:?}", msg_utf);
-        Ok(serde_json::from_str::<MarketType>(msg_utf)?)
-    }
-}
+//         debug!("try_from_ref(MarketType): Msg = {:?}", msg_utf);
+//         Ok(serde_json::from_str::<MarketType>(msg_utf)?)
+//     }
+// }
 
 
 impl fmt::Display for MarketType {
@@ -169,184 +163,8 @@ pub enum MktMsgParams {
 }
 
 
-#[async_trait]
-pub trait MarketSwitching {
-
-    fn processor_name(&self) -> String;
-
-    fn all_markets(&self) -> Arc<AllMarkets>;
-
-    /// endpoint where the market is posted.
-    ///   could be for current, new or any other
-    ///   market.
-    ///   E.g. format!("http://{0}/market", pricing_server))
-    fn market_endpoint(&self) -> String;
-
-    /// reqwest client to implement market switching
-    ///   if we dont need the request client, set it to None.
-    fn r_client(&self) -> Option<&reqwest::Client>;
-
-    /// Sets market_name to the market providedcurrent and new markets to the ones
-    ///   specified in this function.
-    ///   market: market to replace the existing market_name
-    ///   market_name: name of the market to be replaced
-    ///   implements: market_name <- market
-    async fn set_market(
-	&self,
-	market: MarketType,
-	market_name: &mut MarketType,
-    ) -> Result<(), reqwest::Error> {
-
-        info!("Setting market for {:?}", market_name.market_name);
-
-        match self.r_client() {
-
-            None => {
-                *market_name = market;
-            },
-
-            Some(client) => {
-                let internal_market_name = &market_name.market_name;
-
-	        let payload = json!({
-	            "market": market,
-	            "market_type": internal_market_name,
-	        });
-
-                client
-	            .post(self.market_endpoint())
-                    .json(&payload)
-                    .send()
-                    .await?;
-            },
-        }
-        Ok(())
-    }
-
-    /// switches market_below w/ market_above
-    ///   market_name_below <- market_name_above
-    async fn _switch_markets(
-	&self,
-	market_name_below: &mut MarketType,
-	market_name_above: &MarketType,
-    ) -> Result<(), reqwest::Error> {
-
-        if market_name_below.is_empty() {
-            info!("MARKET EMPTY ON {}: {}", self.processor_name(), market_name_below.market_name);
-        }
-        if market_name_above.is_empty() {
-            info!("MARKET EMPTY ON {}: {}", self.processor_name(), market_name_above.market_name);
-        }
-
-        info!(
-	    "Switching markets: {:?}: {:?} <- {:?}",
-            self.processor_name(),
-            market_name_below.market_name,
-	    market_name_above.market_name,
-	);
 
 
-        match self.r_client() {
-
-            Some(client) => {
-	        // set the market below
-	        let payload = json!({
-	            "market_below": market_name_below.market_name,
-	            "market_above": market_name_above.market_name,
-	        });
-
-                // replace market with switch_market in the endpoint
-                let switch_market_endpoint = str::replace(
-                    self.market_endpoint().as_str(), "market", "switch_market"
-                );
-
-                client
-	            .post(switch_market_endpoint)
-                    .json(&payload)
-                    .send()
-                    .await?;
-
-            },
-
-            None => {
-                (*market_name_below).market = market_name_above.market.clone();  // leave name the same
-            },
-        }
-        Ok(())
-    }
-
-    async fn switch_market(
-	&self,
-	market_name: &mut MarketType,
-    ) -> Result<(), reqwest::Error> {
-
-	match market_name.next_market(&self.all_markets()) {
-	    None => {
-		warn!(
-		    "Could not find next market of {}. All markets: {:?}, Leaving as it is.",
-		    market_name.market_name, self.all_markets(),
-		);
-		return Ok(());
-	    },
-	    Some(above_market) => {
-		self._switch_markets(market_name, &above_market).await?
-	    }
-	}
-
-	Ok(())
-    }
-}
-
-
-/// list of (market names, actual market)
-#[derive(Debug)]
-pub(crate) struct AllMarkets(Vec<MarketType>);
-
-impl AllMarkets {
-
-    /// Default implemnentation of the market names.
-    pub(crate) fn new(nb_middle: usize) -> Self {
-	let mut middle_markets = vec![];
-	middle_markets.push(MarketType::new("current".to_string()));
-	for middle_nb in 0..nb_middle {
-	    middle_markets.push(
-		MarketType::new(format!("new_{middle_nb}"))
-	    );
-	}
-	middle_markets.push(MarketType::new("new".to_string()));
-
-	Self(middle_markets)
-    }
-
-    pub(crate) fn get(&self, market_nb: usize) -> &String {
-	&self.0[market_nb].market_name
-    }
-
-    /// attempts to find the market name in the AllMarkets -
-    /// if it cant find it, returns None
-    fn _find_market(&self, mkt_name: &String) -> Option<usize> {
-	self.0.iter().position(|r| r.market_name == *mkt_name)
-    }
-
-    /// finds the market above
-    /// returns None if it's already the last market.
-    pub(crate) fn above_market(&self, mkt_name: &String) -> Option<MarketType> {
-
-	match self._find_market(mkt_name) {
-	    None => None,
-	    Some(found_mkt_nb) => {
-		if found_mkt_nb == self.0.len() - 1 {
-		    return None
-		}
-		Some(self.0[found_mkt_nb + 1].clone())
-	    }
-	}
-    }
-
-    pub(crate) fn len(&self) -> usize {
-	self.0.len()
-    }
-}
 
 
 

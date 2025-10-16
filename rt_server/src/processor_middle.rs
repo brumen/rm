@@ -4,7 +4,8 @@ use std::sync::Arc;
 use tracing::{info, warn, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
-use crate::market::{MarketType, MarketSwitching, AllMarkets, };
+use crate::all_markets::AllMarkets;
+use crate::market_switching::MarketSwitching;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
@@ -13,14 +14,15 @@ use crate::trade::{TradeRep, BaseTrade};
 
 
 #[derive(Debug)]
-pub(crate) struct ProcessorMiddle<T>{
+pub(crate) struct ProcessorMiddle<T> {
     pub(crate) metric: PricingMetric,
     pub(crate) pricing_options: MarketPricingOptions,
     pub(crate) processor_name: String,
-    pub processor_below: ActorRef<ProcessorMiddleMessage<T>>,  // processor below
-    pub processor_bulk: ActorRef<ProcessorBulkMessage<T>>,  // bulk processor ref.
+    pub processor_below: ActorRef<ProcessorMiddleMessage>,  // processor below
+    pub processor_bulk: ActorRef<ProcessorBulkMessage>,  // bulk processor ref.
     pub r_client: Option<reqwest::Client>,
     pub(crate) all_markets: Arc<AllMarkets>,
+    pub(crate) all_trades: Arc<TradeRep<T>>,
 }
 
 
@@ -63,7 +65,7 @@ impl<T> Actor for ProcessorMiddle<T>
 where
     T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + ProcessTradeValue
 {
-    type Msg = ProcessorMiddleMessage<T>;
+    type Msg = ProcessorMiddleMessage;
     // first argument is list of trades,
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
@@ -71,7 +73,7 @@ where
     //   fifth is the market that the processor is operating on.
     //      for remote pricing markets only market_name is fine,
     //      for local markets, the name and the market structure.
-    type State = (TradeRep<T>, TradeRep<T>, PortfolioType, ProcessorMiddleState, MarketType);
+    type State = (Vec<String>, Vec<String>, PortfolioType, ProcessorMiddleState, String);
     type Arguments = ();
 
     // initialization of the new processor
@@ -86,11 +88,11 @@ where
 
         Ok(
 	    (
-		TradeRep::<T>::default(),
-		TradeRep::<T>::default(),
+		vec![],
+		vec![],
 		PortfolioType::default(),
 		ProcessorMiddleState::Idle,
-                MarketType::new(self.processor_name.clone()),
+                self.processor_name.clone(),
 	    )
 	)
     }
@@ -117,10 +119,12 @@ where
                     self.processor_name,
                     new_trade.id()
 		);
-		let new_trade_price = new_trade.value_by_metric2(
+                let trade_info = self.all_trades.get(&new_trade);
+                let market_info = self.all_markets.get(&market);
+                let new_trade_price = trade_info.value_by_metric2(
 		    self.metric,
 		    &self.pricing_options,
-		    &market,
+		    &market_info,
 		).await;
 		*portf += new_trade_price;  // portfolio update
 		*trade_l += &new_trade;  // we add the trade to the list.

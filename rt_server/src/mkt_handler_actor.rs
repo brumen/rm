@@ -9,16 +9,16 @@ use crate::market::MarketType;
 use crate::ref_deref::TryFromRef;
 
 
-pub struct MarketProducer<T>{
+pub struct MarketProducer<'a, T>{
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
     pub mkt_listener: StreamConsumer,  // listening for market events.
-    pub new_processor: ActorRef<ProcessorMiddleMessage<T>>,
+    pub new_processor: ActorRef<ProcessorMiddleMessage<'a, T>>,
 }
 
 
 #[async_trait]
-impl<T> Actor for MarketProducer<T>
+impl<'a, T> Actor for MarketProducer<'a, T>
 where
     T: Send + Sync + 'static
 {
@@ -55,7 +55,7 @@ where
 	let market = state;
 	*market += &message;  // adding the new market message to the market.
 	self.new_processor.send_message(
-	    ProcessorMiddleMessage::<T>::NewMarket(market.clone())
+	    ProcessorMiddleMessage::<T>::NewMarket(&market.clone())
 	)?;
 
 	// wait for new message

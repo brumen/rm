@@ -6,7 +6,9 @@ use std::sync::Arc;
 use ractor::ActorRef;
 
 use crate::pricer::{MarketPricingOptions, PricingMetric};
-use crate::market::{AllMarkets, MarketSwitching, MarketType};
+use crate::market::MarketType;
+use crate::all_markets::AllMarkets;
+use crate::market_switching::MarketSwitching;
 use crate::process_trade::ProcessTradeValue;
 use crate::processor_middle::ProcessorMiddle;
 use crate::processor_bulk::ProcessorBulk;
@@ -20,7 +22,7 @@ use crate::trade::{BaseTrade, TradeRep};
 ///    vector of bulk actors,
 ///    last middle processor actor - to be used for new_actor, special case)
 pub(crate) async fn create_middle_procs_chain<T: Send + Clone + Debug + Display + BaseTrade + ProcessTradeValue + 'static> (
-    processor_curr: ActorRef<ProcessorMiddleMessage<T>>,
+    processor_curr: ActorRef<ProcessorMiddleMessage>,
     metric: PricingMetric,  // TODO: THIS SHOULD CHANGE
     pricing_options: MarketPricingOptions,
     all_markets: Arc<AllMarkets>,
@@ -35,12 +37,12 @@ pub(crate) async fn create_middle_procs_chain<T: Send + Clone + Debug + Display 
     ) {
 
     let mut bulk_actors_futures: Vec<JoinHandle<()>> = vec![];
-    let mut bulk_actors: Vec<ActorRef<ProcessorBulkMessage<T>>> = vec![];
+    let mut bulk_actors: Vec<ActorRef<ProcessorBulkMessage>> = vec![];
 
     let mut processor_actors_futures: Vec<JoinHandle<()>> = vec![];
-    let mut processor_actors: Vec<ActorRef<ProcessorMiddleMessage<T>>> = vec![];
+    let mut processor_actors: Vec<ActorRef<ProcessorMiddleMessage>> = vec![];
 
-    let mut last_middle: ActorRef<ProcessorMiddleMessage<T>> = processor_curr.clone();
+    let mut last_middle: ActorRef<ProcessorMiddleMessage> = processor_curr.clone();
     let nb_middle = all_markets.len();
 
     for middle_nb in 1..(nb_middle-1) {
