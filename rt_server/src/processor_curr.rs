@@ -2,8 +2,7 @@ use tracing::{info, debug, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::{Arc, Mutex};
 use rdkafka::error::KafkaError;
-use rdkafka::util::Timeout;
-use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::producer::FutureProducer; // , FutureRecord};
 
 use crate::portfolio::PortfolioType;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
@@ -12,9 +11,10 @@ use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::ProcessorMiddleMessage;
 use crate::all_markets::AllMarkets;
 use crate::market_switching::MarketSwitching;
+use crate::market::MarketTypeT;
 
 
-pub(crate) struct ProcessorCurr<T>{
+pub(crate) struct ProcessorCurr<T, MT: MarketTypeT + Clone>{
     pub processor_name: String,
     pub metric: PricingMetric,
     pub results_topic: String,
@@ -22,15 +22,15 @@ pub(crate) struct ProcessorCurr<T>{
     pub result_publisher: FutureProducer,
     pub r_client: Option<reqwest::Client>,  // request client
     pub portf: Arc<Mutex<PortfolioType>>,  // current working portfolio
-    pub all_markets: Arc<AllMarkets>,  // all_markets is DashMap
+    pub all_markets: Arc<AllMarkets<MT>>,  // all_markets is DashMap
     pub all_trades: Arc<TradeRep<T>>,  // all_trades is DashMap
     //    pub curr_trades: Vec<String>,  // current trades that the processor is using
     // trade_processor where we can send the info when the trades are processed
-    pub trade_processor: ActorRef<ProcessorMiddleMessage>,
+    pub trade_processor: ActorRef<ProcessorMiddleMessage<MT>>,
 }
 
 
-impl<T> std::fmt::Debug for ProcessorCurr<T> {
+impl<T, MT: MarketTypeT + Clone> std::fmt::Debug for ProcessorCurr<T, MT> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CurrentProcessor({self.processor_name})")
     }
@@ -55,13 +55,13 @@ pub(crate) trait PortfolioSenderSimple {
 }
 
 
-impl<T> MarketSwitching for ProcessorCurr<T> {
+impl<T, MT: MarketTypeT + Clone> MarketSwitching for ProcessorCurr<T, MT> {
 
     fn processor_name(&self) -> String {
         self.processor_name.clone()
     }
 
-    fn all_markets(&self) -> Arc<AllMarkets> {
+    fn all_markets(&self) -> Arc<AllMarkets<MT>> {
 	self.all_markets.clone()
     }
 
@@ -77,12 +77,13 @@ impl<T> MarketSwitching for ProcessorCurr<T> {
 
 // T is the representation fo the trade
 #[async_trait]
-impl<T> Actor for ProcessorCurr<T>
+impl<T, MT> Actor for ProcessorCurr<T, MT>
 where
     T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display + ProcessTradeValue,
-    ProcessorCurr<T>: PortfolioSenderSimple,
+    ProcessorCurr<T, MT>: PortfolioSenderSimple,
+    MT: MarketTypeT + Clone + Send + 'static  // TODO: THIS 'static is WRONG
 {
-    type Msg = ProcessorMiddleMessage;
+    type Msg = ProcessorMiddleMessage<MT>;
     // state is a tuple of
     //    current trades,
     //    current portfolio

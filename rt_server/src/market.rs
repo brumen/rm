@@ -27,10 +27,34 @@ use crate::ref_deref_trait;
 pub(crate) type MarketInner = DashMap<String, f64>;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct MarketType {
+pub struct AllMarketType {
     pub market_name: String,
     pub market: MarketInner,
 }
+
+
+impl MarketTypeT for AllMarketType {
+    fn market_name(&self) -> String {
+        self.market_name
+    }
+
+    fn get(&self, stock: String) -> f64 {
+        self.market.get(&stock)
+    }
+}
+
+
+pub(crate) trait MarketTypeT
+where Self: std::marker::Sized
+{
+    fn new(market_name: String) -> Self;
+    fn market_name(&self) -> String;
+    fn get(&self, stock: String) -> f64;  // getting stock values.
+    fn insert(&self, key: String, value: f64);  // Important: insert is _NOT_ mutable self
+    fn is_empty(&self) -> bool;
+    fn try_from_ref(value: &BorrowedMessage) -> Result<Self, MarketTypeError>;
+}
+
 
 impl PartialEq for MarketType {
     fn eq(&self, other: &Self) -> bool {
@@ -80,6 +104,20 @@ impl MarketType {
     pub(crate) fn is_empty(&self) -> bool {
         self.market.is_empty()
     }
+
+    // MMM is mnemonic for Market Making Message
+    pub(crate) fn try_from_ref<MMM: for <'a> Deserialize<'a>> (value: &BorrowedMessage) -> Result<Self, MarketTypeError> {
+
+        let msg_val = value.payload().unwrap();  // TODO: HANDLE THIS UNWRAP
+        let msg_utf = std::str::from_utf8(msg_val)?;
+
+        debug!("try_from_ref(MarketType): Msg = {:?}", msg_utf);
+        let k = serde_json::from_str::<MMM>(msg_utf).unwrap();
+        Ok(k)
+        //Ok(serde_json::from_str::<MMM>(msg_utf)?)
+    }
+
+
 }
 
 // TODO: CHECK THIS STUFF HERE!!!

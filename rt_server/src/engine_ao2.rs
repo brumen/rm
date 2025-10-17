@@ -1,16 +1,17 @@
 // construct and connect all the actors for the AirOption framework
 use ractor::Actor;
-use rdkafka::message::BorrowedMessage;
+// use rdkafka::message::BorrowedMessage;
 use serde::Deserialize;
 use tokio::task::JoinHandle;
 use tracing::info;
 use std::sync::{Arc,Mutex};
 use std::fmt::{Display, Debug};
+use rdkafka::producer::FutureRecord;
+use rdkafka::util::Timeout;
 
 use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
-
 use crate::market::MarketType;
 use crate::all_markets::AllMarkets;
 use crate::market_switching::MarketSwitching;
@@ -24,7 +25,7 @@ use crate::portfolio::PortfolioType;
 use crate::trade::{BaseTrade, TradeRep};
 use crate::engine_actor::create_middle_procs_chain;
 use crate::process_trade::ProcessTradeValue;
-use crate::processor_curr::PortfolioSenderSimple;
+use crate::processor_curr::{PortfolioSenderSimple, SendError};
 
 
 
@@ -71,7 +72,7 @@ impl<T> PortfolioSenderSimple for ProcessorCurr<T> {
 /// initialize_client: whether the reqwest client is set, or None.
 ///   (setting it uses the client for remote pricing, putting it
 ///    to None, means pricing is local.)
-pub(crate) async fn start2<T>(
+pub(crate) async fn start2<T, MT>(
     kafka_server: String,  // server including the port.  'localhost:9010'
     metric: PricingMetric,  // pricing metric, like PV
     pos_topic: String,     // position topic on kafka
@@ -79,7 +80,7 @@ pub(crate) async fn start2<T>(
     results_topic: String, // publish the results topic
     pricing_options: &MarketPricingOptions,
     server_state: Arc<Mutex<PortfolioType>>,
-    all_markets: Arc<AllMarkets>,
+    all_markets: Arc<AllMarkets<MT>>,
     initial_trades: TradeRep::<T>,
     initialize_client: bool,
 ) -> Vec<JoinHandle<()>>

@@ -6,9 +6,9 @@ use crate::portfolio::PortfolioType;
 
 /// message that the new processor receives
 #[derive(Debug, Clone)]
-pub enum ProcessorMiddleMessage {
+pub enum ProcessorMiddleMessage<MT> {
     NewTrade(String),  // message from trade producer, trade id.
-    NewMarket(String),  // message from market handler, market_name
+    NewMarket(MT),  // message from market handler, market_name
     Behind(Vec<String>),  // message from Processor_below, missing trades to calculate.
 
     // message from Bulk computation
@@ -27,7 +27,7 @@ pub enum ProcessorMiddleMessage {
     //    3rd market for which it was computed.
     //    4th actor where this was sent from.
     NewTradePortfolio(
-	(Vec<String>, PortfolioType, String, ActorRef<ProcessorMiddleMessage>)
+	(Vec<String>, PortfolioType, String, ActorRef<ProcessorMiddleMessage<MT>>)
     ),
     // processing stat:
     //   1st arg: processor name
@@ -38,12 +38,12 @@ pub enum ProcessorMiddleMessage {
 
 
 #[derive(Debug, Clone)]
-pub enum ProcessorBulkMessage {
+pub enum ProcessorBulkMessage<MT> {
     // is a triple - first is the market type, a name of the market
     //    second - is a vector of trades that need to be computed.
     //    third - an actor processing ProcessorMiddleMessage
     NewBulk(
-        (String, Vec<String>, ActorRef<ProcessorMiddleMessage>)
+        (String, Vec<String>, ActorRef<ProcessorMiddleMessage<MT>>)
     ),
     Abandon,  // TODO: WHAT TO DO W/ THIS???
 }

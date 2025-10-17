@@ -1,29 +1,33 @@
 use tracing::{info, debug};
 use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
+use serde::Deserialize;
+use std::ops::AddAssign;
+
 
 use crate::pricer::MarketPricingOptions;
 use crate::processor_msg::ProcessorMiddleMessage;
 use crate::pricer::PricingMetric;
-use crate::market::MarketType;
+use crate::market::{MarketType, MarketTypeT};
 use crate::ref_deref::TryFromRef;
 
 
-pub struct MarketProducer<'a, T>{
+pub struct MarketProducer<MT> {
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
     pub mkt_listener: StreamConsumer,  // listening for market events.
-    pub new_processor: ActorRef<ProcessorMiddleMessage<'a, T>>,
+    pub new_processor: ActorRef<ProcessorMiddleMessage<MT>>,
 }
 
 
 #[async_trait]
-impl<'a, T> Actor for MarketProducer<'a, T>
+impl<MT> Actor for MarketProducer<MT>
 where
-    T: Send + Sync + 'static
+     //T: Send + Sync + 'static
+    MT: Send + MarketTypeT + 'static + std::fmt::Debug + Clone + for<'a> AddAssign<&'a MT>
 {
-    type Msg = MarketType;
-    type State = MarketType;
+    type Msg =  MT;  // MarketType;
+    type State = MT;  // MarketType;
     type Arguments = ();
 
     async fn pre_start(
@@ -34,12 +38,11 @@ where
 
 	info!("Initializing MarketProducer. Waiting on first message");
 	let new_mkt_msg = self.mkt_listener.recv().await?;
-	let new_mkt = MarketType::try_from_ref(&new_mkt_msg)?;
-	myself.send_message(new_mkt)?;
+	//let new_mkt = MarketType::try_from_ref(&new_mkt_msg)?;
+        let new_mkt = MT::try_from_ref(&new_mkt_msg)?;
+	myself.send_message(new_mkt.clone())?;
 
-	Ok(
-            MarketType::new("new".to_string())  // TODO: THIS HAS TO BE FIXED!!!
-        )
+	Ok(new_mkt)
     }
 
     async fn handle(
@@ -55,12 +58,13 @@ where
 	let market = state;
 	*market += &message;  // adding the new market message to the market.
 	self.new_processor.send_message(
-	    ProcessorMiddleMessage::<T>::NewMarket(&market.clone())
+	    ProcessorMiddleMessage::NewMarket(market.clone())
 	)?;
 
 	// wait for new message
 	let new_msg = self.mkt_listener.recv().await?;
-	let new_mkt_msg = MarketType::try_from_ref(&new_msg)?;
+	//let new_mkt_msg = MarketType::try_from_ref(&new_msg)?;
+        let new_mkt_msg = MT::try_from_ref(&new_msg)?;
 	myself.send_message(new_mkt_msg)?;
 
 	Ok(())

@@ -11,17 +11,19 @@ use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric};
 use crate::process_trade::ProcessTradeValue;
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage};
 use crate::trade::{TradeRep, BaseTrade};
+use crate::market::MarketTypeT;
 
 
+// T is mnemonic for trade type, MT is mnemonic for market type
 #[derive(Debug)]
-pub(crate) struct ProcessorMiddle<T> {
+pub(crate) struct ProcessorMiddle<T, MT: MarketTypeT> {
     pub(crate) metric: PricingMetric,
     pub(crate) pricing_options: MarketPricingOptions,
     pub(crate) processor_name: String,
-    pub processor_below: ActorRef<ProcessorMiddleMessage>,  // processor below
-    pub processor_bulk: ActorRef<ProcessorBulkMessage>,  // bulk processor ref.
+    pub processor_below: ActorRef<ProcessorMiddleMessage<MT>>,  // processor below
+    pub processor_bulk: ActorRef<ProcessorBulkMessage<MT>>,  // bulk processor ref.
     pub r_client: Option<reqwest::Client>,
-    pub(crate) all_markets: Arc<AllMarkets>,
+    pub(crate) all_markets: Arc<AllMarkets<MT>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
 }
 
@@ -36,13 +38,13 @@ pub enum ProcessorMiddleState {
 }
 
 
-impl<T> MarketSwitching for ProcessorMiddle<T> {
+impl<T, MT: MarketTypeT> MarketSwitching for ProcessorMiddle<T, MT> {
 
     fn processor_name(&self) -> String {
         self.processor_name.clone()
     }
 
-    fn all_markets(&self) -> std::sync::Arc<AllMarkets> {
+    fn all_markets(&self) -> std::sync::Arc<AllMarkets<MT>> {
 	self.all_markets.clone()
     }
 
@@ -55,17 +57,18 @@ impl<T> MarketSwitching for ProcessorMiddle<T> {
     }
 }
 
-impl<T> Decoder for ProcessorMiddle<T> {}
+impl<T, MT: MarketTypeT> Decoder for ProcessorMiddle<T, MT> {}
 
 
 // TODO: IMPLEMENT RestPricerSpark HERE MISSING
 
 #[async_trait]
-impl<T> Actor for ProcessorMiddle<T>
+impl<T, MT> Actor for ProcessorMiddle<T, MT>
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + ProcessTradeValue
+    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + ProcessTradeValue,
+    MT: MarketTypeT + Send + Sync + 'static,  // TODO: THIS IS OFF
 {
-    type Msg = ProcessorMiddleMessage;
+    type Msg = ProcessorMiddleMessage<MT>;
     // first argument is list of trades,
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
@@ -114,20 +117,22 @@ where
 
 	match (message, pns_old) {
 	    (ProcessorMiddleMessage::NewTrade(new_trade), ProcessorMiddleState::CalculatingSingle) => {
-		info!(
+                let trade_info = self.all_trades.get(&new_trade).ok_or("Trade not found")?;
+                info!(
 		    "Processor {}: CalculatingSingle, Calculating single trade {}.",
                     self.processor_name,
-                    new_trade.id()
+                    trade_info.id()
 		);
-                let trade_info = self.all_trades.get(&new_trade);
-                let market_info = self.all_markets.get(&market);
+
+                let market_info = self.all_markets.get_m(market.to_string());
                 let new_trade_price = trade_info.value_by_metric2(
 		    self.metric,
 		    &self.pricing_options,
 		    &market_info,
 		).await;
 		*portf += new_trade_price;  // portfolio update
-		*trade_l += &new_trade;  // we add the trade to the list.
+		//*trade_l += &new_trade;  // we add the trade to the list.
+                trade_l.push(new_trade);
 
 		// we send the computed portfolio & trades to the processor below
 		//   hoping that we are ahead.
@@ -149,7 +154,9 @@ where
 		    self.processor_name,
 		);
 
-		*trade_l += &new_trade;
+		//*trade_l += &new_trade;
+                trade_l.push(new_trade);
+
 		self.processor_bulk.send_message(
 		    ProcessorBulkMessage::NewBulk(
 			(market.clone(), trade_l.clone(), myself)
@@ -163,7 +170,8 @@ where
 		    "Processor {}, CaluclatingBulk: got new trade.",
 		    self.processor_name,
 		);
-		*trade_l += &new_trade;  // we add the trade to the list.
+		//*trade_l += &new_trade;  // we add the trade to the list.
+                trade_l.push(new_trade);
 		let new_trade_price = new_trade.value_by_metric2(
 		    self.metric,
 		    &self.pricing_options,
@@ -509,6 +517,8 @@ where
                     ProcessorMiddleMessage::Behind(new_behind_curr)
                 );
 	    },
+
+            (ProcessorMiddleMessage::ProcessingStat(_), _) => {}, // processing stat is not for this processor
 	}
 	Ok(())
     }

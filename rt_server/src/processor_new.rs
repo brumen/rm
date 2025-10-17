@@ -2,7 +2,7 @@ use tracing::{info, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::{Arc, Mutex, };
 
-use crate::market::MarketType;
+use crate::market::MarketTypeT;
 use crate::market_switching::MarketSwitching;
 use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
@@ -13,15 +13,16 @@ use crate::trade::{BaseTrade, TradeRep};
 
 
 #[derive(Debug)]
-pub struct ProcessorNew{
+pub struct ProcessorNew<T, MT: MarketTypeT>{
     pub processor_name: String,
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
-    pub processor_middle: ActorRef<ProcessorMiddleMessage>,  // current processor ref.
-    pub processor_bulk: ActorRef<ProcessorBulkMessage>,  // bull processor ref.
+    pub processor_middle: ActorRef<ProcessorMiddleMessage<MT>>,  // current processor ref.
+    pub processor_bulk: ActorRef<ProcessorBulkMessage<MT>>,  // bull processor ref.
     pub r_client: Option<reqwest::Client>,
-    pub all_markets: Arc<AllMarkets>,
-    pub market_name: (MarketType, MarketType),  // first item: new market, second item: future market.
+    pub all_markets: Arc<AllMarkets<MT>>,
+    pub(crate) all_trades: Arc<TradeRep<T>>,
+    pub market_name: (String, String),  // first item: new market, second item: future market.
 }
 
 #[derive(Debug)]
@@ -32,15 +33,18 @@ pub enum ProcessorNewState {
 }
 
 
-impl ProcessorNew {
+impl<T, MT> ProcessorNew<T, MT>
+where
+    MT: MarketTypeT
+{
 
     /// replaces the future_mkt with replace_mkt.
     ///   either on the server or in the controller.
     ///   future_mkt <- replace_mkt
     async fn _replace_fut_market(
         &self,
-        replace_mkt: Arc<Mutex<MarketType>>,
-        future_mkt: &mut Arc<Mutex<MarketType>>,
+        replace_mkt: Arc<Mutex<MT>>,
+        future_mkt: &mut Arc<Mutex<MT>>,
     ) -> Result<(), ActorProcessingErr> {
 
         let actual_market = replace_mkt.lock().unwrap().market;
@@ -65,13 +69,13 @@ impl ProcessorNew {
 }
 
 
-impl MarketSwitching for ProcessorNew {
+impl<T, MT: MarketTypeT> MarketSwitching for ProcessorNew<T, MT> {
 
     fn processor_name(&self) -> String {
         self.processor_name.clone()
     }
 
-    fn all_markets(&self) -> std::sync::Arc<AllMarkets> {
+    fn all_markets(&self) -> std::sync::Arc<AllMarkets<MT>> {
 	self.all_markets.clone()
     }
 
@@ -85,9 +89,9 @@ impl MarketSwitching for ProcessorNew {
 }
 
 
-impl Decoder for ProcessorNew {}
+impl<T, MT> Decoder for ProcessorNew<T, MT> {}
 
-impl<ReductionType> RestPricerSpark<ReductionType> for ProcessorNew
+impl<ReductionType, T, MT> RestPricerSpark<ReductionType> for ProcessorNew<T, MT>
 where
     ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
     ProcessorNew: Decoder,
@@ -97,18 +101,19 @@ where
 	self.pricing_options.pricing_server.clone()
     }
 
-    fn _pricing_endpoint_spark(&self, _market_: MarketType, _metric: PricingMetric) -> String {
+    fn _pricing_endpoint_spark(&self, _market_: MT, _metric: PricingMetric) -> String {
 	"/pricing".to_string()
     }
 }
 
 
 #[async_trait]
-impl Actor for ProcessorNew
-//where
-//    T: Send + Clone + 'static + BaseTrade + ProcessTradeValue + std::fmt::Display
+impl<T, MT> Actor for ProcessorNew<T, MT>
+where
+    T: Send + Clone + 'static + BaseTrade + ProcessTradeValue + std::fmt::Display,
+    MT: MarketTypeT + Send + Sync + std::fmt::Debug + 'static  // TODO: THIS IS WRONG
 {
-    type Msg = ProcessorMiddleMessage;
+    type Msg = ProcessorMiddleMessage<MT>;
     // first argument is list of trades,
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
@@ -119,7 +124,7 @@ impl Actor for ProcessorNew
         Vec<String>,
         PortfolioType,
         ProcessorNewState,
-        (Arc<MarketType>, Arc<MarketType>)
+        (MT, MT)
     );
     type Arguments = ();
 
@@ -139,8 +144,8 @@ impl Actor for ProcessorNew
 		PortfolioType::default(),
 		ProcessorNewState::Idle,
                 (
-                    Arc::new(MarketType::new(self.processor_name.clone())),
-                    Arc::new(MarketType::new("future".to_string())),
+                    MT::new(self.processor_name.clone()),
+                    MT::new("future".to_string()),
                 ),
 	    )
 	)
@@ -172,13 +177,19 @@ impl Actor for ProcessorNew
                             "CalculatingSingle, NewTrade:, computing trade {}.",
                             new_trade
                         );
-			let new_trade_price = new_trade.value_by_metric2(
+                        let Some(new_trade_info) = self.all_trades.get(&new_trade) else {
+                            // TODO: we dont have a trade info - return for now
+                            return Ok(());
+                        };
+			let new_trade_price = new_trade_info.value_by_metric2(
 			    self.metric,
 			    &self.pricing_options,
 			    &new_m,
 			).await;
+
 			*portf += new_trade_price;  // portfolio update
-			*trade_l += &new_trade;  // we add the trade to the list.
+			//*trade_l += &new_trade;  // we add the trade to the list.
+                        trade_l.push(new_trade);
 
 			// we send the computed portfolio & trades to the current processor
 			//   hoping that we are ahead.
@@ -187,7 +198,7 @@ impl Actor for ProcessorNew
                         );
 			self.processor_middle.send_message(
 			    ProcessorMiddleMessage::NewTradePortfolio(
-				(trade_l.clone(), portf.clone(), (*new_m).clone(), myself)
+				(trade_l.clone(), portf.clone(), new_m.market_name(), myself)
 			    )
 			)?;
 		    },
@@ -198,10 +209,11 @@ impl Actor for ProcessorNew
                             "Idle, NewTrade: Sending all {} trades to bulk. Going -> CalculatingBulk.",
                             trade_l.len(),
                         );
-			*trade_l += &new_trade;
+			//*trade_l += &new_trade;
+                        trade_l.push(new_trade);
 			self.processor_bulk.send_message(
 			    ProcessorBulkMessage::NewBulk(
-				(new_m.clone(), trade_l.clone(), myself)
+				(new_m.market_name(), trade_l.clone(), myself)
 			    )
 			)?;
 			*pns = ProcessorNewState::CalculatingBulk;
@@ -212,8 +224,10 @@ impl Actor for ProcessorNew
                             "CalculatingBulk, NewTrade: adding trade and sending to lower."
                         );
 
-			*trade_l += &new_trade;  // we add the trade to the list.
-			let new_trade_price = new_trade.value_by_metric2(
+			//*trade_l += &new_trade;  // we add the trade to the list.
+                        trade_l.push(new_trade);
+                        let new_trade_info = self.all_trades.get(&new_trade).unwrap();  // TODO: REMOVE THIS unwrap
+			let new_trade_price = new_trade_info.value_by_metric2(
 			    self.metric,
 			    &self.pricing_options,
 			    &new_m,
@@ -225,7 +239,7 @@ impl Actor for ProcessorNew
                         );
                         self.processor_middle.send_message(
                             ProcessorMiddleMessage::NewTradePortfolio(
-                            (trade_l.clone(), portf.clone(), new_m.clone(), myself)
+                                (trade_l.clone(), portf.clone(), new_m.market_name(), myself)
                             )
                         )?;
 		    },
@@ -238,7 +252,7 @@ impl Actor for ProcessorNew
 		    ProcessorNewState::Idle => {
 			// update the "new" market
                         info!(
-                            "Idle, NewMarket: setting future market: {}", new_market
+                            "Idle, NewMarket: setting future market: {:?}", new_market
                         );
 
                         self._replace_fut_market(
@@ -250,9 +264,9 @@ impl Actor for ProcessorNew
                         info!("Idle, NewMarket: sending to bulk. State -> CalculatingBulk");
                         *pns = ProcessorNewState::CalculatingBulk;
 			self.processor_bulk.send_message(
-			    ProcessorBulkMessage::NewBulk((
-				new_m.clone(), trade_l.clone(), myself
-			    ))
+			    ProcessorBulkMessage::NewBulk(
+                                (new_m.market_name(), trade_l.clone(), myself)
+                            )
 			)?;
 		    },
 
@@ -265,7 +279,7 @@ impl Actor for ProcessorNew
                         );
 			self.processor_middle.send_message(
 			    ProcessorMiddleMessage::NewTradePortfolio(
-				(trade_l.clone(), portf.clone(), new_m.clone(), myself)
+				(trade_l.clone(), portf.clone(), new_m.market_name(), myself)
 			    )
 			)?;
 			// we're calculating, update the future market, not current
@@ -312,7 +326,7 @@ impl Actor for ProcessorNew
 			    //   the list of markets.
                             info!(
                                 "Behind, CalculatingSingle: Switching markets: {} <- future",
-                                new_m.market_name,
+                                new_m.market_name(),
                             );
 
                             self._switch_markets(new_m, future_m).await?;
@@ -329,10 +343,12 @@ impl Actor for ProcessorNew
                                  adding trades ({}) and computing bulk.",
                                 trade_l.len(),
                             );
-			    *trade_l += &trades_behind;
+			    //*trade_l += &trades_behind;
+                            trade_l.extend(trades_behind);
+
 			    self.processor_bulk.send_message(
 				ProcessorBulkMessage::NewBulk(
-				    (new_m.clone(), trades_behind.clone(), myself)
+				    (new_m.market_name(), trades_behind.clone(), myself)
 				)
 			    )?;
 			    *pns = ProcessorNewState::CalculatingBulk;
@@ -347,20 +363,19 @@ impl Actor for ProcessorNew
                             info!(
                                 "CalculatingBulk, Behind: adding non-computed trades to trade list."
                             );
-                            *trade_l += &trades_behind;
-
+                            //*trade_l += &trades_behind;
+                            trade_l.extend(trades_behind);
 			}
 		    },
 
 		    ProcessorNewState::Idle => {
 			if !trades_behind.is_empty() {
-                            info!(
-                                "Idle, Behind: Starting new bulk compute."
-                            );
-                            *trade_l += &trades_behind;
+                            info!("Idle, Behind: Starting new bulk compute.");
+                            // *trade_l += &trades_behind;
+                            trade_l.extend(trades_behind);
                             self.processor_bulk.send_message(
 				ProcessorBulkMessage::NewBulk(
-				    ((*new_m).clone(), trade_l.clone(), myself)
+				    (new_m.market_name(), trade_l.clone(), myself)
 				)
 			    )?;
                             info!(
@@ -384,15 +399,18 @@ impl Actor for ProcessorNew
 			// result of computation has arrived.
 			// TODO: FINISH THIS HERE!!!
 			*portf += &computed_portf;
-			*trade_l += &new_trade_l;
-			*trades_non_pricing += &offending_trades;
+			//*trade_l += &new_trade_l;
+                        trade_l.extend(new_trade_l);
+			// *trades_non_pricing += &offending_trades;
+                        trades_non_pricing.extend(offending_trades);
+
                         info!(
                             "CalculatingBulk, BulkReceive: sending to lower processor, portf size: {}",
                             portf.len(),
                         );
                         self.processor_middle.send_message(
 			    ProcessorMiddleMessage::NewTradePortfolio(
-				(trade_l.clone(), portf.clone(), new_m.clone(), myself)
+				(trade_l.clone(), portf.clone(), new_m.market_name(), myself)
 			    )
 			)?;
                         info!(
@@ -407,14 +425,16 @@ impl Actor for ProcessorNew
 			// panic!("Received BulkReceive while calculating single - Weird");
 
 			*portf = computed_portf;
-			*trade_l += &new_trade_l;
+			//*trade_l += &new_trade_l;
+                        trade_l.extend(new_trade_l);
+
                         info!(
                             "CalculatingSingle, BulkReceive: sending to lower processor. Portf size: {}",
                             portf.len(),
                         );
 			self.processor_middle.send_message(
 			    ProcessorMiddleMessage::NewTradePortfolio(
-				(trade_l.clone(), portf.clone(), new_m.clone(), myself)
+				(trade_l.clone(), portf.clone(), new_m.market_name(), myself)
 			    )
 			)?;
 		    },
