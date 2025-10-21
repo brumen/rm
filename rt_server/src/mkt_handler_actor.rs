@@ -1,33 +1,36 @@
 use tracing::{info, debug};
 use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
-use serde::Deserialize;
 use std::ops::AddAssign;
-
+use uuid::Uuid;
 
 use crate::pricer::MarketPricingOptions;
 use crate::processor_msg::ProcessorMiddleMessage;
 use crate::pricer::PricingMetric;
-use crate::market::{MarketType, MarketTypeT};
+use crate::market::MarketTypeT;
 use crate::ref_deref::TryFromRef;
 
 
-pub struct MarketProducer<MT> {
+pub struct MarketProducer<MP>
+where
+    dyn MarketTypeT<MP=MP> + 'static: Sized
+{
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
     pub mkt_listener: StreamConsumer,  // listening for market events.
-    pub new_processor: ActorRef<ProcessorMiddleMessage<MT>>,
+    pub new_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
 }
 
 
 #[async_trait]
-impl<MT> Actor for MarketProducer<MT>
+impl<MP> Actor for MarketProducer<MP>
 where
-     //T: Send + Sync + 'static
-    MT: Send + MarketTypeT + 'static + std::fmt::Debug + Clone + for<'a> AddAssign<&'a MT>
+    // MT: Send + MarketTypeT + 'static + std::fmt::Debug + Clone + for<'a> AddAssign<&'a MT>
+    dyn MarketTypeT<MP=MP> + 'static: Sized + Send + Sync,
+    MP: 'static
 {
-    type Msg =  MT;  // MarketType;
-    type State = MT;  // MarketType;
+    type Msg = dyn MarketTypeT<MP=MP>;  // MarketType;
+    type State = dyn MarketTypeT<MP=MP>;  // MarketType;
     type Arguments = ();
 
     async fn pre_start(
@@ -38,8 +41,8 @@ where
 
 	info!("Initializing MarketProducer. Waiting on first message");
 	let new_mkt_msg = self.mkt_listener.recv().await?;
-	//let new_mkt = MarketType::try_from_ref(&new_mkt_msg)?;
-        let new_mkt = MT::try_from_ref(&new_mkt_msg)?;
+        let market_name = Uuid::new_v4().to_string();  // TODO: THIS IS WRONG - CHECK
+        let new_mkt = Self::Msg::try_from_ref(market_name, &new_mkt_msg)?;
 	myself.send_message(new_mkt.clone())?;
 
 	Ok(new_mkt)
@@ -63,8 +66,8 @@ where
 
 	// wait for new message
 	let new_msg = self.mkt_listener.recv().await?;
-	//let new_mkt_msg = MarketType::try_from_ref(&new_msg)?;
-        let new_mkt_msg = MT::try_from_ref(&new_msg)?;
+        let market_name = Uuid::new_v4().to_string();  // TODO: FIX THIS HERE!!!
+        let new_mkt_msg = Self::Msg::try_from_ref(market_name, &new_msg)?;
 	myself.send_message(new_mkt_msg)?;
 
 	Ok(())

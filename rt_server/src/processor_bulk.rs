@@ -5,40 +5,39 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use futures::future::join_all;
 use std::sync::Arc;
 
-use crate::market::MarketType;
+use crate::market::{MarketTypeT};
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
-use crate::process_trade::ProcessTradeValue;  // for trade.value_by_metric2
 use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
 
 #[derive(Debug)]
-pub struct ProcessorBulk<T>{
+pub struct ProcessorBulk<T, MP>{
     pub processor_name: String,
     pub metric: PricingMetric,
-    pub pricing_options: MarketPricingOptions,
+    pub pricing_options: MP, // MarketPricingOptions,
     // we compute the risk/valuation of the trades in trades
     pub(crate) trade_names: Vec<String>,
-
     // all_trades is a reference to the structure that contains all trades.
-    all_trades: Arc<TradeRep<T>>,
+    pub(crate) all_trades: Arc<TradeRep<T>>,
 }
 
 #[derive(Debug)]
-pub enum ProcessorBulkState {
-    Calculating(MarketType),  // which market we are computing this on.
+pub enum ProcessorBulkState<MT> {
+    Calculating(MT),  // which market we are computing this on.
     Idle,
 }
 
 
-impl<T> Decoder for ProcessorBulk<T> {}
+impl<T, MP> Decoder for ProcessorBulk<T, MP> {}
 
-impl<ReductionType, T> RestPricerSpark<ReductionType> for ProcessorBulk<T>
+impl<ReductionType, T, MP> RestPricerSpark<ReductionType> for ProcessorBulk<T, MP>
 where
     ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
-    ProcessorBulk<T>: Decoder,
-    T: Send + Sync
+    ProcessorBulk<T, MP>: Decoder,
+    T: Send + Sync,
+    MP: Send + Sync,
 {
 
     fn _pricing_server_spark(&self) -> String {
@@ -47,7 +46,7 @@ where
 
     fn _pricing_endpoint_spark(
 	&self,
-	_market_: MarketType,
+	_market_: dyn MarketTypeT<MP=MP>,
 	_metric: PricingMetric
     ) -> String {
 	"spark".to_string()
@@ -56,23 +55,26 @@ where
 
 
 #[async_trait]
-impl<T> Actor for ProcessorBulk<T>
+impl<T, MP> Actor for ProcessorBulk<T, MP>
 where
-    T: Send + Clone + 'static + BaseTrade + ProcessTradeValue + std::fmt::Debug + std::fmt::Display
+    T: Send + Sync + Clone + 'static + BaseTrade + std::fmt::Debug + std::fmt::Display,
+    MP: Send + Sync + 'static,
+    dyn MarketTypeT<MP=MP> + 'static: Sized + Send + Sync,
 {
-    type Msg = ProcessorBulkMessage;
-    type State = (i32, MarketType);  // The number of attempts to run the bulk on, default = 5
-    type Arguments = ();
+    type Msg = ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>;
+    //type State = (i32, dyn MarketTypeT<MP=MP>);  // The number of attempts to run the bulk on, default = 5
+    type State = dyn MarketTypeT<MP=MP>;  // The number of attempts to run the bulk on, default = 5
+    type Arguments = MP;
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _args: Self::Arguments,
+        args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
 	info!("Initializing Bulk processor: {}", self.processor_name);
-	Ok(
-            (0, MarketType::new(self.processor_name.clone()))
+        Ok(
+            (0, Self::State::new(self.processor_name.clone(), args)) // TODO: THIS IS WRONG - type of State is not (0, ...)
         )  // intialized to 0 attempts.
     }
 

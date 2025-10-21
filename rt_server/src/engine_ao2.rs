@@ -12,7 +12,7 @@ use rdkafka::util::Timeout;
 use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
-use crate::market::MarketType;
+use crate::market::{MarketTypeT};
 use crate::all_markets::AllMarkets;
 use crate::market_switching::MarketSwitching;
 use crate::publish::connect_with_retries_producer_rd;
@@ -24,13 +24,13 @@ use crate::processor_bulk::ProcessorBulk;
 use crate::portfolio::PortfolioType;
 use crate::trade::{BaseTrade, TradeRep};
 use crate::engine_actor::create_middle_procs_chain;
-use crate::process_trade::ProcessTradeValue;
+// use crate::process_trade::ProcessTradeValue;
 use crate::processor_curr::{PortfolioSenderSimple, SendError};
 
 
 
 // TODO: MAYBE THIS DOESNT BELONG HERE!!!
-impl<T> PortfolioSenderSimple for ProcessorCurr<T> {
+impl<T, MT: MarketTypeT + Clone> PortfolioSenderSimple for ProcessorCurr<T, MT> {
     async fn _send_portfolio(
 	&self,
 	portf: PortfolioType,
@@ -72,7 +72,7 @@ impl<T> PortfolioSenderSimple for ProcessorCurr<T> {
 /// initialize_client: whether the reqwest client is set, or None.
 ///   (setting it uses the client for remote pricing, putting it
 ///    to None, means pricing is local.)
-pub(crate) async fn start2<T, MT>(
+pub(crate) async fn start2<T, MT: MarketTypeT>(
     kafka_server: String,  // server including the port.  'localhost:9010'
     metric: PricingMetric,  // pricing metric, like PV
     pos_topic: String,     // position topic on kafka
@@ -84,9 +84,7 @@ pub(crate) async fn start2<T, MT>(
     initial_trades: TradeRep::<T>,
     initialize_client: bool,
 ) -> Vec<JoinHandle<()>>
-where T: Display + Debug + BaseTrade + Clone + Send + Sync +
-    ProcessTradeValue + 'static + TryFromRef2 +
-    for<'a> Deserialize<'a>
+where T: Display + Debug + BaseTrade + Clone + Send + Sync + 'static + TryFromRef2 + for<'a> Deserialize<'a>
 {
 
     let current_market = all_markets.get(0);
@@ -123,6 +121,7 @@ where T: Display + Debug + BaseTrade + Clone + Send + Sync +
 	portf: server_state,
 	all_markets: all_markets.clone(),
         trades: initial_trades,
+        trade_processor,
     };
 
     // set the initial Current market to empty

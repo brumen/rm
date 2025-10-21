@@ -1,25 +1,32 @@
-use crate::market::{MarketType, MarketTypeT};
+use crate::market::{MarketTypeT};
 
 
 /// list of (market names, actual market)
+// MT.. market type
+// MP .. market params.
+// MT = MarketTypeT<MP>
 #[derive(Debug)]
-pub(crate) struct AllMarkets<MT: MarketTypeT>(Vec<MT>);  // MarketType>);
+pub(crate) struct AllMarkets<MT>(Vec<MT>);
 
-impl<MT: MarketTypeT> AllMarkets<MT> {
+impl<MP> AllMarkets<dyn MarketTypeT<MP=MP>>
+where
+    dyn MarketTypeT<MP=MP> + 'static: Sized
+{
+    //type MT = dyn MarketTypeT<MP=MP>;
 
     /// Default implemnentation of the market names.
-    pub(crate) fn new(nb_middle: usize) -> Self {
-	let mut middle_markets = vec![];
-	middle_markets.push(MT::new("current".to_string()));
-	for middle_nb in 0..nb_middle {
-	    middle_markets.push(
-		MT::new(format!("new_{middle_nb}"))
-	    );
-	}
-	middle_markets.push(MT::new("new".to_string()));
+    // pub(crate) fn new(nb_middle: usize) -> Self {
+    //     let mut middle_markets = vec![];
+    //     middle_markets.push(MT::new("current".to_string()));
+    //     for middle_nb in 0..nb_middle {
+    //         middle_markets.push(
+    //     	MT::new(format!("new_{middle_nb}"))
+    //         );
+    //     }
+    //     middle_markets.push(MT::new("new".to_string()));
 
-	Self(middle_markets)
-    }
+    //     Self(middle_markets)
+    // }
 
     pub(crate) fn get(&self, market_nb: usize) -> String {
 	self.0[market_nb].market_name()
@@ -32,7 +39,7 @@ impl<MT: MarketTypeT> AllMarkets<MT> {
     }
 
     // gets the reference to the market w/ the name
-    pub(crate) fn get_m(&self, market_name: String) -> Option<&MT> {
+    pub(crate) fn get_m(&self, market_name: String) -> Option<&dyn MarketTypeT<MP=MP>> {
         let market_nb = self._find_market(&market_name)?;
 
         Some(&self.0[market_nb])
@@ -40,7 +47,7 @@ impl<MT: MarketTypeT> AllMarkets<MT> {
 
     /// finds the market above
     /// returns None if it's already the last market.
-    pub(crate) fn above_market(&self, mkt_name: &String) -> Option<&MT> {
+    pub(crate) fn above_market(&self, mkt_name: &String) -> Option<&dyn MarketTypeT<MP=MP>> {
 
 	match self._find_market(mkt_name) {
 	    None => None,
@@ -53,7 +60,7 @@ impl<MT: MarketTypeT> AllMarkets<MT> {
 	}
     }
 
-    pub(crate) fn next_market(&self, market_name: String) -> Option<MarketType> {
+    pub(crate) fn next_market(&self, market_name: String) -> Option<&dyn MarketTypeT<MP=MP>> {
 	self.above_market(&market_name)
     }
 

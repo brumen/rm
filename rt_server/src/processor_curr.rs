@@ -6,7 +6,7 @@ use rdkafka::producer::FutureProducer; // , FutureRecord};
 
 use crate::portfolio::PortfolioType;
 use crate::pricer::{MarketPricingOptions, PricingMetric};
-use crate::process_trade::ProcessTradeValue;
+//use crate::process_trade::ProcessTradeValue;
 use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::ProcessorMiddleMessage;
 use crate::all_markets::AllMarkets;
@@ -79,9 +79,9 @@ impl<T, MT: MarketTypeT + Clone> MarketSwitching for ProcessorCurr<T, MT> {
 #[async_trait]
 impl<T, MT> Actor for ProcessorCurr<T, MT>
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display + ProcessTradeValue,
+    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display,
     ProcessorCurr<T, MT>: PortfolioSenderSimple,
-    MT: MarketTypeT + Clone + Send + 'static  // TODO: THIS 'static is WRONG
+    MT: MarketTypeT + Clone + Send + 'static  + Sync // TODO: THIS 'static is WRONG
 {
     type Msg = ProcessorMiddleMessage<MT>;
     // state is a tuple of

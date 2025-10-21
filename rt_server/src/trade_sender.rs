@@ -2,15 +2,12 @@
 // Trade producer, reads from kafka and informs ProcessorCurr and
 //   ProcessorNew
 
-use rdkafka::message::BorrowedMessage;
-use rdkafka::Message;
 use serde::Deserialize;
-use tracing::{info, instrument};
+use tracing::{info};
 use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use circular_buffer::CircularBuffer;
 use chrono::NaiveDateTime;
-
 
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::ref_deref::{TryFromRef, TryFromRef2,};
@@ -26,18 +23,18 @@ const CB_LENGTH: usize = 10;
 type CB = CircularBuffer<CB_LENGTH, (NaiveDateTime, usize)>;
 
 
-pub struct TradeProducer<'a, T>{
+pub struct TradeProducer<'a, T, MT>{
     position_listener: StreamConsumer,
-    processors: Vec<ActorRef<ProcessorMiddleMessage>>,
+    processors: Vec<ActorRef<ProcessorMiddleMessage<MT>>>,
     trade_list: &'a TradeRep<T>,
     processing_stat: Vec<CB>,
 }
 
-impl<'a, T> TradeProducer<'a, T> {
+impl<'a, T, MT> TradeProducer<'a, T, MT> {
     pub fn new(
 	kafka_server: String,
 	pos_topic: String,
-	processors: Vec<ActorRef<ProcessorMiddleMessage>>,
+	processors: Vec<ActorRef<ProcessorMiddleMessage<MT>>>,
         trade_list: &'a TradeRep<T>,
     ) -> Self {
 
@@ -122,12 +119,13 @@ impl<'a, T> TradeProducer<'a, T> {
 
 
 #[async_trait]
-impl<'b, T> Actor for TradeProducer<'b, T>
+impl<'b, T, MT> Actor for TradeProducer<'b, T, MT>
 where
-    TradeProducer<'b, T>: Send + Sync + 'static,
-    T: Send + Sync + std::fmt::Debug + Clone + BaseTrade + for <'a> Deserialize<'a> + TryFromRef2
+    TradeProducer<'b, T, MT>: Send + Sync + 'static,
+    T: Send + Sync + std::fmt::Debug + Clone + BaseTrade + for <'a> Deserialize<'a> + TryFromRef2,
+    MT: Send + Sync,
 {
-    type Msg = ProcessorMiddleMessage;
+    type Msg = ProcessorMiddleMessage<MT>;
     type State = ();  // TradeRep<T>;  // list of existing trades.
     type Arguments = ();
 

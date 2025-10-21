@@ -7,7 +7,7 @@ use crate::market_switching::MarketSwitching;
 use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
-use crate::process_trade::ProcessTradeValue;
+//use crate::process_trade::ProcessTradeValue;
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage,};
 use crate::trade::{BaseTrade, TradeRep};
 
@@ -33,9 +33,10 @@ pub enum ProcessorNewState {
 }
 
 
-impl<T, MT> ProcessorNew<T, MT>
+impl<T, MT, MP> ProcessorNew<T, MT>
 where
-    MT: MarketTypeT
+    MT: MarketTypeT<MP=MP> + Send + Sync,
+    T: Send + Sync,
 {
 
     /// replaces the future_mkt with replace_mkt.
@@ -47,70 +48,71 @@ where
         future_mkt: &mut Arc<Mutex<MT>>,
     ) -> Result<(), ActorProcessingErr> {
 
-        let actual_market = replace_mkt.lock().unwrap().market;
-
-        match self.r_client() {
-            Some(_) => {
-		self.set_market(
-		    MarketType{
-                        market_name: "future".to_string(),
-                        market: actual_market
-                    },
-		    future_mkt,
-		).await?;
-            },
-            None => {
-                future_mkt.lock().unwrap().market = actual_market;
-            }
-        }
-        Ok(())
+        todo!()
     }
+    //     let actual_market = replace_mkt.lock().unwrap().market;
+    //     match self.r_client() {
+    //         Some(_) => {
+    //     	self.set_market(
+    //     	    MarketType{
+    //                     market_name: "future".to_string(),
+    //                     market: actual_market
+    //                 },
+    //     	    future_mkt,
+    //     	).await?;
+    //         },
+    //         None => {
+    //             future_mkt.lock().unwrap().market = actual_market;
+    //         }
+    //     }
+    //     Ok(())
+    // }
 
 }
 
 
-impl<T, MT: MarketTypeT> MarketSwitching for ProcessorNew<T, MT> {
+// impl<T, MT: MarketTypeT> MarketSwitching for ProcessorNew<T, MT> {
 
-    fn processor_name(&self) -> String {
-        self.processor_name.clone()
-    }
+//     fn processor_name(&self) -> String {
+//         self.processor_name.clone()
+//     }
 
-    fn all_markets(&self) -> std::sync::Arc<AllMarkets<MT>> {
-	self.all_markets.clone()
-    }
+//     fn all_markets(&self) -> std::sync::Arc<AllMarkets<MT>> {
+// 	self.all_markets.clone()
+//     }
 
-    fn r_client(&self) ->  Option<&reqwest::Client> {
-        self.r_client.as_ref()
-    }
+//     fn r_client(&self) ->  Option<&reqwest::Client> {
+//         self.r_client.as_ref()
+//     }
 
-    fn market_endpoint(&self) -> String {
-	format!("http://{0}/market", self.pricing_options.market_server.clone())
-    }
-}
+//     fn market_endpoint(&self) -> String {
+// 	format!("http://{0}/market", self.pricing_options.market_server.clone())
+//     }
+// }
 
 
-impl<T, MT> Decoder for ProcessorNew<T, MT> {}
+// impl<T, MT> Decoder for ProcessorNew<T, MT> {}
 
-impl<ReductionType, T, MT> RestPricerSpark<ReductionType> for ProcessorNew<T, MT>
-where
-    ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
-    ProcessorNew: Decoder,
-{
+// impl<ReductionType, T, MT> RestPricerSpark<ReductionType> for ProcessorNew<T, MT>
+// where
+//     ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
+//     ProcessorNew: Decoder,
+// {
 
-    fn _pricing_server_spark(&self) -> String {
-	self.pricing_options.pricing_server.clone()
-    }
+//     fn _pricing_server_spark(&self) -> String {
+// 	self.pricing_options.pricing_server.clone()
+//     }
 
-    fn _pricing_endpoint_spark(&self, _market_: MT, _metric: PricingMetric) -> String {
-	"/pricing".to_string()
-    }
-}
+//     fn _pricing_endpoint_spark(&self, _market_: MT, _metric: PricingMetric) -> String {
+// 	"/pricing".to_string()
+//     }
+// }
 
 
 #[async_trait]
 impl<T, MT> Actor for ProcessorNew<T, MT>
 where
-    T: Send + Clone + 'static + BaseTrade + ProcessTradeValue + std::fmt::Display,
+    T: Send + Sync + Clone + 'static + BaseTrade + std::fmt::Display, // + ProcessTradeValue
     MT: MarketTypeT + Send + Sync + std::fmt::Debug + 'static  // TODO: THIS IS WRONG
 {
     type Msg = ProcessorMiddleMessage<MT>;
@@ -144,8 +146,8 @@ where
 		PortfolioType::default(),
 		ProcessorNewState::Idle,
                 (
-                    MT::new(self.processor_name.clone()),
-                    MT::new("future".to_string()),
+                    MT::new(self.processor_name.clone(), ()),  // TODO: THIS HERE IS COMPLETELY WRONG!!!
+                    MT::new("future".to_string(), ()),
                 ),
 	    )
 	)

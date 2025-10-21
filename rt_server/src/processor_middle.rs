@@ -8,7 +8,7 @@ use crate::all_markets::AllMarkets;
 use crate::market_switching::MarketSwitching;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric};
-use crate::process_trade::ProcessTradeValue;
+//use crate::process_trade::ProcessTradeValue;
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage};
 use crate::trade::{TradeRep, BaseTrade};
 use crate::market::MarketTypeT;
@@ -16,14 +16,17 @@ use crate::market::MarketTypeT;
 
 // T is mnemonic for trade type, MT is mnemonic for market type
 #[derive(Debug)]
-pub(crate) struct ProcessorMiddle<T, MT: MarketTypeT> {
+pub(crate) struct ProcessorMiddle<T, MP>
+where
+    dyn MarketTypeT<MP=MP> + 'static: Sized
+{
     pub(crate) metric: PricingMetric,
     pub(crate) pricing_options: MarketPricingOptions,
     pub(crate) processor_name: String,
-    pub processor_below: ActorRef<ProcessorMiddleMessage<MT>>,  // processor below
-    pub processor_bulk: ActorRef<ProcessorBulkMessage<MT>>,  // bulk processor ref.
+    pub processor_below: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,  // processor below
+    pub processor_bulk: ActorRef<ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>>,  // bulk processor ref.
     pub r_client: Option<reqwest::Client>,
-    pub(crate) all_markets: Arc<AllMarkets<MT>>,
+    pub(crate) all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
 }
 
@@ -38,13 +41,16 @@ pub enum ProcessorMiddleState {
 }
 
 
-impl<T, MT: MarketTypeT> MarketSwitching for ProcessorMiddle<T, MT> {
+impl<T, MP> MarketSwitching for ProcessorMiddle<T, MP>
+where
+    dyn MarketTypeT<MP=MP> + 'static: Sized
+{
 
     fn processor_name(&self) -> String {
         self.processor_name.clone()
     }
 
-    fn all_markets(&self) -> std::sync::Arc<AllMarkets<MT>> {
+    fn all_markets(&self) -> std::sync::Arc<AllMarkets<dyn MarketTypeT<MP=MP>>> {
 	self.all_markets.clone()
     }
 
@@ -57,18 +63,20 @@ impl<T, MT: MarketTypeT> MarketSwitching for ProcessorMiddle<T, MT> {
     }
 }
 
-impl<T, MT: MarketTypeT> Decoder for ProcessorMiddle<T, MT> {}
+impl<T, MP> Decoder for ProcessorMiddle<T, MP>
+where
+    dyn MarketTypeT<MP=MP> + 'static: Sized
+{}
 
-
-// TODO: IMPLEMENT RestPricerSpark HERE MISSING
 
 #[async_trait]
-impl<T, MT> Actor for ProcessorMiddle<T, MT>
+impl<T, MP> Actor for ProcessorMiddle<T, MP>
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + ProcessTradeValue,
-    MT: MarketTypeT + Send + Sync + 'static,  // TODO: THIS IS OFF
+    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug,
+    dyn MarketTypeT<MP=MP> + 'static: Sized + Send + Sync,
+    MP: 'static
 {
-    type Msg = ProcessorMiddleMessage<MT>;
+    type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>;
     // first argument is list of trades,
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.

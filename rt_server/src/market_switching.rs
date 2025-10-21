@@ -4,15 +4,15 @@ use tracing::{info, warn};
 use ractor::async_trait;
 
 use crate::all_markets::AllMarkets;
-use crate::market::MarketType;
+use crate::market::MarketTypeT;
 
 
 #[async_trait]
-pub trait MarketSwitching {
+pub trait MarketSwitching<MP> {
 
     fn processor_name(&self) -> String;
 
-    fn all_markets(&self) -> Arc<AllMarkets>;
+    fn all_markets(&self) -> Arc<AllMarkets<dyn MarketTypeT<MP=MP>>>;
 
     /// endpoint where the market is posted.
     ///   could be for current, new or any other
@@ -24,15 +24,15 @@ pub trait MarketSwitching {
     ///   if we dont need the request client, set it to None.
     fn r_client(&self) -> Option<&reqwest::Client>;
 
-    /// Sets market_name to the market providedcurrent and new markets to the ones
+    /// Sets market_name to the market provided current and new markets to the ones
     ///   specified in this function.
     ///   market: market to replace the existing market_name
     ///   market_name: name of the market to be replaced
     ///   implements: market_name <- market
     async fn set_market(
 	&self,
-	market: MarketType,
-	market_name: &mut MarketType,
+	market: & dyn MarketTypeT<MP=MP>,
+	market_name: &mut dyn MarketTypeT<MP=MP>,
     ) -> Result<(), reqwest::Error> {
 
         info!("Setting market for {:?}", market_name.market_name);
@@ -65,8 +65,8 @@ pub trait MarketSwitching {
     ///   market_name_below <- market_name_above
     async fn _switch_markets(
 	&self,
-	market_name_below: &mut MarketType,
-	market_name_above: &MarketType,
+	market_name_below: &mut dyn MarketTypeT<MP=MP>,
+	market_name_above: & dyn MarketTypeT<MP=MP>,
     ) -> Result<(), reqwest::Error> {
 
         if market_name_below.is_empty() {
@@ -115,7 +115,7 @@ pub trait MarketSwitching {
 
     async fn switch_market(
 	&self,
-	market_name: &mut MarketType,
+	market_name: &mut dyn MarketTypeT<MP=MP>,
     ) -> Result<(), reqwest::Error> {
 
 	match market_name.next_market(&self.all_markets()) {
