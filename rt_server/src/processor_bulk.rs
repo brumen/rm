@@ -6,6 +6,7 @@ use futures::future::join_all;
 use std::sync::Arc;
 
 use crate::market::{MarketTypeT};
+use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
 use crate::trade::{BaseTrade, TradeRep};
@@ -13,7 +14,10 @@ use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
 
 #[derive(Debug)]
-pub struct ProcessorBulk<T, MP>{
+pub struct ProcessorBulk<T, MP>
+where
+    dyn MarketTypeT<MP=MP> + 'static: Sized + std::fmt::Debug
+{
     pub processor_name: String,
     pub metric: PricingMetric,
     pub pricing_options: MP, // MarketPricingOptions,
@@ -21,6 +25,7 @@ pub struct ProcessorBulk<T, MP>{
     pub(crate) trade_names: Vec<String>,
     // all_trades is a reference to the structure that contains all trades.
     pub(crate) all_trades: Arc<TradeRep<T>>,
+    pub(crate) all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP>>>,
 }
 
 #[derive(Debug)]
@@ -30,28 +35,31 @@ pub enum ProcessorBulkState<MT> {
 }
 
 
-impl<T, MP> Decoder for ProcessorBulk<T, MP> {}
-
-impl<ReductionType, T, MP> RestPricerSpark<ReductionType> for ProcessorBulk<T, MP>
+impl<T, MP> Decoder for ProcessorBulk<T, MP>
 where
-    ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
-    ProcessorBulk<T, MP>: Decoder,
-    T: Send + Sync,
-    MP: Send + Sync,
-{
+    dyn MarketTypeT<MP=MP> + 'static: Sized + std::fmt::Debug
+{}
 
-    fn _pricing_server_spark(&self) -> String {
-	self.pricing_options.pricing_server.clone()
-    }
+// impl<ReductionType, T, MP> RestPricerSpark<ReductionType> for ProcessorBulk<T, MP>
+// where
+//     ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
+//     ProcessorBulk<T, MP>: Decoder,
+//     T: Send + Sync,
+//     MP: Send + Sync,
+// {
 
-    fn _pricing_endpoint_spark(
-	&self,
-	_market_: dyn MarketTypeT<MP=MP>,
-	_metric: PricingMetric
-    ) -> String {
-	"spark".to_string()
-    }
-}
+//     fn _pricing_server_spark(&self) -> String {
+// 	self.pricing_options.pricing_server.clone()
+//     }
+
+//     fn _pricing_endpoint_spark(
+// 	&self,
+// 	_market_: dyn MarketTypeT<MP=MP>,
+// 	_metric: PricingMetric
+//     ) -> String {
+// 	"spark".to_string()
+//     }
+// }
 
 
 #[async_trait]
@@ -59,22 +67,22 @@ impl<T, MP> Actor for ProcessorBulk<T, MP>
 where
     T: Send + Sync + Clone + 'static + BaseTrade + std::fmt::Debug + std::fmt::Display,
     MP: Send + Sync + 'static,
-    dyn MarketTypeT<MP=MP> + 'static: Sized + Send + Sync,
+    dyn MarketTypeT<MP=MP> + 'static: Sized + Send + Sync + std::fmt::Debug,
 {
     type Msg = ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>;
     //type State = (i32, dyn MarketTypeT<MP=MP>);  // The number of attempts to run the bulk on, default = 5
-    type State = dyn MarketTypeT<MP=MP>;  // The number of attempts to run the bulk on, default = 5
+    type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
     type Arguments = MP;
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        args: Self::Arguments,
+        _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
 	info!("Initializing Bulk processor: {}", self.processor_name);
         Ok(
-            (0, Self::State::new(self.processor_name.clone(), args)) // TODO: THIS IS WRONG - type of State is not (0, ...)
+            (0, None)  // Self::State::new(self.processor_name.clone(), args)) // TODO: THIS IS WRONG - type of State is not (0, ...)
         )  // intialized to 0 attempts.
     }
 
@@ -130,10 +138,10 @@ where
                     self.processor_name, portfolio,
                 );
 
-                // TODO: TRADES THAT DONT PRICE, INCLUDE IN THIS ::default()
+                // TODO: INCLUDE TRADES THAT DONT PRICE
 		processor_new.send_message(
 		    ProcessorMiddleMessage::BulkReceive(
-			(new_trades, portfolio, TradeRep::<T>::default(), market)
+			(new_trades, portfolio, vec![], market)
 		    )
 		)?;
 	    },

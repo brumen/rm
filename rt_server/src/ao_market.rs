@@ -4,7 +4,7 @@ use rdkafka::message::{BorrowedMessage, Message};
 use tracing::{debug};
 
 use crate::market::{MarketTypeT, MarketTypeError};
-
+use crate::pricer::PricingMetric;
 
 pub struct AOMarketParams {
     client: reqwest::Client,
@@ -33,14 +33,16 @@ impl AOMarketType {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &MarketType,
+        curr_new_mkt: &dyn MarketTypeT<MP=AOMarketParams>,
     ) -> String {
 	let pricing_server = pricing_options.pricing_server.clone();
 	let metric = metric.to_string();
 	let trades = self.id();
 
+        let market_name = curr_new_mkt.market_name();
+        // TODO: FIX THIS ENDPOINT HERE!!!
 	let _endpoint = format!(
-            "http://{pricing_server}/pricing?metric={metric}&market={curr_new_mkt}&trade_ids={trades}");
+            "http://{pricing_server}/pricing?metric={metric}&market={market_name}&trade_ids={trades}");
 
         debug!("_endpoint: {:?}", _endpoint);
 
@@ -52,18 +54,15 @@ impl AOMarketType {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &MarketType,
+        curr_new_mkt: &dyn MarketTypeT<MP=AOMarketParams>,
     ) -> Result<reqwest::Response, reqwest::Error> {
 	reqwest::get(self._endpoint(metric, pricing_options, curr_new_mkt)).await
     }
-
-
 }
 
 
 #[async_trait]
 impl MarketTypeT for AOMarketType {
-
     type MP=AOMarketParams;
 
     fn new(market_name: String, mp: AOMarketParams) -> Box<dyn MarketTypeT<MP=Self::MP>> {
@@ -79,7 +78,7 @@ impl MarketTypeT for AOMarketType {
         self.market_name.clone()
     }
 
-    async fn get(&self, stock: String) -> Option<f64> {
+    async fn get(&self, stock: &String) -> Option<f64> {
         // self.client.get(self.enpoint)[stock]  // TODO: FINISH HERE
         todo!()
     }

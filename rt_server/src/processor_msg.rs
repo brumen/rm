@@ -39,7 +39,8 @@ pub enum ProcessorMiddleMessage<MT> {
 
 #[derive(Debug, Clone)]
 pub enum ProcessorBulkMessage<MT> {
-    // is a triple - first is the market type, a name of the market
+    // is a triple
+    //    first is the market type, a name of the market
     //    second - is a vector of trades that need to be computed.
     //    third - an actor processing ProcessorMiddleMessage
     NewBulk(

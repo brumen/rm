@@ -8,7 +8,10 @@ use crate::market::MarketTypeT;
 
 
 #[async_trait]
-pub trait MarketSwitching<MP> {
+pub trait MarketSwitching<MP>
+where
+    dyn MarketTypeT<MP=MP>: Sized
+{
 
     fn processor_name(&self) -> String;
 
@@ -31,7 +34,7 @@ pub trait MarketSwitching<MP> {
     ///   implements: market_name <- market
     async fn set_market(
 	&self,
-	market: & dyn MarketTypeT<MP=MP>,
+	market: &dyn MarketTypeT<MP=MP>,
 	market_name: &mut dyn MarketTypeT<MP=MP>,
     ) -> Result<(), reqwest::Error> {
 

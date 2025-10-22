@@ -1,14 +1,13 @@
 // middle processor, sits between 2 new processors
 
 use std::sync::Arc;
-use tracing::{info, warn, instrument};
+use tracing::{info, warn};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::all_markets::AllMarkets;
 use crate::market_switching::MarketSwitching;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric};
-//use crate::process_trade::ProcessTradeValue;
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage};
 use crate::trade::{TradeRep, BaseTrade};
 use crate::market::MarketTypeT;
@@ -18,7 +17,7 @@ use crate::market::MarketTypeT;
 #[derive(Debug)]
 pub(crate) struct ProcessorMiddle<T, MP>
 where
-    dyn MarketTypeT<MP=MP> + 'static: Sized
+    dyn MarketTypeT<MP=MP> + 'static: Sized + std::fmt::Debug
 {
     pub(crate) metric: PricingMetric,
     pub(crate) pricing_options: MarketPricingOptions,
@@ -41,7 +40,7 @@ pub enum ProcessorMiddleState {
 }
 
 
-impl<T, MP> MarketSwitching for ProcessorMiddle<T, MP>
+impl<T, MP> MarketSwitching<MP> for ProcessorMiddle<T, MP>
 where
     dyn MarketTypeT<MP=MP> + 'static: Sized
 {
@@ -65,7 +64,7 @@ where
 
 impl<T, MP> Decoder for ProcessorMiddle<T, MP>
 where
-    dyn MarketTypeT<MP=MP> + 'static: Sized
+    dyn MarketTypeT<MP=MP> + 'static: Sized + std::fmt::Debug
 {}
 
 
@@ -73,7 +72,7 @@ where
 impl<T, MP> Actor for ProcessorMiddle<T, MP>
 where
     T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug,
-    dyn MarketTypeT<MP=MP> + 'static: Sized + Send + Sync,
+    dyn MarketTypeT<MP=MP> + 'static: Sized + Send + Sync + std::fmt::Debug,
     MP: 'static
 {
     type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>;
@@ -251,7 +250,8 @@ where
 			"Processor {}, State: (Behind, CalculatingSingle): Behind: {} trades.",
 			self.processor_name, trades_behind.len(),
 		    );
-		    *trade_l += &trades_behind;
+		    //*trade_l += &trades_behind;
+                    trade_l.extend(trades_behind);
                     info!(
                         "Processor {}, Behind: Sending bulk compute.", market
                     );
@@ -297,7 +297,8 @@ where
 			self.processor_name,
 		    );
 
-		    *trade_l += &trades_behind;
+		    //*trade_l += &trades_behind;
+                    trade_l.extend(trades_behind);
                     info!(
                         "Processor {}, State: CalculatingBulk|CalculatingBulkMarketSwitch: Sending for bulk compute.",
                         self.processor_name,
@@ -354,8 +355,11 @@ where
 		);
 
 		*portf += &computed_portf;
-		*trade_l += &new_trade_l;
-		*trades_non_pricing += &offending_trades;
+		//*trade_l += &new_trade_l;
+                trade_l.extend(new_trade_l);
+		//*trades_non_pricing += &offending_trades;
+                trades_non_pricing.extend(offending_trades);
+
 		self.processor_below.send_message(
 		    ProcessorMiddleMessage::NewTradePortfolio(
 			(trade_l.clone(), portf.clone(), market.clone(), myself)
@@ -376,7 +380,8 @@ where
 		      self.processor_name,
 		);
 		*portf = computed_portf;
-		*trade_l += &new_trade_l;
+		//*trade_l += &new_trade_l;
+                trade_l.extend(new_trade_l);
 		self.processor_below.send_message(
 		    ProcessorMiddleMessage::NewTradePortfolio(
 			(trade_l.clone(), portf.clone(), market.clone(), myself)
@@ -421,7 +426,7 @@ where
 
                 // TODO: CHECK IF THIS SHOULD BE HANDLED???
                 let _ = upstream_processor.send_message(
-                   ProcessorMiddleMessage::Behind(TradeRep::<T>::default())
+                   ProcessorMiddleMessage::Behind(vec![])  // TODO: IS THIS RIGHT HERE??
                 );
 
 	    },
@@ -489,7 +494,10 @@ where
 		let (potential_trades, potential_portfolio, _new_market, upstream_processor) = ntp;  // new trade portfolio
 
 		// TODO: WRONG - IMPLEMENT > JUST FOR REFERENCES!!!
-		let new_behind_curr = trade_l.clone() - &potential_trades;
+		//let new_behind_curr = trade_l.clone() - &potential_trades;
+                let new_behind_curr = trade_l.into_iter()
+                    .filter(|x| !potential_trades.contains(x))
+                    .collect();
                 info!(
                     "Processor {}, NewPortfolio: My trades: {}, Potential trades: {}, New trades: {}, New portf: {}",
                     self.processor_name, trade_l.len(), potential_trades.len(), new_behind_curr.len(), potential_portfolio.len(),
@@ -504,7 +512,8 @@ where
 			self.processor_name,
 		    );
 		    *portf = potential_portfolio;
-		    *trade_l += &potential_trades;
+		    //*trade_l += &potential_trades;
+                    trade_l.extend(potential_trades);
 		    // TODO: HOW ABOUT pns ???
 		    self.processor_below.send_message(
 			ProcessorMiddleMessage::NewTradePortfolio(

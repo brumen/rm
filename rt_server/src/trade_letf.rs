@@ -258,25 +258,18 @@ impl TradeTypes {
             TradeTypes::Cash(letf_cash) => letf_cash.amount,
         }
     }
-}
 
-impl Decoder for TradeTypes {}
-impl TryFromRef2 for TradeTypes {}
-
-
-#[async_trait]
-impl ProcessTradeValue for TradeTypes {
     async fn value_by_metric2(
         &self,
         metric: crate::pricer::PricingMetric,
         _pricing_options: &crate::pricer::MarketPricingOptions,
-        curr_new_mkt: &crate::market::MarketType,
+        market: &dyn MarketTypeT<MP=()>,
     ) -> PricingResults  {
         let actual_market = curr_new_mkt;
 
         match metric {
             PricingMetric::PV => {
-                let price = self.price(&actual_market);
+                let price = self.price(market).await;
                 match price {
                     None => {
                         warn!("Could not price {}", self.id());
@@ -288,11 +281,11 @@ impl ProcessTradeValue for TradeTypes {
                 }
             }
             PricingMetric::PV01 => {
-                let pv01 = self.pv01(&actual_market);
+                let pv01 = self.pv01(market).await;
                 PricingResults::PV01(pv01)
             }
             PricingMetric::PnL => {
-                let pnl = self.pnl(&actual_market);
+                let pnl = self.pnl(market).await;
                 match pnl {
                     None => {
                         warn!("Could not compute PNL for {}", self.id());
@@ -305,7 +298,12 @@ impl ProcessTradeValue for TradeTypes {
             }
         }
     }
+
 }
+
+impl Decoder for TradeTypes {}
+impl TryFromRef2 for TradeTypes {}
+
 
 impl PriceTrade<()> for TradeTypes {
     async fn initial_pv(&self) -> Option<f64> {

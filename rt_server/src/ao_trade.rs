@@ -1,20 +1,20 @@
-use tracing::{info, debug, error, warn};
+use tracing::{debug, error, warn};
 use rdkafka::message::Message;
 use serde::{Deserialize, Serialize};
 use std::marker::Sync;
 use std::ops::{Deref, DerefMut};
-use ractor::async_trait;
 use std::fmt;
 
 use crate::portfolio::PV01Results;
 use crate::portfolio::PricingResults;
 use crate::pricer::{Decoder, MarketPricingOptions, PriceTradeAsync, PricingMetric, PriceTrade};
 //use crate::process_trade::ProcessTradeValue;
-use crate::ref_deref::{TryFromRef, TryFromRef2};
+use crate::ref_deref::TryFromRef2;
 use crate::ref_deref_trait;
 use crate::trade::BaseTrade;
 use crate::trade::TradeDirection;
 use crate::ao_market::{AOMarketType, AOMarketParams};
+use crate::market::MarketTypeT;
 
 // structure of the AOTrade payload, possibly can be simplified.
 //
@@ -59,7 +59,7 @@ impl PriceTrade<AOMarketParams> for AOTrade {
 
     async fn price(
         &self,
-        marlet: &AOMarketType,
+        marlet: &dyn MarketTypeT<MP=AOMarketParams>,
     ) -> Option<f64> {
         let trade_id = self.id();
         let results_pricing = self
@@ -93,11 +93,14 @@ impl PriceTrade<AOMarketParams> for AOTrade {
         }
     }
 
-
-
-    async fn pv01(&self, market: &AOMarketType) -> PV01Results {
+    async fn pv01(&self, market: &dyn MarketTypeT<MP=AOMarketParams>) -> PV01Results {
         todo!()
     }
+
+    async fn pnl(&self, market: &dyn MarketTypeT<MP=AOMarketParams>) -> Option<f64> {
+        todo!()
+    }
+
 }
 
 
@@ -118,7 +121,11 @@ impl PriceTrade<AOMarketParams> for AOTrade {
 
 
 
-impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
+impl<T, MP> PriceTradeAsync<MP> for T
+where
+    T: BaseTrade + Decoder + Sync,
+    dyn MarketTypeT<MP=MP>: Sync
+{
     async fn initial_pv(&self) -> Option<f64> {
         Some(0.)
     }
@@ -126,7 +133,7 @@ impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
     async fn price(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &MarketType,
+        curr_new_mkt: &dyn MarketTypeT<MP=MP>,
     ) -> Option<f64> {
         let trade_id = self.id();
         let results_pricing = self
@@ -163,7 +170,7 @@ impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
     async fn pv01(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &MarketType,
+        curr_new_mkt: &dyn MarketTypeT<MP=MP>,
     ) -> PV01Results {
         let trade_id = self.id();
         let results_pricing = self

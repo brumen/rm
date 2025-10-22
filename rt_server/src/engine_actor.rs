@@ -84,6 +84,7 @@ where
 	    r_client: middle_r_client,
 	    all_markets: all_markets.clone(),
 	};
+
         proc_middle.set_market(
             MarketType::default(), &mut MarketType::new(market_name.to_string())
         )

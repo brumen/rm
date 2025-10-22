@@ -184,7 +184,7 @@ pub struct MarketPricingOptions {
 
 /// ASynchronous version of the pricer. Used for REST pricer.
 #[async_trait]
-pub trait PriceTradeAsync: BaseTrade {
+pub trait PriceTradeAsync<MP>: BaseTrade {
     // fn _endpoint(
     //     &self,
     //     metric: PricingMetric,
@@ -208,7 +208,7 @@ pub trait PriceTradeAsync: BaseTrade {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &MarketType,
+        curr_new_mkt: &dyn MarketTypeT<MP=MP>,
     ) -> Result<reqwest::Response, reqwest::Error> {
 	reqwest::get(self._endpoint(metric, pricing_options, curr_new_mkt)).await
     }
@@ -218,19 +218,19 @@ pub trait PriceTradeAsync: BaseTrade {
     fn price(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &MarketType,
+        curr_new_mkt: &dyn MarketTypeT<MP=MP>,
     ) -> impl Future<Output = Option<f64>> + Send;
 
     fn pv01(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &MarketType,
+        curr_new_mkt: &dyn MarketTypeT<MP=MP>,
     ) -> impl Future<Output = PV01Results> + Send;
 
     async fn pnl(
         &self,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &MarketType,
+        curr_new_mkt: &dyn MarketTypeT<MP=MP>,
     ) -> Option<f64> {
         match self.initial_pv().await {
             None => None,
@@ -246,7 +246,7 @@ pub trait PriceTradeAsync: BaseTrade {
         &self,
         metric: PricingMetric,
         pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &MarketType,
+        curr_new_mkt: &dyn MarketTypeT<MP=MP>,
     ) -> PricingResults {
         let trade_name = self.id();
 
@@ -281,7 +281,7 @@ pub trait PriceTradeAsync: BaseTrade {
 
 /// pricing trades on spark
 #[async_trait]
-pub trait RestPricerSpark<TR>: Decoder
+pub trait RestPricerSpark<MP, TR>: Decoder
 where
     TR: PartialEq + Clone + BaseTrade + Send + Sync,
     Self: Sync,
@@ -292,14 +292,14 @@ where
     /// endpoint on the pricing server, like "price_spark_new", or "pv/", "pv/spark/",
     ///   what you would normally attach to the server. so the complete enpoint would
     ///   be localhost:5010/pv/spark
-    fn _pricing_endpoint_spark(&self, market_: MarketType, metric: PricingMetric) -> String;
+    fn _pricing_endpoint_spark(&self, market_: &dyn MarketTypeT<MP=MP>, metric: PricingMetric) -> String;
 
     /// prices the trades on the spark
     async fn price_trades_spark(
         &self,
         trades: &TradeRep<TR>,
         pricing_client: &Client,
-        market_: MarketType,
+        market_: &dyn MarketTypeT<MP=MP>,
         metric: PricingMetric,
     ) -> Result<PortfolioType, Error> {
         // joins all trades with commas, like 190,191,192
@@ -346,7 +346,7 @@ where
         trades: &TradeRep<TR>,
         metric: PricingMetric,
         _pricing_options: &MarketPricingOptions,
-        curr_new_mkt: MarketType,
+        curr_new_mkt: &dyn MarketTypeT<MP=MP>,
     ) -> Result<PortfolioType, Error> {
 
         let mut curr_portfolio = PortfolioType::default();
@@ -394,7 +394,7 @@ where
         &self,
         trades: &TradeRep<TR>,
         pricing_client: &Client,
-        market_: MarketType,
+        market_: &dyn MarketTypeT<MP=MP>,
         metric: PricingMetric,
     ) -> Result<PortfolioType, Error> {
 
@@ -436,7 +436,7 @@ where
 {
 
     async fn initial_pv(&self) -> Option<f64> {
-        let portf_val = 0.;
+        let mut portf_val = 0.;
         for indiv_trade in self.iter()  {
             let (trade_name, trade_v) = indiv_trade.pair();
 
@@ -454,7 +454,7 @@ where
     }
 
     async fn price(&self, market: &dyn MarketTypeT<MP=MP>) -> Option<f64> {
-        let portf_val = 0.;
+        let mut portf_val = 0.;
         for indiv_trade in self.iter()  {
             let (trade_name, trade_v) = indiv_trade.pair();
 
@@ -472,7 +472,7 @@ where
     }
 
     async fn pv01(&self, market: &dyn MarketTypeT<MP=MP>) -> PV01Results {
-        let portf_val = PV01Results::new();
+        let mut portf_val = PV01Results::new();
         for indiv_trade in self.iter()  {
             let (trade_name, trade_v) = indiv_trade.pair();
 
