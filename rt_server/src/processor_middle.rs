@@ -40,27 +40,28 @@ pub enum ProcessorMiddleState {
 }
 
 
-impl<T, MP> MarketSwitching<MP> for ProcessorMiddle<T, MP>
-where
-    dyn MarketTypeT<MP=MP> + 'static: Sized
-{
+// impl<T, MP> MarketSwitching<MP> for ProcessorMiddle<T, MP>
+// where
+//     dyn MarketTypeT<MP=MP> + 'static: Sized,
+//     dyn MarketTypeT<MP=MP>: std::fmt::Debug
+// {
 
-    fn processor_name(&self) -> String {
-        self.processor_name.clone()
-    }
+//     fn processor_name(&self) -> String {
+//         self.processor_name.clone()
+//     }
 
-    fn all_markets(&self) -> std::sync::Arc<AllMarkets<dyn MarketTypeT<MP=MP>>> {
-	self.all_markets.clone()
-    }
+//     fn all_markets(&self) -> std::sync::Arc<AllMarkets<dyn MarketTypeT<MP=MP>>> {
+// 	self.all_markets.clone()
+//     }
 
-    fn r_client(&self) ->  Option<&reqwest::Client> {
-        self.r_client.as_ref()
-    }
+//     fn r_client(&self) ->  Option<&reqwest::Client> {
+//         self.r_client.as_ref()
+//     }
 
-    fn market_endpoint(&self) -> String {
-	format!("http://{0}/market", self.pricing_options.market_server.clone())
-    }
-}
+//     fn market_endpoint(&self) -> String {
+// 	format!("http://{0}/market", self.pricing_options.market_server.clone())
+//     }
+// }
 
 impl<T, MP> Decoder for ProcessorMiddle<T, MP>
 where
@@ -131,11 +132,14 @@ where
                     trade_info.id()
 		);
 
-                let market_info = self.all_markets.get_m(market.to_string());
+                // let market_info = self.all_markets.get_m(market.to_string());
+                let mi = self.all_markets.get(market).unwrap();
+                let market_info = mi.value();
+
                 let new_trade_price = trade_info.value_by_metric2(
 		    self.metric,
 		    &self.pricing_options,
-		    &market_info,
+		    market_info,
 		).await;
 		*portf += new_trade_price;  // portfolio update
 		//*trade_l += &new_trade;  // we add the trade to the list.
@@ -463,7 +467,8 @@ where
 
 
 		    // set the state of this processor to the state being sent.
-                    self._switch_markets(market, &_new_market).await?;  // changes markets
+                    //self._switch_markets(market, &_new_market).await?;  // changes markets
+                    market = &mut _new_market;  // market switch is simply a name change.
 		    *portf = potential_portfolio;
 		    *trade_l = potential_trades;
 		    *pns = ProcessorMiddleState::CalculatingBulkMarketSwitch;
@@ -526,7 +531,8 @@ where
                         self.processor_name,
                     );
 
-                    self._switch_markets(market, &_new_market).await?;
+                    // self._switch_markets(market, &_new_market).await?;
+                    market = &mut _new_market;
 		}
                 // sending upstream that we are done.
                 // TODO: CHECK IF THIS SHOULD BE BETTER HANDLED

@@ -13,7 +13,10 @@ use crate::trade::{BaseTrade, TradeRep};
 
 
 #[derive(Debug)]
-pub struct ProcessorNew<T, MT: MarketTypeT>{
+pub struct ProcessorNew<T, MT: MarketTypeT>
+where
+    MT: std::fmt::Debug
+{
     pub processor_name: String,
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
@@ -33,42 +36,42 @@ pub enum ProcessorNewState {
 }
 
 
-impl<T, MT, MP> ProcessorNew<T, MT>
-where
-    MT: MarketTypeT<MP=MP> + Send + Sync,
-    T: Send + Sync,
-{
+// impl<T, MT, MP> ProcessorNew<T, MT>
+// where
+//     MT: MarketTypeT<MP=MP> + Send + Sync,
+//     T: Send + Sync,
+// {
 
-    /// replaces the future_mkt with replace_mkt.
-    ///   either on the server or in the controller.
-    ///   future_mkt <- replace_mkt
-    async fn _replace_fut_market(
-        &self,
-        replace_mkt: Arc<Mutex<MT>>,
-        future_mkt: &mut Arc<Mutex<MT>>,
-    ) -> Result<(), ActorProcessingErr> {
+//     /// replaces the future_mkt with replace_mkt.
+//     ///   either on the server or in the controller.
+//     ///   future_mkt <- replace_mkt
+//     async fn _replace_fut_market(
+//         &self,
+//         replace_mkt: Arc<Mutex<MT>>,
+//         future_mkt: &mut Arc<Mutex<MT>>,
+//     ) -> Result<(), ActorProcessingErr> {
 
-        todo!()
-    }
-    //     let actual_market = replace_mkt.lock().unwrap().market;
-    //     match self.r_client() {
-    //         Some(_) => {
-    //     	self.set_market(
-    //     	    MarketType{
-    //                     market_name: "future".to_string(),
-    //                     market: actual_market
-    //                 },
-    //     	    future_mkt,
-    //     	).await?;
-    //         },
-    //         None => {
-    //             future_mkt.lock().unwrap().market = actual_market;
-    //         }
-    //     }
-    //     Ok(())
-    // }
+//         todo!()
+//     }
+//     //     let actual_market = replace_mkt.lock().unwrap().market;
+//     //     match self.r_client() {
+//     //         Some(_) => {
+//     //     	self.set_market(
+//     //     	    MarketType{
+//     //                     market_name: "future".to_string(),
+//     //                     market: actual_market
+//     //                 },
+//     //     	    future_mkt,
+//     //     	).await?;
+//     //         },
+//     //         None => {
+//     //             future_mkt.lock().unwrap().market = actual_market;
+//     //         }
+//     //     }
+//     //     Ok(())
+//     // }
 
-}
+// }
 
 
 // impl<T, MT: MarketTypeT> MarketSwitching for ProcessorNew<T, MT> {
@@ -257,10 +260,11 @@ where
                             "Idle, NewMarket: setting future market: {:?}", new_market
                         );
 
-                        self._replace_fut_market(
-                            new_market,
-                            future_m,
-                        ).await?;
+                        //self._replace_fut_market(
+                        //    new_market,
+                        //    future_m,
+                        //).await?;
+                        new_market = *future_m;
 
 			// we are idle, we can start calculating, start calculating
                         info!("Idle, NewMarket: sending to bulk. State -> CalculatingBulk");
@@ -289,10 +293,11 @@ where
                             "CalculatingSingle, NewMarket: setting Future market."
                         );
 
-                        self._replace_fut_market(
-                            new_market,  //replace_mkt: MarketType,
-                            future_m,  // future_mkt: &mut MarketType
-                        ).await?;
+                        //self._replace_fut_market(
+                        //    new_market,  //replace_mkt: MarketType,
+                        //    future_m,  // future_mkt: &mut MarketType
+                        //).await?;
+                        new_market = *future_m;
 		    }
 		    // ignore if new market comes in, no
 		    //   action taken.
@@ -300,10 +305,11 @@ where
 			// just update the future market
                         info!("CalculatingBulk, NewMarket: Setting Future market.");
 
-                        self._replace_fut_market(
-                            new_market,  //replace_mkt: MarketType,
-                            future_m,  // future_mkt: &mut MarketType
-                        ).await?;
+                        //self._replace_fut_market(
+                        //    new_market,  //replace_mkt: MarketType,
+                        //    future_m,  // future_mkt: &mut MarketType
+                        //).await?;
+                        new_market = *future_m;
 		    },
 		}
 	    },

@@ -14,7 +14,10 @@ use crate::market_switching::MarketSwitching;
 use crate::market::MarketTypeT;
 
 
-pub(crate) struct ProcessorCurr<T, MT: MarketTypeT + Clone>{
+pub(crate) struct ProcessorCurr<T, MT: MarketTypeT + Clone>
+where
+    MT: MarketTypeT + Clone + std::fmt::Debug,
+{
     pub processor_name: String,
     pub metric: PricingMetric,
     pub results_topic: String,
@@ -30,7 +33,7 @@ pub(crate) struct ProcessorCurr<T, MT: MarketTypeT + Clone>{
 }
 
 
-impl<T, MT: MarketTypeT + Clone> std::fmt::Debug for ProcessorCurr<T, MT> {
+impl<T, MT: MarketTypeT + Clone + std::fmt::Debug> std::fmt::Debug for ProcessorCurr<T, MT> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CurrentProcessor({self.processor_name})")
     }
@@ -55,24 +58,24 @@ pub(crate) trait PortfolioSenderSimple {
 }
 
 
-impl<T, MT: MarketTypeT + Clone> MarketSwitching for ProcessorCurr<T, MT> {
+// impl<T, MT: MarketTypeT + Clone> MarketSwitching for ProcessorCurr<T, MT> {
 
-    fn processor_name(&self) -> String {
-        self.processor_name.clone()
-    }
+//     fn processor_name(&self) -> String {
+//         self.processor_name.clone()
+//     }
 
-    fn all_markets(&self) -> Arc<AllMarkets<MT>> {
-	self.all_markets.clone()
-    }
+//     fn all_markets(&self) -> Arc<AllMarkets<MT>> {
+// 	self.all_markets.clone()
+//     }
 
-    fn r_client(&self) -> Option<&reqwest::Client> {
-        self.r_client.as_ref()
-    }
+//     fn r_client(&self) -> Option<&reqwest::Client> {
+//         self.r_client.as_ref()
+//     }
 
-    fn market_endpoint(&self) -> String {
-	format!("http://{0}/market", self.pricing_options.market_server.clone())
-    }
-}
+//     fn market_endpoint(&self) -> String {
+// 	format!("http://{0}/market", self.pricing_options.market_server.clone())
+//     }
+// }
 
 
 // T is the representation fo the trade
@@ -81,7 +84,7 @@ impl<T, MT> Actor for ProcessorCurr<T, MT>
 where
     T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display,
     ProcessorCurr<T, MT>: PortfolioSenderSimple,
-    MT: MarketTypeT + Clone + Send + 'static  + Sync // TODO: THIS 'static is WRONG
+    MT: MarketTypeT + Clone + Send + 'static  + Sync + std::fmt::Debug // TODO: THIS 'static is WRONG
 {
     type Msg = ProcessorMiddleMessage<MT>;
     // state is a tuple of
@@ -125,12 +128,14 @@ where
 
                 debug!("Current trade information: {:?}", trade_info);
                 // TODO: THIS SHOULD BE REWRITTEN TOO!!!
-                let market_info = self.all_markets.get_m(market.to_string()).unwrap();
+                let mi = self.all_markets.get(market).unwrap();
+                let market_info = mi.value();
+                // let market_info = self.all_markets.get_m(market.to_string()).unwrap();
 
 		let valued_trade = trade_info.value_by_metric2(
 		    self.metric,
                     &self.pricing_options,
-	            &market_info,
+	            market_info,
 		).await;
 
 		// updating the portfolio
@@ -171,7 +176,11 @@ where
 		    self._send_portfolio(new_portfolio.clone()).await?;
 
                     // TODO: WHAT TO DO W/ THIS SWITCH_MARKETS
-                    self._switch_markets(market, &new_market).await?;
+                    // self._switch_markets(market, &new_market).await?;
+                    // market that we were holding should be removed from the all_markets,
+                    // as it's not needed anymore.
+                    // IMPORTANT: this .remove call CAN DEADLOCK!!!
+                    let _ = self.all_markets.remove(market);  // TODO: HANDLE ERROR MESSAGES
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;
