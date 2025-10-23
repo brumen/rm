@@ -17,14 +17,14 @@ use crate::market::MarketTypeT;
 #[derive(Debug)]
 pub(crate) struct ProcessorMiddle<T, MP>
 where
-    dyn MarketTypeT<MP=MP> + 'static: Sized + std::fmt::Debug
+    dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug
 {
     pub(crate) metric: PricingMetric,
-    pub(crate) pricing_options: MarketPricingOptions,
+    // pub(crate) pricing_options: MarketPricingOptions,
     pub(crate) processor_name: String,
     pub processor_below: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,  // processor below
     pub processor_bulk: ActorRef<ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>>,  // bulk processor ref.
-    pub r_client: Option<reqwest::Client>,
+    // pub r_client: Option<reqwest::Client>,
     pub(crate) all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
 }

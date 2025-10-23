@@ -1,6 +1,6 @@
 /// Processor which gets a bulk of work, and finishes it.
 ///
-use tracing::{info, debug, error, instrument};
+use tracing::{info, debug, error, instrument, warn};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use futures::future::join_all;
 use std::sync::Arc;
@@ -20,7 +20,7 @@ where
 {
     pub processor_name: String,
     pub metric: PricingMetric,
-    pub pricing_options: MP, // MarketPricingOptions,
+    // pub pricing_options: MP, // MarketPricingOptions,
     // we compute the risk/valuation of the trades in trades
     pub(crate) trade_names: Vec<String>,
     // all_trades is a reference to the structure that contains all trades.
@@ -70,8 +70,8 @@ where
     dyn MarketTypeT<MP=MP> + 'static: Sized + Send + Sync + std::fmt::Debug,
 {
     type Msg = ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>;
-    //type State = (i32, dyn MarketTypeT<MP=MP>);  // The number of attempts to run the bulk on, default = 5
-    type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
+    // type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
+    type State = Option<dyn MarketTypeT<MP=MP>>;
     type Arguments = MP;
 
     async fn pre_start(
@@ -82,8 +82,8 @@ where
 
 	info!("Initializing Bulk processor: {}", self.processor_name);
         Ok(
-            (0, None)  // Self::State::new(self.processor_name.clone(), args)) // TODO: THIS IS WRONG - type of State is not (0, ...)
-        )  // intialized to 0 attempts.
+            (0, None)  // intialized to 0 attempts.
+        )
     }
 
     async fn handle(
@@ -96,19 +96,34 @@ where
 	match message {
             // market is where the trades are priced.
             // new_trades are trades that should be priced.
-            // processor_new ... processor where the result should be sent.
-            ProcessorBulkMessage::NewBulk((market, new_trades, processor_new)) => {
+            // sending_processor ... processor where the result should be sent.
+            ProcessorBulkMessage::NewBulk((market, new_trades, sending_processor)) => {
 		// start the long-running pricing procedure
                 let (_, curr_mkt) = state;
+
                 info!(
 		    "BulkProcessor {}: NewBulk - Computing {} trades.",
 		    self.processor_name,
 		    new_trades.len(),
 		);
-                curr_mkt.market = market.market.clone();
+                let curr_mkt_attempt = self.all_markets.get(&market);  //
+
+                // if curr_mkt == None, we couldnt get the market, abandon the attempts
+                if curr_mkt_attempt.is_none() {
+                    sending_processor.send_message(
+                        ProcessorMiddleMessage::BulkReceive(
+                            (new_trades, PortfolioType::default(), vec![], market)
+                        )
+                    )?;
+                }
+
+                // we have a market
+                let curr_mkt = curr_mkt_attempt.unwrap();
+                let market_params = curr_mkt.market_params();  // market params
 
 		let mut portfolio = PortfolioType::default();
 		let mut pricing_futs = vec![];
+                let mut non_pricing_trades = Vec::<String>::new();
 		for trade_name in new_trades.iter() {
 		    debug!(
 			"Processor: {}: valuing single trade: {}",
@@ -116,12 +131,19 @@ where
 			trade_name
 		    );
 
-                    let trade = self.all_trades.get(trade_name).unwrap();
-                    // pricing_futs are futures where the
-		    pricing_futs.push(
-			trade.value_by_metric2(
+                    let trade_attempt = self.all_trades.get(trade_name);
+                    if trade_attempt.is_none() {
+                        warn!("Could not get trade {} from all_trades. Continuing w/o it.", trade_name);
+                        non_pricing_trades.push(trade_name);
+                        continue;
+                    }
+                    let trade = trade_attempt.unwrap();
+
+                    // pricing_futs are futures where the trades are getting priced.
+                    pricing_futs.push(
+			trade.value_by_metric(
 			    self.metric,
-                            &self.pricing_options,
+                            &market_params,
                             &market,
 			)
 		    );
@@ -138,10 +160,9 @@ where
                     self.processor_name, portfolio,
                 );
 
-                // TODO: INCLUDE TRADES THAT DONT PRICE
-		processor_new.send_message(
+		sending_processor.send_message(
 		    ProcessorMiddleMessage::BulkReceive(
-			(new_trades, portfolio, vec![], market)
+			(new_trades, portfolio, non_pricing_trades, market)
 		    )
 		)?;
 	    },

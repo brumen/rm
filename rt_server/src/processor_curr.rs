@@ -14,26 +14,31 @@ use crate::market_switching::MarketSwitching;
 use crate::market::MarketTypeT;
 
 
-pub(crate) struct ProcessorCurr<T, MT: MarketTypeT + Clone>
+// pub pricing_options: MarketPricingOptions,
+// pub r_client: Option<reqwest::Client>,  // request client
+
+
+pub(crate) struct ProcessorCurr<T, MP>
 where
-    MT: MarketTypeT + Clone + std::fmt::Debug,
+    dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug
 {
     pub processor_name: String,
     pub metric: PricingMetric,
     pub results_topic: String,
-    pub pricing_options: MarketPricingOptions,
     pub result_publisher: FutureProducer,
-    pub r_client: Option<reqwest::Client>,  // request client
     pub portf: Arc<Mutex<PortfolioType>>,  // current working portfolio
-    pub all_markets: Arc<AllMarkets<MT>>,  // all_markets is DashMap
+    pub all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP>>>,  // all_markets is DashMap
     pub all_trades: Arc<TradeRep<T>>,  // all_trades is DashMap
     //    pub curr_trades: Vec<String>,  // current trades that the processor is using
     // trade_processor where we can send the info when the trades are processed
-    pub trade_processor: ActorRef<ProcessorMiddleMessage<MT>>,
+    pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
 }
 
 
-impl<T, MT: MarketTypeT + Clone + std::fmt::Debug> std::fmt::Debug for ProcessorCurr<T, MT> {
+impl<T, MP> std::fmt::Debug for ProcessorCurr<T, MP>
+where
+    dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CurrentProcessor({self.processor_name})")
     }
@@ -80,13 +85,13 @@ pub(crate) trait PortfolioSenderSimple {
 
 // T is the representation fo the trade
 #[async_trait]
-impl<T, MT> Actor for ProcessorCurr<T, MT>
+impl<T, MP> Actor for ProcessorCurr<T, MP>
 where
     T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display,
-    ProcessorCurr<T, MT>: PortfolioSenderSimple,
-    MT: MarketTypeT + Clone + Send + 'static  + Sync + std::fmt::Debug // TODO: THIS 'static is WRONG
+    dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug + Sync + Send,
+    MP: 'static,
 {
-    type Msg = ProcessorMiddleMessage<MT>;
+    type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>;
     // state is a tuple of
     //    current trades,
     //    current portfolio
@@ -101,7 +106,7 @@ where
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
-	let initial_trades = vec![];  // TradeRep::<T>::default();
+	let initial_trades = vec![];
 	let initial_curr_portf = PortfolioType::default();
         let market = self.processor_name.clone();
 

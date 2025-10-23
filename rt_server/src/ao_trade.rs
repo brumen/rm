@@ -7,13 +7,12 @@ use std::fmt;
 
 use crate::portfolio::PV01Results;
 use crate::portfolio::PricingResults;
-use crate::pricer::{Decoder, MarketPricingOptions, PriceTradeAsync, PricingMetric, PriceTrade};
-//use crate::process_trade::ProcessTradeValue;
+use crate::pricer::{Decoder, MarketPricingOptions,  PricingMetric, PriceTrade};  // PriceTradeAsync,
 use crate::ref_deref::TryFromRef2;
 use crate::ref_deref_trait;
 use crate::trade::BaseTrade;
 use crate::trade::TradeDirection;
-use crate::ao_market::{AOMarketType, AOMarketParams};
+use crate::ao_market::AOMarketParams;
 use crate::market::MarketTypeT;
 
 // structure of the AOTrade payload, possibly can be simplified.
@@ -105,30 +104,14 @@ impl PriceTrade<AOMarketParams> for AOTrade {
 
 
 
-// #[async_trait]
-// impl ProcessTradeValue for AOTrade {
-//     async fn value_by_metric2(
-//         &self,
-//         metric: PricingMetric,
-//         pricing_options: &MarketPricingOptions,
-//         curr_new_mkt: &MarketType,
-//     ) -> PricingResults {
-
-//         self.value_by_metric(metric, pricing_options, curr_new_mkt)
-//             .await
-//     }
-// }
 
 
 
-impl<T, MP> PriceTradeAsync<MP> for T
-where
-    T: BaseTrade + Decoder + Sync,
-    dyn MarketTypeT<MP=MP>: Sync
-{
-    async fn initial_pv(&self) -> Option<f64> {
-        Some(0.)
-    }
+// impl<T, MP> PriceTradeAsync<MP> for T
+// where
+//     T: BaseTrade + Decoder + Sync,
+//     dyn MarketTypeT<MP=MP>: Sync
+// {
 
     async fn price(
         &self,
@@ -231,3 +214,18 @@ impl BaseTrade for AOTradeRep {
         TradeDirection::Create
     }
 }
+
+
+// #[async_trait]
+// impl ProcessTradeValue for AOTrade {
+//     async fn value_by_metric2(
+//         &self,
+//         metric: PricingMetric,
+//         pricing_options: &MarketPricingOptions,
+//         curr_new_mkt: &MarketType,
+//     ) -> PricingResults {
+
+//         self.value_by_metric(metric, pricing_options, curr_new_mkt)
+//             .await
+//     }
+// }

@@ -6,24 +6,26 @@ use crate::market::MarketTypeT;
 use crate::market_switching::MarketSwitching;
 use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
-use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
+use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark, PriceTrade};
 //use crate::process_trade::ProcessTradeValue;
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage,};
 use crate::trade::{BaseTrade, TradeRep};
 
 
 #[derive(Debug)]
-pub struct ProcessorNew<T, MT: MarketTypeT>
+pub struct ProcessorNew<T, MP>  // MT: MarketTypeT>
+//where
+//    MT: std::fmt::Debug
 where
-    MT: std::fmt::Debug
+    dyn MarketTypeT<MP=MP>: std::fmt::Debug + Sized
 {
     pub processor_name: String,
     pub metric: PricingMetric,
     pub pricing_options: MarketPricingOptions,
-    pub processor_middle: ActorRef<ProcessorMiddleMessage<MT>>,  // current processor ref.
-    pub processor_bulk: ActorRef<ProcessorBulkMessage<MT>>,  // bull processor ref.
+    pub processor_middle: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,  // current processor ref.
+    pub processor_bulk: ActorRef<ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>>,  // bull processor ref.
     pub r_client: Option<reqwest::Client>,
-    pub all_markets: Arc<AllMarkets<MT>>,
+    pub all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub market_name: (String, String),  // first item: new market, second item: future market.
 }
@@ -113,12 +115,14 @@ pub enum ProcessorNewState {
 
 
 #[async_trait]
-impl<T, MT> Actor for ProcessorNew<T, MT>
+impl<T, MP> Actor for ProcessorNew<T, MP>
 where
-    T: Send + Sync + Clone + 'static + BaseTrade + std::fmt::Display, // + ProcessTradeValue
-    MT: MarketTypeT + Send + Sync + std::fmt::Debug + 'static  // TODO: THIS IS WRONG
+    T: Send + Sync + Clone + 'static + BaseTrade + std::fmt::Display + PriceTrade<MP>, // + ProcessTradeValue
+    //MT: MarketTypeT + Send + Sync + std::fmt::Debug + 'static  // TODO: THIS IS WRONG
+    dyn MarketTypeT<MP=MP> + 'static: Send + Sync + Sized + std::fmt::Debug,
+    MP: 'static + Send + Sync // TODO: CHECK THIS, BUT THIS MIGHT BE OK!!!
 {
-    type Msg = ProcessorMiddleMessage<MT>;
+    type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>;
     // first argument is list of trades,
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
@@ -129,15 +133,15 @@ where
         Vec<String>,
         PortfolioType,
         ProcessorNewState,
-        (MT, MT)
+        (dyn MarketTypeT<MP=MP>, dyn MarketTypeT<MP=MP>)
     );
-    type Arguments = ();
+    type Arguments = MP; // dyn MarketTypeT<MP=MP>;  // initial market
 
     // initialization of the new processor
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _args: Self::Arguments,
+        args: Self::Arguments,  // market parameters are passed here
     ) -> Result<Self::State, ActorProcessingErr> {
 
         info!("Starting processor.");
@@ -149,8 +153,8 @@ where
 		PortfolioType::default(),
 		ProcessorNewState::Idle,
                 (
-                    MT::new(self.processor_name.clone(), ()),  // TODO: THIS HERE IS COMPLETELY WRONG!!!
-                    MT::new("future".to_string(), ()),
+                    MarketTypeT::new(self.processor_name.clone(), args),
+                    MarketTypeT::new("future".to_string(), args),
                 ),
 	    )
 	)
@@ -186,10 +190,9 @@ where
                             // TODO: we dont have a trade info - return for now
                             return Ok(());
                         };
-			let new_trade_price = new_trade_info.value_by_metric2(
+			let new_trade_price = new_trade_info.value_by_metric(
 			    self.metric,
-			    &self.pricing_options,
-			    &new_m,
+			    new_m,
 			).await;
 
 			*portf += new_trade_price;  // portfolio update
@@ -232,10 +235,9 @@ where
 			//*trade_l += &new_trade;  // we add the trade to the list.
                         trade_l.push(new_trade);
                         let new_trade_info = self.all_trades.get(&new_trade).unwrap();  // TODO: REMOVE THIS unwrap
-			let new_trade_price = new_trade_info.value_by_metric2(
+			let new_trade_price = new_trade_info.value_by_metric(
 			    self.metric,
-			    &self.pricing_options,
-			    &new_m,
+			    new_m,
 			).await;
 			*portf += new_trade_price;  // portfolio update
                         info!(
@@ -337,7 +339,10 @@ where
                                 new_m.market_name(),
                             );
 
-                            self._switch_markets(new_m, future_m).await?;
+                            // TODO: CHECK IF ANYTHING ELSE NEEDS TO BE DONE
+                            //self._switch_markets(new_m, future_m).await?;
+                            *new_m = *future_m;
+
                             info!(
                                 "Processor: new, State: (Behind, CalculatingSingle): Going to state Idle."
                             );

@@ -259,10 +259,9 @@ impl TradeTypes {
         }
     }
 
-    async fn value_by_metric2(
+    async fn value_by_metric(
         &self,
         metric: crate::pricer::PricingMetric,
-        _pricing_options: &crate::pricer::MarketPricingOptions,
         market: &dyn MarketTypeT<MP=()>,
     ) -> PricingResults  {
         let actual_market = curr_new_mkt;

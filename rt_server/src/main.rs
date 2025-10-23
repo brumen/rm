@@ -51,6 +51,7 @@ pub(crate) mod trade_letf;
 
 use crate::trade::TradeRep;
 use crate::ao_trade::AOTrade;
+use crate::ao_market::AOMarketType;
 use crate::engine_ao2::start2;
 use crate::trade_letf::LETFTrade;
 
@@ -140,18 +141,36 @@ async fn run_all() {
     let mut results = vec![axum_process];
     let all_markets = Arc::new(AllMarkets::new(1));  // how many in-between markets there are.
     // let initial_trades = TradeRep::<AOTrade>::default();  // defines the type of trades.
-    let initial_trades = TradeRep::<TradeTypes>::default();  // defines the type of trades.
 
     let initialize_client = false;
 
     let mut result = start2(
-    	kafka_server, metric, pos_topic, mkt_topic, results_topic, &pricing_options, state,
-	all_markets, initial_trades, initialize_client,
+    	kafka_server,
+        metric,
+        pos_topic,
+        mkt_topic,
+        results_topic,
+        &pricing_options,
+        state,
+	all_markets,
+        initial_trades,
+        initialize_client,
     ).await;
 
     results.append(&mut result);
     // tokio::join!(results);
     join_all(results).await;
+}
+
+fn init_letf() {
+    let initial_trades = TradeRep::<TradeTypes>::default();  // defines the type of trades.
+    let initial_market = AOMarketType
+}
+
+
+
+fn init_ao() {
+
 }
 
 

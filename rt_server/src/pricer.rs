@@ -136,7 +136,8 @@ pub trait PriceTrade<MP>: BaseTrade {
     /// values the trade for a specific metric.
     #[allow(dead_code)]
     async fn value_by_metric(
-        &self, metric: PricingMetric,
+        &self,
+        metric: PricingMetric,
         market: &dyn MarketTypeT<MP=MP>
     ) -> PricingResults {
 
@@ -183,101 +184,101 @@ pub struct MarketPricingOptions {
 
 
 /// ASynchronous version of the pricer. Used for REST pricer.
-#[async_trait]
-pub trait PriceTradeAsync<MP>: BaseTrade {
-    // fn _endpoint(
-    //     &self,
-    //     metric: PricingMetric,
-    //     pricing_options: &MarketPricingOptions,
-    //     curr_new_mkt: &MarketType,
-    // ) -> String {
-    //     let pricing_server = pricing_options.pricing_server.clone();
-    //     let metric = metric.to_string();
-    //     let trades = self.id();
+// #[async_trait]
+// pub trait PriceTradeAsync<MP>: BaseTrade {
+//     // fn _endpoint(
+//     //     &self,
+//     //     metric: PricingMetric,
+//     //     pricing_options: &MarketPricingOptions,
+//     //     curr_new_mkt: &MarketType,
+//     // ) -> String {
+//     //     let pricing_server = pricing_options.pricing_server.clone();
+//     //     let metric = metric.to_string();
+//     //     let trades = self.id();
 
-    //     let _endpoint = format!(
-    //         "http://{pricing_server}/pricing?metric={metric}&market={curr_new_mkt}&trade_ids={trades}");
+//     //     let _endpoint = format!(
+//     //         "http://{pricing_server}/pricing?metric={metric}&market={curr_new_mkt}&trade_ids={trades}");
 
-    //     debug!("_endpoint: {:?}", _endpoint);
+//     //     debug!("_endpoint: {:?}", _endpoint);
 
-    //     _endpoint
-    // }
+//     //     _endpoint
+//     // }
 
-    /// computes the pricing request.
-    async fn _pricing_request(
-        &self,
-        metric: PricingMetric,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &dyn MarketTypeT<MP=MP>,
-    ) -> Result<reqwest::Response, reqwest::Error> {
-	reqwest::get(self._endpoint(metric, pricing_options, curr_new_mkt)).await
-    }
+//     /// computes the pricing request.
+//     async fn _pricing_request(
+//         &self,
+//         metric: PricingMetric,
+//         pricing_options: &MarketPricingOptions,
+//         curr_new_mkt: &dyn MarketTypeT<MP=MP>,
+//     ) -> Result<reqwest::Response, reqwest::Error> {
+// 	reqwest::get(self._endpoint(metric, pricing_options, curr_new_mkt)).await
+//     }
 
-    fn initial_pv(&self) -> impl Future<Output = Option<f64>> + Send;
+//     fn initial_pv(&self) -> impl Future<Output = Option<f64>> + Send;
 
-    fn price(
-        &self,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &dyn MarketTypeT<MP=MP>,
-    ) -> impl Future<Output = Option<f64>> + Send;
+//     fn price(
+//         &self,
+//         pricing_options: &MarketPricingOptions,
+//         curr_new_mkt: &dyn MarketTypeT<MP=MP>,
+//     ) -> impl Future<Output = Option<f64>> + Send;
 
-    fn pv01(
-        &self,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &dyn MarketTypeT<MP=MP>,
-    ) -> impl Future<Output = PV01Results> + Send;
+//     fn pv01(
+//         &self,
+//         pricing_options: &MarketPricingOptions,
+//         curr_new_mkt: &dyn MarketTypeT<MP=MP>,
+//     ) -> impl Future<Output = PV01Results> + Send;
 
-    async fn pnl(
-        &self,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &dyn MarketTypeT<MP=MP>,
-    ) -> Option<f64> {
-        match self.initial_pv().await {
-            None => None,
-            Some(initial_pv_val) => self
-                .price(pricing_options, &curr_new_mkt)
-                .await
-                .map(|curr_price| curr_price - initial_pv_val),
-        }
-    }
+//     async fn pnl(
+//         &self,
+//         pricing_options: &MarketPricingOptions,
+//         curr_new_mkt: &dyn MarketTypeT<MP=MP>,
+//     ) -> Option<f64> {
+//         match self.initial_pv().await {
+//             None => None,
+//             Some(initial_pv_val) => self
+//                 .price(pricing_options, &curr_new_mkt)
+//                 .await
+//                 .map(|curr_price| curr_price - initial_pv_val),
+//         }
+//     }
 
-    /// values the trade for a specific metric.
-    async fn value_by_metric(
-        &self,
-        metric: PricingMetric,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &dyn MarketTypeT<MP=MP>,
-    ) -> PricingResults {
-        let trade_name = self.id();
+//     /// values the trade for a specific metric.
+//     async fn value_by_metric(
+//         &self,
+//         metric: PricingMetric,
+//         pricing_options: &MarketPricingOptions,
+//         curr_new_mkt: &dyn MarketTypeT<MP=MP>,
+//     ) -> PricingResults {
+//         let trade_name = self.id();
 
-        match metric {
-            PricingMetric::PV => {
-                let priced_trade = self.price(pricing_options, curr_new_mkt).await;
-                debug!("_value_trade: PV of {:?} = {:?}", trade_name, priced_trade);
-                if let Some(price_trade) = priced_trade {
-                    PricingResults::PV(PortfolioType::from([(trade_name, price_trade)]))
-                } else {
-                    PricingResults::PV(PortfolioType::default())
-                }
-            }
-            PricingMetric::PV01 => {
-                let trade_pv01 = self.pv01(pricing_options, curr_new_mkt).await;
-                debug!("_value_trade: PV01 of {:?} = {:?}", trade_name, trade_pv01);
-                PricingResults::PV01(trade_pv01)
-            }
+//         match metric {
+//             PricingMetric::PV => {
+//                 let priced_trade = self.price(pricing_options, curr_new_mkt).await;
+//                 debug!("_value_trade: PV of {:?} = {:?}", trade_name, priced_trade);
+//                 if let Some(price_trade) = priced_trade {
+//                     PricingResults::PV(PortfolioType::from([(trade_name, price_trade)]))
+//                 } else {
+//                     PricingResults::PV(PortfolioType::default())
+//                 }
+//             }
+//             PricingMetric::PV01 => {
+//                 let trade_pv01 = self.pv01(pricing_options, curr_new_mkt).await;
+//                 debug!("_value_trade: PV01 of {:?} = {:?}", trade_name, trade_pv01);
+//                 PricingResults::PV01(trade_pv01)
+//             }
 
-            PricingMetric::PnL => {
-                let pnl_trade = self.pnl(pricing_options, curr_new_mkt).await;
-                debug!("_value_trade: PnL of {:?} = {:?}", trade_name, pnl_trade);
-                if let Some(pnl_trade_real) = pnl_trade {
-                    PricingResults::PV(PortfolioType::from([(trade_name, pnl_trade_real)]))
-                } else {
-                    PricingResults::PV(PortfolioType::default())
-                }
-            }
-        }
-    }
-}
+//             PricingMetric::PnL => {
+//                 let pnl_trade = self.pnl(pricing_options, curr_new_mkt).await;
+//                 debug!("_value_trade: PnL of {:?} = {:?}", trade_name, pnl_trade);
+//                 if let Some(pnl_trade_real) = pnl_trade {
+//                     PricingResults::PV(PortfolioType::from([(trade_name, pnl_trade_real)]))
+//                 } else {
+//                     PricingResults::PV(PortfolioType::default())
+//                 }
+//             }
+//         }
+//     }
+// }
 
 /// pricing trades on spark
 #[async_trait]
@@ -427,7 +428,7 @@ where
 
 
 // if we have PriceTrade implementation for TR
-//   then we have the
+//   then we have the PriceTrade implementation for TradeReduce
 // MT: MarketTypeT<MP>
 // TR: trade representation.
 impl<MP, TR> PriceTrade<MP> for TradeRep<TR>
