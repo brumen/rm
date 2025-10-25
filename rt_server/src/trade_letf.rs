@@ -95,9 +95,9 @@ impl PriceTrade<()> for LETFTrade {
 impl LETFTrade {
     /// produces the hedge of the LETF trade.
     /// stock_value : value of the stock that we are hedging LETF with.
-    pub fn hedge(&mut self, market: &dyn MarketTypeT<MP=()>) -> Vec<LETFHedge> {
+    pub async fn hedge(&mut self, market: &dyn MarketTypeT<MP=()>) -> Vec<LETFHedge> {
         let stock_name = &self.stock;
-        let stock = match market.market.get(stock_name) {
+        let stock = match market.get(stock_name).await {
 	    None => {
 		warn!(
                     "hedge: Could not find {:?} in the market. Leaving unhedged: {:?}",
@@ -105,7 +105,7 @@ impl LETFTrade {
 		);
 		return vec![]; // Cant do much w/ it.
             },
-	    Some(sv) => *sv,
+	    Some(sv) => sv,
 	};
 
         let trade_id = self.id();
@@ -233,7 +233,7 @@ impl fmt::Display for TradeTypes {
         let pos_id = match self {
             TradeTypes::LETF(letf_trade) => &letf_trade.stock,
             TradeTypes::Future(letf_future) => &letf_future.stock,
-            TradeTypes::Cash(cash) => &"cash".to_string(),
+            TradeTypes::Cash(_cash) => &"cash".to_string(),
         };
         write!(f, "{}", pos_id)
     }
@@ -363,12 +363,12 @@ impl BaseTrade for TradeTypes {
     }
 }
 
-impl TradeReduce for TradeTypes {
+impl<'a> TradeReduce for TradeTypes {
     type TradeType = TradeTypes;
     type ReductionType = TradeTypes;
 
     fn reduce(&self, trade: &Self::TradeType) -> Self::ReductionType {
-        trade
+        trade.clone()  // TODO: FIX THIS LATER, WITHOUT CLONE
     }
 }
 

@@ -22,7 +22,8 @@ impl<MT: std::fmt::Debug> Deref for AllMarkets<MT> {
 
 impl<MP, MT> AllMarkets<MT>
 where
-     MT: MarketTypeT<MP=MP> + std::fmt::Debug
+    MP: Clone,
+    MT: MarketTypeT<MP=MP> + std::fmt::Debug
 {
     //type MT = dyn MarketTypeT<MP=MP>;
 
@@ -80,7 +81,26 @@ where
     //     self.above_market(&market_name)
     //}
 
+    /// returns the market params of some market in the collection
+    pub(crate) fn get_market_params(&self) -> Option<MP> {
+        //
+        if self.len() == 0 {
+            return None;
+        }
+
+        // we have at least one market.
+        let market_elt = self.iter().nth(0)?;
+        let mo = market_elt.value();
+
+        Some(mo.market_params().clone())
+
+    }
+
     pub(crate) fn len(&self) -> usize {
+	self.len()
+    }
+
+    pub(crate) fn len2(&self) -> usize {
 	self.len()
     }
 

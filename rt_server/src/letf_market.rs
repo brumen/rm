@@ -90,7 +90,7 @@ impl MarketTypeT for LETFMarketType {
 
     type MP = ();
 
-    fn new(market_name: String, mp: ()) -> Box<dyn MarketTypeT<MP=Self::MP>> {
+    fn new(market_name: String, _mp: ()) -> Box<dyn MarketTypeT<MP=Self::MP>> {
         Box::new(LETFMarketType { market_name, market: DashMap::<String, f64>::new() })
     }
 
@@ -132,5 +132,5 @@ impl MarketTypeT for LETFMarketType {
         )
     }
 
-    fn market_params(&self) -> &Self::MP { }
+    fn market_params(&self) -> &Self::MP { &() }
 }

@@ -1,12 +1,12 @@
 use tracing::{info, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
-use std::sync::{Arc, Mutex, };
+use std::sync::Arc;
 
 use crate::market::MarketTypeT;
 use crate::market_switching::MarketSwitching;
 use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
-use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark, PriceTrade};
+use crate::pricer::{Decoder, PricingMetric, PriceTrade};  // , MarketPricingOptions, RestPricerSpark
 //use crate::process_trade::ProcessTradeValue;
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage,};
 use crate::trade::{BaseTrade, TradeRep};
@@ -21,7 +21,6 @@ where
 {
     pub processor_name: String,
     pub metric: PricingMetric,
-    pub pricing_options: MarketPricingOptions,
     pub processor_middle: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,  // current processor ref.
     pub processor_bulk: ActorRef<ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>>,  // bull processor ref.
     pub r_client: Option<reqwest::Client>,
@@ -120,7 +119,7 @@ where
     T: Send + Sync + Clone + 'static + BaseTrade + std::fmt::Display + PriceTrade<MP>, // + ProcessTradeValue
     //MT: MarketTypeT + Send + Sync + std::fmt::Debug + 'static  // TODO: THIS IS WRONG
     dyn MarketTypeT<MP=MP> + 'static: Send + Sync + Sized + std::fmt::Debug,
-    MP: 'static + Send + Sync // TODO: CHECK THIS, BUT THIS MIGHT BE OK!!!
+    MP: 'static + Send + Sync + Clone // TODO: Check this
 {
     type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>;
     // first argument is list of trades,
@@ -135,16 +134,17 @@ where
         ProcessorNewState,
         (dyn MarketTypeT<MP=MP>, dyn MarketTypeT<MP=MP>)
     );
-    type Arguments = MP; // dyn MarketTypeT<MP=MP>;  // initial market
+    type Arguments = dyn MarketTypeT<MP=MP>;  // initial market
 
     // initialization of the new processor
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        args: Self::Arguments,  // market parameters are passed here
+        _args: Self::Arguments,  // market parameters are passed here
     ) -> Result<Self::State, ActorProcessingErr> {
 
         info!("Starting processor.");
+        let mp = self.all_markets.get_market_params().unwrap();  // TODO: FIX LATER
 
         Ok(
 	    (
@@ -153,8 +153,8 @@ where
 		PortfolioType::default(),
 		ProcessorNewState::Idle,
                 (
-                    MarketTypeT::new(self.processor_name.clone(), args),
-                    MarketTypeT::new("future".to_string(), args),
+                    *Self::Arguments::new(self.processor_name.clone(), mp.clone()),
+                    *Self::Arguments::new("future".to_string(), mp),
                 ),
 	    )
 	)

@@ -5,17 +5,11 @@ use rdkafka::error::KafkaError;
 use rdkafka::producer::FutureProducer; // , FutureRecord};
 
 use crate::portfolio::PortfolioType;
-use crate::pricer::{MarketPricingOptions, PricingMetric};
-//use crate::process_trade::ProcessTradeValue;
+use crate::pricer::{ PricingMetric, PriceTrade};
 use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::ProcessorMiddleMessage;
 use crate::all_markets::AllMarkets;
-use crate::market_switching::MarketSwitching;
 use crate::market::MarketTypeT;
-
-
-// pub pricing_options: MarketPricingOptions,
-// pub r_client: Option<reqwest::Client>,  // request client
 
 
 pub(crate) struct ProcessorCurr<T, MP>
@@ -87,9 +81,10 @@ pub(crate) trait PortfolioSenderSimple {
 #[async_trait]
 impl<T, MP> Actor for ProcessorCurr<T, MP>
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display,
+    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display + PriceTrade<MP>,
     dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug + Sync + Send,
     MP: 'static,
+    ProcessorCurr<T,MP>: PortfolioSenderSimple,
 {
     type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>;
     // state is a tuple of
@@ -129,7 +124,7 @@ where
                 // TODO: REWRITE THIS SHIT!!!
                 // TODO: WHAT TO DO IF trade_info = None
                 let trade_info = self.all_trades.get(&trade).unwrap();
-
+                let trade_real = trade_info.value();
 
                 debug!("Current trade information: {:?}", trade_info);
                 // TODO: THIS SHOULD BE REWRITTEN TOO!!!
@@ -137,9 +132,8 @@ where
                 let market_info = mi.value();
                 // let market_info = self.all_markets.get_m(market.to_string()).unwrap();
 
-		let valued_trade = trade_info.value_by_metric2(
+		let valued_trade = trade_real.value_by_metric(
 		    self.metric,
-                    &self.pricing_options,
 	            market_info,
 		).await;
 

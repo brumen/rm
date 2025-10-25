@@ -1,25 +1,13 @@
 use ractor::async_trait;
-use serde::{Serialize, Deserialize};
 use rdkafka::message::{BorrowedMessage, Message};
 use tracing::{debug};
 
 use crate::market::{MarketTypeT, MarketTypeError};
 use crate::pricer::PricingMetric;
 
+#[derive(Debug, Clone)]
 pub struct AOMarketParams {
     client: reqwest::Client,
-    market_endpoint: String,
-}
-
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct AOMarketType {
-    pub(crate) market_name: String,
-    pub(crate) market_params: AOMarketParams,
-}
-
-#[derive(Debug, Clone)]
-pub struct MarketPricingOptions {
     pub pricing_server: String,
     pub pricing_endpoint: String,
     pub market_server: String,
@@ -27,37 +15,46 @@ pub struct MarketPricingOptions {
 }
 
 
+#[derive(Debug, Clone)]
+pub struct AOMarketType {
+    pub(crate) market_name: String,
+    pub(crate) market_params: AOMarketParams,
+}
+
+
 impl AOMarketType {
 
-    fn _endpoint(
+    /// endpoint where the trades are priced.
+    pub(crate) fn endpoint_pricer(
         &self,
         metric: PricingMetric,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &dyn MarketTypeT<MP=AOMarketParams>,
+        trades: Vec<String>,
     ) -> String {
-	let pricing_server = pricing_options.pricing_server.clone();
-	let metric = metric.to_string();
-	let trades = self.id();
+	let pricing_server = self.market_params.pricing_server.clone();
+        let market_name = self.market_name();
+        let trades_sep = trades.join(",");
 
-        let market_name = curr_new_mkt.market_name();
-        // TODO: FIX THIS ENDPOINT HERE!!!
 	let _endpoint = format!(
-            "http://{pricing_server}/pricing?metric={metric}&market={market_name}&trade_ids={trades}");
+            "http://{pricing_server}/pricing?metric={metric}&market={market_name}&trade_ids={trades_sep}");
 
         debug!("_endpoint: {:?}", _endpoint);
 
         _endpoint
     }
 
-    /// computes the pricing request.
-    async fn _pricing_request(
-        &self,
-        metric: PricingMetric,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: &dyn MarketTypeT<MP=AOMarketParams>,
-    ) -> Result<reqwest::Response, reqwest::Error> {
-	reqwest::get(self._endpoint(metric, pricing_options, curr_new_mkt)).await
+    /// endpoint where the market is manipulated
+    pub(crate) fn endpoint_market(&self) -> String {
+	let pricing_server = self.market_params.pricing_server.clone();
+        let market_name = self.market_name();
+
+	let _endpoint = format!(
+            "http://{pricing_server}/market?market={market_name}");
+
+        debug!("_endpoint: {:?}", _endpoint);
+
+        _endpoint
     }
+
 }
 
 
@@ -79,8 +76,11 @@ impl MarketTypeT for AOMarketType {
     }
 
     async fn get(&self, stock: &String) -> Option<f64> {
-        // self.client.get(self.enpoint)[stock]  // TODO: FINISH HERE
         todo!()
+        // self.client.get(self.enpoint)[stock]  // TODO: FINISH HERE
+        //let mkt_endpoint = self.endpoint_market();
+        //let mkt_reqwest =
+
     }
 
     async fn insert(&self, key: String, value: f64) {

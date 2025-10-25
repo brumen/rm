@@ -1,6 +1,6 @@
 /// Processor which gets a bulk of work, and finishes it.
 ///
-use tracing::{info, debug, error, instrument, warn};
+use tracing::{info, debug, warn};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use futures::future::join_all;
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::market::{MarketTypeT};
 use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
-use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric, RestPricerSpark};
+use crate::pricer::{Decoder, PricingMetric, PriceTrade};  // MarketPricingOptions,  RestPricerSpark
 use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
@@ -65,7 +65,7 @@ where
 #[async_trait]
 impl<T, MP> Actor for ProcessorBulk<T, MP>
 where
-    T: Send + Sync + Clone + 'static + BaseTrade + std::fmt::Debug + std::fmt::Display,
+    T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MP> + std::fmt::Debug + std::fmt::Display,
     MP: Send + Sync + 'static,
     dyn MarketTypeT<MP=MP> + 'static: Sized + Send + Sync + std::fmt::Debug,
 {
@@ -99,7 +99,7 @@ where
             // sending_processor ... processor where the result should be sent.
             ProcessorBulkMessage::NewBulk((market, new_trades, sending_processor)) => {
 		// start the long-running pricing procedure
-                let (_, curr_mkt) = state;
+                let curr_mkt = state;
 
                 info!(
 		    "BulkProcessor {}: NewBulk - Computing {} trades.",
@@ -112,7 +112,7 @@ where
                 if curr_mkt_attempt.is_none() {
                     sending_processor.send_message(
                         ProcessorMiddleMessage::BulkReceive(
-                            (new_trades, PortfolioType::default(), vec![], market)
+                            (new_trades, PortfolioType::default(), vec![], market.clone())
                         )
                     )?;
                 }
@@ -124,7 +124,11 @@ where
 		let mut portfolio = PortfolioType::default();
 		let mut pricing_futs = vec![];
                 let mut non_pricing_trades = Vec::<String>::new();
-		for trade_name in new_trades.iter() {
+
+                let market_actual = self.all_markets.get(&market).unwrap();
+                let market_actual_val = market_actual.value();
+
+                for trade_name in new_trades.iter() {
 		    debug!(
 			"Processor: {}: valuing single trade: {}",
 			self.processor_name,
@@ -134,7 +138,7 @@ where
                     let trade_attempt = self.all_trades.get(trade_name);
                     if trade_attempt.is_none() {
                         warn!("Could not get trade {} from all_trades. Continuing w/o it.", trade_name);
-                        non_pricing_trades.push(trade_name);
+                        non_pricing_trades.push(trade_name.to_string());
                         continue;
                     }
                     let trade = trade_attempt.unwrap();
@@ -143,8 +147,7 @@ where
                     pricing_futs.push(
 			trade.value_by_metric(
 			    self.metric,
-                            &market_params,
-                            &market,
+                            market_actual_val,
 			)
 		    );
 		}

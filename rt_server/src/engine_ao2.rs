@@ -84,7 +84,8 @@ pub(crate) async fn start2<T, MT: MarketTypeT>(
     initial_trades: TradeRep::<T>,
     initialize_client: bool,
 ) -> Vec<JoinHandle<()>>
-where T: Display + Debug + BaseTrade + Clone + Send + Sync + 'static + TryFromRef2 + for<'a> Deserialize<'a>
+where
+    T: Display + Debug + BaseTrade + Clone + Send + Sync + 'static + TryFromRef2 + for<'a> Deserialize<'a>
 {
 
     let current_market = all_markets.get(0);

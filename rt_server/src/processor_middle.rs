@@ -7,7 +7,7 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use crate::all_markets::AllMarkets;
 use crate::market_switching::MarketSwitching;
 use crate::portfolio::PortfolioType;
-use crate::pricer::{Decoder, MarketPricingOptions, PricingMetric};
+use crate::pricer::{Decoder, PricingMetric, PriceTrade};  // MarketPricingOptions,
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage};
 use crate::trade::{TradeRep, BaseTrade};
 use crate::market::MarketTypeT;
@@ -72,7 +72,7 @@ where
 #[async_trait]
 impl<T, MP> Actor for ProcessorMiddle<T, MP>
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug,
+    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + PriceTrade<MP>,
     dyn MarketTypeT<MP=MP> + 'static: Sized + Send + Sync + std::fmt::Debug,
     MP: 'static
 {
@@ -136,9 +136,9 @@ where
                 let mi = self.all_markets.get(market).unwrap();
                 let market_info = mi.value();
 
-                let new_trade_price = trade_info.value_by_metric2(
+                let real_trade = trade_info.value();
+                let new_trade_price = real_trade.value_by_metric(
 		    self.metric,
-		    &self.pricing_options,
 		    market_info,
 		).await;
 		*portf += new_trade_price;  // portfolio update
@@ -181,14 +181,25 @@ where
 		    "Processor {}, CaluclatingBulk: got new trade.",
 		    self.processor_name,
 		);
-		//*trade_l += &new_trade;  // we add the trade to the list.
-                trade_l.push(new_trade);
-		let new_trade_price = new_trade.value_by_metric2(
-		    self.metric,
-		    &self.pricing_options,
-		    &market,
-		).await;
-		*portf += new_trade_price;  // portfolio update
+
+                if let Some(real_trade) = self.all_trades.get(&new_trade) {
+                    if let Some(real_market) = self.all_markets.get(market) {
+                        let new_trade_price = real_trade.value_by_metric(
+		            self.metric,
+		            real_market.value(),
+		        ).await;
+		        *portf += new_trade_price;  // portfolio update
+                        trade_l.push(new_trade);
+                    } else {
+                        warn!("Could not get market {}", market);
+                        trades_non_pricing.push(new_trade);
+                    }
+                } else {
+                    warn!("Could not get the representation of {}", new_trade);
+                    trades_non_pricing.push(new_trade);
+                }
+
+
 		// send downstream the updated portfolio
                 info!(
                     "Processor {}, CalculatingBulk: Sending new portfolio below",
@@ -255,13 +266,13 @@ where
 			self.processor_name, trades_behind.len(),
 		    );
 		    //*trade_l += &trades_behind;
-                    trade_l.extend(trades_behind);
+                    trade_l.extend(trades_behind.clone());
                     info!(
                         "Processor {}, Behind: Sending bulk compute.", market
                     );
 		    self.processor_bulk.send_message(
 			ProcessorBulkMessage::NewBulk(
-			    (market.clone(), trades_behind.clone(), myself)
+			    (market.clone(), trades_behind, myself)
 			)
 		    )?;
 		    *pns = ProcessorMiddleState::CalculatingBulk;
@@ -414,8 +425,9 @@ where
                 let (ref potential_trades, ref potential_portfolio, ref new_market, ref upstream_processor) = ntp;
 
 		// switch markets as well
-		//self.switch_market(market).await?;
-                self._switch_markets(market, new_market).await?;
+                // self._switch_markets(market, new_market).await?;
+                *market = new_market.to_string();
+
 		info!(
 		    "Processor {}, Idle: passing portfolio to lower processor",
 		    self.processor_name,
@@ -445,7 +457,10 @@ where
 
 		// TODO: ALSO, SHOULDNT WE NOTIFY THE BULK PROCESSOR THAT WE ARE ABANDONING THE ATTEMPT.
 		// TODO: WRONG - IMPLEMENT > JUST FOR REFERENCES!!!
-		let new_behind_curr = potential_trades.clone() - &potential_trades;
+
+                // TODO: CHECK IF THIS IS CORRECT?
+                // let new_behind_curr = potential_trades.clone() - &new_trades;
+                let new_behind_curr = potential_trades.iter().cloned().filter(|x| !trade_l.contains(x)).collect::<Vec<String>>();
 
 		if new_behind_curr.is_empty() {
 		    info!(
@@ -468,7 +483,7 @@ where
 
 		    // set the state of this processor to the state being sent.
                     //self._switch_markets(market, &_new_market).await?;  // changes markets
-                    market = &mut _new_market;  // market switch is simply a name change.
+                    market = _new_market;  // market switch is simply a name change.
 		    *portf = potential_portfolio;
 		    *trade_l = potential_trades;
 		    *pns = ProcessorMiddleState::CalculatingBulkMarketSwitch;
@@ -500,9 +515,10 @@ where
 
 		// TODO: WRONG - IMPLEMENT > JUST FOR REFERENCES!!!
 		//let new_behind_curr = trade_l.clone() - &potential_trades;
-                let new_behind_curr = trade_l.into_iter()
+                // TODO: CHECK IF IT GOES WITHOUT CLONING
+                let new_behind_curr = trade_l.iter().cloned()
                     .filter(|x| !potential_trades.contains(x))
-                    .collect();
+                    .collect::<Vec<String>>();
                 info!(
                     "Processor {}, NewPortfolio: My trades: {}, Potential trades: {}, New trades: {}, New portf: {}",
                     self.processor_name, trade_l.len(), potential_trades.len(), new_behind_curr.len(), potential_portfolio.len(),
@@ -532,7 +548,7 @@ where
                     );
 
                     // self._switch_markets(market, &_new_market).await?;
-                    market = &mut _new_market;
+                    *market = _new_market;
 		}
                 // sending upstream that we are done.
                 // TODO: CHECK IF THIS SHOULD BE BETTER HANDLED
