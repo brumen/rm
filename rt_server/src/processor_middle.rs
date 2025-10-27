@@ -6,7 +6,7 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
-use crate::pricer::{Decoder, PricingMetric, PriceTrade};
+use crate::pricer::{PricingMetric, PriceTrade};
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage};
 use crate::trade::{TradeRep, BaseTrade};
 use crate::market::MarketTypeT;
@@ -16,15 +16,15 @@ use crate::market::MarketTypeT;
 #[derive(Debug)]
 pub(crate) struct ProcessorMiddle<T, MP>
 where
-    dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug
+    dyn MarketTypeT<MP=MP>: Sized,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + std::fmt::Debug,
 {
     pub(crate) metric: PricingMetric,
     // pub(crate) pricing_options: MarketPricingOptions,
     pub(crate) processor_name: String,
     pub processor_below: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,  // processor below
     pub processor_bulk: ActorRef<ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>>,  // bulk processor ref.
-    // pub r_client: Option<reqwest::Client>,
-    pub(crate) all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP>>>,
+    pub(crate) all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP> + Send + Sync>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
 }
 
@@ -62,18 +62,14 @@ pub enum ProcessorMiddleState {
 //     }
 // }
 
-impl<T, MP> Decoder for ProcessorMiddle<T, MP>
-where
-    dyn MarketTypeT<MP=MP> + 'static: Sized + std::fmt::Debug
-{}
-
 
 #[async_trait]
 impl<T, MP> Actor for ProcessorMiddle<T, MP>
 where
     T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + PriceTrade<MP>,
-    dyn MarketTypeT<MP=MP> + 'static: Sized + Send + Sync + std::fmt::Debug,
-    MP: 'static
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + std::fmt::Debug + MarketTypeT,
+    MP: 'static + Send + Sync,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + std::fmt::Debug,
 {
     type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>;
     // first argument is list of trades,
@@ -134,11 +130,11 @@ where
                 // let market_info = self.all_markets.get_m(market.to_string());
                 let mi = self.all_markets.get(market).unwrap();
                 let market_info = mi.value();
-
+                let mi_arc = Arc::new(market_info);
                 let real_trade = trade_info.value();
                 let new_trade_price = real_trade.value_by_metric(
 		    self.metric,
-		    market_info,
+		    mi_arc,
 		).await;
 		*portf += new_trade_price;  // portfolio update
 		//*trade_l += &new_trade;  // we add the trade to the list.
@@ -183,9 +179,12 @@ where
 
                 if let Some(real_trade) = self.all_trades.get(&new_trade) {
                     if let Some(real_market) = self.all_markets.get(market) {
+                        let market_info = real_market.value();
+                        let mi_arc = Arc::new(market_info);
+
                         let new_trade_price = real_trade.value_by_metric(
 		            self.metric,
-		            real_market.value(),
+		            mi_arc,
 		        ).await;
 		        *portf += new_trade_price;  // portfolio update
                         trade_l.push(new_trade);

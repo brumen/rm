@@ -25,7 +25,6 @@ where
     pub portf: Arc<Mutex<PortfolioType>>,  // current working portfolio
     pub all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP> + Send + Sync>>,  // all_markets is DashMap
     pub all_trades: Arc<TradeRep<T>>,  // all_trades is DashMap
-    //    pub curr_trades: Vec<String>,  // current trades that the processor is using
     // trade_processor where we can send the info when the trades are processed
     pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
 }

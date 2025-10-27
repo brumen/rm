@@ -3,28 +3,26 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 
 use crate::market::MarketTypeT;
-use crate::market_switching::MarketSwitching;
+// use crate::market_switching::MarketSwitching;
 use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
-use crate::pricer::{Decoder, PricingMetric, PriceTrade};  // , MarketPricingOptions, RestPricerSpark
+use crate::pricer::{PricingMetric, PriceTrade};  // , MarketPricingOptions, RestPricerSpark
 //use crate::process_trade::ProcessTradeValue;
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage,};
 use crate::trade::{BaseTrade, TradeRep};
 
 
 #[derive(Debug)]
-pub struct ProcessorNew<T, MP>  // MT: MarketTypeT>
-//where
-//    MT: std::fmt::Debug
+pub struct ProcessorNew<T, MP>
 where
-    dyn MarketTypeT<MP=MP>: std::fmt::Debug + Sized
+    dyn MarketTypeT<MP=MP>: Sized,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + std::fmt::Debug,
 {
     pub processor_name: String,
     pub metric: PricingMetric,
-    pub processor_middle: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,  // current processor ref.
-    pub processor_bulk: ActorRef<ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>>,  // bull processor ref.
-    pub r_client: Option<reqwest::Client>,
-    pub all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP>>>,
+    pub processor_middle: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP> + Send + Sync>>,  // current processor ref.
+    pub processor_bulk: ActorRef<ProcessorBulkMessage<dyn MarketTypeT<MP=MP> + Send + Sync>>,  // bull processor ref.
+    pub all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP> + Send + Sync>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub market_name: (String, String),  // first item: new market, second item: future market.
 }
@@ -116,11 +114,12 @@ pub enum ProcessorNewState {
 #[async_trait]
 impl<T, MP> Actor for ProcessorNew<T, MP>
 where
-    T: Send + Sync + Clone + 'static + BaseTrade + std::fmt::Display + PriceTrade<MP>,
-    dyn MarketTypeT<MP=MP>: Send + Sync + Sized + std::fmt::Debug,
-    MP: 'static + Send + Sync + Clone // TODO: Check this
+    T: Send + Sync + Clone + 'static + BaseTrade + std::fmt::Debug + std::fmt::Display + PriceTrade<MP>,
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + std::fmt::Debug + MarketTypeT,
+    MP: 'static + Send + Sync + Clone,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + std::fmt::Debug,
 {
-    type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>;
+    type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP> + Send + Sync>;
     // first argument is list of trades,
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
@@ -131,7 +130,7 @@ where
         Vec<String>,
         PortfolioType,
         ProcessorNewState,
-        (dyn MarketTypeT<MP=MP>, dyn MarketTypeT<MP=MP>)
+        (dyn MarketTypeT<MP=MP> + Send + Sync, dyn MarketTypeT<MP=MP> + Send + Sync)
     );
     type Arguments = dyn MarketTypeT<MP=MP>;  // initial market
 
@@ -189,9 +188,11 @@ where
                             // TODO: we dont have a trade info - return for now
                             return Ok(());
                         };
+
+                        let new_m_arc = Arc::new(&(*new_m));
 			let new_trade_price = new_trade_info.value_by_metric(
 			    self.metric,
-			    new_m,
+			    new_m_arc,
 			).await;
 
 			*portf += new_trade_price;  // portfolio update
@@ -234,9 +235,10 @@ where
 			//*trade_l += &new_trade;  // we add the trade to the list.
                         trade_l.push(new_trade.clone());
                         let new_trade_info = self.all_trades.get(&new_trade).unwrap();  // TODO: REMOVE THIS unwrap
+                        let new_m_arc = Arc::new(&(*new_m));
 			let new_trade_price = new_trade_info.value_by_metric(
 			    self.metric,
-			    new_m,
+			    new_m_arc,
 			).await;
 			*portf += new_trade_price;  // portfolio update
                         info!(
