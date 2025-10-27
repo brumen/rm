@@ -5,9 +5,8 @@ use tracing::{info, warn};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::all_markets::AllMarkets;
-use crate::market_switching::MarketSwitching;
 use crate::portfolio::PortfolioType;
-use crate::pricer::{Decoder, PricingMetric, PriceTrade};  // MarketPricingOptions,
+use crate::pricer::{Decoder, PricingMetric, PriceTrade};
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage};
 use crate::trade::{TradeRep, BaseTrade};
 use crate::market::MarketTypeT;
@@ -483,7 +482,7 @@ where
 
 		    // set the state of this processor to the state being sent.
                     //self._switch_markets(market, &_new_market).await?;  // changes markets
-                    market = _new_market;  // market switch is simply a name change.
+                    *market = _new_market;  // market switch is simply a name change.
 		    *portf = potential_portfolio;
 		    *trade_l = potential_trades;
 		    *pns = ProcessorMiddleState::CalculatingBulkMarketSwitch;

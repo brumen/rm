@@ -16,7 +16,7 @@ use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 #[derive(Debug)]
 pub struct ProcessorBulk<T, MP>
 where
-    dyn MarketTypeT<MP=MP> + 'static: Sized + std::fmt::Debug
+    dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug
 {
     pub processor_name: String,
     pub metric: PricingMetric,
@@ -37,7 +37,7 @@ pub enum ProcessorBulkState<MT> {
 
 impl<T, MP> Decoder for ProcessorBulk<T, MP>
 where
-    dyn MarketTypeT<MP=MP> + 'static: Sized + std::fmt::Debug
+    dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug
 {}
 
 // impl<ReductionType, T, MP> RestPricerSpark<ReductionType> for ProcessorBulk<T, MP>
@@ -112,7 +112,7 @@ where
                 if curr_mkt_attempt.is_none() {
                     sending_processor.send_message(
                         ProcessorMiddleMessage::BulkReceive(
-                            (new_trades, PortfolioType::default(), vec![], market.clone())
+                            (new_trades.clone(), PortfolioType::default(), vec![], market.clone())
                         )
                     )?;
                 }
@@ -128,6 +128,7 @@ where
                 let market_actual = self.all_markets.get(&market).unwrap();
                 let market_actual_val = market_actual.value();
 
+                let mut used_trades = vec![];
                 for trade_name in new_trades.iter() {
 		    debug!(
 			"Processor: {}: valuing single trade: {}",
@@ -142,10 +143,12 @@ where
                         continue;
                     }
                     let trade = trade_attempt.unwrap();
-
+                    used_trades.push(trade);
+                }
                     // pricing_futs are futures where the trades are getting priced.
+                for used_trade in used_trades {
                     pricing_futs.push(
-			trade.value_by_metric(
+			used_trade.value_by_metric(
 			    self.metric,
                             market_actual_val,
 			)

@@ -1,9 +1,9 @@
-use reqwest::{self, Error, Client};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use tracing::{debug, warn};
 use ractor::async_trait;
+use std::sync::Arc;
 
 use crate::market::{MarketTypeT};
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
@@ -116,14 +116,23 @@ pub trait Decoder {
 }
 
 
+// market type T send and sync version,
+type MarketTypeTSend<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
+
 // MP are market parameters, () if none.
 // MT is market type, depending on the market parameters.
-pub trait PriceTrade<MP>: BaseTrade {
+#[async_trait]
+pub trait PriceTrade<MP>: BaseTrade + Send + Sync
+where
+    dyn MarketTypeT<MP=MP>: Send + Sync,
+    // for <'a> &'a (dyn MarketTypeT<MP=MP> + Send + Sync): MarketTypeT,
+    MP: 'static + Send,
+{
 
-    async fn initial_pv(&self) -> Option<f64>;
-    async fn price(&self, market: &dyn MarketTypeT<MP=MP>) -> Option<f64>;
-    async fn pv01(&self, market: &dyn MarketTypeT<MP=MP>) -> PV01Results;
-    async fn pnl(&self, market: &dyn MarketTypeT<MP=MP>) -> Option<f64> {
+    async fn initial_pv(&self) -> Option<f64> where Self: Send;
+    async fn price(&self, market: Arc<&MarketTypeTSend<MP>> ) -> Option<f64>;
+    async fn pv01(&self, market: Arc<&MarketTypeTSend<MP>> ) -> PV01Results;
+    async fn pnl(&self, market: Arc<&MarketTypeTSend<MP>>) -> Option<f64> {
         let initial_pv_val = self.initial_pv().await?;
 
         self.price(market)
@@ -136,7 +145,7 @@ pub trait PriceTrade<MP>: BaseTrade {
     async fn value_by_metric(
         &self,
         metric: PricingMetric,
-        market: &dyn MarketTypeT<MP=MP>
+        market: Arc<&MarketTypeTSend<MP>>,
     ) -> PricingResults {
 
         let trade_name = self.id();
@@ -187,15 +196,18 @@ impl<TR> BaseTrade for TradeRep<TR> {
 //   then we have the PriceTrade implementation for TradeReduce
 // MT: MarketTypeT<MP>
 // TR: trade representation.
+#[async_trait]
 impl<MP, TR> PriceTrade<MP> for TradeRep<TR>
 where
-    TR: PriceTrade<MP> + std::fmt::Debug
+    TR: PriceTrade<MP> + std::fmt::Debug + Send + Sync,
+    MP: 'static + Send + Sync,
+    dyn MarketTypeT<MP=MP>: Send + Sync,
 {
 
     async fn initial_pv(&self) -> Option<f64> {
         let mut portf_val = 0.;
         for indiv_trade in self.iter()  {
-            let (trade_name, trade_v) = indiv_trade.pair();
+            let (_trade_name, trade_v) = indiv_trade.pair();
 
             let tv = trade_v.initial_pv().await; // tv = trade value
             match tv {
@@ -210,12 +222,12 @@ where
         Some(portf_val)
     }
 
-    async fn price(&self, market: &dyn MarketTypeT<MP=MP>) -> Option<f64> {
+    async fn price(&self, market: Arc<&MarketTypeTSend<MP>>) -> Option<f64> {
         let mut portf_val = 0.;
         for indiv_trade in self.iter()  {
-            let (trade_name, trade_v) = indiv_trade.pair();
+            let (_trade_name, trade_v) = indiv_trade.pair();
 
-            let tv = trade_v.price(market).await;
+            let tv = trade_v.price(market.clone()).await; // only clonging the Arc
             match tv {
                 None => {
                     warn!("Could not price of {:?}", trade_v);
@@ -228,13 +240,13 @@ where
         Some(portf_val)
     }
 
-    async fn pv01(&self, market: &dyn MarketTypeT<MP=MP>) -> PV01Results {
+    async fn pv01(&self, market: Arc<&MarketTypeTSend<MP>>) -> PV01Results {
         let mut portf_val = PV01Results::new();
         for indiv_trade in self.iter()  {
-            let (trade_name, trade_v) = indiv_trade.pair();
+            let (_trade_name, trade_v) = indiv_trade.pair();
 
-            let tv = trade_v.pv01(market).await;
-            portf_val += tv;  // TODO: HANDLE Option here.
+            let tv = trade_v.pv01(market.clone()).await;
+            portf_val += &tv;
         }
         portf_val
     }

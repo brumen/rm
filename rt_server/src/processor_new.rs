@@ -116,9 +116,8 @@ pub enum ProcessorNewState {
 #[async_trait]
 impl<T, MP> Actor for ProcessorNew<T, MP>
 where
-    T: Send + Sync + Clone + 'static + BaseTrade + std::fmt::Display + PriceTrade<MP>, // + ProcessTradeValue
-    //MT: MarketTypeT + Send + Sync + std::fmt::Debug + 'static  // TODO: THIS IS WRONG
-    dyn MarketTypeT<MP=MP> + 'static: Send + Sync + Sized + std::fmt::Debug,
+    T: Send + Sync + Clone + 'static + BaseTrade + std::fmt::Display + PriceTrade<MP>,
+    dyn MarketTypeT<MP=MP>: Send + Sync + Sized + std::fmt::Debug,
     MP: 'static + Send + Sync + Clone // TODO: Check this
 {
     type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>;
@@ -233,7 +232,7 @@ where
                         );
 
 			//*trade_l += &new_trade;  // we add the trade to the list.
-                        trade_l.push(new_trade);
+                        trade_l.push(new_trade.clone());
                         let new_trade_info = self.all_trades.get(&new_trade).unwrap();  // TODO: REMOVE THIS unwrap
 			let new_trade_price = new_trade_info.value_by_metric(
 			    self.metric,
@@ -266,7 +265,7 @@ where
                         //    new_market,
                         //    future_m,
                         //).await?;
-                        new_market = *future_m;
+                        *future_m = new_market;
 
 			// we are idle, we can start calculating, start calculating
                         info!("Idle, NewMarket: sending to bulk. State -> CalculatingBulk");
@@ -299,7 +298,7 @@ where
                         //    new_market,  //replace_mkt: MarketType,
                         //    future_m,  // future_mkt: &mut MarketType
                         //).await?;
-                        new_market = *future_m;
+                        *future_m = new_market;
 		    }
 		    // ignore if new market comes in, no
 		    //   action taken.
@@ -311,7 +310,7 @@ where
                         //    new_market,  //replace_mkt: MarketType,
                         //    future_m,  // future_mkt: &mut MarketType
                         //).await?;
-                        new_market = *future_m;
+                        *future_m = new_market;
 		    },
 		}
 	    },
@@ -341,7 +340,8 @@ where
 
                             // TODO: CHECK IF ANYTHING ELSE NEEDS TO BE DONE
                             //self._switch_markets(new_m, future_m).await?;
-                            *new_m = *future_m;
+                            // TODO: SUPER IMPORTANT - CHANGE MARKET
+                            //*new_m = *future_m;
 
                             info!(
                                 "Processor: new, State: (Behind, CalculatingSingle): Going to state Idle."
@@ -357,11 +357,11 @@ where
                                 trade_l.len(),
                             );
 			    //*trade_l += &trades_behind;
-                            trade_l.extend(trades_behind);
+                            trade_l.extend(trades_behind.clone());
 
 			    self.processor_bulk.send_message(
 				ProcessorBulkMessage::NewBulk(
-				    (new_m.market_name(), trades_behind.clone(), myself)
+				    (new_m.market_name(), trades_behind, myself)
 				)
 			    )?;
 			    *pns = ProcessorNewState::CalculatingBulk;

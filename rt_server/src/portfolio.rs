@@ -230,6 +230,22 @@ pub struct PV01Results(pub PV01Inner);
 
 ref_deref_trait!(PV01Results, PV01Inner);
 
+impl AddAssign<&PV01Results> for PV01Results {
+    fn add_assign(&mut self, rhs: &PV01Results) {
+        for (trade_id, trade_val) in self.iter_mut() {
+            if let Some(trade_mult) = rhs.get(trade_id) {
+                *trade_val += trade_mult.clone();
+            } else {
+                warn!(
+                    "mul_assign: Could not find the multiplying factor for {}",
+                    trade_id
+                );
+            }
+        }
+    }
+}
+
+
 impl MulAssign<&AggregatedTrades> for PV01Results {
     fn mul_assign(&mut self, rhs: &AggregatedTrades) {
         for (trade_id, trade_val) in self.iter_mut() {

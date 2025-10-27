@@ -1,14 +1,11 @@
 use serde::{Deserialize, Serialize};
-use std::ops::{Deref, DerefMut, };
 use tracing::{debug, warn};
-use ractor::async_trait;
 use std::fmt;
 
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
 use crate::pricer::{Decoder, PriceTrade, PricingMetric};
-use crate::ref_deref::{TryFromRef, TryFromRef2};
-use crate::ref_deref_trait;
-use crate::trade::{BaseTrade, TradeDirection, TradeReduce, TradeError};
+use crate::ref_deref::TryFromRef2;
+use crate::trade::{BaseTrade, TradeDirection, TradeReduce};
 use crate::market::MarketTypeT;
 
 
@@ -264,7 +261,6 @@ impl TradeTypes {
         metric: crate::pricer::PricingMetric,
         market: &dyn MarketTypeT<MP=()>,
     ) -> PricingResults  {
-        let actual_market = curr_new_mkt;
 
         match metric {
             PricingMetric::PV => {

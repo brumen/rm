@@ -2,6 +2,7 @@ use tracing::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 use std::fmt;
+use ractor::async_trait;
 
 use crate::portfolio::PV01Results;
 use crate::portfolio::PricingResults;
@@ -67,8 +68,11 @@ impl AOTrade {
 
 }
 
-
-impl PriceTrade<AOMarketParams> for AOTrade {
+#[async_trait]
+impl PriceTrade<AOMarketParams> for AOTrade
+where
+    &dyn MarketTypeT<MP=AOMarketParams>: Send + Sync,
+{
     async fn initial_pv(&self) -> Option<f64> {
         Some(0.)
     }

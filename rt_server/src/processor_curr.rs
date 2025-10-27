@@ -3,6 +3,7 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::{Arc, Mutex};
 use rdkafka::error::KafkaError;
 use rdkafka::producer::FutureProducer; // , FutureRecord};
+use chrono::Local;
 
 use crate::portfolio::PortfolioType;
 use crate::pricer::{ PricingMetric, PriceTrade};
@@ -14,14 +15,15 @@ use crate::market::MarketTypeT;
 
 pub(crate) struct ProcessorCurr<T, MP>
 where
-    dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + std::fmt::Debug,
+    dyn MarketTypeT<MP=MP>: Sized
 {
     pub processor_name: String,
     pub metric: PricingMetric,
     pub results_topic: String,
     pub result_publisher: FutureProducer,
     pub portf: Arc<Mutex<PortfolioType>>,  // current working portfolio
-    pub all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP>>>,  // all_markets is DashMap
+    pub all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP> + Send + Sync>>,  // all_markets is DashMap
     pub all_trades: Arc<TradeRep<T>>,  // all_trades is DashMap
     //    pub curr_trades: Vec<String>,  // current trades that the processor is using
     // trade_processor where we can send the info when the trades are processed
@@ -32,6 +34,7 @@ where
 impl<T, MP> std::fmt::Debug for ProcessorCurr<T, MP>
 where
     dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CurrentProcessor({self.processor_name})")
@@ -49,11 +52,12 @@ pub enum SendError {
 
 
 // Simple portfolio sender - it could be anything, not kafka
+#[async_trait]
 pub(crate) trait PortfolioSenderSimple {
     async fn _send_portfolio(
 	&self,
 	portf: PortfolioType,
-    ) -> Result<(), SendError>;
+    ) -> Result<(), SendError> where Self:Sized + Send;
 }
 
 
@@ -82,9 +86,10 @@ pub(crate) trait PortfolioSenderSimple {
 impl<T, MP> Actor for ProcessorCurr<T, MP>
 where
     T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display + PriceTrade<MP>,
-    dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug + Sync + Send,
-    MP: 'static,
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + std::fmt::Debug + MarketTypeT,
+    MP: 'static + Send + Sync,
     ProcessorCurr<T,MP>: PortfolioSenderSimple,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
 {
     type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>;
     // state is a tuple of
@@ -130,11 +135,10 @@ where
                 // TODO: THIS SHOULD BE REWRITTEN TOO!!!
                 let mi = self.all_markets.get(market).unwrap();
                 let market_info = mi.value();
-                // let market_info = self.all_markets.get_m(market.to_string()).unwrap();
-
+                let mi_arc = Arc::new(market_info);
 		let valued_trade = trade_real.value_by_metric(
 		    self.metric,
-	            market_info,
+	            mi_arc,
 		).await;
 
 		// updating the portfolio
@@ -143,12 +147,14 @@ where
 		*portf += valued_trade;
 
                 // send information about all the trades to the trade processor
+                let now = Local::now();
                 self.trade_processor.send_message(
                     ProcessorMiddleMessage::ProcessingStat(
-                        (self.processor_name.clone(), chrono::NaiveDateTime::now(), trades.len())
+                        (self.processor_name.clone(), now.naive_local(), trades.len())
                     )
                 );
 
+                // TODO: FOLLOWING LINE SHOULD BE PUT BACK
 		self._send_portfolio(portf.clone()).await?
             },
 
