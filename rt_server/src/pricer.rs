@@ -117,7 +117,7 @@ pub trait Decoder {
 
 
 // market type T send and sync version,
-type MarketTypeTSend<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
+pub(crate) type MarketTypeTSend<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
 
 // MP are market parameters, () if none.
 // MT is market type, depending on the market parameters.

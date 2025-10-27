@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 use std::fmt;
+use ractor::async_trait;
+use std::sync::Arc;
 
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
-use crate::pricer::{Decoder, PriceTrade, PricingMetric};
+use crate::pricer::{Decoder, PriceTrade, PricingMetric, MarketTypeTSend};
 use crate::ref_deref::TryFromRef2;
 use crate::trade::{BaseTrade, TradeDirection, TradeReduce};
 use crate::market::MarketTypeT;
@@ -47,19 +49,23 @@ impl std::cmp::PartialEq for LETFTrade {
     }
 }
 
-impl PriceTrade<()> for LETFTrade {
+#[async_trait]
+impl PriceTrade<()> for LETFTrade
+where
+    for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
+{
     async fn initial_pv(&self) -> Option<f64> {
         Some(0.)
     }
 
-    async fn price(&self, market: &dyn MarketTypeT<MP=()>) -> Option<f64> {
+    async fn price(&self, market: Arc<&(dyn MarketTypeT<MP=()> + Send + Sync)>) -> Option<f64> {
         let stock_v_real = market.get(&self.stock).await?;
 
         self.stock_value
             .map(|initial_stock| self.beta * self.amount * (stock_v_real / initial_stock - 1.))
     }
 
-    async fn pv01(&self, market: &dyn MarketTypeT<MP=()>) -> PV01Results {
+    async fn pv01(&self, market: Arc<&(dyn MarketTypeT<MP=()> + Send + Sync)>) -> PV01Results {
         let stock = market.get(&self.stock).await;
 
         match stock {
