@@ -96,14 +96,6 @@ where
 
     }
 
-    pub(crate) fn len(&self) -> usize {
-	self.len()
-    }
-
-    pub(crate) fn len2(&self) -> usize {
-	self.len()
-    }
-
     // pub(crate) fn remove_market(&self, market_name: &String) {
     //     self.remove(&market_name)
         // if let Some(market_nb) = self._find_market(market_name) {

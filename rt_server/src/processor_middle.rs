@@ -24,7 +24,7 @@ where
     pub(crate) processor_name: String,
     pub processor_below: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,  // processor below
     pub processor_bulk: ActorRef<ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>>,  // bulk processor ref.
-    pub(crate) all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP> + Send + Sync>>,
+    pub(crate) all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
 }
 
@@ -129,12 +129,11 @@ where
 
                 // let market_info = self.all_markets.get_m(market.to_string());
                 let mi = self.all_markets.get(market).unwrap();
-                let market_info = mi.value();
-                let mi_arc = Arc::new(market_info);
+                let market_info = mi.value().clone();  // This only clones the Arc.
                 let real_trade = trade_info.value();
                 let new_trade_price = real_trade.value_by_metric(
 		    self.metric,
-		    mi_arc,
+		    market_info,
 		).await;
 		*portf += new_trade_price;  // portfolio update
 		//*trade_l += &new_trade;  // we add the trade to the list.
@@ -179,12 +178,10 @@ where
 
                 if let Some(real_trade) = self.all_trades.get(&new_trade) {
                     if let Some(real_market) = self.all_markets.get(market) {
-                        let market_info = real_market.value();
-                        let mi_arc = Arc::new(market_info);
-
+                        let market_info = real_market.value().clone();
                         let new_trade_price = real_trade.value_by_metric(
 		            self.metric,
-		            mi_arc,
+		            market_info,
 		        ).await;
 		        *portf += new_trade_price;  // portfolio update
                         trade_l.push(new_trade);

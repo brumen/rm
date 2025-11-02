@@ -22,9 +22,10 @@ where
     pub metric: PricingMetric,
     pub processor_middle: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP> + Send + Sync>>,  // current processor ref.
     pub processor_bulk: ActorRef<ProcessorBulkMessage<dyn MarketTypeT<MP=MP> + Send + Sync>>,  // bull processor ref.
-    pub all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP> + Send + Sync>>,
+    pub all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub market_name: (String, String),  // first item: new market, second item: future market.
+    pub(crate) market_params: MP, // market parameters.
 }
 
 #[derive(Debug)]
@@ -130,7 +131,7 @@ where
         Vec<String>,
         PortfolioType,
         ProcessorNewState,
-        (dyn MarketTypeT<MP=MP> + Send + Sync, dyn MarketTypeT<MP=MP> + Send + Sync)
+        (Arc<dyn MarketTypeT<MP=MP> + Send + Sync>, Arc<dyn MarketTypeT<MP=MP> + Send + Sync>)
     );
     type Arguments = dyn MarketTypeT<MP=MP>;  // initial market
 
@@ -141,19 +142,16 @@ where
         _args: Self::Arguments,  // market parameters are passed here
     ) -> Result<Self::State, ActorProcessingErr> {
 
-        info!("Starting processor.");
-        let mp = self.all_markets.get_market_params().unwrap();  // TODO: FIX LATER
-
+        info!("Starting Processor New.");
+        let new_market = Arc::new(*Self::Arguments::new(self.processor_name.clone(), self.market_params.clone()));
+        let future_market = Arc::new(*Self::Arguments::new("future".to_string(), self.market_params.clone()));
         Ok(
 	    (
 		vec![],
 		vec![],
 		PortfolioType::default(),
 		ProcessorNewState::Idle,
-                (
-                    *Self::Arguments::new(self.processor_name.clone(), mp.clone()),
-                    *Self::Arguments::new("future".to_string(), mp),
-                ),
+                (new_market, future_market),
 	    )
 	)
     }
@@ -189,10 +187,9 @@ where
                             return Ok(());
                         };
 
-                        let new_m_arc = Arc::new(&(*new_m));
 			let new_trade_price = new_trade_info.value_by_metric(
 			    self.metric,
-			    new_m_arc,
+			    new_m.clone(),
 			).await;
 
 			*portf += new_trade_price;  // portfolio update
@@ -235,10 +232,9 @@ where
 			//*trade_l += &new_trade;  // we add the trade to the list.
                         trade_l.push(new_trade.clone());
                         let new_trade_info = self.all_trades.get(&new_trade).unwrap();  // TODO: REMOVE THIS unwrap
-                        let new_m_arc = Arc::new(&(*new_m));
 			let new_trade_price = new_trade_info.value_by_metric(
 			    self.metric,
-			    new_m_arc,
+			    new_m.clone(),
 			).await;
 			*portf += new_trade_price;  // portfolio update
                         info!(
@@ -267,7 +263,7 @@ where
                         //    new_market,
                         //    future_m,
                         //).await?;
-                        *future_m = new_market;
+                        *future_m = Arc::new(new_market);
 
 			// we are idle, we can start calculating, start calculating
                         info!("Idle, NewMarket: sending to bulk. State -> CalculatingBulk");
@@ -300,7 +296,7 @@ where
                         //    new_market,  //replace_mkt: MarketType,
                         //    future_m,  // future_mkt: &mut MarketType
                         //).await?;
-                        *future_m = new_market;
+                        *future_m = Arc::new(new_market);
 		    }
 		    // ignore if new market comes in, no
 		    //   action taken.
@@ -312,7 +308,7 @@ where
                         //    new_market,  //replace_mkt: MarketType,
                         //    future_m,  // future_mkt: &mut MarketType
                         //).await?;
-                        *future_m = new_market;
+                        *future_m = Arc::new(new_market);
 		    },
 		}
 	    },

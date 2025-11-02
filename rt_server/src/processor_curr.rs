@@ -23,7 +23,7 @@ where
     pub results_topic: String,
     pub result_publisher: FutureProducer,
     pub portf: Arc<Mutex<PortfolioType>>,  // current working portfolio
-    pub all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP> + Send + Sync>>,  // all_markets is DashMap
+    pub all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,  // all_markets is DashMap
     pub all_trades: Arc<TradeRep<T>>,  // all_trades is DashMap
     // trade_processor where we can send the info when the trades are processed
     pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
@@ -84,7 +84,7 @@ pub(crate) trait PortfolioSenderSimple {
 #[async_trait]
 impl<T, MP> Actor for ProcessorCurr<T, MP>
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display + PriceTrade<MP>,
+    T: Sync + Send + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display + PriceTrade<MP> + 'static,
     for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + std::fmt::Debug + MarketTypeT,
     MP: 'static + Send + Sync,
     ProcessorCurr<T,MP>: PortfolioSenderSimple,
@@ -133,11 +133,10 @@ where
                 debug!("Current trade information: {:?}", trade_info);
                 // TODO: THIS SHOULD BE REWRITTEN TOO!!!
                 let mi = self.all_markets.get(market).unwrap();
-                let market_info = mi.value();
-                let mi_arc = Arc::new(market_info);
+                let market_info = mi.value().clone();
 		let valued_trade = trade_real.value_by_metric(
 		    self.metric,
-	            mi_arc,
+	            market_info,
 		).await;
 
 		// updating the portfolio

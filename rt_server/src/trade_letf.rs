@@ -4,8 +4,8 @@ use std::fmt;
 use ractor::async_trait;
 use std::sync::Arc;
 
-use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
-use crate::pricer::{Decoder, PriceTrade, PricingMetric, MarketTypeTSend};
+use crate::portfolio::{PV01Results, PortfolioType};
+use crate::pricer::{Decoder, PriceTrade};
 use crate::ref_deref::TryFromRef2;
 use crate::trade::{BaseTrade, TradeDirection, TradeReduce};
 use crate::market::MarketTypeT;
@@ -58,14 +58,14 @@ where
         Some(0.)
     }
 
-    async fn price(&self, market: Arc<&(dyn MarketTypeT<MP=()> + Send + Sync)>) -> Option<f64> {
+    async fn price(&self, market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> Option<f64> {
         let stock_v_real = market.get(&self.stock).await?;
 
         self.stock_value
             .map(|initial_stock| self.beta * self.amount * (stock_v_real / initial_stock - 1.))
     }
 
-    async fn pv01(&self, market: Arc<&(dyn MarketTypeT<MP=()> + Send + Sync)>) -> PV01Results {
+    async fn pv01(&self, market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> PV01Results {
         let stock = market.get(&self.stock).await;
 
         match stock {
@@ -141,18 +141,22 @@ pub struct Future {
 }
 
 
-impl PriceTrade<()> for Future {
+#[async_trait]
+impl PriceTrade<()> for Future
+where
+    for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
+{
     async fn initial_pv(&self) -> Option<f64> {
         self.initial_val
     }
 
-    async fn price(&self, market: &dyn MarketTypeT<MP=()>) -> Option<f64> {  // market = &LETFMarketType
+    async fn price(&self, market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> Option<f64> {  // market = &LETFMarketType
         let stock = market.get(&self.stock).await?;
 
         Some(stock * self.amount)
     }
 
-    async fn pv01(&self, _market: &dyn MarketTypeT<MP=()>) -> PV01Results {
+    async fn pv01(&self, _market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> PV01Results {
         let mut pv01_results = PV01Results::new();
         let _ = pv01_results.insert(
             self.trade_id.clone(),
@@ -186,16 +190,20 @@ pub struct Cash {
     pub amount: f64,
 }
 
-impl PriceTrade<()> for Cash {
+#[async_trait]
+impl PriceTrade<()> for Cash
+where
+    for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
+{
     async fn initial_pv(&self) -> Option<f64> {
         Some(self.amount)
     }
 
-    async fn price(&self, _market: &dyn MarketTypeT<MP=()>) -> Option<f64> {
+    async fn price(&self, _market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> Option<f64> {
         Some(self.amount)
     }
 
-    async fn pv01(&self, _market: &dyn MarketTypeT<MP=()>) -> PV01Results {
+    async fn pv01(&self, _market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> PV01Results {
         PV01Results::new()
     }
 }
@@ -262,43 +270,43 @@ impl TradeTypes {
         }
     }
 
-    async fn value_by_metric(
-        &self,
-        metric: crate::pricer::PricingMetric,
-        market: &dyn MarketTypeT<MP=()>,
-    ) -> PricingResults  {
+    // async fn value_by_metric(
+    //     &self,
+    //     metric: crate::pricer::PricingMetric,
+    //     market: Arc<&(dyn MarketTypeT<MP=()> + Send + Sync)>,
+    // ) -> PricingResults  {
 
-        match metric {
-            PricingMetric::PV => {
-                let price = self.price(market).await;
-                match price {
-                    None => {
-                        warn!("Could not price {}", self.id());
-                        PricingResults::PV(PortfolioType::default())
-                    },
-                    Some(actual_price) => {
-                        PricingResults::PV(PortfolioType::from([(self.id(), actual_price)]))
-                    },
-                }
-            }
-            PricingMetric::PV01 => {
-                let pv01 = self.pv01(market).await;
-                PricingResults::PV01(pv01)
-            }
-            PricingMetric::PnL => {
-                let pnl = self.pnl(market).await;
-                match pnl {
-                    None => {
-                        warn!("Could not compute PNL for {}", self.id());
-                        PricingResults::PV(PortfolioType::default())
-                    },
-                    Some(actual_pnl) => {
-                        PricingResults::PV(PortfolioType::from([(self.id(), actual_pnl)]))
-                    },
-                }
-            }
-        }
-    }
+    //     match metric {
+    //         PricingMetric::PV => {
+    //             let price = self.price(market).await;
+    //             match price {
+    //                 None => {
+    //                     warn!("Could not price {}", self.id());
+    //                     PricingResults::PV(PortfolioType::default())
+    //                 },
+    //                 Some(actual_price) => {
+    //                     PricingResults::PV(PortfolioType::from([(self.id(), actual_price)]))
+    //                 },
+    //             }
+    //         }
+    //         PricingMetric::PV01 => {
+    //             let pv01 = self.pv01(market).await;
+    //             PricingResults::PV01(pv01)
+    //         }
+    //         PricingMetric::PnL => {
+    //             let pnl = self.pnl(market).await;
+    //             match pnl {
+    //                 None => {
+    //                     warn!("Could not compute PNL for {}", self.id());
+    //                     PricingResults::PV(PortfolioType::default())
+    //                 },
+    //                 Some(actual_pnl) => {
+    //                     PricingResults::PV(PortfolioType::from([(self.id(), actual_pnl)]))
+    //                 },
+    //             }
+    //         }
+    //     }
+    // }
 
 }
 
@@ -306,7 +314,11 @@ impl Decoder for TradeTypes {}
 impl TryFromRef2 for TradeTypes {}
 
 
-impl PriceTrade<()> for TradeTypes {
+#[async_trait]
+impl PriceTrade<()> for TradeTypes
+where
+    for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
+{
     async fn initial_pv(&self) -> Option<f64> {
         match self {
             TradeTypes::LETF(letf_trade) => letf_trade.initial_pv().await,
@@ -315,7 +327,7 @@ impl PriceTrade<()> for TradeTypes {
         }
     }
 
-    async fn price(&self, market: &dyn MarketTypeT<MP=()>) -> Option<f64> {
+    async fn price(&self, market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> Option<f64> {
         match self {
             TradeTypes::LETF(letf_trade) => {
                 match letf_trade.stock_value {
@@ -327,12 +339,12 @@ impl PriceTrade<()> for TradeTypes {
                     }
                 }
             }
-            TradeTypes::Future(letf_fut) => letf_fut.price(market).await,
             TradeTypes::Cash(letf_cash) => letf_cash.price(market).await,
+            TradeTypes::Future(letf_fut) => letf_fut.price(market).await,
         }
     }
 
-    async fn pv01(&self, market: &dyn MarketTypeT<MP=()>) -> PV01Results {
+    async fn pv01(&self, market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> PV01Results {
         match self {
             TradeTypes::LETF(letf_trade) => {
                 match letf_trade.stock_value {

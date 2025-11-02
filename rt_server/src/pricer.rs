@@ -130,9 +130,9 @@ where
 {
 
     async fn initial_pv(&self) -> Option<f64> where Self: Send;
-    async fn price(&self, market: Arc<&MarketTypeTSend<MP>> ) -> Option<f64>;
-    async fn pv01(&self, market: Arc<&MarketTypeTSend<MP>> ) -> PV01Results;
-    async fn pnl(&self, market: Arc<&MarketTypeTSend<MP>>) -> Option<f64> {
+    async fn price(&self, market: Arc<MarketTypeTSend<MP>> ) -> Option<f64>;
+    async fn pv01(&self, market: Arc<MarketTypeTSend<MP>> ) -> PV01Results;
+    async fn pnl(&self, market: Arc<MarketTypeTSend<MP>>) -> Option<f64> {
         let initial_pv_val = self.initial_pv().await?;
 
         self.price(market)
@@ -145,7 +145,7 @@ where
     async fn value_by_metric(
         &self,
         metric: PricingMetric,
-        market: Arc<&MarketTypeTSend<MP>>,
+        market: Arc<MarketTypeTSend<MP>>,
     ) -> PricingResults {
 
         let trade_name = self.id();
@@ -222,7 +222,7 @@ where
         Some(portf_val)
     }
 
-    async fn price(&self, market: Arc<&MarketTypeTSend<MP>>) -> Option<f64> {
+    async fn price(&self, market: Arc<MarketTypeTSend<MP>>) -> Option<f64> {
         let mut portf_val = 0.;
         for indiv_trade in self.iter()  {
             let (_trade_name, trade_v) = indiv_trade.pair();
@@ -240,7 +240,7 @@ where
         Some(portf_val)
     }
 
-    async fn pv01(&self, market: Arc<&MarketTypeTSend<MP>>) -> PV01Results {
+    async fn pv01(&self, market: Arc<MarketTypeTSend<MP>>) -> PV01Results {
         let mut portf_val = PV01Results::new();
         for indiv_trade in self.iter()  {
             let (_trade_name, trade_v) = indiv_trade.pair();

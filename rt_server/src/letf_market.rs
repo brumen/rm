@@ -78,9 +78,10 @@ impl AddAssign<&LETFMarketType> for LETFMarketType {
 
 impl<const N: usize> From<(String, [(String, f64); N])> for LETFMarketType {
     fn from(market_name_arr: (String, [(String, f64); N])) -> Self {
+        let (market_name, market_array) = market_name_arr;
         Self {
-            market_name: market_name_arr.0,
-            market: MarketInner::from(market_name_arr.1)
+            market_name,
+            market: MarketInner::from(market_array)
         }
     }
 }
@@ -90,8 +91,13 @@ impl MarketTypeT for LETFMarketType {
 
     type MP = ();
 
-    fn new(market_name: String, _mp: ()) -> Box<dyn MarketTypeT<MP=Self::MP>> {
-        Box::new(LETFMarketType { market_name, market: DashMap::<String, f64>::new() })
+    fn new(market_name: String, _mp: ()) -> Box<dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
+        Box::new(
+            LETFMarketType {
+                market_name,
+                market: DashMap::<String, f64>::new()
+            }
+        )
     }
 
     fn market_name(&self) -> String {
@@ -114,7 +120,7 @@ impl MarketTypeT for LETFMarketType {
         market_name: String,
         value: &BorrowedMessage,
         _mp: ()
-    ) -> Result<Box<dyn MarketTypeT<MP=Self::MP>>, MarketTypeError> {
+    ) -> Result<Box<dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
         let msg_val = value.payload().ok_or(
             MarketTypeError::GeneralError("Didnt get payload".to_string())
         )?;
