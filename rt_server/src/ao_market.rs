@@ -62,7 +62,7 @@ impl AOMarketType {
 impl MarketTypeT for AOMarketType {
     type MP=AOMarketParams;
 
-    fn new(market_name: String, mp: AOMarketParams) -> Box<dyn MarketTypeT<MP=Self::MP>> {
+    fn new(market_name: String, mp: AOMarketParams) -> Box<dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
         Box::new(
             Self {
                 market_name,
@@ -95,7 +95,7 @@ impl MarketTypeT for AOMarketType {
         _market_name: String,
         value: &BorrowedMessage,
         mp: AOMarketParams
-    ) -> Result<Box<dyn MarketTypeT<MP=Self::MP>>, MarketTypeError> {
+    ) -> Result<Box<dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
         let msg_val = value.payload().ok_or(
             MarketTypeError::GeneralError("Didnt get payload".to_string())
         )?;

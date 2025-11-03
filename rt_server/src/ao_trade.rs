@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 use std::fmt;
 use ractor::async_trait;
+use std::sync::Arc;
 
 use crate::portfolio::PV01Results;
 use crate::portfolio::PricingResults;
@@ -56,7 +57,7 @@ impl AOTrade {
     async fn _pricing_request(
         &self,
         metric: PricingMetric,
-        market: &dyn MarketTypeT<MP=AOMarketParams>,
+        market: Arc<dyn MarketTypeT<MP=AOMarketParams> + Send + Sync>,
         trades: Vec<String>,
     ) -> Result<reqwest::Response, reqwest::Error> {
 
@@ -71,7 +72,7 @@ impl AOTrade {
 #[async_trait]
 impl PriceTrade<AOMarketParams> for AOTrade
 where
-    &dyn MarketTypeT<MP=AOMarketParams>: Send + Sync,
+    for <'a> dyn MarketTypeT<MP=AOMarketParams> + 'a: Send + Sync,
 {
     async fn initial_pv(&self) -> Option<f64> {
         Some(0.)
@@ -79,7 +80,7 @@ where
 
     async fn price(
         &self,
-        market: &dyn MarketTypeT<MP=AOMarketParams>,
+        market: Arc<dyn MarketTypeT<MP=AOMarketParams> + Send + Sync>,
     ) -> Option<f64> {
         let trade_id = self.id();
         let results_pricing = self
@@ -113,7 +114,7 @@ where
         }
     }
 
-    async fn pv01(&self, market: &dyn MarketTypeT<MP=AOMarketParams>) -> PV01Results {
+    async fn pv01(&self, market: Arc<dyn MarketTypeT<MP=AOMarketParams> + Send + Sync>) -> PV01Results {
 
         let trade_id = self.id();
         let results_pricing = self._pricing_request(
@@ -144,7 +145,7 @@ where
         }
     }
 
-    async fn pnl(&self, market: &dyn MarketTypeT<MP=AOMarketParams>) -> Option<f64> {
+    async fn pnl(&self, market: Arc<dyn MarketTypeT<MP=AOMarketParams> + Send + Sync>) -> Option<f64> {
         let trade_id = self.id();
         let results_pricing = self._pricing_request(
             PricingMetric::PnL, market, vec![trade_id.clone()]

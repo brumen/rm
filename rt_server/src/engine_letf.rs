@@ -7,7 +7,7 @@ use std::fmt::{Display, Debug};
 
 use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
-use crate::pricer::{MarketPricingOptions, PricingMetric};
+use crate::pricer::PricingMetric;
 use crate::market::MarketTypeT;
 use crate::market_switching::MarketSwitching;
 use crate::all_markets::AllMarkets;

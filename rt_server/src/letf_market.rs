@@ -79,9 +79,13 @@ impl AddAssign<&LETFMarketType> for LETFMarketType {
 impl<const N: usize> From<(String, [(String, f64); N])> for LETFMarketType {
     fn from(market_name_arr: (String, [(String, f64); N])) -> Self {
         let (market_name, market_array) = market_name_arr;
+        let mi = MarketInner::new();
+        for (mn, mv) in market_array {
+            mi.insert(mn, mv);
+        }
         Self {
             market_name,
-            market: MarketInner::from(market_array)
+            market: mi,
         }
     }
 }

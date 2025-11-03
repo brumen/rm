@@ -16,7 +16,8 @@ use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 #[derive(Debug)]
 pub struct ProcessorBulk<T, MP>
 where
-    dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + std::fmt::Debug,
+    dyn MarketTypeT<MP=MP>: Sized,
 {
     pub processor_name: String,
     pub metric: PricingMetric,
@@ -25,7 +26,7 @@ where
     pub(crate) trade_names: Vec<String>,
     // all_trades is a reference to the structure that contains all trades.
     pub(crate) all_trades: Arc<TradeRep<T>>,
-    pub(crate) all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP>>>,
+    pub(crate) all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
 }
 
 #[derive(Debug)]
@@ -35,10 +36,13 @@ pub enum ProcessorBulkState<MT> {
 }
 
 
-impl<T, MP> Decoder for ProcessorBulk<T, MP>
-where
-    dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug
-{}
+// impl<T, MP> Decoder for ProcessorBulk<T, MP>
+// where
+//     dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug,
+//     dyn MarketTypeT<MP=MP> + Send + Sync + 'static: Sized,
+// {}
+
+
 
 // impl<ReductionType, T, MP> RestPricerSpark<ReductionType> for ProcessorBulk<T, MP>
 // where
@@ -65,9 +69,14 @@ where
 #[async_trait]
 impl<T, MP> Actor for ProcessorBulk<T, MP>
 where
-    T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MP> + std::fmt::Debug + std::fmt::Display,
-    MP: Send + Sync + 'static,
-    dyn MarketTypeT<MP=MP> + 'static: Sized + Send + Sync + std::fmt::Debug,
+    T: Sync + Send + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display + PriceTrade<MP> + 'static,
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + std::fmt::Debug + MarketTypeT,
+    MP: 'static + Send + Sync,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
+    // T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MP> + std::fmt::Debug + std::fmt::Display,
+    // MP: Send + Sync + 'static,
+    // for <'a> dyn MarketTypeT<MP=MP> + 'a: Sized + Send + Sync + MarketTypeT,
+    // for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
 {
     type Msg = ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>;
     // type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
@@ -81,9 +90,7 @@ where
     ) -> Result<Self::State, ActorProcessingErr> {
 
 	info!("Initializing Bulk processor: {}", self.processor_name);
-        Ok(
-            (0, None)  // intialized to 0 attempts.
-        )
+        Ok(None)  //  (0, None)  // intialized to 0 attempts.
     }
 
     async fn handle(
@@ -99,7 +106,6 @@ where
             // sending_processor ... processor where the result should be sent.
             ProcessorBulkMessage::NewBulk((market, new_trades, sending_processor)) => {
 		// start the long-running pricing procedure
-                let curr_mkt = state;
 
                 info!(
 		    "BulkProcessor {}: NewBulk - Computing {} trades.",
@@ -118,15 +124,9 @@ where
                 }
 
                 // we have a market
-                let curr_mkt = curr_mkt_attempt.unwrap();
-                let market_params = curr_mkt.market_params();  // market params
-
 		let mut portfolio = PortfolioType::default();
-		let mut pricing_futs = vec![];
-                let mut non_pricing_trades = Vec::<String>::new();
 
-                let market_actual = self.all_markets.get(&market).unwrap();
-                let market_actual_val = market_actual.value();
+                let mut non_pricing_trades = Vec::<String>::new();
 
                 let mut used_trades = vec![];
                 for trade_name in new_trades.iter() {
@@ -145,16 +145,21 @@ where
                     let trade = trade_attempt.unwrap();
                     used_trades.push(trade);
                 }
-                    // pricing_futs are futures where the trades are getting priced.
-                for used_trade in used_trades {
+
+                let market_actual = self.all_markets.get(&market).unwrap();
+                let market_actual_val = market_actual.value();
+                // pricing_futs are futures where the trades are getting priced.
+                let mut pricing_futs = vec![];
+                //for used_trade in used_trades {
+                for used_trade in new_trades.iter() {
+                    let used_trade_1 = self.all_trades.get(used_trade).unwrap();
                     pricing_futs.push(
-			used_trade.value_by_metric(
+			used_trade_1.value_by_metric(
 			    self.metric,
-                            market_actual_val,
+                            market_actual_val.clone(),
 			)
 		    );
 		}
-
 		// updating the portfolio
 		let pricing_res = join_all(pricing_futs).await;
 		for pricing in pricing_res.iter() {
