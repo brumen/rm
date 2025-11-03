@@ -141,10 +141,13 @@ where
         // starting w/ the first trade.
         let trade_msg = self.position_listener.recv().await?;
         let trade_1 = T::try_from_ref(&trade_msg)?;
+        let trade_1_id = trade_1.id();
 
-        info!("First trade: {:?}", trade_1);
+        info!("First trade: {:?}", trade_1_id);
+        self.trade_list.insert(trade_1_id.clone(), trade_1);  // add trade to the trade list.
+
         myself.send_message(
-            ProcessorMiddleMessage::NewTrade(trade_1.id())
+            ProcessorMiddleMessage::NewTrade(trade_1_id)
         )?;  // first message
 
         Ok(())
@@ -162,19 +165,20 @@ where
 
         // compute the ewma of all the processors and distribute accordingly.
         // let processor_mavg = self._compute_all
+        let trade_id = trade_m.get_trade().unwrap();  // TODO: MAKE SURE HERE
 	for processor in &self.processors[..] {
-	    processor.send_message(trade_m.clone())?;
+            processor.send_message(
+                ProcessorMiddleMessage::NewTrade(trade_id.clone())  // trade_id is a string.
+            )?;
 	}
-
-        // if let ProcessorMiddleMessage::NewTrade(trade) = trade_m {
-        //     *state += &TradeRep::from([trade.clone(),]);
-        // }  // only this is possible, so it's fine.
 
 	let new_msg = self.position_listener.recv().await?;
         let new_trade = T::try_from_ref(&new_msg)?;
+        let new_trade_id = new_trade.id();
+        self.trade_list.insert(new_trade_id.clone(), new_trade);
 
 	myself.send_message(
-            ProcessorMiddleMessage::NewTrade(new_trade.id())  // new trade has id.
+            ProcessorMiddleMessage::NewTrade(new_trade_id)  // new trade has id.
         )?;
 
         // TODO: HERE WE HAVE TO HANDLE ProcessingStat

@@ -37,6 +37,16 @@ pub enum ProcessorMiddleMessage<MT> {
 }
 
 
+impl<MT> ProcessorMiddleMessage<MT> {
+    pub(crate) fn get_trade(&self) -> Option<String> {
+        match self {
+            ProcessorMiddleMessage::NewTrade(trade_id) => Some(trade_id.clone()),
+            _ => None,
+        }
+    }
+}
+
+
 #[derive(Debug, Clone)]
 pub enum ProcessorBulkMessage<MT> {
     // is a triple
