@@ -3,11 +3,9 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 
 use crate::market::MarketTypeT;
-// use crate::market_switching::MarketSwitching;
 use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
-use crate::pricer::{PricingMetric, PriceTrade};  // , MarketPricingOptions, RestPricerSpark
-//use crate::process_trade::ProcessTradeValue;
+use crate::pricer::{PricingMetric, PriceTrade};
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage,};
 use crate::trade::{BaseTrade, TradeRep};
 
@@ -20,8 +18,8 @@ where
 {
     pub processor_name: String,
     pub metric: PricingMetric,
-    pub processor_middle: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP> + Send + Sync>>,  // current processor ref.
-    pub processor_bulk: ActorRef<ProcessorBulkMessage<dyn MarketTypeT<MP=MP> + Send + Sync>>,  // bull processor ref.
+    pub processor_middle: ActorRef<ProcessorMiddleMessage<String>>,  // dyn MarketTypeT<MP=MP> + Send + Sync>>,  // current processor ref.
+    pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>,  // dyn MarketTypeT<MP=MP> + Send + Sync>>,  // bull processor ref.
     pub all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub market_name: (String, String),  // first item: new market, second item: future market.
@@ -120,7 +118,9 @@ where
     MP: 'static + Send + Sync + Clone,
     for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + std::fmt::Debug,
 {
-    type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP> + Send + Sync>;
+    //type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP> + Send + Sync>;
+    type Msg = ProcessorMiddleMessage<String>;
+
     // first argument is list of trades,
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
@@ -263,7 +263,8 @@ where
                         //    new_market,
                         //    future_m,
                         //).await?;
-                        *future_m = Arc::new(new_market);
+                        let new_market_val = self.all_markets.get(&new_market).unwrap();
+                        *future_m = new_market_val.value().clone();
 
 			// we are idle, we can start calculating, start calculating
                         info!("Idle, NewMarket: sending to bulk. State -> CalculatingBulk");
@@ -296,7 +297,8 @@ where
                         //    new_market,  //replace_mkt: MarketType,
                         //    future_m,  // future_mkt: &mut MarketType
                         //).await?;
-                        *future_m = Arc::new(new_market);
+                        let new_market_val = self.all_markets.get(&new_market).unwrap();
+                        *future_m = new_market_val.value().clone();
 		    }
 		    // ignore if new market comes in, no
 		    //   action taken.
@@ -308,7 +310,8 @@ where
                         //    new_market,  //replace_mkt: MarketType,
                         //    future_m,  // future_mkt: &mut MarketType
                         //).await?;
-                        *future_m = Arc::new(new_market);
+                        let new_market_val = self.all_markets.get(&new_market).unwrap();
+                        *future_m = new_market_val.value().clone();
 		    },
 		}
 	    },

@@ -143,4 +143,5 @@ impl MarketTypeT for LETFMarketType {
     }
 
     fn market_params(&self) -> &Self::MP { &() }
+
 }

@@ -5,14 +5,62 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use ractor::ActorRef;
 
-use crate::pricer::{MarketPricingOptions, PricingMetric};
+use crate::pricer::PricingMetric;
 use crate::market::MarketTypeT;
 use crate::all_markets::AllMarkets;
-// use crate::market_switching::MarketSwitching;
 use crate::processor_middle::ProcessorMiddle;
 use crate::processor_bulk::ProcessorBulk;
 use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage, };
 use crate::trade::{BaseTrade, TradeRep};
+use crate::pricer::PriceTrade;
+
+
+// creates a middle portion of the
+pub(crate) async fn create_middle_actor<T, MP>(
+    market_name: String,
+    metric: PricingMetric,
+    all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
+    initial_trades: Arc<TradeRep<T>>,
+    processor_below: ActorRef<ProcessorMiddleMessage<String>>,
+) -> ProcessorMiddle<T, MP>
+where
+    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + PriceTrade<MP>,
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + std::fmt::Debug + MarketTypeT,
+    MP: 'static + Send + Sync,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + std::fmt::Debug,
+{
+
+
+    let bulk_middle = ProcessorBulk {
+	processor_name: format!("bulk_{}", market_name),
+	metric,
+        trade_names: vec![],  // no trades at init.
+        all_trades: initial_trades.clone(),
+        all_markets: all_markets.clone(),
+    };
+
+    let (bulk_actor, bulk_actor_future) = Actor::spawn(
+	None, bulk_middle, (),
+    )
+	.await
+	.expect("Could not create bulk middle processor");
+
+	bulk_actors_futures.push(bulk_actor_future);
+	bulk_actors.push(bulk_actor.clone());
+
+    let proc_middle = ProcessorMiddle {
+	metric,
+	processor_name: format!("middle_{}", market_name),
+	processor_below,
+	processor_bulk: bulk_actor,
+	all_markets: all_markets.clone(),
+        all_trades: initial_trades.clone(),
+    };
+
+    proc_middle
+}
+
+
 
 /// creates a chain of middle processors and connects
 ///   them accordingly
@@ -21,7 +69,7 @@ use crate::trade::{BaseTrade, TradeRep};
 ///    vector of bulk actors,
 ///    last middle processor actor - to be used for new_actor, special case)
 pub(crate) async fn create_middle_procs_chain<T, MP> (
-    processor_curr: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
+    processor_curr: ActorRef<ProcessorMiddleMessage<String>>,   // dyn MarketTypeT<MP=MP>>>,
     metric: PricingMetric,  // TODO: THIS SHOULD CHANGE
     pricing_options: MarketPricingOptions,
     all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP>>>,

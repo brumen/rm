@@ -7,13 +7,13 @@ use crate::market::MarketTypeT;
 // MP .. market params.
 // MT = MarketTypeT<MP>
 #[derive(Debug)]
-pub(crate) struct AllMarkets<MT: std::fmt::Debug>(DashMap<String, MT>);
+pub(crate) struct AllMarkets<MT>(DashMap<String, MT>);
 
 impl<MT: std::fmt::Debug> Deref for AllMarkets<MT> {
     type Target = DashMap<String, MT>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &(self.0)
     }
 }
 
@@ -23,9 +23,14 @@ impl<MT: std::fmt::Debug> Deref for AllMarkets<MT> {
 impl<MP, MT> AllMarkets<MT>
 where
     MP: Clone,
-    MT: MarketTypeT<MP=MP> + std::fmt::Debug
+    MT: MarketTypeT<MP=MP>
 {
     //type MT = dyn MarketTypeT<MP=MP>;
+
+    // creates a new empty all markets structure
+    pub(crate) fn new() -> Self {
+        Self(DashMap::<String,MT>::new())
+    }
 
     /// Default implemnentation of the market names.
     // pub(crate) fn new(nb_middle: usize) -> Self {
@@ -41,9 +46,6 @@ where
     //     Self(middle_markets)
     // }
 
-    // pub(crate) fn get(&self, market_nb: usize) -> String {
-    //     self.0.get([market_nb].market_name()
-    // }
 
     /// attempts to find the market name in the AllMarkets -
     /// if it cant find it, returns None
@@ -84,12 +86,12 @@ where
     /// returns the market params of some market in the collection
     pub(crate) fn get_market_params(&self) -> Option<MP> {
         //
-        if self.len() == 0 {
+        if self.0.len() == 0 {
             return None;
         }
 
         // we have at least one market.
-        let market_elt = self.iter().nth(0)?;
+        let market_elt = self.0.iter().nth(0)?;
         let mo = market_elt.value();
 
         Some(mo.market_params().clone())

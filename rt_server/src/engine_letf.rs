@@ -9,7 +9,6 @@ use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PricingMetric;
 use crate::market::MarketTypeT;
-use crate::market_switching::MarketSwitching;
 use crate::all_markets::AllMarkets;
 use crate::publish::connect_with_retries_producer_rd;
 use crate::trade_sender::TradeProducer;
@@ -34,12 +33,14 @@ pub(crate) async fn start2<T, MP>(
     kafka_params: KafkaParams,
     metric: PricingMetric,  // pricing metric, like PV
     server_state: Arc<Mutex<PortfolioType>>,
-    all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP>>>,
+    all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
     initial_trades: TradeRep::<T>,
 ) -> Vec<JoinHandle<()>>
 where
     T : Display + Debug + BaseTrade + Clone + Send + Sync + 'static,
-    dyn MarketTypeT<MP=MP>: Send + Sync + std::fmt::Debug + Sized,
+    MP: 'static + Send + Sync,
+    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
 {
 
     let current_market = all_markets.get(0);

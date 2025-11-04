@@ -22,8 +22,8 @@ where
     pub(crate) metric: PricingMetric,
     // pub(crate) pricing_options: MarketPricingOptions,
     pub(crate) processor_name: String,
-    pub processor_below: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,  // processor below
-    pub processor_bulk: ActorRef<ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>>,  // bulk processor ref.
+    pub processor_below: ActorRef<ProcessorMiddleMessage<String>>,   //dyn MarketTypeT<MP=MP>>>,  // processor below
+    pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>,  // dyn MarketTypeT<MP=MP>>>,  // bulk processor ref.
     pub(crate) all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
 }
@@ -71,7 +71,7 @@ where
     MP: 'static + Send + Sync,
     for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + std::fmt::Debug,
 {
-    type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>;
+    type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // first argument is list of trades,
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.

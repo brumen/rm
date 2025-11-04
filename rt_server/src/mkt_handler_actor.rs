@@ -2,6 +2,7 @@ use tracing::{info, debug};
 use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use uuid::Uuid;
+use std::ops::AddAssign;
 
 use crate::processor_msg::ProcessorMiddleMessage;
 use crate::pricer::PricingMetric;
@@ -16,19 +17,21 @@ where
     pub metric: PricingMetric,
     pub pricing_options: MP,
     pub mkt_listener: StreamConsumer,  // listening for market events.
-    pub new_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
+    pub new_processor: ActorRef<ProcessorMiddleMessage<String>>,  // dyn MarketTypeT<MP=MP>>>,
 }
 
+
+type HandlerMarketType<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
 
 #[async_trait]
 impl<MP> Actor for MarketProducer<MP>
 where
-    // MT: Send + MarketTypeT + 'static + std::fmt::Debug + Clone + for<'a> AddAssign<&'a MT>
-    dyn MarketTypeT<MP=MP>: Sized + Send + Sync + Clone,
-    MP: 'static + Send + Sync + Clone
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + Send + Sync + Clone + MarketTypeT<MP=MP> + AddAssign<HandlerMarketType<MP>>,
+    MP: 'static + Send + Sync + Clone,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + std::fmt::Debug,
 {
-    type Msg = dyn MarketTypeT<MP=MP>;  // MarketType;
-    type State = dyn MarketTypeT<MP=MP>;  // MarketType;
+    type Msg = dyn MarketTypeT<MP=MP> + Send + Sync;  // MarketType;
+    type State = dyn MarketTypeT<MP=MP> + Send + Sync;  // MarketType;
     type Arguments = ();
 
     async fn pre_start(
@@ -49,16 +52,19 @@ where
     async fn handle(
         &self,
 	myself: ActorRef<Self::Msg>,
-	message: Self::Msg,
-	state: &mut Self::State,
+	message: Self::Msg,  // message is new things about the market
+	state: &mut Self::State,  // market state is the market itself.
     ) -> Result<(), ActorProcessingErr> {
 
 	info!("Handling new market message.");
 
 	let market = state;
-	*market += &message;  // adding the new market message to the market.
+        let market_addition = message;
+	// *market += &message;
+        *market += market_addition;  // adding a new market
+        let market_name = market.market_name();
 	self.new_processor.send_message(
-	    ProcessorMiddleMessage::NewMarket(market.clone())
+	    ProcessorMiddleMessage::NewMarket(market_name)
 	)?;
 
 	// wait for new message
