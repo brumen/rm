@@ -5,7 +5,7 @@ use crate::portfolio::PortfolioType;
 
 
 /// message that the new processor receives
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum ProcessorMiddleMessage<MT> {
     NewTrade(String),  // message from trade producer, trade id.
     NewMarket(MT),  // message from market handler, market_name
@@ -47,7 +47,7 @@ impl<MT> ProcessorMiddleMessage<MT> {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum ProcessorBulkMessage<MT> {
     // is a triple
     //    first is the market type, a name of the market

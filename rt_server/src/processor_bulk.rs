@@ -13,11 +13,10 @@ use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
 
-#[derive(Debug)]
 pub struct ProcessorBulk<T, MP>
 where
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + std::fmt::Debug,
-    dyn MarketTypeT<MP=MP>: Sized,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+    dyn MarketTypeT<MP=MP>: Sized + MarketTypeT,
 {
     pub processor_name: String,
     pub metric: PricingMetric,
@@ -29,7 +28,7 @@ where
     pub(crate) all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
 }
 
-#[derive(Debug)]
+
 pub enum ProcessorBulkState<MT> {
     Calculating(MT),  // which market we are computing this on.
     Idle,
@@ -69,16 +68,12 @@ pub enum ProcessorBulkState<MT> {
 #[async_trait]
 impl<T, MP> Actor for ProcessorBulk<T, MP>
 where
-    T: Sync + Send + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display + PriceTrade<MP> + 'static,
-    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + std::fmt::Debug + MarketTypeT,
+    T: Sync + Send + Clone + BaseTrade + PriceTrade<MP> + 'static,
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
     MP: 'static + Send + Sync,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
-    // T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MP> + std::fmt::Debug + std::fmt::Display,
-    // MP: Send + Sync + 'static,
-    // for <'a> dyn MarketTypeT<MP=MP> + 'a: Sized + Send + Sync + MarketTypeT,
-    // for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
 {
-    type Msg = ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>;
+    type Msg = ProcessorBulkMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
     type State = Option<dyn MarketTypeT<MP=MP>>;
     type Arguments = MP;
@@ -112,7 +107,7 @@ where
 		    self.processor_name,
 		    new_trades.len(),
 		);
-                let curr_mkt_attempt = self.all_markets.get(&market);  //
+                let curr_mkt_attempt = self.all_markets.get(&market);
 
                 // if curr_mkt == None, we couldnt get the market, abandon the attempts
                 if curr_mkt_attempt.is_none() {

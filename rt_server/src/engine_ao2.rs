@@ -1,6 +1,5 @@
 // construct and connect all the actors for the AirOption framework
 use ractor::Actor;
-// use rdkafka::message::BorrowedMessage;
 use serde::Deserialize;
 use tokio::task::JoinHandle;
 use tracing::info;
@@ -11,10 +10,9 @@ use rdkafka::util::Timeout;
 
 use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
-use crate::pricer::{MarketPricingOptions, PricingMetric};
+use crate::pricer::{PricingMetric, PriceTrade};
 use crate::market::{MarketTypeT};
 use crate::all_markets::AllMarkets;
-use crate::market_switching::MarketSwitching;
 use crate::publish::connect_with_retries_producer_rd;
 use crate::ref_deref::{TryFromRef, TryFromRef2,};
 use crate::trade_sender::TradeProducer;
@@ -24,17 +22,21 @@ use crate::processor_bulk::ProcessorBulk;
 use crate::portfolio::PortfolioType;
 use crate::trade::{BaseTrade, TradeRep};
 use crate::engine_actor::create_middle_procs_chain;
-// use crate::process_trade::ProcessTradeValue;
 use crate::processor_curr::{PortfolioSenderSimple, SendError};
 
 
-
-// TODO: MAYBE THIS DOESNT BELONG HERE!!!
-impl<T, MT: MarketTypeT + Clone> PortfolioSenderSimple for ProcessorCurr<T, MT> {
+impl<T, MP> PortfolioSenderSimple for ProcessorCurr<T, MP> {
     async fn _send_portfolio(
 	&self,
 	portf: PortfolioType,
-    ) -> Result<(), SendError> {
+    ) -> Result<(), SendError>
+    where
+        T: Sync + Send + Clone + BaseTrade + PriceTrade<MP> + 'static,
+        for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
+        MP: 'static + Send + Sync + Clone,
+        for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
+        ProcessorCurr<T, MP>: Sized + Send,
+    {
 	// sends to publisher actor
 	let curr_mkt_json = serde_json::ser::to_string(&portf.clone())?;
         let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric, curr_mkt_json);
@@ -72,20 +74,19 @@ impl<T, MT: MarketTypeT + Clone> PortfolioSenderSimple for ProcessorCurr<T, MT> 
 /// initialize_client: whether the reqwest client is set, or None.
 ///   (setting it uses the client for remote pricing, putting it
 ///    to None, means pricing is local.)
-pub(crate) async fn start2<T, MT: MarketTypeT>(
+pub(crate) async fn start2<T, MP>(
     kafka_server: String,  // server including the port.  'localhost:9010'
     metric: PricingMetric,  // pricing metric, like PV
     pos_topic: String,     // position topic on kafka
     mkt_topic: String,     // market topic
     results_topic: String, // publish the results topic
-    pricing_options: &MarketPricingOptions,
     server_state: Arc<Mutex<PortfolioType>>,
-    all_markets: Arc<AllMarkets<MT>>,
+    all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
     initial_trades: TradeRep::<T>,
     initialize_client: bool,
 ) -> Vec<JoinHandle<()>>
 where
-    T: Display + Debug + BaseTrade + Clone + Send + Sync + 'static + TryFromRef2 + for<'a> Deserialize<'a>
+    T:  BaseTrade + Clone + Send + Sync + 'static + TryFromRef2 + for<'a> Deserialize<'a>
 {
 
     let current_market = all_markets.get(0);

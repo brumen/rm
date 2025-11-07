@@ -1,8 +1,8 @@
-use tracing::{info, debug, instrument};
+use tracing::info;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use rdkafka::error::KafkaError;
-use rdkafka::producer::FutureProducer; // , FutureRecord};
+use rdkafka::producer::FutureProducer;
 use chrono::Local;
 
 use crate::portfolio::PortfolioType;
@@ -15,14 +15,13 @@ use crate::market::MarketTypeT;
 
 pub(crate) struct ProcessorCurr<T, MP>
 where
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + std::fmt::Debug,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
     dyn MarketTypeT<MP=MP>: Sized
 {
     pub processor_name: String,
     pub metric: PricingMetric,
     pub results_topic: String,
     pub result_publisher: FutureProducer,
-    pub portf: Arc<Mutex<PortfolioType>>,  // current working portfolio
     pub all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,  // all_markets is DashMap
     pub all_trades: Arc<TradeRep<T>>,  // all_trades is DashMap
     // trade_processor where we can send the info when the trades are processed
@@ -32,8 +31,8 @@ where
 
 impl<T, MP> std::fmt::Debug for ProcessorCurr<T, MP>
 where
-    dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug,
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + std::fmt::Debug,
+    dyn MarketTypeT<MP=MP>: Sized,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CurrentProcessor({self.processor_name})")
@@ -56,7 +55,8 @@ pub(crate) trait PortfolioSenderSimple {
     async fn _send_portfolio(
 	&self,
 	portf: PortfolioType,
-    ) -> Result<(), SendError> where Self:Sized + Send;
+    ) -> Result<(), SendError>
+    where Self: Sized + Send;
 }
 
 
@@ -84,13 +84,13 @@ pub(crate) trait PortfolioSenderSimple {
 #[async_trait]
 impl<T, MP> Actor for ProcessorCurr<T, MP>
 where
-    T: Sync + Send + Clone + BaseTrade + std::fmt::Debug + std::fmt::Display + PriceTrade<MP> + 'static,
-    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + std::fmt::Debug + MarketTypeT,
-    MP: 'static + Send + Sync,
+    T: Sync + Send + Clone + BaseTrade + PriceTrade<MP> + 'static,
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
+    MP: 'static + Send + Sync + Clone,
     ProcessorCurr<T,MP>: PortfolioSenderSimple,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
 {
-    type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>;
+    type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // state is a tuple of
     //    current trades,
     //    current portfolio
@@ -112,7 +112,6 @@ where
 	Ok((initial_trades, initial_curr_portf, market))
     }
 
-    //#[instrument]
     async fn handle(
         &self,
 	_myself: ActorRef<Self::Msg>,
@@ -130,8 +129,6 @@ where
                 let trade_info = self.all_trades.get(&trade).unwrap();
                 let trade_real = trade_info.value();
 
-                debug!("Current trade information: {:?}", trade_info);
-                // TODO: THIS SHOULD BE REWRITTEN TOO!!!
                 let mi = self.all_markets.get(market).unwrap();
                 let market_info = mi.value().clone();
 		let valued_trade = trade_real.value_by_metric(
@@ -190,9 +187,7 @@ where
 		    //*trades += &new_trades;
                     // TODO: CHECK IF THIS IS OK
                     trades.extend(new_trades);
-
-		    // *market = new_market;
-
+		    *market = new_market;
 		} // otherwise dont do anything.
 	    },
 

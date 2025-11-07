@@ -6,14 +6,13 @@ use crate::market::MarketTypeT;
 // MT.. market type
 // MP .. market params.
 // MT = MarketTypeT<MP>
-#[derive(Debug)]
 pub(crate) struct AllMarkets<MT>(DashMap<String, MT>);
 
-impl<MT: std::fmt::Debug> Deref for AllMarkets<MT> {
+impl<MT> Deref for AllMarkets<MT> {
     type Target = DashMap<String, MT>;
 
     fn deref(&self) -> &Self::Target {
-        &(self.0)
+        &self.0
     }
 }
 
@@ -31,6 +30,15 @@ where
     pub(crate) fn new() -> Self {
         Self(DashMap::<String,MT>::new())
     }
+
+    // pub(crate) fn get(&self, market_name: &String) -> &MT {
+    //     let l = self.0.get(market_name).unwrap();
+
+    //     l.value()
+    //     // let k = l.value();
+
+    //     // k
+    // }
 
     /// Default implemnentation of the market names.
     // pub(crate) fn new(nb_middle: usize) -> Self {

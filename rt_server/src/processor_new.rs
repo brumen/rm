@@ -10,11 +10,10 @@ use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage,};
 use crate::trade::{BaseTrade, TradeRep};
 
 
-#[derive(Debug)]
 pub struct ProcessorNew<T, MP>
 where
     dyn MarketTypeT<MP=MP>: Sized,
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + std::fmt::Debug,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
 {
     pub processor_name: String,
     pub metric: PricingMetric,
@@ -113,10 +112,10 @@ pub enum ProcessorNewState {
 #[async_trait]
 impl<T, MP> Actor for ProcessorNew<T, MP>
 where
-    T: Send + Sync + Clone + 'static + BaseTrade + std::fmt::Debug + std::fmt::Display + PriceTrade<MP>,
-    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + std::fmt::Debug + MarketTypeT,
+    T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MP>,
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
     MP: 'static + Send + Sync + Clone,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + std::fmt::Debug,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
 {
     //type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP> + Send + Sync>;
     type Msg = ProcessorMiddleMessage<String>;

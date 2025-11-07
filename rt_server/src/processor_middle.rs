@@ -13,11 +13,10 @@ use crate::market::MarketTypeT;
 
 
 // T is mnemonic for trade type, MT is mnemonic for market type
-#[derive(Debug)]
 pub(crate) struct ProcessorMiddle<T, MP>
 where
     dyn MarketTypeT<MP=MP>: Sized,
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + std::fmt::Debug,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
 {
     pub(crate) metric: PricingMetric,
     // pub(crate) pricing_options: MarketPricingOptions,
@@ -66,10 +65,10 @@ pub enum ProcessorMiddleState {
 #[async_trait]
 impl<T, MP> Actor for ProcessorMiddle<T, MP>
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + PriceTrade<MP>,
-    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + std::fmt::Debug + MarketTypeT,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
     MP: 'static + Send + Sync,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + std::fmt::Debug,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
 {
     type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // first argument is list of trades,

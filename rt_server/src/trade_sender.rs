@@ -123,7 +123,7 @@ impl<T, MT> TradeProducer<T, MT> {
 impl<T, MT> Actor for TradeProducer<T, MT>
 where
     TradeProducer<T, MT>: Send + Sync + 'static,
-    T: Send + Sync + std::fmt::Debug + Clone + BaseTrade + for <'a> Deserialize<'a> + TryFromRef2,
+    T: Send + Sync + Clone + BaseTrade + for <'a> Deserialize<'a> + TryFromRef2,
     MT: Send + Sync,
 {
     type Msg = ProcessorMiddleMessage<MT>;

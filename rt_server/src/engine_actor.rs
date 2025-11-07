@@ -1,7 +1,6 @@
 // construct and connect all the actors in the framework.
 use ractor::Actor;
 use tokio::task::JoinHandle;
-use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use ractor::ActorRef;
 
@@ -10,24 +9,89 @@ use crate::market::MarketTypeT;
 use crate::all_markets::AllMarkets;
 use crate::processor_middle::ProcessorMiddle;
 use crate::processor_bulk::ProcessorBulk;
-use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage, };
+use crate::processor_msg::ProcessorMiddleMessage;
 use crate::trade::{BaseTrade, TradeRep};
 use crate::pricer::PriceTrade;
+use crate::publish::connect_with_retries_producer_rd;
+use crate::processor_curr::ProcessorCurr;
 
 
-// creates a middle portion of the
+// parameters for the Kafka system.
+pub(crate) struct KafkaParams {
+    pub(crate) kafka_server: String,
+    pub(crate) pos_topic: String,
+    pub(crate) mkt_topic: String,
+    pub(crate) results_topic: String,
+}
+
+
+pub(crate) async fn create_curr_actor<T, MP> (
+    kafka_params: KafkaParams,
+    metric: PricingMetric,  // pricing metric, like PV
+    all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
+    curr_mkt_name: String,  // markets_used: Vec<String>,
+    initial_trades: Arc<TradeRep::<T>>,
+) -> (ProcessorCurr<T, MP>, JoinHandle<()>)
+where
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP>,
+    MP: 'static + Send + Sync + Clone,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
+    for <'a> Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
+{
+
+    //let current_market = markets_used[0];
+    let mp = all_markets.get_market_params().unwrap();
+
+    // bulk processor for the current processor.
+    let (_processor_bulk_a, processor_new_bulk_h) = Actor::spawn(
+	None,
+	ProcessorBulk {
+	    processor_name: format!("{}_bulk", current_market),
+	    metric,
+            trade_names: vec![],
+            all_trades: initial_trades.clone(),
+            all_markets: all_markets.clone(),
+	},
+	mp,
+    )
+        .await
+        .expect("Could not start current_bulk processor.");
+
+    let result_publisher = connect_with_retries_producer_rd(
+	&kafka_params.kafka_server
+    );
+
+    let processor_curr = ProcessorCurr {
+	processor_name: curr_mkt_name,  // TODO: CHECK IF THIS NAME IS CORRECT
+	metric,
+        results_topic: kafka_params.results_topic,
+	result_publisher,
+	all_markets: all_markets.clone(),
+        all_trades: initial_trades,
+        trade_processor: None,  // TODO: LAST MIDDLE PROCESSOR
+    };
+
+    (processor_curr, processor_new_bulk_h)
+}
+
+
+
+// creates a middle portion of the actor.
+//  returns: processor middle, and the future
 pub(crate) async fn create_middle_actor<T, MP>(
     market_name: String,
     metric: PricingMetric,
     all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
     initial_trades: Arc<TradeRep<T>>,
     processor_below: ActorRef<ProcessorMiddleMessage<String>>,
-) -> ProcessorMiddle<T, MP>
+) -> (ProcessorMiddle<T, MP>, JoinHandle<()>)
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + std::fmt::Debug + PriceTrade<MP>,
-    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + std::fmt::Debug + MarketTypeT,
-    MP: 'static + Send + Sync,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + std::fmt::Debug,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP>,
+    MP: 'static + Send + Sync + Clone,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
+    for <'a> Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
 {
 
 
@@ -39,14 +103,12 @@ where
         all_markets: all_markets.clone(),
     };
 
+    let mp = all_markets.get_market_params().unwrap();
     let (bulk_actor, bulk_actor_future) = Actor::spawn(
-	None, bulk_middle, (),
+	None, bulk_middle, mp,
     )
 	.await
 	.expect("Could not create bulk middle processor");
-
-	bulk_actors_futures.push(bulk_actor_future);
-	bulk_actors.push(bulk_actor.clone());
 
     let proc_middle = ProcessorMiddle {
 	metric,
@@ -57,7 +119,7 @@ where
         all_trades: initial_trades.clone(),
     };
 
-    proc_middle
+    (proc_middle, bulk_actor_future)
 }
 
 
@@ -69,77 +131,44 @@ where
 ///    vector of bulk actors,
 ///    last middle processor actor - to be used for new_actor, special case)
 pub(crate) async fn create_middle_procs_chain<T, MP> (
-    processor_curr: ActorRef<ProcessorMiddleMessage<String>>,   // dyn MarketTypeT<MP=MP>>>,
-    metric: PricingMetric,  // TODO: THIS SHOULD CHANGE
-    pricing_options: MarketPricingOptions,
-    all_markets: Arc<AllMarkets<dyn MarketTypeT<MP=MP>>>,
-    initialize_client: bool,
-    initial_trades: TradeRep<T>,
+    processor_curr: ActorRef<ProcessorMiddleMessage<String>>,
+    metric: PricingMetric,
+    all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
+    all_markets_order: Vec<String>,  // how do markets fall in order.
+    initial_trades: Arc<TradeRep<T>>,
 ) ->
     (
-	Vec<ActorRef<ProcessorMiddleMessage<T>>>,
-	Vec<JoinHandle<()>>,
-	Vec<ActorRef<ProcessorBulkMessage<T>>>,
-	Vec<JoinHandle<()>>,
-	ActorRef<ProcessorMiddleMessage<T>>
+	Vec<ActorRef<ProcessorMiddleMessage<String>>>,  // middle processors
+	Vec<JoinHandle<()>>,  // middle processor joint handles.
+	Vec<JoinHandle<()>>,   // bulk processor handles.
+	ActorRef<ProcessorMiddleMessage<String>>  // last middle processor.
     )
 where
-    T: Send + Sync + Clone + Debug + Display + BaseTrade + 'static,
-    dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP>,
+    MP: 'static + Send + Sync + Clone,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
+    for <'a> Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
 {
 
     let mut bulk_actors_futures: Vec<JoinHandle<()>> = vec![];
-    let mut bulk_actors: Vec<ActorRef<ProcessorBulkMessage<dyn MarketTypeT<MP=MP>>>> = vec![];
-
     let mut processor_actors_futures: Vec<JoinHandle<()>> = vec![];
-    let mut processor_actors: Vec<ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>> = vec![];
+    let mut processor_actors: Vec<ActorRef<ProcessorMiddleMessage<String>>> = vec![];
 
-    let mut last_middle: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>> = processor_curr.clone();
-    let nb_middle = all_markets.len();
+    let mut last_middle: ActorRef<ProcessorMiddleMessage<String>> = processor_curr.clone();
 
-    for middle_nb in 1..(nb_middle-1) {
+    for market_name in all_markets_order {
 
-	let market_name = all_markets.get(middle_nb);
-	let bulk_middle = ProcessorBulk {
-	    processor_name: format!("bulk_{}", market_name),
-	    metric,
-	    // pricing_options: pricing_options.clone(),
-            trade_names: vec![],  // no trades at init.
-            all_trades: Arc::new(initial_trades),
-            all_markets: all_markets.clone(),
-	};
-
-	let (bulk_actor, bulk_actor_future) = Actor::spawn(
-	    None, bulk_middle, (),
-	)
-	    .await
-	    .expect("Could not create bulk middle processor");
+        let (processor_middle, bulk_actor_future) = create_middle_actor(
+            market_name, metric, all_markets.clone(), initial_trades.clone(), last_middle,
+        )
+            .await;
+	//     .expect("Could not create bulk middle processor");
 
 	bulk_actors_futures.push(bulk_actor_future);
-	bulk_actors.push(bulk_actor.clone());
-
-        // let middle_r_client = match initialize_client {
-        //     true => Some(reqwest::Client::new()),
-        //     false => None,
-        // };
-
-	let proc_middle = ProcessorMiddle {
-	    metric,
-	    processor_name: market_name.clone(),
-	    processor_below: last_middle,
-	    processor_bulk: bulk_actor,
-	    all_markets: all_markets.clone(),
-            all_trades: initial_trades,  // TODO: THIS HAS TO BE CLONED.
-	};
-
-        // proc_middle.set_market(
-        //     MarketType::default(), &mut MarketType::new(market_name.to_string())
-        // )
-        //     .await
-        //     .expect("Could not set the {market_name} market.");
 
 	let (proc_actor, proc_actor_future) = Actor::spawn(
-	    None, proc_middle, ()
+	    None, processor_middle, ()
 	)
 	    .await
 	    .expect("Could not start middle actor");
@@ -153,7 +182,6 @@ where
     (
 	processor_actors,
 	processor_actors_futures,
-	bulk_actors,
 	bulk_actors_futures,
 	last_middle
     )

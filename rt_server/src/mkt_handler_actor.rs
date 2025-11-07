@@ -1,4 +1,4 @@
-use tracing::{info, debug};
+use tracing::info;
 use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use uuid::Uuid;
@@ -7,7 +7,6 @@ use std::ops::AddAssign;
 use crate::processor_msg::ProcessorMiddleMessage;
 use crate::pricer::PricingMetric;
 use crate::market::MarketTypeT;
-use crate::ref_deref::TryFromRef;
 
 
 pub struct MarketProducer<MP>
@@ -28,10 +27,10 @@ impl<MP> Actor for MarketProducer<MP>
 where
     dyn MarketTypeT<MP=MP> + Send + Sync: Sized + Send + Sync + Clone + MarketTypeT<MP=MP> + AddAssign<HandlerMarketType<MP>>,
     MP: 'static + Send + Sync + Clone,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + std::fmt::Debug,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
 {
-    type Msg = dyn MarketTypeT<MP=MP> + Send + Sync;  // MarketType;
-    type State = dyn MarketTypeT<MP=MP> + Send + Sync;  // MarketType;
+    type Msg = dyn MarketTypeT<MP=MP> + Send + Sync;
+    type State = dyn MarketTypeT<MP=MP> + Send + Sync;
     type Arguments = ();
 
     async fn pre_start(

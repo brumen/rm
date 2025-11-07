@@ -199,7 +199,7 @@ impl<TR> BaseTrade for TradeRep<TR> {
 #[async_trait]
 impl<MP, TR> PriceTrade<MP> for TradeRep<TR>
 where
-    TR: PriceTrade<MP> + std::fmt::Debug + Send + Sync,
+    TR: PriceTrade<MP> + Send + Sync,
     MP: 'static + Send + Sync,
     dyn MarketTypeT<MP=MP>: Send + Sync,
 {
@@ -212,7 +212,7 @@ where
             let tv = trade_v.initial_pv().await; // tv = trade value
             match tv {
                 None => {
-                    warn!("Could not initial_pv of {:?}", trade_v);
+                    warn!("Could not initial_pv of {:?}", trade_v.id());
                 },
                 Some(tv_real) => {
                     portf_val += tv_real;
@@ -230,7 +230,7 @@ where
             let tv = trade_v.price(market.clone()).await; // only clonging the Arc
             match tv {
                 None => {
-                    warn!("Could not price of {:?}", trade_v);
+                    warn!("Could not price of {:?}", trade_v.id());
                 },
                 Some(tv_real) => {
                     portf_val += tv_real;
