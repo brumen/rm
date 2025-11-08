@@ -1,6 +1,6 @@
 use dashmap::DashMap;
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::market::MarketTypeT;
 
@@ -10,7 +10,7 @@ use crate::market::MarketTypeT;
 // MT = MarketTypeT<MP>
 pub(crate) struct AllMarkets<MT> {
     pub(crate) markets: DashMap<String, MT>,
-    pub(crate) market_names: Vec<String>,
+    pub(crate) market_names: DashMap<usize, String>,  // mapping of numbers to markets.
 }
 
 // impl<MT> Deref for AllMarkets<MT> {
@@ -35,14 +35,13 @@ where
     pub(crate) fn new() -> Self {
         Self {
             markets: DashMap::<String,MT>::new(),
-            market_names: Vec::<String>::new(),
+            market_names: DashMap::<usize, String>::new(),
         }
     }
 
     pub(crate) fn get(&self, market_name: &String) -> Option<MT> {
-        let mv = self.markets.get(market_name)?;
-        let a1 = mv.value().clone();
-        Some(a1)
+        let actual_market = self.markets.get(market_name)?;
+        Some(actual_market.value().clone())  // .clone here is OK, since we're using it on Arc (MT = Arc<...>)
     }
 
     // inserts the market into the all structure.
@@ -50,33 +49,14 @@ where
         self.markets.insert(market_name, market);
     }
 
-    pub(crate) fn get_market(&self, market_nb: usize) -> Option<&String> {
-        self.market_names.get(market_nb)
+    pub(crate) fn insert_name(&self, market_name: String, market_nb: usize) {
+        self.market_names.insert(market_nb, market_name);
     }
 
-    // pub(crate) fn get(&self, market_name: &String) -> &MT {
-    //     let l = self.0.get(market_name).unwrap();
-
-    //     l.value()
-    //     // let k = l.value();
-
-    //     // k
-    // }
-
-    /// Default implemnentation of the market names.
-    // pub(crate) fn new(nb_middle: usize) -> Self {
-    //     let mut middle_markets = vec![];
-    //     middle_markets.push(MT::new("current".to_string()));
-    //     for middle_nb in 0..nb_middle {
-    //         middle_markets.push(
-    //     	MT::new(format!("new_{middle_nb}"))
-    //         );
-    //     }
-    //     middle_markets.push(MT::new("new".to_string()));
-
-    //     Self(middle_markets)
-    // }
-
+    pub(crate) fn get_market(&self, market_nb: &usize) -> Option<String> {
+        let mn = self.market_names.get(market_nb)?;
+        Some(mn.value().clone())
+    }
 
     /// attempts to find the market name in the AllMarkets -
     /// if it cant find it, returns None
@@ -129,13 +109,34 @@ where
 
     }
 
+    // remove the market from self.markets
     pub(crate) fn remove(&self, market_name: &String) {
         self.markets.remove(market_name);
     }
-        //     self.remove(&market_name)
-        // if let Some(market_nb) = self._find_market(market_name) {
 
-        // }  // otherwise dont do anything
+    // remove the name from self.market_names
+    pub(crate) fn remove_name(&self, market_name: &String) {
+        // iterate through it and remove the name
+        for market_nb_mn in self.market_names.iter() {
+            let mn = market_nb_mn.value();
+            let market_nb = market_nb_mn.key();
+            if mn == market_name {
+                self.market_names.remove(market_nb);
+            }
+        }
+    }
 
-    //}
+    // returns the market name corresponding to the largets number in self.market_names
+    pub(crate) fn last_market_name(&self) -> String {
+        let mut highest_mkt: usize = 0;
+        let mut highest_mkt_name: String = String::new();
+        for mkt_nb_name in self.market_names.iter() {
+            let mkt_nb = mkt_nb_name.key();
+            if *mkt_nb >= highest_mkt {
+                highest_mkt = *mkt_nb;
+                highest_mkt_name = mkt_nb_name.value().to_string();
+            }
+        }
+        highest_mkt_name
+    }
 }

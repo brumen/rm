@@ -134,14 +134,12 @@ pub(crate) async fn create_middle_procs_chain<T, MP> (
     processor_curr: ActorRef<ProcessorMiddleMessage<String>>,
     metric: PricingMetric,
     all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
-    all_markets_order: Vec<String>,  // how do markets fall in order.
     initial_trades: Arc<TradeRep<T>>,
 ) ->
     (
 	Vec<ActorRef<ProcessorMiddleMessage<String>>>,  // middle processors
 	Vec<JoinHandle<()>>,  // middle processor joint handles.
 	Vec<JoinHandle<()>>,   // bulk processor handles.
-	ActorRef<ProcessorMiddleMessage<String>>  // last middle processor.
     )
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
@@ -157,8 +155,8 @@ where
 
     let mut last_middle: ActorRef<ProcessorMiddleMessage<String>> = processor_curr.clone();
 
-    for market_name in all_markets_order {
-
+    for market_nb_name in all_markets.market_names.iter() {
+        let market_name = market_nb_name.value();
         let (processor_middle, bulk_actor_future) = create_middle_actor(
             market_name, metric, all_markets.clone(), initial_trades.clone(), last_middle,
         )
@@ -175,14 +173,11 @@ where
 
 	processor_actors.push(proc_actor.clone());
 	processor_actors_futures.push(proc_actor_future);
-
-	last_middle = proc_actor;
     }
 
     (
 	processor_actors,
 	processor_actors_futures,
 	bulk_actors_futures,
-	last_middle
     )
 }

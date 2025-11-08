@@ -1,4 +1,4 @@
-use tracing::{info, instrument};
+use tracing::info;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 
@@ -17,8 +17,8 @@ where
 {
     pub processor_name: String,
     pub metric: PricingMetric,
-    pub processor_middle: ActorRef<ProcessorMiddleMessage<String>>,  // dyn MarketTypeT<MP=MP> + Send + Sync>>,  // current processor ref.
-    pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>,  // dyn MarketTypeT<MP=MP> + Send + Sync>>,  // bull processor ref.
+    pub processor_middle: ActorRef<ProcessorMiddleMessage<String>>, // the middle processor just below the ProcessorNew
+    pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>,  // bulk processor reference to the bulk actor corresponding to this processor_new
     pub all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub market_name: (String, String),  // first item: new market, second item: future market.

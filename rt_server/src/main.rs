@@ -28,7 +28,7 @@ mod market;
 mod portfolio;
 mod portfolio_sender;
 mod pricer;
-mod process_trade;
+//mod process_trade;
 mod publish;
 mod ref_deref;
 //mod rm_local;
@@ -52,7 +52,8 @@ pub(crate) mod trade_letf;
 use crate::trade::TradeRep;
 use crate::ao_trade::AOTrade;
 use crate::ao_market::AOMarketType;
-use crate::engine_ao2::start2;
+//use crate::engine_ao2::start2;
+use crate::engine_letf::start2;
 use crate::trade_letf::LETFTrade;
 
 
@@ -140,21 +141,15 @@ async fn run_all() {
 
     let mut results = vec![axum_process];
     let all_markets = Arc::new(AllMarkets::new(1));  // how many in-between markets there are.
-    // let initial_trades = TradeRep::<AOTrade>::default();  // defines the type of trades.
 
-    let initialize_client = false;
+    let (initial_trades, all_markets) = init_letf();
 
     let mut result = start2(
     	kafka_server,
         metric,
-        pos_topic,
-        mkt_topic,
-        results_topic,
-        &pricing_options,
-        state,
-	all_markets,
+        all_markets,
+        markets_used,
         initial_trades,
-        initialize_client,
     ).await;
 
     results.append(&mut result);
@@ -162,15 +157,17 @@ async fn run_all() {
     join_all(results).await;
 }
 
-fn init_letf() {
+// initialize the letf market.
+fn init_letf() -> (TradeRep<TradeTypes>, AllMarkets<AOMarketType>) {
     let initial_trades = TradeRep::<TradeTypes>::default();  // defines the type of trades.
-    let initial_market = AOMarketType
+    let initial_market = AOMarketType{};
+
+    (initial_trades, initial_market)
 }
 
 
-
 fn init_ao() {
-
+    todo!()
 }
 
 

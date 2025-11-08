@@ -28,13 +28,13 @@ where
     T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MP> + TryFromRef2,
     MP: 'static + Send + Sync + Clone,
     for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
-    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP>,
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP> + Clone,
     Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {
 
     let mp = all_markets.get_market_params().unwrap();
     let first_market = all_markets.get(&markets_used[0]).unwrap();
-    let first_market_name = first_market.value();
+    let first_market_name = first_market.market_name();
 
     // create the
     let (curr_processor, curr_processor_bulk_h) = create_curr_actor(
@@ -55,24 +55,23 @@ where
     ).await
     .expect("Could not start current processor");
 
+    let k = all_markets.markets;
     // middle actors
     let (
         mut processor_actors,
         mut processor_actor_futures,
-        _bulk_actors,
         mut bulk_actor_futures,
-        last_middle
     ) =
 	create_middle_procs_chain(
 	    _processor_curr_a.clone(),
 	    metric,
 	    all_markets.clone(),
-            all_markets.markets,
             initial_trades,
 	).await;
 
-    let nb_middle_mkts = all_markets.len();
-    let last_market_name = markets_used[-1];  // last market name in all_markets, should be "new" or similar
+    let last_middle = processor_actors.last().unwrap(); // last middle processor
+    let nb_middle_mkts = all_markets.markets.len();
+    let last_market_name = all_markets.last_market_name();  // last market name in all_markets, should be "new" or similar
     let processor_new = ProcessorNew {
 	processor_name: last_market_name.clone(),
 	metric,
@@ -103,6 +102,7 @@ where
 	pricing_options: mp.clone(),
 	mkt_listener,
 	new_processor: _processor_new_a.clone(),
+        all_markets: all_markets.clone(),
     };
     let (_mkt_producer_a, mkt_producer_handle) = Actor::spawn(
 	None, market_producer, (),

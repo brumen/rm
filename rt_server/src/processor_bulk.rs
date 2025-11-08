@@ -2,13 +2,13 @@
 ///
 use tracing::{info, debug, warn};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
-use futures::future::join_all;
+// use futures::future::join_all;
 use std::sync::Arc;
 
 use crate::market::{MarketTypeT};
 use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
-use crate::pricer::{Decoder, PricingMetric, PriceTrade};  // MarketPricingOptions,  RestPricerSpark
+use crate::pricer::{PricingMetric, PriceTrade};
 use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
@@ -93,7 +93,7 @@ where
         &self,
 	_myself: ActorRef<Self::Msg>,
 	message: Self::Msg,
-	state: &mut Self::State,
+	_state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
 	match message {
@@ -144,22 +144,22 @@ where
 
                 let market_actual = self.all_markets.get(&market).unwrap();
                 // pricing_futs are futures where the trades are getting priced.
-                let mut pricing_futs = vec![];
+                //let mut pricing_futs = vec![];
                 //for used_trade in used_trades {
                 for used_trade in new_trades.iter() {
-                    let used_trade_1 = self.all_trades.get(used_trade).unwrap();
-                    pricing_futs.push(
-			used_trade_1.value_by_metric(
-			    self.metric,
-                            market_actual.clone(),
-			)
-		    );
+                    let used_trade = self.all_trades.get(used_trade).unwrap();
+                    let price = used_trade.value_by_metric(
+			self.metric,
+                        market_actual.clone(),
+		    ).await;
+                    portfolio += price.aggregate()
 		}
+                // TODO: Finish this part here!
 		// updating the portfolio
-		let pricing_res = join_all(pricing_futs).await;
-		for pricing in pricing_res.iter() {
-		    portfolio += pricing.aggregate();
-		}
+		// let pricing_res = join_all(pricing_futs).await;
+                //for pricing in pricing_res.iter() {
+		//    portfolio += pricing.aggregate();
+		// }
 
 		debug!(
                     "Bulk processor {}: portfolio back to middle actor: {:?}",
