@@ -67,8 +67,9 @@ impl<T, MP> Actor for ProcessorMiddle<T, MP>
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
     for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
-    MP: 'static + Send + Sync,
+    MP: 'static + Send + Sync + Clone,
     for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
+    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {
     type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // first argument is list of trades,
@@ -127,8 +128,7 @@ where
 		);
 
                 // let market_info = self.all_markets.get_m(market.to_string());
-                let mi = self.all_markets.get(market).unwrap();
-                let market_info = mi.value().clone();  // This only clones the Arc.
+                let market_info = self.all_markets.get(market).unwrap();
                 let real_trade = trade_info.value();
                 let new_trade_price = real_trade.value_by_metric(
 		    self.metric,
@@ -177,10 +177,9 @@ where
 
                 if let Some(real_trade) = self.all_trades.get(&new_trade) {
                     if let Some(real_market) = self.all_markets.get(market) {
-                        let market_info = real_market.value().clone();
                         let new_trade_price = real_trade.value_by_metric(
 		            self.metric,
-		            market_info,
+		            real_market,
 		        ).await;
 		        *portf += new_trade_price;  // portfolio update
                         trade_l.push(new_trade);

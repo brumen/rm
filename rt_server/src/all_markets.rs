@@ -1,20 +1,25 @@
 use dashmap::DashMap;
 use std::ops::Deref;
+use std::sync::Arc;
+
 use crate::market::MarketTypeT;
 
 /// list of (market names, actual market)
 // MT.. market type
 // MP .. market params.
 // MT = MarketTypeT<MP>
-pub(crate) struct AllMarkets<MT>(DashMap<String, MT>);
-
-impl<MT> Deref for AllMarkets<MT> {
-    type Target = DashMap<String, MT>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+pub(crate) struct AllMarkets<MT> {
+    pub(crate) markets: DashMap<String, MT>,
+    pub(crate) market_names: Vec<String>,
 }
+
+// impl<MT> Deref for AllMarkets<MT> {
+//     type Target = DashMap<String, MT>;
+
+//     fn deref(&self) -> &Self::Target {
+//         &self.0
+//     }
+// }
 
 
 
@@ -22,13 +27,31 @@ impl<MT> Deref for AllMarkets<MT> {
 impl<MP, MT> AllMarkets<MT>
 where
     MP: Clone,
-    MT: MarketTypeT<MP=MP>
+    MT: MarketTypeT<MP=MP> + Clone,  // this will be fine since MT is an Arc.
 {
-    //type MT = dyn MarketTypeT<MP=MP>;
+    //type MT = Arc<dyn MarketTypeT<MP=MP> + Sync + Send>;
 
     // creates a new empty all markets structure
     pub(crate) fn new() -> Self {
-        Self(DashMap::<String,MT>::new())
+        Self {
+            markets: DashMap::<String,MT>::new(),
+            market_names: Vec::<String>::new(),
+        }
+    }
+
+    pub(crate) fn get(&self, market_name: &String) -> Option<MT> {
+        let mv = self.markets.get(market_name)?;
+        let a1 = mv.value().clone();
+        Some(a1)
+    }
+
+    // inserts the market into the all structure.
+    pub(crate) fn insert(&self, market_name: String, market: MT) {
+        self.markets.insert(market_name, market);
+    }
+
+    pub(crate) fn get_market(&self, market_nb: usize) -> Option<&String> {
+        self.market_names.get(market_nb)
     }
 
     // pub(crate) fn get(&self, market_name: &String) -> &MT {
@@ -94,20 +117,22 @@ where
     /// returns the market params of some market in the collection
     pub(crate) fn get_market_params(&self) -> Option<MP> {
         //
-        if self.0.len() == 0 {
+        if self.market_names.len() == 0 {
             return None;
         }
 
         // we have at least one market.
-        let market_elt = self.0.iter().nth(0)?;
+        let market_elt = self.markets.iter().nth(0)?;
         let mo = market_elt.value();
 
         Some(mo.market_params().clone())
 
     }
 
-    // pub(crate) fn remove_market(&self, market_name: &String) {
-    //     self.remove(&market_name)
+    pub(crate) fn remove(&self, market_name: &String) {
+        self.markets.remove(market_name);
+    }
+        //     self.remove(&market_name)
         // if let Some(market_nb) = self._find_market(market_name) {
 
         // }  // otherwise dont do anything

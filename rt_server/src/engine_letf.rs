@@ -29,7 +29,7 @@ where
     MP: 'static + Send + Sync + Clone,
     for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
     for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP>,
-    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
+    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {
 
     let mp = all_markets.get_market_params().unwrap();
@@ -66,8 +66,9 @@ where
 	create_middle_procs_chain(
 	    _processor_curr_a.clone(),
 	    metric,
-	    pricing_options.clone(),
 	    all_markets.clone(),
+            all_markets.markets,
+            initial_trades,
 	).await;
 
     let nb_middle_mkts = all_markets.len();

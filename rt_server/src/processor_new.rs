@@ -116,6 +116,7 @@ where
     for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
     MP: 'static + Send + Sync + Clone,
     for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
+    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {
     //type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP> + Send + Sync>;
     type Msg = ProcessorMiddleMessage<String>;
@@ -263,7 +264,7 @@ where
                         //    future_m,
                         //).await?;
                         let new_market_val = self.all_markets.get(&new_market).unwrap();
-                        *future_m = new_market_val.value().clone();
+                        *future_m = new_market_val;
 
 			// we are idle, we can start calculating, start calculating
                         info!("Idle, NewMarket: sending to bulk. State -> CalculatingBulk");
@@ -297,7 +298,7 @@ where
                         //    future_m,  // future_mkt: &mut MarketType
                         //).await?;
                         let new_market_val = self.all_markets.get(&new_market).unwrap();
-                        *future_m = new_market_val.value().clone();
+                        *future_m = new_market_val;
 		    }
 		    // ignore if new market comes in, no
 		    //   action taken.
@@ -310,7 +311,7 @@ where
                         //    future_m,  // future_mkt: &mut MarketType
                         //).await?;
                         let new_market_val = self.all_markets.get(&new_market).unwrap();
-                        *future_m = new_market_val.value().clone();
+                        *future_m = new_market_val;
 		    },
 		}
 	    },

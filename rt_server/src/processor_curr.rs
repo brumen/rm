@@ -89,6 +89,7 @@ where
     MP: 'static + Send + Sync + Clone,
     ProcessorCurr<T,MP>: PortfolioSenderSimple,
     for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
+    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {
     type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // state is a tuple of
@@ -129,8 +130,7 @@ where
                 let trade_info = self.all_trades.get(&trade).unwrap();
                 let trade_real = trade_info.value();
 
-                let mi = self.all_markets.get(market).unwrap();
-                let market_info = mi.value().clone();
+                let market_info = self.all_markets.get(market).unwrap();
 		let valued_trade = trade_real.value_by_metric(
 		    self.metric,
 	            market_info,
@@ -180,7 +180,7 @@ where
                     // market that we were holding should be removed from the all_markets,
                     // as it's not needed anymore.
                     // IMPORTANT: this .remove call CAN DEADLOCK!!!
-                    let _ = self.all_markets.remove(market);  // TODO: HANDLE ERROR MESSAGES
+                    let _ = self.all_markets.remove(&market);  // TODO: HANDLE ERROR MESSAGES
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;

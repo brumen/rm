@@ -40,11 +40,11 @@ macro_rules! ref_deref_trait {
 // };
 
 pub trait TryFromRef<T: Sized> {
-    type Error: Debug + Send + Sync + std::error::Error;
+    type Error: Send + Sync + std::error::Error;
 
     fn try_from_ref(value: &T) -> Result<Self, Self::Error>
     where
-        Self: Sized + Debug;
+        Self: Sized;
 }
 
 

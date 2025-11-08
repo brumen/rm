@@ -37,7 +37,7 @@ where
     for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP>,
     MP: 'static + Send + Sync + Clone,
     for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
-    for <'a> Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
+    for <'a> Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {
 
     //let current_market = markets_used[0];
@@ -47,7 +47,7 @@ where
     let (_processor_bulk_a, processor_new_bulk_h) = Actor::spawn(
 	None,
 	ProcessorBulk {
-	    processor_name: format!("{}_bulk", current_market),
+	    processor_name: format!("{}_bulk", curr_mkt_name),
 	    metric,
             trade_names: vec![],
             all_trades: initial_trades.clone(),

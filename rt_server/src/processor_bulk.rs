@@ -70,8 +70,9 @@ impl<T, MP> Actor for ProcessorBulk<T, MP>
 where
     T: Sync + Send + Clone + BaseTrade + PriceTrade<MP> + 'static,
     for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
-    MP: 'static + Send + Sync,
+    MP: 'static + Send + Sync + Clone,
     for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
+    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {
     type Msg = ProcessorBulkMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
@@ -142,7 +143,6 @@ where
                 }
 
                 let market_actual = self.all_markets.get(&market).unwrap();
-                let market_actual_val = market_actual.value();
                 // pricing_futs are futures where the trades are getting priced.
                 let mut pricing_futs = vec![];
                 //for used_trade in used_trades {
@@ -151,7 +151,7 @@ where
                     pricing_futs.push(
 			used_trade_1.value_by_metric(
 			    self.metric,
-                            market_actual_val.clone(),
+                            market_actual.clone(),
 			)
 		    );
 		}
