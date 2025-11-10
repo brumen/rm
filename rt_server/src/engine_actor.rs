@@ -69,7 +69,6 @@ where
 	result_publisher,
 	all_markets: all_markets.clone(),
         all_trades: initial_trades,
-        trade_processor: None,  // TODO: LAST MIDDLE PROCESSOR
     };
 
     (processor_curr, processor_new_bulk_h)
@@ -153,12 +152,16 @@ where
     let mut processor_actors_futures: Vec<JoinHandle<()>> = vec![];
     let mut processor_actors: Vec<ActorRef<ProcessorMiddleMessage<String>>> = vec![];
 
-    let mut last_middle: ActorRef<ProcessorMiddleMessage<String>> = processor_curr.clone();
+    let last_middle: ActorRef<ProcessorMiddleMessage<String>> = processor_curr.clone();
 
     for market_nb_name in all_markets.market_names.iter() {
         let market_name = market_nb_name.value();
         let (processor_middle, bulk_actor_future) = create_middle_actor(
-            market_name, metric, all_markets.clone(), initial_trades.clone(), last_middle,
+            market_name.to_string(),
+            metric,
+            all_markets.clone(),
+            initial_trades.clone(),
+            last_middle.clone(),
         )
             .await;
 	//     .expect("Could not create bulk middle processor");

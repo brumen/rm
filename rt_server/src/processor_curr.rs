@@ -29,7 +29,7 @@ where
     pub all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,  // all_markets is DashMap
     pub all_trades: Arc<TradeRep<T>>,  // all_trades is DashMap
     // trade_processor where we can send the info when the trades are processed
-    pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
+    // pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
 }
 
 
@@ -196,12 +196,12 @@ where
 		*portf += valued_trade;
 
                 // send information about all the trades to the trade processor
-                let now = Local::now();
-                self.trade_processor.send_message(
-                    ProcessorMiddleMessage::ProcessingStat(
-                        (self.processor_name.clone(), now.naive_local(), trades.len())
-                    )
-                );
+                // let now = Local::now();
+                //self.trade_processor.send_message(
+                //    ProcessorMiddleMessage::ProcessingStat(
+                //        (self.processor_name.clone(), now.naive_local(), trades.len())
+                //    )
+                //);
 
                 // TODO: FOLLOWING LINE SHOULD BE PUT BACK
 		self._publish_result_portfolio(portf.clone()).await?
