@@ -4,6 +4,9 @@ use std::sync::Arc;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::FutureProducer;
 use chrono::Local;
+use rdkafka::producer::FutureRecord;
+use rdkafka::util::Timeout;
+
 
 use crate::portfolio::PortfolioType;
 use crate::pricer::{ PricingMetric, PriceTrade};
@@ -16,7 +19,8 @@ use crate::market::MarketTypeT;
 pub(crate) struct ProcessorCurr<T, MP>
 where
     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-    dyn MarketTypeT<MP=MP>: Sized
+    dyn MarketTypeT<MP=MP>: Sized + Send + Sync,
+    T: Send + Sync,
 {
     pub processor_name: String,
     pub metric: PricingMetric,
@@ -31,8 +35,9 @@ where
 
 impl<T, MP> std::fmt::Debug for ProcessorCurr<T, MP>
 where
-    dyn MarketTypeT<MP=MP>: Sized,
     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+    dyn MarketTypeT<MP=MP>: Sized + Send + Sync,
+    T: Send + Sync,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CurrentProcessor({self.processor_name})")
@@ -49,15 +54,64 @@ pub enum SendError {
 }
 
 
-// Simple portfolio sender - it could be anything, not kafka
 #[async_trait]
-pub(crate) trait PortfolioSenderSimple {
-    async fn _send_portfolio(
+pub(crate) trait PublishPortfolio
+{
+    async fn _publish_result_portfolio(
+	&self,
+	portf: PortfolioType,
+    ) -> Result<(), SendError>;
+}
+
+
+#[async_trait]
+impl<T, MP> PublishPortfolio for ProcessorCurr<T, MP>
+where
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+    dyn MarketTypeT<MP=MP>: Sized + Send + Sync,
+    T: Send + Sync
+{
+    async fn _publish_result_portfolio(
 	&self,
 	portf: PortfolioType,
     ) -> Result<(), SendError>
-    where Self: Sized + Send;
+    //    T: Sync + Send + Clone + BaseTrade + PriceTrade<MP> + 'static,
+    //     for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
+    //     MP: 'static + Send + Sync + Clone,
+    //     for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
+    {
+	// sends to publisher actor
+	let curr_mkt_json = serde_json::ser::to_string(&portf.clone())?;
+        let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric, curr_mkt_json);
+
+        // implements bytearray(str(dumps(self.curr_market)), ascii))
+        let portf_record = FutureRecord::<'_, [u8], [u8]> {
+		topic: &self.results_topic,
+		partition: Some(0),
+		payload: Some(curr_mkt_pv.as_bytes()),
+		key: None, // TODO: pub key: Option<&'a K>,
+		timestamp: None,
+		headers: None,
+        };
+
+	// set up the portfolio in self
+	//{
+	//    let mut p = self.portf.lock().unwrap();
+	//    *p = portf.clone();
+	//}
+
+	// first i32 = partition
+	// second i64 = offset
+	// error is the Kafka error
+	// OwnedMessage - copy of the original message.
+	// Result<(i32, i64), (KafkaError, OwnedMessage)>;
+	match self.result_publisher.send(portf_record, Timeout::Never).await {
+	    Err((ke, _)) => Err(SendError::KafkaErr(ke)),
+	    _ => Ok(()),
+	}
+    }
 }
+
 
 
 // impl<T, MT: MarketTypeT + Clone> MarketSwitching for ProcessorCurr<T, MT> {
@@ -87,7 +141,7 @@ where
     T: Sync + Send + Clone + BaseTrade + PriceTrade<MP> + 'static,
     for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
     MP: 'static + Send + Sync + Clone,
-    ProcessorCurr<T,MP>: PortfolioSenderSimple,
+    ProcessorCurr<T,MP>: PublishPortfolio,
     for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
     Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {
@@ -150,7 +204,7 @@ where
                 );
 
                 // TODO: FOLLOWING LINE SHOULD BE PUT BACK
-		self._send_portfolio(portf.clone()).await?
+		self._publish_result_portfolio(portf.clone()).await?
             },
 
 	    ProcessorMiddleMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {
@@ -173,7 +227,7 @@ where
                 //if new_behind_curr.is_empty() {
 		    // publish the new portfolio
                     info!("Changing portfolio.");
-		    self._send_portfolio(new_portfolio.clone()).await?;
+		    self._publish_result_portfolio(new_portfolio.clone()).await?;
 
                     // TODO: WHAT TO DO W/ THIS SWITCH_MARKETS
                     // self._switch_markets(market, &new_market).await?;

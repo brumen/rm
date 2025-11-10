@@ -9,14 +9,17 @@ use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PricingMetric;
 use crate::market::MarketTypeT;
 use crate::all_markets::AllMarkets;
+use crate::trade_letf::TradeTypes;
 use crate::trade_sender::TradeProducer;
 use crate::processor_new::ProcessorNew;
+use crate::processor_bulk::ProcessorBulk;
 use crate::trade::{BaseTrade, TradeRep};
 use crate::engine_actor::{create_middle_procs_chain, KafkaParams, create_curr_actor};
 use crate::pricer::PriceTrade;
 use crate::ref_deref::TryFromRef2;
 
-/// initializes all the actors
+/// initializes all the actors and returns a vector of joint handles to start them
+///   all.
 pub(crate) async fn start2<T, MP>(
     kafka_params: KafkaParams,
     metric: PricingMetric,  // pricing metric, like PV
@@ -72,20 +75,35 @@ where
     let last_middle = processor_actors.last().unwrap(); // last middle processor
     let nb_middle_mkts = all_markets.markets.len();
     let last_market_name = all_markets.last_market_name();  // last market name in all_markets, should be "new" or similar
+
+    let (processor_new_bulk_actor, processor_new_bulk_handle) = Actor::spawn(
+	None,
+	ProcessorBulk {
+	    processor_name: "processor_new_bulk".to_string(),
+	    metric,
+            trade_names: vec![],
+            all_trades: initial_trades.clone(),
+            all_markets: all_markets.clone(),
+	},
+	mp,
+    )
+        .await
+	.expect("Could not start processor_new_bulk");
+
+
     let processor_new = ProcessorNew {
 	processor_name: last_market_name.clone(),
 	metric,
 	processor_middle: last_middle.clone(),
-	processor_bulk: _processor_bulk_a.clone(),
+	processor_bulk: processor_new_bulk_actor.clone(),
 	all_markets: all_markets.clone(),
-        market_name: (
-            MarketTypeT::new(last_market_name.clone(), mp.clone()),
-            MarketTypeT::new("new".to_string(), mp.clone()),  // TODO: CHECK HERE!!!
-        ),
+	all_trades: Arc::new(TradeRep::<TradeTypes>::new()),
+	market_name: (last_market_name.clone(), "new".to_string()),
+	market_params: mp.clone(),	    
     };
 
     let (_processor_new_a, processor_new_handle) = Actor::spawn(
-	None, processor_new, (),
+	None, processor_new, (),  // TODO: THIS SHOULD BE A MARKET, not ()
     ).await
     .expect("Could not start new processor");
 
