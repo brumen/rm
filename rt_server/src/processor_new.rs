@@ -133,7 +133,7 @@ where
         ProcessorNewState,
         (Arc<dyn MarketTypeT<MP=MP> + Send + Sync>, Arc<dyn MarketTypeT<MP=MP> + Send + Sync>)
     );
-    type Arguments = Arc<dyn MarketTypeT<MP=MP> + Send + Sync>;  // initial market
+    type Arguments = dyn MarketTypeT<MP=MP> + Send + Sync;  // initial market
 
     // initialization of the new processor
     async fn pre_start(
@@ -143,10 +143,9 @@ where
     ) -> Result<Self::State, ActorProcessingErr> {
 
         info!("Starting Processor New.");
-	let mp = self.market_params;
-	let a = Self::Arguments::new(self.processor_name.clone(), mp.clone());
-        let new_market = Arc::new(Self::Arguments::new(self.processor_name.clone(), mp.clone()));
-        let future_market = Arc::new(Self::Arguments::new("future".to_string(), mp.clone()));
+	let mp = &self.market_params;
+        let new_market = Arc::new(*Self::Arguments::new(self.processor_name.clone(), mp.clone()));
+        let future_market = Arc::new(*Self::Arguments::new("future".to_string(), mp.clone()));
         Ok(
 	    (
 		vec![],

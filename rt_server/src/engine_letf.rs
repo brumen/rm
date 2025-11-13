@@ -3,8 +3,9 @@ use ractor::Actor;
 use tokio::task::JoinHandle;
 use tracing::info;
 use std::sync::Arc;
+use std::ops::AddAssign;
 
-use crate::mkt_handler_actor::MarketProducer;
+use crate::mkt_handler_actor::{MarketProducer, HandlerMarketType};
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PricingMetric;
 use crate::market::MarketTypeT;
@@ -30,7 +31,7 @@ where
     T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MP> + TryFromRef2,
     MP: 'static + Send + Sync + Clone,
     for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
-    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP> + Clone,
+    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP> + Clone + AddAssign<HandlerMarketType<MP>>,
     Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {
 
@@ -40,7 +41,7 @@ where
 
     // create the
     let (curr_processor, curr_processor_bulk_h) = create_curr_actor(
-        kafka_params, metric, all_markets.clone(), markets_used[0].clone(), initial_trades.clone(),
+        kafka_params.clone(), metric, all_markets.clone(), markets_used[0].clone(), initial_trades.clone(),
     ).await ;
 
     // set the initial Current market to empty
@@ -57,7 +58,6 @@ where
     ).await
     .expect("Could not start current processor");
 
-    let k = all_markets.markets;
     // middle actors
     let (
         mut processor_actors,
@@ -68,7 +68,7 @@ where
 	    _processor_curr_a.clone(),
 	    metric,
 	    all_markets.clone(),
-            initial_trades,
+            initial_trades.clone(),
 	).await;
 
     let last_middle = processor_actors.last().unwrap(); // last middle processor
@@ -84,7 +84,7 @@ where
             all_trades: initial_trades.clone(),
             all_markets: all_markets.clone(),
 	},
-	mp,
+	mp.clone(),
     )
         .await
 	.expect("Could not start processor_new_bulk");
@@ -102,9 +102,10 @@ where
     };
 
     let last_market_name = all_markets.last_market_name();
-    let last_market = all_markets.get(&last_market_name).unwrap();
+    let last_market = all_markets.get(&last_market_name).unwrap().clone();
+    let last_market = (*last_market).clone();
     let (_processor_new_a, processor_new_handle) = Actor::spawn(
-	None, processor_new, last_market.clone(),
+	None, processor_new, last_market,
     ).await
         .expect("Could not start new processor");
 

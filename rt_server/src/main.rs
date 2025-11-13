@@ -1,10 +1,10 @@
-use market::AllMarkets;
+use all_markets::AllMarkets;
 // Starts the controller.
 use tracing::{info, Level, instrument};
 use tracing_subscriber;
 use tracing_subscriber::fmt::format::FmtSpan;
 use trade_letf::TradeTypes;
-use crate::pricer::{MarketPricingOptions, PricingMetric};
+use crate::pricer::PricingMetric;
 use futures::future::join_all;
 use axum::{
     routing::get,
@@ -48,13 +48,13 @@ pub(crate) mod engine_actor;
 pub(crate) mod engine_ao2;
 pub(crate) mod processor_msg;
 pub(crate) mod trade_letf;
+pub(crate) mod ao_market;
+pub(crate) mod engine_letf;
 
 use crate::trade::TradeRep;
-use crate::ao_trade::AOTrade;
 use crate::ao_market::AOMarketType;
 //use crate::engine_ao2::start2;
 use crate::engine_letf::start2;
-use crate::trade_letf::LETFTrade;
 
 
 // testing different
@@ -110,12 +110,6 @@ async fn run_all() {
         .expect("Could not find MARKET_PORT in .env");
     let pricing_port = std::env::var("PRICING_PORT")
         .expect("Could not find PRICING_PORT in .env");
-    let pricing_options = MarketPricingOptions {
-	pricing_server: format!("{host}:{pricing_port}"),
-	pricing_endpoint: "pv".to_string(),
-        market_server: format!("{host}:{market_port}"),
-        market_endpoint: "market".to_string(),
-    };
 
     let state = Arc::new(
         Mutex::new(portfolio::PortfolioType::default())
@@ -141,7 +135,8 @@ async fn run_all() {
 
     let mut results = vec![axum_process];
     let all_markets = Arc::new(AllMarkets::new(1));  // how many in-between markets there are.
-
+    let markets_used = vec!["curr", "new"];
+    
     let (initial_trades, all_markets) = init_letf();
 
     let mut result = start2(

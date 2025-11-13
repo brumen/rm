@@ -4,7 +4,7 @@ use thiserror::Error;
 
 // MP is mnemonic for market parameters.
 #[async_trait]
-pub(crate) trait MarketTypeT {
+pub trait MarketTypeT {
     type MP;
 
     fn new(market_name: String, mp: Self::MP) -> Box<dyn MarketTypeT<MP=Self::MP> + Send + Sync> where Self: Sized;

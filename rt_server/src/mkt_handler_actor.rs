@@ -24,7 +24,7 @@ where
 }
 
 
-type HandlerMarketType<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
+pub(crate) type HandlerMarketType<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
 
 // MP ... market parameters
 // MM ... market message - message we receive from Kafka.

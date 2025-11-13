@@ -17,6 +17,7 @@ use crate::processor_curr::ProcessorCurr;
 
 
 // parameters for the Kafka system.
+#[derive(Clone)]
 pub(crate) struct KafkaParams {
     pub(crate) kafka_server: String,
     pub(crate) pos_topic: String,
