@@ -97,15 +97,15 @@ where
 	processor_middle: last_middle.clone(),
 	processor_bulk: processor_new_bulk_actor.clone(),
 	all_markets: all_markets.clone(),
-	all_trades: Arc::new(TradeRep::<TradeTypes>::default()),
+	all_trades: Arc::new(TradeRep::<T>::default()),
 	market_name: (last_market_name.clone(), "new".to_string()),
 	market_params: mp.clone(),
     };
 
     let (_processor_new_a, processor_new_handle) = Actor::spawn(
-	None, processor_new, (),  // TODO: THIS SHOULD BE A MARKET, not ()
+	None, processor_new, mp.clone(),  // TODO: THIS SHOULD BE A MARKET, not ()
     ).await
-    .expect("Could not start new processor");
+        .expect("Could not start new processor");
 
     // adding all actors to processors
     processor_actors.push(_processor_curr_a.clone());  // adding current processor to actors.
