@@ -9,7 +9,6 @@ use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PricingMetric;
 use crate::market::MarketTypeT;
 use crate::all_markets::AllMarkets;
-use crate::trade_letf::TradeTypes;
 use crate::trade_sender::TradeProducer;
 use crate::processor_new::ProcessorNew;
 use crate::processor_bulk::ProcessorBulk;
@@ -102,8 +101,10 @@ where
 	market_params: mp.clone(),
     };
 
+    let last_market_name = all_markets.last_market_name();
+    let last_market = all_markets.get(&last_market_name).unwrap();
     let (_processor_new_a, processor_new_handle) = Actor::spawn(
-	None, processor_new, mp.clone(),  // TODO: THIS SHOULD BE A MARKET, not ()
+	None, processor_new, last_market.clone(),
     ).await
         .expect("Could not start new processor");
 
