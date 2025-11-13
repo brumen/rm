@@ -20,8 +20,6 @@ pub(crate) struct AllMarkets<MT> {
 // }
 
 
-
-
 impl<MP, MT> AllMarkets<MT>
 where
     MP: Clone,

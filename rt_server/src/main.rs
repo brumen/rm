@@ -3,7 +3,7 @@ use all_markets::AllMarkets;
 use tracing::{info, Level, instrument};
 use tracing_subscriber;
 use tracing_subscriber::fmt::format::FmtSpan;
-use trade_letf::TradeTypes;
+use trade_letf::{LETFHedge, TradeTypes};
 use crate::pricer::PricingMetric;
 use futures::future::join_all;
 use axum::{
@@ -45,16 +45,18 @@ pub(crate) mod processor_new;
 pub(crate) mod processor_bulk;
 pub(crate) mod processor_middle;
 pub(crate) mod engine_actor;
-pub(crate) mod engine_ao2;
+//pub(crate) mod engine_ao2;
 pub(crate) mod processor_msg;
 pub(crate) mod trade_letf;
 pub(crate) mod ao_market;
 pub(crate) mod engine_letf;
+pub(crate) mod letf_market;
 
 use crate::trade::TradeRep;
 use crate::ao_market::AOMarketType;
 //use crate::engine_ao2::start2;
 use crate::engine_letf::start2;
+use crate::letf_market::LETFMarketType;
 
 
 // testing different
@@ -111,6 +113,13 @@ async fn run_all() {
     let pricing_port = std::env::var("PRICING_PORT")
         .expect("Could not find PRICING_PORT in .env");
 
+    let kafka_params = engine_actor::KafkaParams {
+	kafka_server,
+	pos_topic,
+	mkt_topic,
+	results_topic,
+    };
+    
     let state = Arc::new(
         Mutex::new(portfolio::PortfolioType::default())
     );
@@ -134,30 +143,30 @@ async fn run_all() {
     );
 
     let mut results = vec![axum_process];
-    let all_markets = Arc::new(AllMarkets::new(1));  // how many in-between markets there are.
-    let markets_used = vec!["curr", "new"];
+    let markets_used = vec!["curr".to_string(), "new".to_string()];
     
     let (initial_trades, all_markets) = init_letf();
 
-    let mut result = start2(
-    	kafka_server,
+    let mut all_actors = start2(
+    	kafka_params,
         metric,
         all_markets,
         markets_used,
         initial_trades,
     ).await;
 
-    results.append(&mut result);
+    results.append(&mut all_actors);
     // tokio::join!(results);
     join_all(results).await;
 }
 
 // initialize the letf market.
-fn init_letf() -> (TradeRep<TradeTypes>, AllMarkets<AOMarketType>) {
+fn init_letf() -> (TradeRep<TradeTypes>, Arc<AllMarkets<LETFMarketType>>) {
     let initial_trades = TradeRep::<TradeTypes>::default();  // defines the type of trades.
-    let initial_market = AOMarketType{};
+    let initial_market = LETFMarketType::new("name1".to_string());  // TODO: CHANGE HERW
+    let all_markets = Arc::new(AllMarkets::<Arc<LETFMarketType>>::new());  // how many in-between markets there are.
 
-    (initial_trades, initial_market)
+    (initial_trades, all_markets)
 }
 
 
