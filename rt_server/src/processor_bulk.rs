@@ -13,6 +13,7 @@ use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
 
+// computes bulk evaluation of trades in trade_names
 pub struct ProcessorBulk<T, MP>
 where
     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
@@ -20,11 +21,8 @@ where
 {
     pub processor_name: String,
     pub metric: PricingMetric,
-    // pub pricing_options: MP, // MarketPricingOptions,
-    // we compute the risk/valuation of the trades in trades
     pub(crate) trade_names: Vec<String>,
-    // all_trades is a reference to the structure that contains all trades.
-    pub(crate) all_trades: Arc<TradeRep<T>>,
+    pub(crate) all_trades: Arc<TradeRep<T>>,  // all_trades is a reference to the structure that contains all trades.
     pub(crate) all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
 }
 

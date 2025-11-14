@@ -125,7 +125,6 @@ pub(crate) type MarketTypeTSend<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
 pub trait PriceTrade<MP>: BaseTrade + Send + Sync
 where
     dyn MarketTypeT<MP=MP>: Send + Sync,
-    // for <'a> &'a (dyn MarketTypeT<MP=MP> + Send + Sync): MarketTypeT,
     MP: 'static + Send,
 {
 
