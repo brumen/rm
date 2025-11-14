@@ -30,15 +30,15 @@ pub(crate) async fn create_curr_actor<T, MP> (
     kafka_params: KafkaParams,
     metric: PricingMetric,  // pricing metric, like PV
     all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
-    curr_mkt_name: String,  // markets_used: Vec<String>,
+    curr_mkt_name: String,
     initial_trades: Arc<TradeRep::<T>>,
 ) -> (ProcessorCurr<T, MP>, JoinHandle<()>)
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
-    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP>,
+    dyn MarketTypeT<MP=MP>: Sync + Send + Sized,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
     MP: 'static + Send + Sync + Clone,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
-    for <'a> Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
+    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {
 
     //let current_market = markets_used[0];
@@ -88,10 +88,10 @@ pub(crate) async fn create_middle_actor<T, MP>(
 ) -> (ProcessorMiddle<T, MP>, JoinHandle<()>)
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
-    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP>,
+    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
     MP: 'static + Send + Sync + Clone,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
-    for <'a> Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
+    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
 {
 
 

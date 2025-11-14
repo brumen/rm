@@ -3,7 +3,7 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::FutureProducer;
-use chrono::Local;
+// use chrono::Local;
 use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
 
@@ -19,7 +19,7 @@ use crate::market::MarketTypeT;
 pub(crate) struct ProcessorCurr<T, MP>
 where
     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-    dyn MarketTypeT<MP=MP>: Sized + Send + Sync,
+    dyn MarketTypeT<MP=MP>: Sized,
     T: Send + Sync,
 {
     pub processor_name: String,
@@ -36,7 +36,7 @@ where
 impl<T, MP> std::fmt::Debug for ProcessorCurr<T, MP>
 where
     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-    dyn MarketTypeT<MP=MP>: Sized + Send + Sync,
+    dyn MarketTypeT<MP=MP>: Sized,
     T: Send + Sync,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -68,7 +68,7 @@ pub(crate) trait PublishPortfolio
 impl<T, MP> PublishPortfolio for ProcessorCurr<T, MP>
 where
     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-    dyn MarketTypeT<MP=MP>: Sized + Send + Sync,
+    dyn MarketTypeT<MP=MP>: Sized,
     T: Send + Sync
 {
     async fn _publish_result_portfolio(
@@ -113,36 +113,15 @@ where
 }
 
 
-
-// impl<T, MT: MarketTypeT + Clone> MarketSwitching for ProcessorCurr<T, MT> {
-
-//     fn processor_name(&self) -> String {
-//         self.processor_name.clone()
-//     }
-
-//     fn all_markets(&self) -> Arc<AllMarkets<MT>> {
-// 	self.all_markets.clone()
-//     }
-
-//     fn r_client(&self) -> Option<&reqwest::Client> {
-//         self.r_client.as_ref()
-//     }
-
-//     fn market_endpoint(&self) -> String {
-// 	format!("http://{0}/market", self.pricing_options.market_server.clone())
-//     }
-// }
-
-
 // T is the representation fo the trade
 #[async_trait]
 impl<T, MP> Actor for ProcessorCurr<T, MP>
 where
     T: Sync + Send + Clone + BaseTrade + PriceTrade<MP> + 'static,
-    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
     MP: 'static + Send + Sync + Clone,
     ProcessorCurr<T,MP>: PublishPortfolio,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
     Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {
     type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;

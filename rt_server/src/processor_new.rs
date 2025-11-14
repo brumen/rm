@@ -113,9 +113,11 @@ pub enum ProcessorNewState {
 impl<T, MP> Actor for ProcessorNew<T, MP>
 where
     T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MP>,
-    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
+    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+    // for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
     MP: 'static + Send + Sync + Clone,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
+    // for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
     Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {
     //type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP> + Send + Sync>;

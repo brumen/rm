@@ -17,7 +17,7 @@ use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 pub struct ProcessorBulk<T, MP>
 where
     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-    dyn MarketTypeT<MP=MP>: Sized + MarketTypeT,
+    dyn MarketTypeT<MP=MP>: Sized,
 {
     pub processor_name: String,
     pub metric: PricingMetric,
@@ -67,9 +67,9 @@ pub enum ProcessorBulkState<MT> {
 impl<T, MP> Actor for ProcessorBulk<T, MP>
 where
     T: Sync + Send + Clone + BaseTrade + PriceTrade<MP> + 'static,
-    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+    dyn MarketTypeT<MP=MP>: Sized + Sync + Send,
     MP: 'static + Send + Sync + Clone,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
     Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {
     type Msg = ProcessorBulkMessage<String>;  // dyn MarketTypeT<MP=MP>>;
