@@ -33,7 +33,8 @@ impl<MP> Actor for MarketProducer<MP>
 where
     dyn MarketTypeT<MP=MP> + Send + Sync: Sized + Send + Sync + Clone + MarketTypeT<MP=MP> + AddAssign<HandlerMarketType<MP>>,
     MP: 'static + Send + Sync + Clone,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
+    //for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
+    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
     // MM: TryFromRef2 + Clone,
 {
     type Msg = dyn MarketTypeT<MP=MP> + Send + Sync;  // MM

@@ -30,9 +30,9 @@ pub(crate) async fn start2<T, MP>(
 where
     T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MP> + TryFromRef2,
     MP: 'static + Send + Sync + Clone,
-// dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
+dyn MarketTypeT<MP=MP>: Send + Sync + Sized + Clone,
 // dyn MarketTypeT<MP=MP> + Send + Sync: Sized + MarketTypeT<MP=MP> + Clone + AddAssign<HandlerMarketType<MP>>,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
+//    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
     for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP> + Clone + AddAssign<HandlerMarketType<MP>>,
     Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
 {

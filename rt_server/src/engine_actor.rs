@@ -142,11 +142,19 @@ pub(crate) async fn create_middle_procs_chain<T, MP> (
 	Vec<JoinHandle<()>>,   // bulk processor handles.
     )
 where
+    // T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
+    // for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP>,
+    // MP: 'static + Send + Sync + Clone,
+    // for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
+    // for <'a> Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
+
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
-    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP>,
+dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
+dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
     MP: 'static + Send + Sync + Clone,
-    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
-    for <'a> Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
+Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
+
+
 {
 
     let mut bulk_actors_futures: Vec<JoinHandle<()>> = vec![];
