@@ -14,7 +14,7 @@ use crate::ref_deref::TryFromRef2;
 
 pub struct MarketProducer<MP>
 where
-    dyn MarketTypeT<MP=MP> + 'static: Sized
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized
 {
     pub metric: PricingMetric,
     pub pricing_options: MP,

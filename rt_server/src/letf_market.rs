@@ -4,8 +4,10 @@ use dashmap::DashMap;
 use rdkafka::message::{BorrowedMessage, Message};
 use uuid::Uuid;
 use std::ops::{AddAssign};
+use std::sync::Arc;
 
 use crate::market::{MarketTypeT, MarketTypeError};
+use crate::trade_letf::LETFHedge;
 
 pub(crate) type MarketInner = DashMap<String, f64>;
 
@@ -140,6 +142,44 @@ impl MarketTypeT for LETFMarketType {
                 }
             )
         )
+    }
+
+    fn market_params(&self) -> &Self::MP { &() }
+
+}
+
+
+#[async_trait]
+impl MarketTypeT for Arc<LETFMarketType> {
+
+    type MP = ();
+
+    fn new(market_name: String, _mp: ()) -> Box<dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
+	Box::new(LETFMarketType::new(market_name))
+    }
+
+    fn market_name(&self) -> String {
+        self.market_name.clone()
+    }
+
+    async fn get(&self, stock: &String) -> Option<f64> {
+	self.as_ref().get(stock).await
+    }
+
+    async fn insert(&self, key: String, value: f64) {
+	let _ = self.as_ref().insert(key, value).await;
+    }
+
+    fn is_empty(&self) -> bool {
+	self.as_ref().is_empty()
+    }
+
+    fn try_from_ref(
+        market_name: String,
+        value: &BorrowedMessage,
+        _mp: ()
+    ) -> Result<Box<dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
+	LETFMarketType::try_from_ref(market_name, value, _mp)
     }
 
     fn market_params(&self) -> &Self::MP { &() }

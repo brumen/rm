@@ -24,18 +24,18 @@ const CB_LENGTH: usize = 10;
 type CB = CircularBuffer<CB_LENGTH, (NaiveDateTime, usize)>;
 
 
-pub struct TradeProducer<T, MT>{
+pub struct TradeProducer<T>{
     position_listener: StreamConsumer,
-    processors: Vec<ActorRef<ProcessorMiddleMessage<MT>>>,
+    processors: Vec<ActorRef<ProcessorMiddleMessage<String>>>,
     trade_list: Arc<TradeRep<T>>,
     processing_stat: Vec<CB>,
 }
 
-impl<T, MT> TradeProducer<T, MT> {
+impl<T> TradeProducer<T> {
     pub fn new(
 	kafka_server: String,
 	pos_topic: String,
-	processors: Vec<ActorRef<ProcessorMiddleMessage<MT>>>,
+	processors: Vec<ActorRef<ProcessorMiddleMessage<String>>>,
         trade_list: Arc<TradeRep<T>>,
     ) -> Self {
 
@@ -120,13 +120,11 @@ impl<T, MT> TradeProducer<T, MT> {
 
 
 #[async_trait]
-impl<T, MT> Actor for TradeProducer<T, MT>
+impl<T> Actor for TradeProducer<T>
 where
-    TradeProducer<T, MT>: Send + Sync + 'static,
-    T: Send + Sync + Clone + BaseTrade + for <'a> Deserialize<'a> + TryFromRef2,
-    MT: Send + Sync,
+    T: Send + Sync + Clone + BaseTrade + for <'a> Deserialize<'a> + TryFromRef2 + 'static,
 {
-    type Msg = ProcessorMiddleMessage<MT>;
+    type Msg = ProcessorMiddleMessage<String>;
     type State = ();  // TradeRep<T>;  // list of existing trades.
     type Arguments = ();
 
