@@ -1,6 +1,7 @@
 use ractor::async_trait;
 use rdkafka::message::{BorrowedMessage, Message};
 use tracing::{debug};
+use std::sync::Arc;
 
 use crate::market::{MarketTypeT, MarketTypeError};
 use crate::pricer::PricingMetric;
@@ -62,8 +63,8 @@ impl AOMarketType {
 impl MarketTypeT for AOMarketType {
     type MP=AOMarketParams;
 
-    fn new(market_name: String, mp: AOMarketParams) -> Box<dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
-        Box::new(
+    fn new(market_name: String, mp: AOMarketParams) -> Arc<dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
+        Arc::new(
             Self {
                 market_name,
                 market_params: mp,
@@ -95,7 +96,7 @@ impl MarketTypeT for AOMarketType {
         _market_name: String,
         value: &BorrowedMessage,
         mp: AOMarketParams
-    ) -> Result<Box<dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
+    ) -> Result<Arc<dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
         let msg_val = value.payload().ok_or(
             MarketTypeError::GeneralError("Didnt get payload".to_string())
         )?;
@@ -104,7 +105,7 @@ impl MarketTypeT for AOMarketType {
         let inner_market = serde_json::from_str::<String>(msg_utf)?;
 
         Ok(
-            Box::new(
+            Arc::new(
                 Self {
                     market_name: inner_market,
                     market_params: mp,

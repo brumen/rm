@@ -31,14 +31,13 @@ pub(crate) type HandlerMarketType<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
 #[async_trait]
 impl<MP> Actor for MarketProducer<MP>
 where
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + Send + Sync + Clone + MarketTypeT<MP=MP> + AddAssign<HandlerMarketType<MP>>,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + Send + Sync + Clone + MarketTypeT<MP=MP>, // + AddAssign<HandlerMarketType<MP>>,
     MP: 'static + Send + Sync + Clone,
-    //for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
     dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
-    // MM: TryFromRef2 + Clone,
+    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: AddAssign<HandlerMarketType<MP>>,
 {
-    type Msg = dyn MarketTypeT<MP=MP> + Send + Sync;  // MM
-    type State = dyn MarketTypeT<MP=MP> + Send + Sync;
+    type Msg = dyn MarketTypeT<MP=MP> + Send + Sync;
+    type State = Arc<dyn MarketTypeT<MP=MP> + Send + Sync>;
     type Arguments = ();
 
     async fn pre_start(
@@ -53,9 +52,9 @@ where
         let new_mkt = Self::Msg::try_from_ref(market_name, &new_mkt_msg, self.pricing_options.clone())?;  // try_from_ref(&new_mkt_msg);
 
         //self.all_markets.insert(market_name, mew_mkt);
-	myself.send_message((*new_mkt).clone())?;
+	myself.send_message((*new_mkt.clone()).clone())?;
 
-	Ok(*new_mkt)
+	Ok(new_mkt)
     }
 
     async fn handle(
@@ -80,7 +79,7 @@ where
 	let new_msg = self.mkt_listener.recv().await?;
         let market_name = Uuid::new_v4().to_string();  // TODO: FIX THIS HERE!!!
         let new_mkt = Self::Msg::try_from_ref(market_name, &new_msg, self.pricing_options.clone())?;
-	myself.send_message(*new_mkt)?;
+	myself.send_message((*new_mkt).clone())?;
 
 	Ok(())
     }

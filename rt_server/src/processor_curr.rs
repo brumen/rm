@@ -19,7 +19,7 @@ use crate::market::MarketTypeT;
 pub(crate) struct ProcessorCurr<T, MP>
 where
     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-    dyn MarketTypeT<MP=MP>: Sized,
+//    dyn MarketTypeT<MP=MP>: Sized,
     T: Send + Sync,
 {
     pub processor_name: String,
@@ -36,7 +36,7 @@ where
 impl<T, MP> std::fmt::Debug for ProcessorCurr<T, MP>
 where
     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-    dyn MarketTypeT<MP=MP>: Sized,
+//    dyn MarketTypeT<MP=MP>: Sized,
     T: Send + Sync,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -68,17 +68,13 @@ pub(crate) trait PublishPortfolio
 impl<T, MP> PublishPortfolio for ProcessorCurr<T, MP>
 where
     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-    dyn MarketTypeT<MP=MP>: Sized,
+    // dyn MarketTypeT<MP=MP>: Sized,
     T: Send + Sync
 {
     async fn _publish_result_portfolio(
 	&self,
 	portf: PortfolioType,
     ) -> Result<(), SendError>
-    //    T: Sync + Send + Clone + BaseTrade + PriceTrade<MP> + 'static,
-    //     for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
-    //     MP: 'static + Send + Sync + Clone,
-    //     for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
     {
 	// sends to publisher actor
 	let curr_mkt_json = serde_json::ser::to_string(&portf.clone())?;

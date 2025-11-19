@@ -18,6 +18,7 @@ use crate::engine_actor::{create_middle_procs_chain, KafkaParams, create_curr_ac
 use crate::pricer::PriceTrade;
 use crate::ref_deref::TryFromRef2;
 
+
 /// initializes all the actors and returns a vector of joint handles to start them
 ///   all.
 pub(crate) async fn start2<T, MP>(
@@ -30,12 +31,9 @@ pub(crate) async fn start2<T, MP>(
 where
     T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MP> + TryFromRef2,
     MP: 'static + Send + Sync + Clone,
-    dyn MarketTypeT<MP=MP>: Send + Sync + Sized + Clone,
-// dyn MarketTypeT<MP=MP> + Send + Sync: Sized + MarketTypeT<MP=MP> + Clone + AddAssign<HandlerMarketType<MP>>,
-//    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
-//    for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP> + Clone + AddAssign<HandlerMarketType<MP>>,
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + MarketTypeT<MP=MP> + Clone + AddAssign<HandlerMarketType<MP>>,
-    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
+    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + Clone,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + MarketTypeT<MP=MP> + Clone,
+    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone + AddAssign<HandlerMarketType<MP>>,
 {
 
     let mp = all_markets.get_market_params().unwrap();

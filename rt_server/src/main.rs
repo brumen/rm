@@ -119,7 +119,7 @@ async fn run_all() {
 	mkt_topic,
 	results_topic,
     };
-    
+
     let state = Arc::new(
         Mutex::new(portfolio::PortfolioType::default())
     );
@@ -144,7 +144,7 @@ async fn run_all() {
 
     let mut results = vec![axum_process];
     let markets_used = vec!["curr".to_string(), "new".to_string()];
-    
+
     let (initial_trades, all_markets) = init_letf();
 
     let mut all_actors = start2(
@@ -161,11 +161,11 @@ async fn run_all() {
 }
 
 // initialize the letf market.
-fn init_letf() -> (Arc<TradeRep<TradeTypes>>, Arc<AllMarkets<LETFMarketType>>) {
+fn init_letf() -> (Arc<TradeRep<TradeTypes>>, Arc<AllMarkets<Arc<LETFMarketType>>>) {
     let initial_trades = Arc::new(TradeRep::<TradeTypes>::default());  // defines the type of trades.
     let initial_market = LETFMarketType::new("name1".to_string());  // TODO: CHANGE HERW
     let all_markets = Arc::new(AllMarkets::<Arc<LETFMarketType>>::new());  // how many in-between markets there are.
- 
+
     (initial_trades, all_markets)
 }
 

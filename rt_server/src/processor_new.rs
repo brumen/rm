@@ -146,8 +146,8 @@ where
 
         info!("Starting Processor New.");
 	let mp = &self.market_params;
-        let new_market = Arc::new(*Self::Arguments::new(self.processor_name.clone(), mp.clone()));
-        let future_market = Arc::new(*Self::Arguments::new("future".to_string(), mp.clone()));
+        let new_market = Self::Arguments::new(self.processor_name.clone(), mp.clone());
+        let future_market = Self::Arguments::new("future".to_string(), mp.clone());
         Ok(
 	    (
 		vec![],

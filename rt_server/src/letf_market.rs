@@ -97,8 +97,8 @@ impl MarketTypeT for LETFMarketType {
 
     type MP = ();
 
-    fn new(market_name: String, _mp: ()) -> Box<dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
-        Box::new(
+    fn new(market_name: String, _mp: ()) -> Arc<dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
+        Arc::new(
             LETFMarketType {
                 market_name,
                 market: DashMap::<String, f64>::new()
@@ -126,7 +126,7 @@ impl MarketTypeT for LETFMarketType {
         market_name: String,
         value: &BorrowedMessage,
         _mp: ()
-    ) -> Result<Box<dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
+    ) -> Result<Arc<dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
         let msg_val = value.payload().ok_or(
             MarketTypeError::GeneralError("Didnt get payload".to_string())
         )?;
@@ -135,7 +135,7 @@ impl MarketTypeT for LETFMarketType {
         let inner_dashmap = serde_json::from_str::<MarketInner>(msg_utf)?;
 
         Ok(
-            Box::new(
+            Arc::new(
                 Self {
                     market_name,
                     market: inner_dashmap,
@@ -154,8 +154,8 @@ impl MarketTypeT for Arc<LETFMarketType> {
 
     type MP = ();
 
-    fn new(market_name: String, _mp: ()) -> Box<dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
-	Box::new(LETFMarketType::new(market_name))
+    fn new(market_name: String, _mp: ()) -> Arc<dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
+	Arc::new(LETFMarketType::new(market_name))
     }
 
     fn market_name(&self) -> String {
@@ -178,7 +178,7 @@ impl MarketTypeT for Arc<LETFMarketType> {
         market_name: String,
         value: &BorrowedMessage,
         _mp: ()
-    ) -> Result<Box<dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
+    ) -> Result<Arc<dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
 	LETFMarketType::try_from_ref(market_name, value, _mp)
     }
 

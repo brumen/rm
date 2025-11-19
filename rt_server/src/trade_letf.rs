@@ -377,7 +377,7 @@ impl BaseTrade for TradeTypes {
     }
 }
 
-impl<'a> TradeReduce for TradeTypes {
+impl TradeReduce for TradeTypes {
     type TradeType = TradeTypes;
     type ReductionType = TradeTypes;
 
