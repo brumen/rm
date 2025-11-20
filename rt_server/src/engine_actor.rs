@@ -32,18 +32,18 @@ pub(crate) async fn create_curr_actor<T, MP, MT> (
     all_markets: Arc<AllMarkets<Arc<MT>>>,
     curr_mkt_name: String,
     initial_trades: Arc<TradeRep::<T>>,
-) -> (ProcessorCurr<T, MP>, JoinHandle<()>)
+) -> (ProcessorCurr<T, MT>, JoinHandle<()>)
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP, MT>,
-//    dyn MarketTypeT<MP=MP>: Sync + Send + Sized,
-//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
     MP: 'static + Send + Sync + Clone,
-//    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
-   MT: MarketTypeT<MP=MP> + Send + Sync + 'static,
+    MT: MarketTypeT<MP=MP> + Send + Sync + 'static + Clone,
+    Arc<MT>: MarketTypeT<MP=MP>,
 {
 
     //let current_market = markets_used[0];
     let mp = all_markets.get_market_params().unwrap();
+
+//    let mp = all_markets.get_market_params().unwrap();
 
     // bulk processor for the current processor.
     let (_processor_bulk_a, processor_new_bulk_h) = Actor::spawn(
@@ -55,7 +55,7 @@ where
             all_trades: initial_trades.clone(),
             all_markets: all_markets.clone(),
 	},
-	mp,
+	mp.clone(),
     )
         .await
         .expect("Could not start current_bulk processor.");
@@ -86,14 +86,12 @@ pub(crate) async fn create_middle_actor<T, MP, MT>(
     all_markets: Arc<AllMarkets<Arc<MT>>>,
     initial_trades: Arc<TradeRep<T>>,
     processor_below: ActorRef<ProcessorMiddleMessage<String>>,
-) -> (ProcessorMiddle<T, MP>, JoinHandle<()>)
+) -> (ProcessorMiddle<T, MT>, JoinHandle<()>)
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP, MT>,
-//    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
-//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
     MP: 'static + Send + Sync + Clone,
-//    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
-   MT: MarketTypeT<MP=MP> + Send + Sync + 'static,
+    MT: MarketTypeT<MP=MP> + Send + Sync + 'static + Clone,
+    Arc<MT>: MarketTypeT<MP=MP>,
 {
 
 
@@ -106,8 +104,9 @@ where
     };
 
     let mp = all_markets.get_market_params().unwrap();
+
     let (bulk_actor, bulk_actor_future) = Actor::spawn(
-	None, bulk_middle, mp,
+	None, bulk_middle, mp.clone(),
     )
 	.await
 	.expect("Could not create bulk middle processor");
@@ -132,10 +131,10 @@ where
 ///   (vector of processor actors,
 ///    vector of bulk actors,
 ///    last middle processor actor - to be used for new_actor, special case)
-pub(crate) async fn create_middle_procs_chain<T, MP> (
+pub(crate) async fn create_middle_procs_chain<T, MP, MT> (
     processor_curr: ActorRef<ProcessorMiddleMessage<String>>,
     metric: PricingMetric,
-    all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
+    all_markets: Arc<AllMarkets<Arc<MT>>>,
     initial_trades: Arc<TradeRep<T>>,
 ) ->
     (
@@ -144,19 +143,9 @@ pub(crate) async fn create_middle_procs_chain<T, MP> (
 	Vec<JoinHandle<()>>,   // bulk processor handles.
     )
 where
-    // T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
-    // for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT<MP=MP>,
-    // MP: 'static + Send + Sync + Clone,
-    // for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
-    // for <'a> Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
-
-    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
-dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
-dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP, MT>,
     MP: 'static + Send + Sync + Clone,
-Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
-
-
+    MT: MarketTypeT<MP=MP> + Send + Sync + Clone + 'static,
 {
 
     let mut bulk_actors_futures: Vec<JoinHandle<()>> = vec![];

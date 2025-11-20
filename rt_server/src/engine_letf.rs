@@ -31,10 +31,8 @@ pub(crate) async fn start2<T, MP, MT>(
 where
     T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MP, MT> + TryFromRef2,
     MP: 'static + Send + Sync + Clone,
-//    for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + Clone,
-//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + MarketTypeT<MP=MP> + Clone,
-//    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone + AddAssign<HandlerMarketType<MP>>,
-    MT: Send + Sync + MarketTypeT<MP=MP> + 'static,
+    Arc<MT>: Send + Sync + MarketTypeT<MP=MP> + 'static + Clone,
+    MT: Send + Sync + MarketTypeT<MP=MP> + 'static + Clone,
 {
 
     let mp = all_markets.get_market_params().unwrap();
