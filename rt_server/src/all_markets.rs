@@ -1,4 +1,5 @@
 use dashmap::DashMap;
+use std::sync::Arc;
 
 use crate::market::MarketTypeT;
 
@@ -23,7 +24,7 @@ pub(crate) struct AllMarkets<MT> {
 impl<MP, MT> AllMarkets<MT>
 where
     MP: Clone,
-    MT: MarketTypeT<MP=MP> + Clone,  // this will be fine since MT is an Arc.
+    MT: MarketTypeT<MP=MP> + Clone + Send + Sync,  // this will be fine since MT is an Arc.
 {
     //type MT = Arc<dyn MarketTypeT<MP=MP> + Sync + Send>;
 
@@ -34,6 +35,20 @@ where
             market_names: DashMap::<usize, String>::new(),
         }
     }
+
+    pub(crate) fn new2(market_1_name: String, market_1: MT) -> AllMarkets<Arc<MT>> {
+        let new_dm = DashMap::<String, Arc<MT>>::new();
+        let market_1_cast = Arc::new(market_1);
+        new_dm.insert(market_1_name.clone(), market_1_cast);
+        //let new_dm_convert = new_dm as DashMap::<String, Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>;
+        let new_mn = DashMap::<usize, String>::new();
+        new_mn.insert(0, market_1_name);
+        AllMarkets {
+            markets: new_dm,
+            market_names: new_mn,
+        }
+    }
+
 
     pub(crate) fn get(&self, market_name: &String) -> Option<MT> {
         let actual_market = self.markets.get(market_name)?;

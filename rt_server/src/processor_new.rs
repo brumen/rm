@@ -10,16 +10,16 @@ use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage,};
 use crate::trade::{BaseTrade, TradeRep};
 
 
-pub struct ProcessorNew<T, MP>
-where
-    dyn MarketTypeT<MP=MP>: Sized,
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+pub struct ProcessorNew<T, MP, MT>
+//where
+//    dyn MarketTypeT<MP=MP>: Sized,
+//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
 {
     pub processor_name: String,
     pub metric: PricingMetric,
     pub processor_middle: ActorRef<ProcessorMiddleMessage<String>>, // the middle processor just below the ProcessorNew
     pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>,  // bulk processor reference to the bulk actor corresponding to this processor_new
-    pub all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
+    pub all_markets: Arc<AllMarkets<Arc<MT>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub market_name: (String, String),  // first item: new market, second item: future market.
     pub(crate) market_params: MP, // market parameters.
@@ -110,15 +110,16 @@ pub enum ProcessorNewState {
 
 
 #[async_trait]
-impl<T, MP> Actor for ProcessorNew<T, MP>
+impl<T, MP, MT> Actor for ProcessorNew<T, MP, MT>
 where
-    T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MP>,
-    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+    T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MP, MT>,
+//    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
+//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
     // for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
     MP: 'static + Send + Sync + Clone,
     // for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized,
-    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
+//    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
+    MT: MarketTypeT<MP=MP> + Send + Sync + 'static,
 {
     //type Msg = ProcessorMiddleMessage<dyn MarketTypeT<MP=MP> + Send + Sync>;
     type Msg = ProcessorMiddleMessage<String>;
@@ -135,7 +136,7 @@ where
         ProcessorNewState,
         (Arc<dyn MarketTypeT<MP=MP> + Send + Sync>, Arc<dyn MarketTypeT<MP=MP> + Send + Sync>)
     );
-    type Arguments = dyn MarketTypeT<MP=MP> + Send + Sync;  // initial market
+    type Arguments = MT;  // initial market
 
     // initialization of the new processor
     async fn pre_start(
@@ -266,7 +267,8 @@ where
                         //    new_market,
                         //    future_m,
                         //).await?;
-                        let new_market_val = self.all_markets.get(&new_market).unwrap();
+                        let new_market_val = self.all_markets.markets.get(&new_market).unwrap();
+                        let new_market_val = new_market_val.value();
                         *future_m = new_market_val;
 
 			// we are idle, we can start calculating, start calculating

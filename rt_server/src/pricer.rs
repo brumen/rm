@@ -117,21 +117,22 @@ pub trait Decoder {
 
 
 // market type T send and sync version,
-pub(crate) type MarketTypeTSend<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
+// pub(crate) type MarketTypeTSend<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
 
 // MP are market parameters, () if none.
 // MT is market type, depending on the market parameters.
 #[async_trait]
-pub trait PriceTrade<MP>: BaseTrade + Send + Sync
+pub trait PriceTrade<MP, MT>: BaseTrade + Send + Sync
 where
-    dyn MarketTypeT<MP=MP>: Send + Sync,
+    MT: MarketTypeT<MP=MP> + Send + Sync + 'static,
+    // dyn MarketTypeT<MP=MP>: Send + Sync,
     MP: 'static + Send,
 {
 
     async fn initial_pv(&self) -> Option<f64> where Self: Send;
-    async fn price(&self, market: Arc<MarketTypeTSend<MP>> ) -> Option<f64>;
-    async fn pv01(&self, market: Arc<MarketTypeTSend<MP>> ) -> PV01Results;
-    async fn pnl(&self, market: Arc<MarketTypeTSend<MP>>) -> Option<f64> {
+    async fn price(&self, market: Arc<MT> ) -> Option<f64>;
+    async fn pv01(&self, market: Arc<MT> ) -> PV01Results;
+    async fn pnl(&self, market: Arc<MT>) -> Option<f64> {
         let initial_pv_val = self.initial_pv().await?;
 
         self.price(market)
@@ -144,7 +145,7 @@ where
     async fn value_by_metric(
         &self,
         metric: PricingMetric,
-        market: Arc<MarketTypeTSend<MP>>,
+        market: Arc<MT>,
     ) -> PricingResults {
 
         let trade_name = self.id();
@@ -196,11 +197,11 @@ impl<TR> BaseTrade for TradeRep<TR> {
 // MT: MarketTypeT<MP>
 // TR: trade representation.
 #[async_trait]
-impl<MP, TR> PriceTrade<MP> for TradeRep<TR>
+impl<MP, MT, TR> PriceTrade<MP, MT> for TradeRep<TR>
 where
-    TR: PriceTrade<MP> + Send + Sync,
+    TR: PriceTrade<MP, MT> + Send + Sync,
     MP: 'static + Send + Sync,
-    dyn MarketTypeT<MP=MP>: Send + Sync,
+    MT: MarketTypeT<MP=MP> +  Send + Sync + 'static,
 {
 
     async fn initial_pv(&self) -> Option<f64> {
@@ -221,7 +222,7 @@ where
         Some(portf_val)
     }
 
-    async fn price(&self, market: Arc<MarketTypeTSend<MP>>) -> Option<f64> {
+    async fn price(&self, market: Arc<MT>) -> Option<f64> {
         let mut portf_val = 0.;
         for indiv_trade in self.iter()  {
             let (_trade_name, trade_v) = indiv_trade.pair();
@@ -239,7 +240,7 @@ where
         Some(portf_val)
     }
 
-    async fn pv01(&self, market: Arc<MarketTypeTSend<MP>>) -> PV01Results {
+    async fn pv01(&self, market: Arc<MT>) -> PV01Results {
         let mut portf_val = PV01Results::new();
         for indiv_trade in self.iter()  {
             let (_trade_name, trade_v) = indiv_trade.pair();

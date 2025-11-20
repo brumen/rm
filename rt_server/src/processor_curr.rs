@@ -16,28 +16,28 @@ use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 
 
-pub(crate) struct ProcessorCurr<T, MP>
+pub(crate) struct ProcessorCurr<T, MT>
 where
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
 //    dyn MarketTypeT<MP=MP>: Sized,
-    T: Send + Sync,
+//    T: Send + Sync,
 {
     pub processor_name: String,
     pub metric: PricingMetric,
     pub results_topic: String,
     pub result_publisher: FutureProducer,
-    pub all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,  // all_markets is DashMap
+    pub all_markets: Arc<AllMarkets<Arc<MT>>>,  // all_markets is DashMap
     pub all_trades: Arc<TradeRep<T>>,  // all_trades is DashMap
     // trade_processor where we can send the info when the trades are processed
     // pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
 }
 
 
-impl<T, MP> std::fmt::Debug for ProcessorCurr<T, MP>
+impl<T, MT> std::fmt::Debug for ProcessorCurr<T, MT>
 where
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+//     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
 //    dyn MarketTypeT<MP=MP>: Sized,
-    T: Send + Sync,
+//    T: Send + Sync,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CurrentProcessor({self.processor_name})")
@@ -65,11 +65,12 @@ pub(crate) trait PublishPortfolio
 
 
 #[async_trait]
-impl<T, MP> PublishPortfolio for ProcessorCurr<T, MP>
+impl<T, MT> PublishPortfolio for ProcessorCurr<T, MT>
 where
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+    //dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
     // dyn MarketTypeT<MP=MP>: Sized,
-    T: Send + Sync
+    T: Send + Sync,
+    MT: Send + Sync,
 {
     async fn _publish_result_portfolio(
 	&self,
@@ -111,14 +112,15 @@ where
 
 // T is the representation fo the trade
 #[async_trait]
-impl<T, MP> Actor for ProcessorCurr<T, MP>
+impl<T, MP, MT> Actor for ProcessorCurr<T, MT>
 where
-    T: Sync + Send + Clone + BaseTrade + PriceTrade<MP> + 'static,
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
+    T: Sync + Send + Clone + BaseTrade + PriceTrade<MP, MT> + 'static,
+//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+//    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
     MP: 'static + Send + Sync + Clone,
     ProcessorCurr<T,MP>: PublishPortfolio,
-    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
+    //Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
+    MT: MarketTypeT<MP=MP> + Send + Sync + 'static
 {
     type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // state is a tuple of
@@ -159,10 +161,11 @@ where
                 let trade_info = self.all_trades.get(&trade).unwrap();
                 let trade_real = trade_info.value();
 
-                let market_info = self.all_markets.get(market).unwrap();
+                let market_info = self.all_markets.markets.get(market).unwrap();
+                let market_info = market_info.value();
 		let valued_trade = trade_real.value_by_metric(
 		    self.metric,
-	            market_info,
+	            market_info.clone(),
 		).await;
 
 		// updating the portfolio
@@ -209,7 +212,7 @@ where
                     // market that we were holding should be removed from the all_markets,
                     // as it's not needed anymore.
                     // IMPORTANT: this .remove call CAN DEADLOCK!!!
-                    let _ = self.all_markets.remove(&market);  // TODO: HANDLE ERROR MESSAGES
+                    let _ = self.all_markets.markets.remove(&market.clone());  // TODO: HANDLE ERROR MESSAGES
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;

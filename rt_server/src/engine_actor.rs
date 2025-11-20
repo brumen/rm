@@ -26,19 +26,20 @@ pub(crate) struct KafkaParams {
 }
 
 
-pub(crate) async fn create_curr_actor<T, MP> (
+pub(crate) async fn create_curr_actor<T, MP, MT> (
     kafka_params: KafkaParams,
     metric: PricingMetric,  // pricing metric, like PV
-    all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
+    all_markets: Arc<AllMarkets<Arc<MT>>>,
     curr_mkt_name: String,
     initial_trades: Arc<TradeRep::<T>>,
 ) -> (ProcessorCurr<T, MP>, JoinHandle<()>)
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
-    dyn MarketTypeT<MP=MP>: Sync + Send + Sized,
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP, MT>,
+//    dyn MarketTypeT<MP=MP>: Sync + Send + Sized,
+//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
     MP: 'static + Send + Sync + Clone,
-    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
+//    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
+   MT: MarketTypeT<MP=MP> + Send + Sync + 'static,
 {
 
     //let current_market = markets_used[0];
@@ -79,19 +80,20 @@ where
 
 // creates a middle portion of the actor.
 //  returns: processor middle, and the future
-pub(crate) async fn create_middle_actor<T, MP>(
+pub(crate) async fn create_middle_actor<T, MP, MT>(
     market_name: String,
     metric: PricingMetric,
-    all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
+    all_markets: Arc<AllMarkets<Arc<MT>>>,
     initial_trades: Arc<TradeRep<T>>,
     processor_below: ActorRef<ProcessorMiddleMessage<String>>,
 ) -> (ProcessorMiddle<T, MP>, JoinHandle<()>)
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
-    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP, MT>,
+//    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
+//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
     MP: 'static + Send + Sync + Clone,
-    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
+//    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP>,
+   MT: MarketTypeT<MP=MP> + Send + Sync + 'static,
 {
 
 

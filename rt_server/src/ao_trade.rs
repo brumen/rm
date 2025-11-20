@@ -70,9 +70,9 @@ impl AOTrade {
 }
 
 #[async_trait]
-impl PriceTrade<AOMarketParams> for AOTrade
-where
-    for <'a> dyn MarketTypeT<MP=AOMarketParams> + 'a: Send + Sync,
+impl PriceTrade<AOMarketParams, AOMarketType> for AOTrade
+// where
+//     for <'a> dyn MarketTypeT<MP=AOMarketParams> + 'a: Send + Sync,
 {
     async fn initial_pv(&self) -> Option<f64> {
         Some(0.)
@@ -80,7 +80,7 @@ where
 
     async fn price(
         &self,
-        market: Arc<dyn MarketTypeT<MP=AOMarketParams> + Send + Sync>,
+        market: Arc<AOMarketType>, // dyn MarketTypeT<MP=AOMarketParams> + Send + Sync>,
     ) -> Option<f64> {
         let trade_id = self.id();
         let results_pricing = self
@@ -114,7 +114,7 @@ where
         }
     }
 
-    async fn pv01(&self, market: Arc<dyn MarketTypeT<MP=AOMarketParams> + Send + Sync>) -> PV01Results {
+    async fn pv01(&self, market: Arc<AOMarketType>) -> PV01Results {
 
         let trade_id = self.id();
         let results_pricing = self._pricing_request(
@@ -145,7 +145,7 @@ where
         }
     }
 
-    async fn pnl(&self, market: Arc<dyn MarketTypeT<MP=AOMarketParams> + Send + Sync>) -> Option<f64> {
+    async fn pnl(&self, market: Arc<AOMarketType>) -> Option<f64> {
         let trade_id = self.id();
         let results_pricing = self._pricing_request(
             PricingMetric::PnL, market, vec![trade_id.clone()]

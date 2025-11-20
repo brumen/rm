@@ -13,17 +13,17 @@ use crate::market::MarketTypeT;
 
 
 // T is mnemonic for trade type, MT is mnemonic for market type
-pub(crate) struct ProcessorMiddle<T, MP>
-where
-    dyn MarketTypeT<MP=MP>: Sized,
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+pub(crate) struct ProcessorMiddle<T, MT>
+//where
+//    dyn MarketTypeT<MP=MP>: Sized,
+//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
 {
     pub(crate) metric: PricingMetric,
     // pub(crate) pricing_options: MarketPricingOptions,
     pub(crate) processor_name: String,
     pub processor_below: ActorRef<ProcessorMiddleMessage<String>>,   //dyn MarketTypeT<MP=MP>>>,  // processor below
     pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>,  // dyn MarketTypeT<MP=MP>>>,  // bulk processor ref.
-    pub(crate) all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
+    pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
 }
 
@@ -63,15 +63,16 @@ pub enum ProcessorMiddleState {
 
 
 #[async_trait]
-impl<T, MP> Actor for ProcessorMiddle<T, MP>
+impl<T, MP, MT> Actor for ProcessorMiddle<T, MT>
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP>,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP, MT>,
     //for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + MarketTypeT,
+    //dyn MarketTypeT<MP=MP> + Send + Sync: Sized + MarketTypeT,
     MP: 'static + Send + Sync + Clone,
     //for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
-    dyn MarketTypeT<MP=MP>: Send + Sync + Sized + MarketTypeT,
-    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
+    //dyn MarketTypeT<MP=MP>: Send + Sync + Sized + MarketTypeT,
+    //Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
+    MT: Send + Sync + MarketTypeT<MP=MP> + 'static,
 {
     type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // first argument is list of trades,
@@ -130,11 +131,12 @@ where
 		);
 
                 // let market_info = self.all_markets.get_m(market.to_string());
-                let market_info = self.all_markets.get(market).unwrap();
+                let market_info = self.all_markets.markets.get(market).unwrap();
+                let market_info = market_info.value();
                 let real_trade = trade_info.value();
                 let new_trade_price = real_trade.value_by_metric(
 		    self.metric,
-		    market_info,
+		    market_info.clone(),
 		).await;
 		*portf += new_trade_price;  // portfolio update
 		//*trade_l += &new_trade;  // we add the trade to the list.
@@ -178,10 +180,10 @@ where
 		);
 
                 if let Some(real_trade) = self.all_trades.get(&new_trade) {
-                    if let Some(real_market) = self.all_markets.get(market) {
+                    if let Some(real_market) = self.all_markets.markets.get(market) {
                         let new_trade_price = real_trade.value_by_metric(
 		            self.metric,
-		            real_market,
+		            real_market.clone(),
 		        ).await;
 		        *portf += new_trade_price;  // portfolio update
                         trade_l.push(new_trade);

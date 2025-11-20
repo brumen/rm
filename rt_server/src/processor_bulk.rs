@@ -14,16 +14,16 @@ use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
 
 // computes bulk evaluation of trades in trade_names
-pub struct ProcessorBulk<T, MP>
-where
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-    dyn MarketTypeT<MP=MP>: Sized,
+pub struct ProcessorBulk<T, MT>
+// where
+//     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+//     dyn MarketTypeT<MP=MP>: Sized,
 {
     pub processor_name: String,
     pub metric: PricingMetric,
     pub(crate) trade_names: Vec<String>,
     pub(crate) all_trades: Arc<TradeRep<T>>,  // all_trades is a reference to the structure that contains all trades.
-    pub(crate) all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
+    pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>, // dyn MarketTypeT<MP=MP> + Send + Sync>>>,
 }
 
 
@@ -64,17 +64,18 @@ pub enum ProcessorBulkState<MT> {
 
 
 #[async_trait]
-impl<T, MP> Actor for ProcessorBulk<T, MP>
+impl<T, MP, MT> Actor for ProcessorBulk<T, MT>
 where
-    T: Sync + Send + Clone + BaseTrade + PriceTrade<MP> + 'static,
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-    dyn MarketTypeT<MP=MP>: Sized + Sync + Send,
+    T: Sync + Send + Clone + BaseTrade + PriceTrade<MP, MT> + 'static,
+// dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+//     dyn MarketTypeT<MP=MP>: Sized + Sync + Send,
     MP: 'static + Send + Sync + Clone,
-    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
+    // Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
+    MT: MarketTypeT<MP=MP> + Send + Sync + 'static,
 {
     type Msg = ProcessorBulkMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
-    type State = Option<dyn MarketTypeT<MP=MP>>;
+    type State = Option<Arc<MT>>;  // dyn MarketTypeT<MP=MP>>;
     type Arguments = MP;
 
     async fn pre_start(
@@ -106,7 +107,7 @@ where
 		    self.processor_name,
 		    new_trades.len(),
 		);
-                let curr_mkt_attempt = self.all_markets.get(&market);
+                let curr_mkt_attempt = self.all_markets.markets.get(&market);
 
                 // if curr_mkt == None, we couldnt get the market, abandon the attempts
                 if curr_mkt_attempt.is_none() {
@@ -140,7 +141,8 @@ where
                     used_trades.push(trade);
                 }
 
-                let market_actual = self.all_markets.get(&market).unwrap();
+                let market_actual = self.all_markets.markets.get(&market).unwrap();
+                let market_actual = market_actual.value();
                 // pricing_futs are futures where the trades are getting priced.
                 //let mut pricing_futs = vec![];
                 //for used_trade in used_trades {

@@ -9,7 +9,7 @@ use crate::pricer::{Decoder, PriceTrade};
 use crate::ref_deref::TryFromRef2;
 use crate::trade::{BaseTrade, TradeDirection, TradeReduce};
 use crate::market::MarketTypeT;
-
+use crate::letf_market::LETFMarketType;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LETFTrade {
@@ -50,22 +50,22 @@ impl std::cmp::PartialEq for LETFTrade {
 }
 
 #[async_trait]
-impl PriceTrade<()> for LETFTrade
-where
-    for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
+impl PriceTrade<(), LETFMarketType> for LETFTrade
+// where
+//     for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
 {
     async fn initial_pv(&self) -> Option<f64> {
         Some(0.)
     }
 
-    async fn price(&self, market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> Option<f64> {
+    async fn price(&self, market: Arc<LETFMarketType>) -> Option<f64> {
         let stock_v_real = market.get(&self.stock).await?;
 
         self.stock_value
             .map(|initial_stock| self.beta * self.amount * (stock_v_real / initial_stock - 1.))
     }
 
-    async fn pv01(&self, market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> PV01Results {
+    async fn pv01(&self, market: Arc<LETFMarketType>) -> PV01Results {
         let stock = market.get(&self.stock).await;
 
         match stock {
@@ -142,21 +142,21 @@ pub struct Future {
 
 
 #[async_trait]
-impl PriceTrade<()> for Future
-where
-    for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
+impl PriceTrade<(), LETFMarketType> for Future
+// where
+//     for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
 {
     async fn initial_pv(&self) -> Option<f64> {
         self.initial_val
     }
 
-    async fn price(&self, market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> Option<f64> {  // market = &LETFMarketType
+    async fn price(&self, market: Arc<LETFMarketType>) -> Option<f64> {
         let stock = market.get(&self.stock).await?;
 
         Some(stock * self.amount)
     }
 
-    async fn pv01(&self, _market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> PV01Results {
+    async fn pv01(&self, _market: Arc<LETFMarketType>) -> PV01Results {
         let mut pv01_results = PV01Results::new();
         let _ = pv01_results.insert(
             self.trade_id.clone(),
@@ -191,19 +191,19 @@ pub struct Cash {
 }
 
 #[async_trait]
-impl PriceTrade<()> for Cash
-where
-    for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
+impl PriceTrade<(), LETFMarketType> for Cash
+// where
+//     for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
 {
     async fn initial_pv(&self) -> Option<f64> {
         Some(self.amount)
     }
 
-    async fn price(&self, _market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> Option<f64> {
+    async fn price(&self, _market: Arc<LETFMarketType>) -> Option<f64> {
         Some(self.amount)
     }
 
-    async fn pv01(&self, _market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> PV01Results {
+    async fn pv01(&self, _market: Arc<LETFMarketType>) -> PV01Results {
         PV01Results::new()
     }
 }
@@ -315,9 +315,9 @@ impl TryFromRef2 for TradeTypes {}
 
 
 #[async_trait]
-impl PriceTrade<()> for TradeTypes
-where
-    for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
+impl PriceTrade<(), LETFMarketType> for TradeTypes
+// where
+//     for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
 {
     async fn initial_pv(&self) -> Option<f64> {
         match self {
@@ -327,7 +327,7 @@ where
         }
     }
 
-    async fn price(&self, market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> Option<f64> {
+    async fn price(&self, market: Arc<LETFMarketType>) -> Option<f64> {
         match self {
             TradeTypes::LETF(letf_trade) => {
                 match letf_trade.stock_value {
@@ -344,7 +344,7 @@ where
         }
     }
 
-    async fn pv01(&self, market: Arc<dyn MarketTypeT<MP=()> + Send + Sync>) -> PV01Results {
+    async fn pv01(&self, market: Arc<LETFMarketType>) -> PV01Results {
         match self {
             TradeTypes::LETF(letf_trade) => {
                 match letf_trade.stock_value {
