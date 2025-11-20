@@ -5,7 +5,7 @@ use tracing::info;
 use std::sync::Arc;
 use std::ops::AddAssign;
 
-use crate::mkt_handler_actor::{MarketProducer, HandlerMarketType};
+use crate::mkt_handler_actor::{MarketProducer};
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PricingMetric;
 use crate::market::MarketTypeT;
@@ -105,7 +105,7 @@ where
     let last_market = all_markets.get(&last_market_name).unwrap().clone();
     let last_market = (*last_market).clone();
     let (_processor_new_a, processor_new_handle) = Actor::spawn(
-	None, processor_new, last_market,
+	None, processor_new, (last_market.clone(), last_market.clone()),
     ).await
         .expect("Could not start new processor");
 

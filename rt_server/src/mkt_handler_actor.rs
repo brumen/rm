@@ -12,32 +12,34 @@ use crate::all_markets::AllMarkets;
 use crate::ref_deref::TryFromRef2;
 
 
-pub struct MarketProducer<MP>
-where
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized
+pub struct MarketProducer<MP, MT>
+//where
+//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized
 {
     pub metric: PricingMetric,
     pub pricing_options: MP,
     pub mkt_listener: StreamConsumer,  // listening for market events.
     pub new_processor: ActorRef<ProcessorMiddleMessage<String>>,
-    pub(crate) all_markets: Arc<AllMarkets<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>>,
+    pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>,
 }
 
 
-pub(crate) type HandlerMarketType<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
+//pub(crate) type HandlerMarketType<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
 
 // MP ... market parameters
 // MM ... market message - message we receive from Kafka.
 #[async_trait]
-impl<MP> Actor for MarketProducer<MP>
+impl<MP, MT> Actor for MarketProducer<MP, MT>
 where
-    dyn MarketTypeT<MP=MP> + Send + Sync: Sized + Send + Sync + Clone + MarketTypeT<MP=MP>, // + AddAssign<HandlerMarketType<MP>>,
+    //dyn MarketTypeT<MP=MP> + Send + Sync: Sized + Send + Sync + Clone + MarketTypeT<MP=MP>, // + AddAssign<HandlerMarketType<MP>>,
     MP: 'static + Send + Sync + Clone,
-    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
-    Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: AddAssign<HandlerMarketType<MP>>,
+    // dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
+    //Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: AddAssign<MT>,
+    Arc<MT>: AddAssign<MT>,
+    MT: Send + Sync + MarketTypeT<MP=MP> + 'static,
 {
-    type Msg = dyn MarketTypeT<MP=MP> + Send + Sync;
-    type State = Arc<dyn MarketTypeT<MP=MP> + Send + Sync>;
+    type Msg = MT;
+    type State = Arc<MT>;
     type Arguments = ();
 
     async fn pre_start(

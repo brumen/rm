@@ -146,6 +146,7 @@ where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP, MT>,
     MP: 'static + Send + Sync + Clone,
     MT: MarketTypeT<MP=MP> + Send + Sync + Clone + 'static,
+    Arc<MT>: MarketTypeT<MP=MP>,
 {
 
     let mut bulk_actors_futures: Vec<JoinHandle<()>> = vec![];
