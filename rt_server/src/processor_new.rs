@@ -113,6 +113,7 @@ pub enum ProcessorNewState {
 impl<T, MP, MT> Actor for ProcessorNew<T, MP, MT>
 where
     T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MP, MT>,
+    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
 //    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
 //    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
     // for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
@@ -134,28 +135,28 @@ where
         Vec<String>,
         PortfolioType,
         ProcessorNewState,
-        (Arc<dyn MarketTypeT<MP=MP> + Send + Sync>, Arc<dyn MarketTypeT<MP=MP> + Send + Sync>)
+        (Arc<MT>, Arc<MT>)
     );
-    type Arguments = MT;  // initial market
+    type Arguments = (MT, MT);  // initial market
 
     // initialization of the new processor
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _args: Self::Arguments,  // market parameters are passed here
+        args: Self::Arguments,  // market parameters are passed here
     ) -> Result<Self::State, ActorProcessingErr> {
 
         info!("Starting Processor New.");
-	let mp = &self.market_params;
-        let new_market = Self::Arguments::new(self.processor_name.clone(), mp.clone());
-        let future_market = Self::Arguments::new("future".to_string(), mp.clone());
+        let (new_market, future_market) = args;
+        //let new_market = Self::Arguments::new(self.processor_name.clone(), mp.clone());
+        //let future_market = Self::Arguments::new("future".to_string(), mp.clone());
         Ok(
 	    (
 		vec![],
 		vec![],
 		PortfolioType::default(),
 		ProcessorNewState::Idle,
-                (new_market, future_market),
+                (Arc::new(new_market), Arc::new(future_market)),
 	    )
 	)
     }
@@ -269,7 +270,7 @@ where
                         //).await?;
                         let new_market_val = self.all_markets.markets.get(&new_market).unwrap();
                         let new_market_val = new_market_val.value();
-                        *future_m = new_market_val;
+                        *future_m = new_market_val.clone();
 
 			// we are idle, we can start calculating, start calculating
                         info!("Idle, NewMarket: sending to bulk. State -> CalculatingBulk");
@@ -302,8 +303,9 @@ where
                         //    new_market,  //replace_mkt: MarketType,
                         //    future_m,  // future_mkt: &mut MarketType
                         //).await?;
-                        let new_market_val = self.all_markets.get(&new_market).unwrap();
-                        *future_m = new_market_val;
+                        let new_market_val = self.all_markets.markets.get(&new_market).unwrap();
+                        let new_market_val = new_market_val.value();
+                        *future_m = new_market_val.clone();
 		    }
 		    // ignore if new market comes in, no
 		    //   action taken.
@@ -315,8 +317,9 @@ where
                         //    new_market,  //replace_mkt: MarketType,
                         //    future_m,  // future_mkt: &mut MarketType
                         //).await?;
-                        let new_market_val = self.all_markets.get(&new_market).unwrap();
-                        *future_m = new_market_val;
+                        let new_market_val = self.all_markets.markets.get(&new_market).unwrap();
+                        let new_market_val = new_market_val.value();
+                        *future_m = new_market_val.clone();
 		    },
 		}
 	    },
