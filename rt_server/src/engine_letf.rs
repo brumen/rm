@@ -21,7 +21,7 @@ use crate::ref_deref::TryFromRef2;
 
 /// initializes all the actors and returns a vector of joint handles to start them
 ///   all.
-pub(crate) async fn start2<T, MP, MT>(
+pub(crate) async fn start2<T, MT>(
     kafka_params: KafkaParams,
     metric: PricingMetric,  // pricing metric, like PV
     all_markets: Arc<AllMarkets<Arc<MT>>>,
@@ -29,12 +29,11 @@ pub(crate) async fn start2<T, MP, MT>(
     initial_trades: Arc<TradeRep::<T>>,
 ) -> Vec<JoinHandle<()>>
 where
-    T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MP, MT> + TryFromRef2,
-    MP: 'static + Send + Sync + Clone,
-    Arc<MT>: Send + Sync + MarketTypeT<MP=MP> + 'static + Clone,
-    MT: Send + Sync + MarketTypeT<MP=MP> + 'static + Clone,
+    T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MT> + TryFromRef2,
+    MT::MP : 'static + Send + Sync + Clone,
+    // Arc<MT>: Send + Sync + MarketTypeT<MP=MP> + 'static + Clone,
+    for <'a> MT: Send + Sync + MarketTypeT + 'static + Clone + AddAssign<&'a MT>,
 {
-
     let mp = all_markets.get_market_params().unwrap();
     let first_market = all_markets.markets.get(&markets_used[0]).unwrap();
     let first_market_name = first_market.market_name();

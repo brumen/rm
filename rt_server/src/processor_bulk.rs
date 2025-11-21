@@ -64,19 +64,20 @@ pub enum ProcessorBulkState<MT> {
 
 
 #[async_trait]
-impl<T, MP, MT> Actor for ProcessorBulk<T, MT>
+impl<T, MT> Actor for ProcessorBulk<T, MT>
 where
-    T: Sync + Send + Clone + BaseTrade + PriceTrade<MP, MT> + 'static,
+    T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static,
 // dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
 //     dyn MarketTypeT<MP=MP>: Sized + Sync + Send,
-    MP: 'static + Send + Sync + Clone,
+//    MP: 'static + Send + Sync + Clone,
     // Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
-    MT: MarketTypeT<MP=MP> + Send + Sync + 'static,
+    MT: MarketTypeT + Send + Sync + 'static,
+    MT::MP : Send + Sync,
 {
     type Msg = ProcessorBulkMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
     type State = Option<Arc<MT>>;  // dyn MarketTypeT<MP=MP>>;
-    type Arguments = MP;
+    type Arguments = MT::MP;
 
     async fn pre_start(
         &self,

@@ -63,7 +63,7 @@ impl AOMarketType {
 impl MarketTypeT for AOMarketType {
     type MP=AOMarketParams;
 
-    fn new(market_name: String, mp: AOMarketParams) -> Arc<dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
+    fn new(market_name: String, mp: AOMarketParams) -> Arc<AOMarketType> { // dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
         Arc::new(
             Self {
                 market_name,
@@ -96,7 +96,7 @@ impl MarketTypeT for AOMarketType {
         _market_name: String,
         value: &BorrowedMessage,
         mp: AOMarketParams
-    ) -> Result<Arc<dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
+    ) -> Result<Arc<AOMarketType>, MarketTypeError> {  // dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
         let msg_val = value.payload().ok_or(
             MarketTypeError::GeneralError("Didnt get payload".to_string())
         )?;
@@ -114,8 +114,7 @@ impl MarketTypeT for AOMarketType {
         )
     }
 
-    fn market_params(&self) -> &AOMarketParams {
-        &self.market_params
+    fn market_params(&self) -> AOMarketParams {
+        self.market_params.clone()
     }
-
 }

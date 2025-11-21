@@ -26,7 +26,7 @@ pub(crate) struct KafkaParams {
 }
 
 
-pub(crate) async fn create_curr_actor<T, MP, MT> (
+pub(crate) async fn create_curr_actor<T, MT> (
     kafka_params: KafkaParams,
     metric: PricingMetric,  // pricing metric, like PV
     all_markets: Arc<AllMarkets<Arc<MT>>>,
@@ -34,10 +34,9 @@ pub(crate) async fn create_curr_actor<T, MP, MT> (
     initial_trades: Arc<TradeRep::<T>>,
 ) -> (ProcessorCurr<T, MT>, JoinHandle<()>)
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP, MT>,
-    MP: 'static + Send + Sync + Clone,
-    MT: MarketTypeT<MP=MP> + Send + Sync + 'static + Clone,
-    Arc<MT>: MarketTypeT<MP=MP>,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT>,
+    MT::MP : 'static + Send + Sync + Clone,
+    MT: MarketTypeT + Send + Sync + 'static + Clone,
 {
 
     //let current_market = markets_used[0];
@@ -80,7 +79,7 @@ where
 
 // creates a middle portion of the actor.
 //  returns: processor middle, and the future
-pub(crate) async fn create_middle_actor<T, MP, MT>(
+pub(crate) async fn create_middle_actor<T, MT>(
     market_name: String,
     metric: PricingMetric,
     all_markets: Arc<AllMarkets<Arc<MT>>>,
@@ -88,12 +87,10 @@ pub(crate) async fn create_middle_actor<T, MP, MT>(
     processor_below: ActorRef<ProcessorMiddleMessage<String>>,
 ) -> (ProcessorMiddle<T, MT>, JoinHandle<()>)
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP, MT>,
-    MP: 'static + Send + Sync + Clone,
-    MT: MarketTypeT<MP=MP> + Send + Sync + 'static + Clone,
-    Arc<MT>: MarketTypeT<MP=MP>,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT>,
+    MT::MP : 'static + Send + Sync + Clone,
+    MT: MarketTypeT + Send + Sync + 'static + Clone,
 {
-
 
     let bulk_middle = ProcessorBulk {
 	processor_name: format!("bulk_{}", market_name),
@@ -131,7 +128,7 @@ where
 ///   (vector of processor actors,
 ///    vector of bulk actors,
 ///    last middle processor actor - to be used for new_actor, special case)
-pub(crate) async fn create_middle_procs_chain<T, MP, MT> (
+pub(crate) async fn create_middle_procs_chain<T, MT> (
     processor_curr: ActorRef<ProcessorMiddleMessage<String>>,
     metric: PricingMetric,
     all_markets: Arc<AllMarkets<Arc<MT>>>,
@@ -143,10 +140,9 @@ pub(crate) async fn create_middle_procs_chain<T, MP, MT> (
 	Vec<JoinHandle<()>>,   // bulk processor handles.
     )
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP, MT>,
-    MP: 'static + Send + Sync + Clone,
-    MT: MarketTypeT<MP=MP> + Send + Sync + Clone + 'static,
-    Arc<MT>: MarketTypeT<MP=MP>,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT>,
+    MT::MP : 'static + Send + Sync + Clone,
+    MT: MarketTypeT + Send + Sync + Clone + 'static,
 {
 
     let mut bulk_actors_futures: Vec<JoinHandle<()>> = vec![];

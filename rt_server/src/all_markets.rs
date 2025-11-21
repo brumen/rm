@@ -21,10 +21,10 @@ pub(crate) struct AllMarkets<MT> {
 // }
 
 
-impl<MP, MT> AllMarkets<MT>
+impl<MT> AllMarkets<MT>
 where
-    MP: Clone,
-    MT: MarketTypeT<MP=MP> + Clone + Send + Sync,  // this will be fine since MT is an Arc.
+    MT: MarketTypeT + Clone + Send + Sync,  // this will be fine since MT is an Arc.
+    MT::MP : Clone,
 {
     //type MT = Arc<dyn MarketTypeT<MP=MP> + Sync + Send>;
 
@@ -106,7 +106,7 @@ where
     //}
 
     /// returns the market params of some market in the collection
-    pub(crate) fn get_market_params(&self) -> Option<MP> {
+    pub(crate) fn get_market_params(&self) -> Option<MT::MP> {
         //
         if self.market_names.len() == 0 {
             return None;

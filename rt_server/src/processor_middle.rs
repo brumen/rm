@@ -63,16 +63,16 @@ pub enum ProcessorMiddleState {
 
 
 #[async_trait]
-impl<T, MP, MT> Actor for ProcessorMiddle<T, MT>
+impl<T, MT> Actor for ProcessorMiddle<T, MT>
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MP, MT>,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT>,
     //for <'a> dyn MarketTypeT<MP=MP> + Send + Sync + 'a: Sized + MarketTypeT,
     //dyn MarketTypeT<MP=MP> + Send + Sync: Sized + MarketTypeT,
-    MP: 'static + Send + Sync + Clone,
+    // MP: 'static + Send + Sync + Clone,
     //for <'a> dyn MarketTypeT<MP=MP> + 'a: Send + Sync + Sized + MarketTypeT,
     //dyn MarketTypeT<MP=MP>: Send + Sync + Sized + MarketTypeT,
     //Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
-    MT: Send + Sync + MarketTypeT<MP=MP> + 'static,
+    MT: Send + Sync + MarketTypeT + 'static,
 {
     type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // first argument is list of trades,

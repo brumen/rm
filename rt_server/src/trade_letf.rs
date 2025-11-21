@@ -50,10 +50,7 @@ impl std::cmp::PartialEq for LETFTrade {
 }
 
 #[async_trait]
-impl PriceTrade<(), LETFMarketType> for LETFTrade
-// where
-//     for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
-{
+impl PriceTrade<LETFMarketType> for LETFTrade {
     async fn initial_pv(&self) -> Option<f64> {
         Some(0.)
     }
@@ -142,10 +139,7 @@ pub struct Future {
 
 
 #[async_trait]
-impl PriceTrade<(), LETFMarketType> for Future
-// where
-//     for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
-{
+impl PriceTrade<LETFMarketType> for Future {
     async fn initial_pv(&self) -> Option<f64> {
         self.initial_val
     }
@@ -191,10 +185,7 @@ pub struct Cash {
 }
 
 #[async_trait]
-impl PriceTrade<(), LETFMarketType> for Cash
-// where
-//     for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
-{
+impl PriceTrade<LETFMarketType> for Cash {
     async fn initial_pv(&self) -> Option<f64> {
         Some(self.amount)
     }
@@ -315,10 +306,7 @@ impl TryFromRef2 for TradeTypes {}
 
 
 #[async_trait]
-impl PriceTrade<(), LETFMarketType> for TradeTypes
-// where
-//     for <'a> dyn MarketTypeT<MP=()> + 'a: Send + Sync,
-{
+impl PriceTrade<LETFMarketType> for TradeTypes {
     async fn initial_pv(&self) -> Option<f64> {
         match self {
             TradeTypes::LETF(letf_trade) => letf_trade.initial_pv().await,

@@ -122,11 +122,11 @@ pub trait Decoder {
 // MP are market parameters, () if none.
 // MT is market type, depending on the market parameters.
 #[async_trait]
-pub trait PriceTrade<MP, MT>: BaseTrade + Send + Sync
+pub trait PriceTrade<MT>: BaseTrade + Send + Sync
 where
-    MT: MarketTypeT<MP=MP> + Send + Sync + 'static,
+    MT: MarketTypeT + Send + Sync + 'static,
     // dyn MarketTypeT<MP=MP>: Send + Sync,
-    MP: 'static + Send,
+    // MP: 'static + Send,
 {
 
     async fn initial_pv(&self) -> Option<f64> where Self: Send;
@@ -197,11 +197,11 @@ impl<TR> BaseTrade for TradeRep<TR> {
 // MT: MarketTypeT<MP>
 // TR: trade representation.
 #[async_trait]
-impl<MP, MT, TR> PriceTrade<MP, MT> for TradeRep<TR>
+impl<MT, TR> PriceTrade<MT> for TradeRep<TR>
 where
-    TR: PriceTrade<MP, MT> + Send + Sync,
-    MP: 'static + Send + Sync,
-    MT: MarketTypeT<MP=MP> +  Send + Sync + 'static,
+    TR: PriceTrade<MT> + Send + Sync,
+    //MP: 'static + Send + Sync,
+    MT: MarketTypeT +  Send + Sync + 'static,
 {
 
     async fn initial_pv(&self) -> Option<f64> {

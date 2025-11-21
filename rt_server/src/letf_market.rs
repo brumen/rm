@@ -97,7 +97,7 @@ impl MarketTypeT for LETFMarketType {
 
     type MP = ();
 
-    fn new(market_name: String, _mp: ()) -> Arc<dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
+    fn new(market_name: String, _mp: ()) -> Arc<LETFMarketType> {   //dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
         Arc::new(
             LETFMarketType {
                 market_name,
@@ -126,7 +126,7 @@ impl MarketTypeT for LETFMarketType {
         market_name: String,
         value: &BorrowedMessage,
         _mp: ()
-    ) -> Result<Arc<dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
+    ) -> Result<Arc<LETFMarketType>, MarketTypeError> {   //dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
         let msg_val = value.payload().ok_or(
             MarketTypeError::GeneralError("Didnt get payload".to_string())
         )?;
@@ -144,44 +144,44 @@ impl MarketTypeT for LETFMarketType {
         )
     }
 
-    fn market_params(&self) -> &Self::MP { &() }
+    fn market_params(&self) {  }
 
 }
 
 
-#[async_trait]
-impl MarketTypeT for Arc<LETFMarketType> {
+// #[async_trait]
+// impl MarketTypeT for Arc<LETFMarketType> {
 
-    type MP = ();
+//     type MP = ();
 
-    fn new(market_name: String, _mp: ()) -> Arc<dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
-	Arc::new(LETFMarketType::new(market_name))
-    }
+//     fn new(market_name: String, _mp: ()) -> Arc<LETFMarketType> { // dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
+// 	Arc::new(LETFMarketType::new(market_name))
+//     }
 
-    fn market_name(&self) -> String {
-        self.market_name.clone()
-    }
+//     fn market_name(&self) -> String {
+//         self.market_name.clone()
+//     }
 
-    async fn get(&self, stock: &String) -> Option<f64> {
-	self.as_ref().get(stock).await
-    }
+//     async fn get(&self, stock: &String) -> Option<f64> {
+// 	self.as_ref().get(stock).await
+//     }
 
-    async fn insert(&self, key: String, value: f64) {
-	let _ = self.as_ref().insert(key, value).await;
-    }
+//     async fn insert(&self, key: String, value: f64) {
+// 	let _ = self.as_ref().insert(key, value).await;
+//     }
 
-    fn is_empty(&self) -> bool {
-	self.as_ref().is_empty()
-    }
+//     fn is_empty(&self) -> bool {
+// 	self.as_ref().is_empty()
+//     }
 
-    fn try_from_ref(
-        market_name: String,
-        value: &BorrowedMessage,
-        _mp: ()
-    ) -> Result<Arc<dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
-	LETFMarketType::try_from_ref(market_name, value, _mp)
-    }
+//     fn try_from_ref(
+//         market_name: String,
+//         value: &BorrowedMessage,
+//         _mp: ()
+//     ) -> Result<Arc<LETFMarketType>, MarketTypeError> {  //dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
+// 	LETFMarketType::try_from_ref(market_name, value, _mp)
+//     }
 
-    fn market_params(&self) -> &Self::MP { &() }
+//     fn market_params(&self) {} // -> &Self::MP { &() }
 
-}
+// }

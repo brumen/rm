@@ -112,15 +112,15 @@ where
 
 // T is the representation fo the trade
 #[async_trait]
-impl<T, MP, MT> Actor for ProcessorCurr<T, MT>
+impl<T, MT> Actor for ProcessorCurr<T, MT>
 where
-    T: Sync + Send + Clone + BaseTrade + PriceTrade<MP, MT> + 'static,
+    T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static,
 //    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
 //    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
-    MP: 'static + Send + Sync + Clone,
-    ProcessorCurr<T,MP>: PublishPortfolio,
+//    MP: 'static + Send + Sync + Clone,
+    ProcessorCurr<T,MT>: PublishPortfolio,
     //Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
-    MT: MarketTypeT<MP=MP> + Send + Sync + 'static
+    MT: MarketTypeT + Send + Sync + 'static,
 {
     type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // state is a tuple of

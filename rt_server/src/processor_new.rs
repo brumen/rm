@@ -10,10 +10,9 @@ use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage,};
 use crate::trade::{BaseTrade, TradeRep};
 
 
-pub struct ProcessorNew<T, MP, MT>
-//where
-//    dyn MarketTypeT<MP=MP>: Sized,
-//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
+pub struct ProcessorNew<T, MT>
+where
+    MT: MarketTypeT
 {
     pub processor_name: String,
     pub metric: PricingMetric,
@@ -22,7 +21,7 @@ pub struct ProcessorNew<T, MP, MT>
     pub all_markets: Arc<AllMarkets<Arc<MT>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub market_name: (String, String),  // first item: new market, second item: future market.
-    pub(crate) market_params: MP, // market parameters.
+    pub(crate) market_params: MT::MP, // market parameters.
 }
 
 #[derive(Debug)]
@@ -110,11 +109,12 @@ pub enum ProcessorNewState {
 
 
 #[async_trait]
-impl<T, MP, MT> Actor for ProcessorNew<T, MP, MT>
+impl<T, MT> Actor for ProcessorNew<T, MT>
 where
-    T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MP, MT>,
-    MP: 'static + Send + Sync + Clone,
-    MT: MarketTypeT<MP=MP> + Send + Sync + 'static,
+    T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MT>,
+    //    MP: 'static + Send + Sync + Clone,
+    MT: MarketTypeT + Send + Sync + 'static,
+    MT::MP : Send + Sync,
 {
     type Msg = ProcessorMiddleMessage<String>;
 

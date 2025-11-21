@@ -12,12 +12,12 @@ use crate::all_markets::AllMarkets;
 use crate::ref_deref::TryFromRef2;
 
 
-pub struct MarketProducer<MP, MT>
-//where
-//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized
+pub struct MarketProducer<MT>
+where
+    MT: MarketTypeT
 {
     pub metric: PricingMetric,
-    pub pricing_options: MP,
+    pub pricing_options: MT::MP,
     pub mkt_listener: StreamConsumer,  // listening for market events.
     pub new_processor: ActorRef<ProcessorMiddleMessage<String>>,
     pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>,
@@ -29,17 +29,18 @@ pub struct MarketProducer<MP, MT>
 // MP ... market parameters
 // MM ... market message - message we receive from Kafka.
 #[async_trait]
-impl<MP, MT> Actor for MarketProducer<MP, MT>
+impl<MT> Actor for MarketProducer<MT>
 where
-    //dyn MarketTypeT<MP=MP> + Send + Sync: Sized + Send + Sync + Clone + MarketTypeT<MP=MP>, // + AddAssign<HandlerMarketType<MP>>,
-    MP: 'static + Send + Sync + Clone,
+    for<'a> MT: MarketTypeT + Send + Sync + AddAssign<&'a MT> + Clone + 'static,
+    //dyn MarketTypeT + Send + Sync: Sized + Send + Sync + Clone + MarketTypeT + AddAssign<dyn MarketTypeT + Send + Sync>,
+    MT::MP : 'static + Send + Sync + Clone,
     // dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
-    //Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: AddAssign<MT>,
-    Arc<MT>: AddAssign<MT>,
-    MT: Send + Sync + MarketTypeT<MP=MP> + 'static,
+    // Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: AddAssign<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>,
+    // Arc<MT>: AddAssign<MT>,
+    //MT: Send + Sync + MarketTypeT<MP=MP> + 'static,
 {
-    type Msg = MT;
-    type State = Arc<MT>;
+    type Msg = MT;  // dyn MarketTypeT<MP=MP> + Send + Sync;
+    type State = MT; // dyn MarketTypeT<MP=MP> + Send + Sync;
     type Arguments = ();
 
     async fn pre_start(
@@ -56,7 +57,7 @@ where
         //self.all_markets.insert(market_name, mew_mkt);
 	myself.send_message((*new_mkt.clone()).clone())?;
 
-	Ok(new_mkt)
+	Ok((*new_mkt).clone())
     }
 
     async fn handle(
@@ -71,7 +72,7 @@ where
 	let market = state;
         let market_addition = message;
 	// *market += &message;
-        *market += market_addition;  // adding a new market
+        *market += &market_addition;  // adding a new market
         let market_name = market.market_name();
 	self.new_processor.send_message(
 	    ProcessorMiddleMessage::NewMarket(market_name)

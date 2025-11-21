@@ -70,10 +70,7 @@ impl AOTrade {
 }
 
 #[async_trait]
-impl PriceTrade<AOMarketParams, AOMarketType> for AOTrade
-// where
-//     for <'a> dyn MarketTypeT<MP=AOMarketParams> + 'a: Send + Sync,
-{
+impl PriceTrade<AOMarketType> for AOTrade {
     async fn initial_pv(&self) -> Option<f64> {
         Some(0.)
     }
