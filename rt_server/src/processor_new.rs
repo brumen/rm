@@ -31,6 +31,51 @@ pub enum ProcessorNewState {
     Idle,
 }
 
+impl<T, MT> ProcessorNew<T,MT>
+where
+    MT: MarketTypeT,
+    MT::MP : Clone,
+{
+    pub(crate) fn new(
+        processor_name: String,
+        metric: PricingMetric,
+        processor_middle: ActorRef<ProcessorMiddleMessage<String>>,   //dyn MarketTypeT<MP=MP>>>,  // process
+        processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
+        all_markets: Arc<AllMarkets<Arc<MT>>>,
+        all_trades: Arc<TradeRep<T>>,
+        mp: MT::MP,
+    ) -> Self {
+
+        let processor_fut_mkt_name = format!("{}_future", processor_name.clone());
+
+        let processor_new_mkt = MT::new(processor_name.clone(), mp.clone());
+        let processor_fut_mkt = MT::new(processor_fut_mkt_name.clone(), mp.clone());
+
+        // insert a proper market into the all_market.
+        all_markets.insert(
+            processor_name.clone(),
+            processor_new_mkt,
+        );
+
+        all_markets.insert(
+            processor_fut_mkt_name.clone(),
+            processor_fut_mkt,
+        );
+
+        Self {
+            processor_name: processor_name.clone(),
+            metric,
+            processor_middle,
+            processor_bulk,
+            all_markets,
+            all_trades,
+            market_name: (processor_name, processor_fut_mkt_name),
+            market_params: mp
+        }
+    }
+}
+
+
 
 // impl<T, MT, MP> ProcessorNew<T, MT>
 // where

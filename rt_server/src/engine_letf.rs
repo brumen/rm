@@ -95,16 +95,15 @@ where
 	.expect("Could not start processor_new_bulk");
 
 
-    let processor_new = ProcessorNew {
-	processor_name: last_market_name.clone(),
+    let processor_new = ProcessorNew::new(
+	last_market_name.clone(),
 	metric,
-	processor_middle: last_middle.clone(),
-	processor_bulk: processor_new_bulk_actor.clone(),
-	all_markets: all_markets.clone(),
-	all_trades: Arc::new(TradeRep::<T>::default()),
-	market_name: (last_market_name.clone(), "new".to_string()),
-	market_params: mp.clone(),
-    };
+	last_middle.clone(),
+	processor_new_bulk_actor.clone(),
+	all_markets.clone(),
+	Arc::new(TradeRep::<T>::default()),
+	mp.clone(),
+    );
 
     let last_market_name = all_markets.last_market_name();
     let last_market = all_markets.get(&last_market_name).unwrap().clone();
