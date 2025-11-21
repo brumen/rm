@@ -18,6 +18,7 @@ use crate::market::MarketTypeT;
 
 pub(crate) struct ProcessorCurr<T, MT>
 where
+    MT: MarketTypeT
 //    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
 //    dyn MarketTypeT<MP=MP>: Sized,
 //    T: Send + Sync,
@@ -35,6 +36,7 @@ where
 
 impl<T, MT> std::fmt::Debug for ProcessorCurr<T, MT>
 where
+    MT: MarketTypeT
 //     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
 //    dyn MarketTypeT<MP=MP>: Sized,
 //    T: Send + Sync,
@@ -70,7 +72,7 @@ where
     //dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
     // dyn MarketTypeT<MP=MP>: Sized,
     T: Send + Sync,
-    MT: Send + Sync,
+    MT: Send + Sync + MarketTypeT,
 {
     async fn _publish_result_portfolio(
 	&self,

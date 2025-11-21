@@ -28,6 +28,7 @@ where
 impl<T, MT> ProcessorBulk<T,MT>
 where
     MT: MarketTypeT,
+    MT::MP : Clone,
 {
     pub(crate) fn new(
         processor_name: String,
@@ -40,10 +41,10 @@ where
         let bulk_mkt = MT::new(processor_name.clone(), mp);
 
         // insert a proper market into the all_market.
-        // all_markets.insert(
-        //     processor_name.clone(),
-        //     bulk_mkt,
-        // );
+        all_markets.insert(
+           processor_name.clone(),
+           bulk_mkt,
+        );
 
         Self {
             processor_name,

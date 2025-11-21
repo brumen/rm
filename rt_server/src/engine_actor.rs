@@ -98,19 +98,17 @@ pub(crate) async fn create_middle_actor<T, MT>(
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT>,
     MT::MP : 'static + Send + Sync + Clone,
-    MT: MarketTypeT + Send + Sync + 'static + Clone,
+    MT: MarketTypeT + 'static,
 {
 
     let middle_bulk_mkt_name = format!("{}_bulk", market_name);
     let middle_mkt_name = format!("middle_{}", market_name);
-    let middle_bulk_mkt = MT::new(middle_bulk_mkt_name.clone(), mp.clone());
-    let middle_mkt = MT::new(middle_mkt_name.clone(), mp.clone());
 
     // adding
-    all_markets.insert(
-        middle_mkt_name.clone(),
-        middle_mkt,
-    );
+    // all_markets.insert(
+    //     middle_mkt_name.clone(),
+    //     middle_mkt,
+    // );
 
     let bulk_middle = ProcessorBulk::new(
 	middle_bulk_mkt_name,
