@@ -27,6 +27,7 @@ pub(crate) async fn start2<T, MT>(
     all_markets: Arc<AllMarkets<Arc<MT>>>,
     markets_used: Vec<String>,
     initial_trades: Arc<TradeRep::<T>>,
+    mp: MT::MP,
 ) -> Vec<JoinHandle<()>>
 where
     T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MT> + TryFromRef2,
@@ -34,13 +35,14 @@ where
     // Arc<MT>: Send + Sync + MarketTypeT<MP=MP> + 'static + Clone,
     for <'a> MT: Send + Sync + MarketTypeT + 'static + Clone + AddAssign<&'a MT>,
 {
-    let mp = all_markets.get_market_params().unwrap();
-    let first_market = all_markets.markets.get(&markets_used[0]).unwrap();
-    let first_market_name = first_market.market_name();
-
-    // create the
+    // create the current processor.
     let (curr_processor, curr_processor_bulk_h) = create_curr_actor(
-        kafka_params.clone(), metric, all_markets.clone(), markets_used[0].clone(), initial_trades.clone(),
+        kafka_params.clone(),
+        metric,
+        all_markets.clone(),
+        markets_used[0].clone(),
+        initial_trades.clone(),
+        mp.clone(),
     ).await ;
 
     // set the initial Current market to empty
@@ -54,8 +56,9 @@ where
 
     let (_processor_curr_a, processor_curr_handle) = Actor::spawn(
 	None, curr_processor, ()
-    ).await
-    .expect("Could not start current processor");
+    )
+        .await
+        .expect("Could not start current processor");
 
     // middle actors
     let (
@@ -68,6 +71,7 @@ where
 	    metric,
 	    all_markets.clone(),
             initial_trades.clone(),
+            mp.clone(),
 	).await;
 
     let last_middle = processor_actors.last().unwrap(); // last middle processor

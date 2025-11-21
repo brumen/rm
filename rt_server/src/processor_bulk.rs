@@ -2,7 +2,6 @@
 ///
 use tracing::{info, debug, warn};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
-// use futures::future::join_all;
 use std::sync::Arc;
 
 use crate::market::{MarketTypeT};
@@ -15,9 +14,8 @@ use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
 
 // computes bulk evaluation of trades in trade_names
 pub struct ProcessorBulk<T, MT>
-// where
-//     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-//     dyn MarketTypeT<MP=MP>: Sized,
+where
+    MT: MarketTypeT,
 {
     pub processor_name: String,
     pub metric: PricingMetric,
@@ -25,6 +23,38 @@ pub struct ProcessorBulk<T, MT>
     pub(crate) all_trades: Arc<TradeRep<T>>,  // all_trades is a reference to the structure that contains all trades.
     pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>, // dyn MarketTypeT<MP=MP> + Send + Sync>>>,
 }
+
+
+impl<T, MT> ProcessorBulk<T,MT>
+where
+    MT: MarketTypeT,
+{
+    pub(crate) fn new(
+        processor_name: String,
+        metric: PricingMetric,
+        all_trades: Arc<TradeRep<T>>,
+        all_markets: Arc<AllMarkets<Arc<MT>>>,
+        mp: MT::MP,
+    ) -> Self {
+
+        let bulk_mkt = MT::new(processor_name.clone(), mp);
+
+        // insert a proper market into the all_market.
+        // all_markets.insert(
+        //     processor_name.clone(),
+        //     bulk_mkt,
+        // );
+
+        Self {
+            processor_name,
+            metric,
+            trade_names: vec![],
+            all_trades,
+            all_markets,
+        }
+    }
+}
+
 
 
 pub enum ProcessorBulkState<MT> {

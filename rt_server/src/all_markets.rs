@@ -7,9 +7,13 @@ use crate::market::MarketTypeT;
 // MT.. market type
 // MP .. market params.
 // MT = MarketTypeT<MP>
-pub(crate) struct AllMarkets<MT> {
+pub(crate) struct AllMarkets<MT>
+//where
+//    MT: MarketTypeT
+{
     pub(crate) markets: DashMap<String, MT>,
     pub(crate) market_names: DashMap<usize, String>,  // mapping of numbers to markets.
+//    pub(crate) mp: Option<MT::MP>,
 }
 
 // impl<MT> Deref for AllMarkets<MT> {
@@ -29,13 +33,16 @@ where
     //type MT = Arc<dyn MarketTypeT<MP=MP> + Sync + Send>;
 
     // creates a new empty all markets structure
+    //pub(crate) fn new(mp: Option<MT::MP> ) -> Self {
     pub(crate) fn new() -> Self {
         Self {
             markets: DashMap::<String,MT>::new(),
             market_names: DashMap::<usize, String>::new(),
+//            mp,
         }
     }
 
+    //    pub(crate) fn new2(market_1_name: String, market_1: MT, mp: Option<MT::MP>) -> AllMarkets<Arc<MT>> {
     pub(crate) fn new2(market_1_name: String, market_1: MT) -> AllMarkets<Arc<MT>> {
         let new_dm = DashMap::<String, Arc<MT>>::new();
         let market_1_cast = Arc::new(market_1);
@@ -46,6 +53,7 @@ where
         AllMarkets {
             markets: new_dm,
             market_names: new_mn,
+//            mp,
         }
     }
 

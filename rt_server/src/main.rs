@@ -14,8 +14,6 @@ use axum::{
 use std::sync::{Arc, Mutex};
 use std::net::SocketAddr;
 use tokio::task;
-use glommio::LocalExecutorBuilder;
-use monoio;
 use dotenv::dotenv;
 
 
@@ -59,14 +57,6 @@ use crate::engine_letf::start2;
 use crate::letf_market::LETFMarketType;
 
 
-// testing different
-fn main_glommio() {
-    let _ = LocalExecutorBuilder::default()
-        .spawn(|| async move {
-	    // here the async part
-	    run_all().await;
-	});
-}
 
 
 #[tokio::main]
@@ -74,18 +64,6 @@ async fn main() {
     run_all().await;
 }
 
-fn main_monoio() {
-
-    let mut rt = monoio::RuntimeBuilder::<monoio::FusionDriver>::new()
-        .build()
-        .unwrap();
-
-    rt.block_on(
-	async {
-            run_all().await
-	}
-    );
-}
 
 async fn run_all() {
     dotenv().ok();  // .env is loaded.
@@ -153,6 +131,7 @@ async fn run_all() {
         all_markets,
         markets_used,
         initial_trades,
+        (),
     ).await;
 
     results.append(&mut all_actors);
@@ -164,14 +143,9 @@ async fn run_all() {
 fn init_letf() -> (Arc<TradeRep<TradeTypes>>, Arc<AllMarkets<Arc<LETFMarketType>>>) {
     let initial_trades = Arc::new(TradeRep::<TradeTypes>::default());  // defines the type of trades.
     let initial_market = LETFMarketType::new("name1".to_string());  // TODO: CHANGE HERW
-    let all_markets = Arc::new(AllMarkets::<Arc<LETFMarketType>>::new());  // how many in-between markets there are.
+    let all_markets = Arc::new(AllMarkets::<Arc<LETFMarketType>>::new() );  // how many in-between markets there are.
 
     (initial_trades, all_markets)
-}
-
-
-fn init_ao() {
-    todo!()
 }
 
 
