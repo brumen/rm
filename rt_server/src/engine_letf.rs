@@ -28,6 +28,7 @@ pub(crate) async fn start2<T, MT>(
     markets_used: Vec<String>,
     initial_trades: Arc<TradeRep::<T>>,
     mp: MT::MP,
+    nb_middle: usize,
 ) -> Vec<JoinHandle<()>>
 where
     T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MT> + TryFromRef2,
@@ -67,6 +68,7 @@ where
         mut bulk_actor_futures,
     ) =
 	create_middle_procs_chain(
+            nb_middle,
 	    _processor_curr_a.clone(),
 	    metric,
 	    all_markets.clone(),

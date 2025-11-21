@@ -132,6 +132,7 @@ async fn run_all() {
         markets_used,
         initial_trades,
         (),
+        2,
     ).await;
 
     results.append(&mut all_actors);

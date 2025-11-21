@@ -141,6 +141,7 @@ where
 ///    vector of bulk actors,
 ///    last middle processor actor - to be used for new_actor, special case)
 pub(crate) async fn create_middle_procs_chain<T, MT> (
+    nb_middle: usize,  // number of middle actors.
     processor_curr: ActorRef<ProcessorMiddleMessage<String>>,
     metric: PricingMetric,
     all_markets: Arc<AllMarkets<Arc<MT>>>,
@@ -164,10 +165,10 @@ where
 
     let last_middle: ActorRef<ProcessorMiddleMessage<String>> = processor_curr.clone();
 
-    for market_nb_name in all_markets.market_names.iter() {
-        let market_name = market_nb_name.value();
+    for market_nb in 0..nb_middle {
+        let market_name = format!("middle_{}", market_nb);
         let (processor_middle, bulk_actor_future) = create_middle_actor(
-            market_name.to_string(),
+            market_name,
             metric,
             all_markets.clone(),
             initial_trades.clone(),
