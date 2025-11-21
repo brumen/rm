@@ -104,12 +104,7 @@ where
     let middle_bulk_mkt_name = format!("{}_bulk", market_name);
     let middle_mkt_name = format!("middle_{}", market_name);
 
-    // adding
-    // all_markets.insert(
-    //     middle_mkt_name.clone(),
-    //     middle_mkt,
-    // );
-
+    // TODO: NEXT STAGE IS TO CONSTRUCT BULK INSIDE PROCESSOR MIDDLE
     let bulk_middle = ProcessorBulk::new(
 	middle_bulk_mkt_name,
 	metric,
@@ -118,22 +113,21 @@ where
         mp.clone(),
     );
 
-    let mp = all_markets.get_market_params().unwrap();
-
     let (bulk_actor, bulk_actor_future) = Actor::spawn(
 	None, bulk_middle, mp.clone(),
     )
 	.await
 	.expect("Could not create bulk middle processor");
 
-    let proc_middle = ProcessorMiddle {
-	metric,
-	processor_name: format!("middle_{}", market_name),
-	processor_below,
-	processor_bulk: bulk_actor,
-	all_markets: all_markets.clone(),
-        all_trades: initial_trades.clone(),
-    };
+    let proc_middle = ProcessorMiddle::new(
+	middle_mkt_name.clone(),
+        processor_below,
+        bulk_actor,
+        metric,
+        initial_trades.clone(),
+        all_markets.clone(),
+        mp.clone()
+    );
 
     (proc_middle, bulk_actor_future)
 }

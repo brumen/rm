@@ -28,6 +28,42 @@ pub(crate) struct ProcessorMiddle<T, MT>
 }
 
 
+impl<T, MT> ProcessorMiddle<T,MT>
+where
+    MT: MarketTypeT,
+    MT::MP : Clone,
+{
+    pub(crate) fn new(
+        processor_name: String,
+        processor_below: ActorRef<ProcessorMiddleMessage<String>>,   //dyn MarketTypeT<MP=MP>>>,  // process
+        processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
+        metric: PricingMetric,
+        all_trades: Arc<TradeRep<T>>,
+        all_markets: Arc<AllMarkets<Arc<MT>>>,
+        mp: MT::MP,
+    ) -> Self {
+
+        let processor_middle_mkt = MT::new(processor_name.clone(), mp);
+
+        // insert a proper market into the all_market.
+        all_markets.insert(
+            processor_name.clone(),
+            processor_middle_mkt,
+        );
+
+        Self {
+            metric,
+            processor_name,
+            processor_below,
+            processor_bulk,
+            all_trades,
+            all_markets,
+        }
+    }
+}
+
+
+
 #[derive(Debug, Clone)]
 pub enum ProcessorMiddleState {
     CalculatingSingle,  // when bulk has finished and we're only calculating single trades.
