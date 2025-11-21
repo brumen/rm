@@ -78,16 +78,18 @@ where
     let nb_middle_mkts = all_markets.markets.len();
     let last_market_name = all_markets.last_market_name();  // last market name in all_markets, should be "new" or similar
 
+    // creating the bulk processor
+    let new_mkt_bulk = ProcessorBulk::new(
+	"processor_new_bulk".to_string(),
+	metric,
+        initial_trades.clone(),
+        all_markets.clone(),
+        mp.clone(),
+    );
+
+
     let (processor_new_bulk_actor, processor_new_bulk_handle) = Actor::spawn(
-	None,
-	ProcessorBulk {
-	    processor_name: "processor_new_bulk".to_string(),
-	    metric,
-            trade_names: vec![],
-            all_trades: initial_trades.clone(),
-            all_markets: all_markets.clone(),
-	},
-	mp.clone(),
+	None, new_mkt_bulk, mp.clone(),
     )
         .await
 	.expect("Could not start processor_new_bulk");
