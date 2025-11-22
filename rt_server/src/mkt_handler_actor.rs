@@ -52,7 +52,7 @@ where
 	info!("Initializing MarketProducer. Waiting on first message");
 	let new_mkt_msg = self.mkt_listener.recv().await?;
         let market_name = Uuid::new_v4().to_string();  // TODO: THIS IS WRONG - CHECK
-        let new_mkt = Self::Msg::try_from_ref(market_name, &new_mkt_msg, self.pricing_options.clone())?;  // try_from_ref(&new_mkt_msg);
+        let new_mkt = Self::Msg::try_from_ref(market_name, &new_mkt_msg, self.pricing_options.clone())?;
 
         //self.all_markets.insert(market_name, mew_mkt);
 	myself.send_message((*new_mkt.clone()).clone())?;

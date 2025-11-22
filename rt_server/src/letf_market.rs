@@ -92,6 +92,13 @@ impl<const N: usize> From<(String, [(String, f64); N])> for LETFMarketType {
     }
 }
 
+#[derive(Deserialize)]
+struct MktMsgDescr {
+    market_name: String,
+    market: MarketInner,
+}
+
+
 #[async_trait]
 impl MarketTypeT for LETFMarketType {
 
@@ -126,19 +133,19 @@ impl MarketTypeT for LETFMarketType {
         market_name: String,
         value: &BorrowedMessage,
         _mp: ()
-    ) -> Result<Arc<LETFMarketType>, MarketTypeError> {   //dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
+    ) -> Result<Arc<LETFMarketType>, MarketTypeError> {
         let msg_val = value.payload().ok_or(
             MarketTypeError::GeneralError("Didnt get payload".to_string())
         )?;
 
         let msg_utf = std::str::from_utf8(msg_val)?;
-        let inner_dashmap = serde_json::from_str::<MarketInner>(msg_utf)?;
+        let inner_dashmap = serde_json::from_str::<MktMsgDescr>(msg_utf)?;
 
         Ok(
             Arc::new(
                 Self {
                     market_name,
-                    market: inner_dashmap,
+                    market: inner_dashmap.market,
                 }
             )
         )
