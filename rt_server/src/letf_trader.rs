@@ -1,61 +1,22 @@
-// Starts the controller.
-
-// Windows usage:
-// ADD THIS TO POWERSHELL:
-// $env:OPENSSL_DIR = 'C:\Tools\vcpkg\installed\x64-windows-static'
-// $env:OPENSSL_STATIC = 'Yes'
-
-//use std::env::args;
-
+// Starts the controller for Leveraged ETF trading..
 use std::sync::{Arc, Mutex};
-use std::thread;
 
 use crate::engine::CalcController;
 use crate::market;
 use crate::market::{MarketType, LETFP};
 use crate::pricer::MarketPricingOptions;
 use crate::rm_local::{RTRMConfig, RTRMLocal};
-use crate::trader::{LETFTrader, RTConfig};
+use crate::trader::LETFHedger;
 
-pub fn main_letf_trader() {
-    thread::scope(|s| {
-        let _ = thread::Builder::new()
-            .name("letf_trader".to_string())
-            .spawn_scoped(s, move || {
-                letf_trader();
-            })
-            .unwrap();
-
-        let _ = thread::Builder::new()
-            .name("letf_risk".to_string())
-            .spawn_scoped(s, move || {
-                letf_risk();
-            })
-            .unwrap();
-    });
+#[allow(dead_code)]
+pub async fn main_letf_trader() {
+    letf_risk().await;
 }
 
 // start trader w/ RuST_LOG=debug cargo r "CONFIG FILE"
 
-/// starts the trader portion of the Leveraged ETF.
-fn letf_trader() {
-    let config_file: String =
-        "/home/brumen/work/rm/configs/configuration_letf_trader.yaml".to_owned();
-
-    let trader = LETFTrader::new_from_config(config_file.clone()).unwrap();
-
-    let config_trader_f = std::fs::File::open(config_file).unwrap();
-    let config_map: RTConfig = serde_yaml::from_reader(config_trader_f).unwrap();
-
-    trader.start(
-        config_map.positions_topic,
-        config_map.mkt_topic,
-        config_map.results_topic,
-    );
-}
-
 /// starts the risk engine of the letf trader.
-fn letf_risk() {
+async fn letf_risk() {
     // at some point add: //args().nth(1).unwrap();
     let config_file: String =
         "/home/brumen/work/rm/configs/configuration_letf_risk.yaml".to_owned();
@@ -69,13 +30,16 @@ fn letf_risk() {
         pricing_endpoint: "pv".to_owned(),           //config_map.metric.to_owned(),  // "pv"
     };
 
-    rtrm_local.start(
-        config_map.results_topic,
-        config_map.mkt_topic,
-        config_map.risk_topic,
-        market::MktMsgParams::LETFParams(LETFP {
-            curr_mkt: Arc::new(Mutex::new(MarketType::new())),
-        }),
-        &market_pricing_options,
-    );
+    tokio_scoped::scope(|scope| {
+        scope.spawn(rtrm_local.hedge("letf.positions".to_string(), "letf.results".to_string()));
+        scope.spawn(rtrm_local.start(
+            config_map.results_topic,
+            config_map.mkt_topic,
+            config_map.risk_topic,
+            market::MktMsgParams::LETFParams(LETFP {
+                curr_mkt: Arc::new(Mutex::new(MarketType::new())),
+            }),
+            &market_pricing_options,
+        ));
+    });
 }

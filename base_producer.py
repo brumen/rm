@@ -3,9 +3,15 @@
 
 import logging
 import json
+import sys
+import six.moves
 
 from typing import Tuple
 from threading import Thread
+
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
+
 from kafka import KafkaProducer
 
 
@@ -45,7 +51,7 @@ class BaseProducer:
         """
 
         for value in self._value_to_publish(sleep_between_publish=sleep_delay):
-            print(f'Publishing value {value}.')
+            logger.info(f'Publishing to {self._value_producer_topic}: {value}.')
 
             self._value_producer.send(
                 self._value_producer_topic,

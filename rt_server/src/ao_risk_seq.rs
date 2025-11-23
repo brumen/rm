@@ -2,18 +2,20 @@
 
 use tracing::info;
 
-use crate::controller::{Controller, RTConfig};
+use crate::controller::RTConfig;
+use crate::controller_seq::ControllerSeq;
 use crate::engine::CalcController;
 use crate::market;
 use crate::pricer::MarketPricingOptions;
 
+/// Sequential version of the AO risk.
 #[allow(dead_code)]
-pub async fn ao_main_risk() {
+pub async fn ao_risk_seq() {
     let config_file = "/home/brumen/work/rm/configs/configuration.yaml".to_owned();
     let config_f = std::fs::File::open(config_file.clone()).unwrap();
     let config_map: RTConfig = serde_yaml::from_reader(config_f).unwrap();
 
-    let controller = Controller::new_from_config(config_file).unwrap();
+    let controller_seq = ControllerSeq::new_from_config(config_file).unwrap();
 
     let position_topic = config_map.pos_topic.to_owned(); // "air_options.ao.option_positions"
     info!("Position topic: {:?}", position_topic);
@@ -26,7 +28,7 @@ pub async fn ao_main_risk() {
         pricing_endpoint: config_map.metric.to_owned(),       // "pv"
     };
 
-    controller
+    controller_seq
         .start(
             position_topic,
             mkt_topic,

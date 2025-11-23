@@ -9,16 +9,36 @@
        the uuid4 described above.
 """
 
+import os
 import logging
+import sys
+import six.moves
+
+
+from dotenv import load_dotenv
+
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
+
+
+from rm.services.ao.market_service import AOMarketService
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-import sys
-sys.path.append('/home/brumen/work/')
-
-from rm.market_service import AOMarketService
-
 
 # starting the service
-aom = AOMarketService(time_interval=1)
-aom.run(sleep_delay=5, testing_shift=(1., 5.))
+if __name__ == '__main__':
+
+    load_dotenv()
+    server_host = os.getenv('HOST')
+    kafka_port = os.getenv('KAFKA_PORT')
+    aom = AOMarketService(
+        server_port_topic=(
+            server_host,
+            int(kafka_port),
+            'air_options.ao.flights_live',
+        ),
+        time_interval=1
+    )
+    aom.run(sleep_delay=5, testing_shift=(1., 5.))

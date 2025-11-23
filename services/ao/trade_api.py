@@ -7,12 +7,22 @@ start proper server with:
         --processes 4 --port 5010
 """
 
+import os
 import logging
 import datetime
+import six.moves
+import sys
+import requests
+
+# a = requests.Response
+
+from dotenv import load_dotenv
 from typing import List, Dict, Any, Tuple, Optional
 from markupsafe import escape
 from flask import Response, request, Flask
 from json import dumps, loads
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 # IMPORTANT: This logging config MUST BE HERE ON TOP, OTHERWISE IT DOES NOT WORK
 logging.basicConfig(
@@ -21,17 +31,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
 
-import sys
-if '/home/brumen/work/' not in sys.path:
-    sys.path.append('/home/brumen/work/')
-
-
-from ao.trade import AOTrade, DeltaDict, AirOptionFlights
-from rm.market_service import AOMarketService
+from ao.trade import AOTrade
 from rm.services.ao.trade_api_pricers import (
     _compute_trade_from_mkt,
-    _compute_trades_from_id,
     default_params,
     construct_ao_trades,
     extract_trade_ids,
@@ -39,11 +44,9 @@ from rm.services.ao.trade_api_pricers import (
     price_trades,
     CurrNewMarket,
     PriceMetric,
-    PRICING_SERVER_NAME,
 )
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+MARKET_SERVER = 'http://192.168.1.107:8000/market'
 
 
 # rester start
@@ -59,15 +62,22 @@ MKT_DATE = datetime.date(2016, 7, 1)
 # market on which the trades are priced.
 MARKET_TYPE = Optional[Dict[Tuple[str, datetime.date], float]]
 ENCODED_MARKET_TYPE = Optional[Dict[str, float]]
-MARKET: MARKET_TYPE = {}  # current market
-NEW_MARKET: MARKET_TYPE = {}  # new market to price on.
-# future market, which will replace the new_market
-FUTURE_MARKET: MARKET_TYPE = {}
-
 
 ao_db = 'mysql://brumen@localhost/ao'
 ao_engine = create_engine(ao_db)
 ao_session = sessionmaker(bind=ao_engine)
+
+
+def price_trades_json(
+        market_date: datetime.date,
+        trade_ids: List[int],
+        curr_new_mkt: CurrNewMarket,
+        metric: PriceMetric = PriceMetric.PV,
+):
+    for trade_result in price_trades(
+            market_date, trade_ids, curr_new_mkt, metric
+    ):
+        yield dumps(trade_result)
 
 
 def trade_pv_market(
@@ -107,58 +117,37 @@ def trade_pv_market(
         return result
 
 
-@pv_rester.route('/pv/<trade_id>')
-def trade_pv(trade_id):
-    """ Returns the PV of the trade.
-           Trade can be either in the form of 200, or a list of trades,
-           separated by e.g. 200, 201, 202
+@pv_rester.route('/pricing')
+def pricing():
+    """ Get request for different markets, pricing metrics,
+       and trade ids.
+       Need to provide:
+         market: Current or New
+         metric: PV, PV01, PnL
+         trade_ids: string like 200,201,202...
     """
 
-    trade_ids = extract_trade_ids(escape(trade_id))
+    args = request.args
+    market_name = args.get('market')
 
-    return trade_pv_market(trade_ids, MARKET)
+    params = {'market': market_name}
+    # TODO: BETTER ERROR HANDLING
+    market_response = requests.get(MARKET_SERVER, params=params)
+    if market_response.content == b'':
+        # no market
+        _market = {}
+    else:
+        _market = market_response.json()
 
+    _metric = PriceMetric.from_string(args.get('metric'))
+    _trade_ids = extract_trade_ids(escape(args.get('trade_ids')))
 
-@pv_rester.route('/pv01/<trade_id>')
-def trade_pv01(trade_id):
-    """ Returns the PV of the trade.
-            Trade can be either in the form of 200, or a list of trades,
-            separated by e.g. 200, 201, 202
-    """
-
-    trade_ids = extract_trade_ids(escape(trade_id))
-
-    return trade_pv_market(trade_ids, MARKET, PriceMetric.PV01)
-
-
-@pv_rester.route('/pv/new/<trade_id>')
-def trade_pv_new(trade_id):
-    """ Returns the PV of the trade.
-            Trade can be either in the form of 200, or a list of trades,
-            separated by e.g. 200, 201, 202
-    """
-
-    trade_ids = extract_trade_ids(escape(trade_id))
-
-    return trade_pv_market(trade_ids, NEW_MARKET)
-
-
-@pv_rester.route('/pv01/new/<trade_id>')
-def trade_pv01_new(trade_id):
-    """ Returns the PV of the trade.
-            Trade can be either in the form of 200, or a list of trades,
-            separated by e.g. 200, 201, 202
-    """
-
-    trade_ids = extract_trade_ids(escape(trade_id))
-
-    return trade_pv_market(trade_ids, NEW_MARKET, PriceMetric.PV01)
+    return trade_pv_market(_trade_ids, _market, _metric)
 
 
 # to test this:
 # curl -X POST -F 'trades=189,190' localhost:8000/pv/spark
-
-@pv_rester.route('/pv/spark', methods=['POST', ])
+@pv_rester.route('/spark', methods=['POST', ])
 def trade_pv_spark() -> Response:
     """ Returns the PV of the trades presented.
             Trade can be either in the form of 200, or a list of trades,
@@ -167,6 +156,8 @@ def trade_pv_spark() -> Response:
 
     # requests has to have a form {"trades": "190,191"}
     initial_trades = request.form.get('trades')
+    metric = request.form.get('metric')  # PV or PV01
+    market = request.form.get('market')  # Current or New
 
     if not initial_trades:
         return Response(dumps({}))
@@ -177,102 +168,18 @@ def trade_pv_spark() -> Response:
     if not trades:  # list is empty
         return Response(dumps({}))
 
-    # response of the priced trades
-    return Response(
-        dumps(
-            price_trades(
-                MKT_DATE,
-                trades,
-                CurrNewMarket.CURRENT
-            )
-        )
-    )
-
-
-# to test this:
-# curl -X POST -F 'trades=189,190' localhost:8000/pv/spark
-
-@pv_rester.route('/pv01/spark', methods=['POST', ])
-def trade_pv01_spark() -> Response:
-    """ Returns the PV of the trades presented.
-           Trade can be either in the form of 200, or a list of trades,
-           separated by , e.g. 200, 201, 202
-    """
-
-    # requests has to have a form {"trades": "190,191"}
-    initial_trades = request.form.get('trades')
-
-    if not initial_trades:
-        return Response(dumps({}))
-
-    # list of trade ids in the json encoded format
-    trades: List[int] = extract_trade_ids(escape(initial_trades))
-
-    if not trades:  # list is empty
-        return Response(dumps({}))
+    price_metric: PriceMetric = PriceMetric.from_string(metric)
+    price_market: CurrNewMarket = CurrNewMarket.from_string(market)
 
     # response of the priced trades
     return Response(
-        dumps(
-            price_trades(
-                MKT_DATE,
-                trades,
-                CurrNewMarket.CURRENT,
-                PriceMetric.PV01,
-            )
+        price_trades_json(
+            MKT_DATE,
+            trades,
+            curr_new_mkt=price_market,
+            metric=price_metric,
         )
     )
-
-
-@pv_rester.route('/pv/spark_new', methods=['POST', ])
-def trade_pv_spark_new() -> Response:
-    """ Returns the PV of the trade.
-            Trade can be either in the form of 200, or a list of trades,
-            separated by , e.g. 200, 201, 202
-    """
-
-    initial_trades = request.form.get('trades')
-
-    if not initial_trades:
-        return Response(dumps({}))
-
-    trades: List[int] = extract_trade_ids(escape(initial_trades))
-
-    if not trades:
-        return Response(dumps({}))
-
-    priced_trades = price_trades(MKT_DATE, trades, CurrNewMarket.NEW)
-    logger.info(f"PV {len(priced_trades.keys())} on NEW market using SPARK.")
-
-    return Response(dumps(priced_trades))
-
-
-@pv_rester.route('/pv01/spark_new', methods=['POST', ])
-def trade_pv01_spark_new() -> Response:
-    """ Returns the PV of the trade.
-            Trade can be either in the form of 200, or a list of trades,
-            separated by e.g. 200, 201, 202
-    """
-
-    initial_trades = request.form.get('trades')
-
-    if not initial_trades:
-        return Response(dumps({}))
-
-    trades: List[int] = extract_trade_ids(escape(initial_trades))
-
-    if not trades:
-        return Response(dumps({}))
-
-    priced_trades = price_trades(
-        MKT_DATE,
-        trades,
-        CurrNewMarket.NEW,
-        PriceMetric.PV01,
-    )
-    logger.info(f"PV01 {len(priced_trades.keys())} on NEW market using SPARK.")
-
-    return Response(dumps(priced_trades))
 
 
 @pv_rester.route('/results', methods=['GET', ])
@@ -292,110 +199,11 @@ def present_results():
         yield result_dict
 
 
-@pv_rester.route('/market_date', methods=['GET', 'POST', ])
-def get_market_date() -> Response:
-    """ Getting/setting the market date.
-    """
-
-    global MKT_DATE
-    if request.method == 'GET':
-        return Response(MKT_DATE.strftime("%Y%m%d"))
-
-    # method is POST
-    # post request, change date, return the same date
-    new_mkt_date = request.form.get('market_date')
-    if new_mkt_date is None:
-        return Response(None)
-
-    MKT_DATE = datetime.datetime.strptime(
-        new_mkt_date, '%Y%m%d')  # 20230205  dates
-
-    return Response(MKT_DATE.strftime("%Y%m%d"))
-
-
-@pv_rester.route('/market', methods=['GET', 'POST', ])
-def get_market() -> Response:
-    """ Returns the market type
-    """
-
-    global MARKET
-    if request.method == 'GET':  # get method
-        return Response(dumps(AOMarketService.encode_from_tuple(MARKET)))
-
-    # post method
-    new_market = loads(request.data).get('market')
-    if new_market is None:
-        return Response(None)
-
-    decoded_new_mkt: Dict[Tuple[str, datetime.date],
-                          float] = AOMarketService.decode_mkt_data(new_market)
-    MARKET = decoded_new_mkt  # update the market.
-
-    return Response("Updated CURRENT market.")
-
-
-@pv_rester.route('/new_market', methods=['GET', 'POST', ])
-def get_new_market() -> Response:
-    """ Storage for the new market.
-    """
-
-    global NEW_MARKET
-    if request.method == 'GET':  # get method
-        return Response(dumps(AOMarketService.encode_from_tuple(NEW_MARKET)))
-
-    # post method
-    replace_new_market = loads(request.data).get('market')
-    if replace_new_market is None:
-        return Response(None)
-
-    decoded_replaced_new_mkt: Dict[Tuple[str, datetime.date], float] = \
-        AOMarketService.decode_mkt_data(replace_new_market)
-    NEW_MARKET = decoded_replaced_new_mkt  # update the market.
-
-    return Response("Updated NEW market.")
-
-
-@pv_rester.route('/future_market', methods=['GET', 'POST', ])
-def get_future_market() -> Response:
-    """ Storage for the future market. This market replaces the new market.
-    """
-
-    global FUTURE_MARKET
-    if request.method == 'GET':
-        return Response(
-            dumps(AOMarketService.encode_from_tuple(FUTURE_MARKET))
-        )
-
-    # post method
-    replace_future_market = loads(request.data).get('market')
-    if replace_future_market is None:
-        return Response(None)
-
-    decoded_replaced_future_mkt: Dict[Tuple[str, datetime.date], float] = \
-        AOMarketService.decode_mkt_data(replace_future_market)
-    FUTURE_MARKET = decoded_replaced_future_mkt  # update the market.
-
-    return Response("Updated NEW market.")
-
-
-@pv_rester.route('/switch_markets', methods=['GET', ])
-def switch_markets() -> Response:
-    """ Switches the following markets:
-        1. market <- new_market
-        2. new_market <- future_market
-    """
-
-    global MARKET, NEW_MARKET, FUTURE_MARKET
-
-    MARKET = NEW_MARKET
-    NEW_MARKET = FUTURE_MARKET
-
-    return Response('Replaced current/new markets')
-
-
 # pv rester start
 def main():
-    pv_rester.run(port=8000)
+    load_dotenv()
+    server_host = os.getenv('HOST')
+    pv_rester.run(host=server_host, port=8001)
 
 
 # IMPORTANT: this has to be called application, for mod_express

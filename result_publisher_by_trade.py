@@ -4,14 +4,14 @@
 import logging
 import requests
 import tkinter as tk
-import numpy   as np
-import pandas  as pd
+import numpy as np
+import pandas as pd
 
-from typing      import Dict, Optional, Any
-from time        import sleep
-from threading   import Thread
-from json        import loads
-from kafka       import KafkaConsumer
+from typing import Dict, Optional, Any
+from time import sleep
+from threading import Thread
+from json import loads
+from kafka import KafkaConsumer
 from pandastable import Table
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,9 @@ class ResultPublisherBase:
         :returns: None, just updates curr_value, new_value, and trades
         """
 
-        raise NotImplemented(f'Implement the function that updates self.curr_value')
+        raise NotImplementedError(
+            f'Implement the function that updates {self.curr_value}'
+        )
 
     def update_results(self):
         """ Updates the pandas table w/ the results.

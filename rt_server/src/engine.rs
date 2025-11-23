@@ -1,5 +1,7 @@
-use std::sync::mpsc::channel;
-use std::thread;
+use rdkafka::message::BorrowedMessage;
+use tokio::sync::mpsc::channel;
+use tracing::info;
+use futures::future::join_all;
 
 use crate::market::MarketType;
 use crate::market::MktMsgParams;
@@ -7,13 +9,13 @@ use crate::mkt_handler::MktEventHandler;
 use crate::portfolio::PortfolioType;
 use crate::portfolio_sender::PortfolioSender;
 use crate::pricer::MarketPricingOptions;
+use crate::process_trade::ProcessTradeValue;
 use crate::publish::PublishResults;
-use crate::trade::TradeRep;
+use crate::ref_deref::TryFromRef;
+use crate::trade::{TradeReduce, TradeRep};
 use crate::trade_procs::RiskProcessors;
 
-pub trait CalcController {
-    //type TR;
-
+pub trait CalcController: TradeReduce {
     fn start(
         &self,
         pos_topic: String,     // position topic on kafka
@@ -21,12 +23,16 @@ pub trait CalcController {
         results_topic: String, // publish the results topic
         mkt_params: MktMsgParams,
         pricing_options: &MarketPricingOptions,
-    );
+    ) -> impl std::future::Future<Output = ()> + Send
+    where
+        for<'a> <Self as TradeReduce>::TradeType: TryFromRef<BorrowedMessage<'a>>,
+        <Self as TradeReduce>::ReductionType: std::fmt::Debug + ProcessTradeValue;
 }
 
 impl<T> CalcController for T
 where
     T: Send + Sync + RiskProcessors + MktEventHandler + PublishResults + PortfolioSender,
+    <T as TradeReduce>::TradeType: std::fmt::Debug,
 {
     fn start(
         &self,
@@ -35,76 +41,102 @@ where
         results_topic: String, // publish the results topic
         mkt_params: MktMsgParams,
         pricing_options: &MarketPricingOptions,
-    ) {
-        // 2 trade senders, 1 for current market, 1 for new market.
-        let (pos_sender_curr, pos_recv_curr) = channel::<<T as PortfolioSender>::TR>();
-        let (pos_sender_new, pos_recv_new) = channel::<<T as PortfolioSender>::TR>();
-        // events about the new market event
-        let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>();
-        // new & current market portfolio
-        let (curr_portfolio_sender, curr_portfolio_recv) =
-            channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>();
-        let (new_portfolio_sender, new_portfolio_recv) =
-            channel::<(PortfolioType, TradeRep<<T as PortfolioSender>::TR>)>();
-        let (resend_sender, resend_recv) = channel::<bool>();
-        let (accept_sender, accept_recv) = channel::<bool>();
+    ) -> impl std::future::Future<Output = ()> + Send
+    where
+        for<'a> <T as TradeReduce>::TradeType: TryFromRef<BorrowedMessage<'a>>,
+        <T as TradeReduce>::ReductionType: std::fmt::Debug + ProcessTradeValue,
+    {
+        async move {
+            let buffer_size = 10000;
 
-        // threads fail if any of them can not be created.
-        thread::scope(|s| {
-            let _ = thread::Builder::new()
-                .name("accepting_trades".to_string())
-                .spawn_scoped(s, move || {
-                    self.__construct_portfolio(
-                        pos_sender_new,
-                        pos_sender_curr,
-                        resend_recv,
-                        pos_topic,
-                    );
-                })
-                .unwrap();
+            // 2 trade senders, 1 for current market, 1 for new market.
+            let (pos_sender_curr, pos_recv_curr) =
+                channel::<<T as TradeReduce>::ReductionType>(buffer_size);
+            let (pos_sender_new, pos_recv_new) =
+                channel::<<T as TradeReduce>::ReductionType>(buffer_size);
+            // events about the new market event
+            let (new_mkt_sender, new_mkt_receiver) = channel::<MarketType>(buffer_size);
+            // new & current market portfolio
+            let (mut curr_portfolio_sender, curr_portfolio_recv) = channel::<(
+                PortfolioType,
+                TradeRep<<T as TradeReduce>::ReductionType>,
+            )>(buffer_size);
+            let (new_portfolio_sender, new_portfolio_recv) = channel::<(
+                PortfolioType,
+                TradeRep<<T as TradeReduce>::ReductionType>,
+            )>(buffer_size);
+            // whether to resend the whole portfolio to trade_processor_new
+            let (resend_sender, resend_recv) = channel::<bool>(buffer_size);
+            // whether the portfolio was accepted by the trade_processor_curr
+            let (accept_sender, accept_recv) = channel::<i32>(buffer_size);
+            let (fut_mkt_ready_s, fut_mkt_ready_r) = channel::<bool>(buffer_size);
 
-            let _ = thread::Builder::new()
-                .name("market_events".to_string())
-                .spawn_scoped(s, move || {
-                    self._handle_mkt_events(mkt_topic, mkt_params, new_mkt_sender)
-                })
-                .unwrap();
+            // threads fail if any of them can not be created.
+            tokio_scoped::scope(|scope| {
+                info!("Spawning __construct_portfolio");
+                scope.spawn(self.__construct_portfolio(
+                    pos_sender_new,
+                    pos_sender_curr,
+                    resend_recv,
+                    pos_topic,
+                ));
 
-            let _ = thread::Builder::new()
-                .name("new_portfolio".to_string())
-                .spawn_scoped(s, move || {
-                    self._trade_processor_new(
-                        new_mkt_receiver,
-                        pos_recv_new,
-                        new_portfolio_sender,
-                        resend_sender,
-                        accept_recv,
-                        self.metric(),
-                        pricing_options,
-                    );
-                })
-                .unwrap();
+                info!("Spawning _handle_mkt_events");
+                scope.spawn(self._handle_mkt_events(
+                    mkt_topic,
+                    mkt_params,
+                    new_mkt_sender,
+                    fut_mkt_ready_s,
+                ));
 
-            let _ = thread::Builder::new()
-                .name("curr_portfolio".to_string())
-                .spawn_scoped(s, move || {
-                    self._trade_processor_curr(
-                        pos_recv_curr,
-                        curr_portfolio_sender,
-                        new_portfolio_recv,
-                        self.metric(),
-                        pricing_options,
-                        accept_sender,
-                    );
-                })
-                .unwrap();
+                info!("Spawning _trade_processor_new.");
+                scope.spawn(self._trade_processor_new(
+                    new_mkt_receiver,
+                    pos_recv_new,
+                    new_portfolio_sender,
+                    resend_sender,
+                    accept_recv,
+                    fut_mkt_ready_r,
+                    self.metric(),
+                    pricing_options,
+                ));
 
-            let _ = thread::Builder::new()
-                .name("publish_thread".to_string())
-                .spawn_scoped(s, move || {
-                    self._publish_results(curr_portfolio_recv, results_topic);
-                })
-                .unwrap();
-        });
+                info!("Spawning _trade_processor_curr");
+                scope.spawn(self._trade_processor_curr(
+                    pos_recv_curr,
+                    &mut curr_portfolio_sender,
+                    new_portfolio_recv,
+                    self.metric(),
+                    pricing_options,
+                    accept_sender,
+                ));
+
+                info!("Spawning _publish_results");
+                scope.spawn(self._publish_results(curr_portfolio_recv, results_topic));
+            });
+        }
     }
+
+    async fn start2(
+        &self,
+        pos_topic: String,     // position topic on kafka
+        mkt_topic: String,     // market topic
+        results_topic: String, // publish the results topic
+        mkt_params: MktMsgParams,
+        pricing_options: &MarketPricingOptions,
+    ) {
+	let (_trade_capture_a, _trade_capture_handle) = Actor::spawn(None, TradeProducer, (1, 2, 3, 4, 5));
+
+	let entire_engine = vec![
+	    _trade_capture_handle,
+	];
+	
+	// start all the actors, not sequentially
+	let result = join_all(entire_engine).await;
+
+	// _trade_capture_handle
+	//     .await
+	//     .expect("Trade capture actor failed");
+    }
+
 }

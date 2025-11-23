@@ -3,21 +3,29 @@
     writes logs to /tmp/trade_pv_restr.log
 """
 
+import os
 import logging
 import datetime
 import sys
-if '/home/brumen/work/' not in sys.path:
-    sys.path.append('/home/brumen/work/')
+import six.moves
 
 from json import loads
 from enum import Enum
 from requests import get as requests_get
-from typing import List, Dict, Tuple, Any, Optional
-from pyspark import SparkContext, SparkConf
+from typing import List, Dict, Tuple, Any, Optional, Generator
+# from pyspark import SparkContext, SparkConf
 from sqlalchemy.exc import OperationalError
 from functools import lru_cache
+from dotenv import load_dotenv
+
+if sys.version_info >= (3, 12, 0):
+    sys.modules['kafka.vendor.six.moves'] = six.moves
+
+# if '/home/brumen/work/' not in sys.path:
+#     sys.path.append('/home/brumen/work/')
+
 from ao.trade import create_session, AOTrade, DeltaDict
-from rm.market_service import AOMarketService
+from rm.services.ao.market_service import AOMarketService
 
 
 logger = logging.getLogger(__name__)
@@ -34,11 +42,26 @@ default_params: Dict[str, Any] = {'default_price': 200., 'nb_sim': 500}
 # ao_engine = create_engine(ao_db)
 # ao_session = sessionmaker(bind=ao_engine)
 
-PRICING_SERVER_NAME = 'http://localhost:8000'
+load_dotenv()
+
+HOST = os.getenv('HOST')
+MARKET_PORT = os.getenv('MARKET_PORT')
+PRICING_SERVER_NAME = f'http://{HOST}:{MARKET_PORT}'
+
 
 class CurrNewMarket(Enum):
     CURRENT = 'c'
     NEW = 'n'
+
+    @classmethod
+    def from_string(cls, market: str):
+        if market == 'Current':
+            return cls.CURRENT
+
+        if market == 'New':
+            return cls.NEW
+
+        raise ValueError('market can be only Current, New')
 
 
 class TradeDirection(Enum):
@@ -50,6 +73,19 @@ class PriceMetric(Enum):
     PV = 'pv'
     PV01 = 'pv01'
     PNL = 'pnl'
+
+    @classmethod
+    def from_string(cls, metric: str):
+        if metric == 'PV':
+            return cls.PV
+
+        if metric == 'PV01':
+            return cls.PV01
+
+        if metric == 'PNL':
+            return cls.PNL
+
+        raise ValueError('metric can be PV, PV01, PNL')
 
 
 def extract_trade_ids(trades: str) -> List[int]:
@@ -153,8 +189,8 @@ def _compute_trades_from_id(
     )
 
 
-@ lru_cache
-def _set_spark_env() -> SparkContext:
+@lru_cache
+def _set_spark_env():  #  -> SparkContext:
     """ Creates the spark context.
     """
 
@@ -242,7 +278,9 @@ def _value_trade_spark(
 
 # TODO: FIX THE RETURN ARGUMENTS OF THIS FUNCTION - THIS ONLY WORKS FOR PV.
 def _price_explicit_trade(
-        trade_mkt_date_mkt_id: Tuple[AOTrade, datetime.date, CurrNewMarket, PriceMetric, ],
+        trade_mkt_date_mkt_id: Tuple[
+            AOTrade, datetime.date, CurrNewMarket, PriceMetric,
+        ],
         server_name: str = PRICING_SERVER_NAME,
 ) -> Dict[str, float]:
     """ Function to be sent to spark to price a trade.
@@ -280,7 +318,7 @@ def price_trades(
         trade_ids: List[int],
         curr_new_mkt: CurrNewMarket,
         metric: PriceMetric = PriceMetric.PV,
-) -> Dict[str, float]:
+) -> Generator[Dict[str, float], None, Dict]:
     """ Prices trades using the spark parallelization.
 
     :param trade_ids: trades that should be valued.
@@ -315,10 +353,12 @@ def price_trades(
                 [metric, ] * nb_trades
                 ))\
         .map(_price_explicit_trade)\
-        .collect()  # TODO: YOU CAN REDUCE THIS ON SPARK AS WELL
+        .toLocalIterator()  # trade_vals is a generator
 
-    result_pv = {}
-    for result_trade in trade_vals:
-        result_pv |= result_trade
+    yield from trade_vals
 
-    return result_pv
+    # old stuff
+    # result_pv = {}
+    # for result_trade in trade_vals:
+    #     result_pv |= result_trade
+    # return result_pv

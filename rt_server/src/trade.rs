@@ -1,17 +1,9 @@
 use core::cmp::Eq;
-use kafka::consumer::Message;
-use log::{debug, warn};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::HashMap;
-use std::ops::{AddAssign, Deref, DerefMut};
+use std::default::Default;
+use std::ops::{AddAssign, Deref, DerefMut, SubAssign, Sub};
 use thiserror::Error;
-
-use crate::market::MarketType;
-use crate::portfolio::{PV01Results, PortfolioType};
-use crate::pricer::PriceTrade;
-use crate::ref_deref::TryFromRef;
-use crate::ref_deref_trait;
+use dashmap::DashMap;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
@@ -32,352 +24,39 @@ pub enum TradeError {
     CantConvertUtf8(#[from] std::str::Utf8Error),
     #[error("Cant convert to trade type")]
     CantConvertToTrade(#[from] serde_json::Error),
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LETFTrade {
-    pub trade_id: String,
-    pub stock: String,
-    pub amount: f64,
-    pub beta: f64,
-    pub stock_value: Option<f64>,
-}
-
-impl BaseTrade for LETFTrade {
-    fn id(&self) -> String {
-        self.trade_id.clone() // TODO: FIX THIS LATER - MAYBE JUST A REF!!!
-    }
-
-    // TODO: THIS SHOULD BE FIXED.
-    fn direction(&self) -> TradeDirection {
-        if self.amount < 0. {
-            TradeDirection::Delete
-        } else {
-            TradeDirection::Create
-        }
-    }
-}
-
-impl std::cmp::PartialEq for LETFTrade {
-    fn eq(&self, other: &Self) -> bool {
-        self.trade_id == other.trade_id
-    }
-}
-
-impl PriceTrade for LETFTrade {
-    fn initial_pv(&self) -> Option<f64> {
-        Some(0.)
-    }
-
-    fn price(&self, market: &MarketType) -> Option<f64> {
-        let stock_v = market.get(&self.stock);
-
-        match stock_v {
-            None => None,
-            Some(stock_v_real) => self
-                .stock_value
-                .map(|initial_stock| self.beta * self.amount * (stock_v_real / initial_stock - 1.)),
-        }
-    }
-
-    fn pv01(&self, market: &MarketType) -> PV01Results {
-        let stock = market.get(&self.stock);
-
-        match stock {
-            None => {
-                warn!("Could not obtain {:?} from the market", stock);
-                PV01Results::new()
-            }
-            Some(_stock_v) => match self.stock_value {
-                None => {
-                    warn!("pv01: LETFTrade: could not find the initial stock value");
-                    PV01Results::new()
-                }
-                Some(initial_stock) => {
-                    let mut pv01_result = PV01Results::new();
-                    let _ = pv01_result.insert(
-                        self.trade_id.clone(),
-                        PortfolioType::from([(
-                            self.stock.clone(),
-                            self.beta * self.amount / initial_stock,
-                        )]),
-                    );
-                    debug!("_pv01: LETF trade: {:?}", pv01_result);
-                    pv01_result
-                }
-            },
-        }
-    }
-}
-
-impl LETFTrade {
-    /// produces the hedge of the LETF trade.
-    /// stock_value : value of the stock that we are hedging LETF with.
-    pub fn hedge(&mut self, market: &MarketType) -> Vec<LETFHedge> {
-        let stock_name = &self.stock;
-        let stock_value = market.get(stock_name);
-
-        if stock_value.is_none() {
-            warn!("hedge: Could not find {:?} in the market", stock_name);
-            return vec![]; // Cant do much w/ it.
-        }
-
-        let trade_id = self.id();
-        let stock = stock_value.unwrap();
-        self.stock_value = Some(*stock); // adding the actual value into the LETF
-        let beta = self.beta;
-        let amount = self.amount;
-
-        vec![
-            LETFHedge::Future(Future {
-                initial_val: Some(-beta * amount),
-                trade_id: (trade_id.parse::<i32>().unwrap() + 1).to_string(), //Uuid::new_v4().to_string(),
-                stock: stock_name.clone(),
-                amount: -beta * amount / stock,
-            }),
-            LETFHedge::Cash(Cash {
-                trade_id: (trade_id.parse::<i32>().unwrap() + 2).to_string(), // Uuid::new_v4().to_string(),
-                amount: beta * amount,
-            }),
-        ]
-    }
-}
-
-impl TryFromRef<Message<'_>> for TradeTypes {
-    type Error = TradeError;
-
-    fn try_from_ref(value: &Message) -> Result<Self, Self::Error> {
-        let msg_utf = std::str::from_utf8(value.value)?;
-
-        Ok(serde_json::from_str::<TradeTypes>(msg_utf)?)
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Future {
-    pub trade_id: String,
-    pub stock: String,
-    pub amount: f64,
-    pub initial_val: Option<f64>,
-}
-
-impl PriceTrade for Future {
-    fn initial_pv(&self) -> Option<f64> {
-        self.initial_val
-    }
-
-    fn price(&self, market: &MarketType) -> Option<f64> {
-        let stock = market.get(&self.stock);
-        debug!("_price: PriceTrade Future market: {:?}", market);
-
-        stock.map(|stock_v| stock_v * self.amount)
-    }
-
-    fn pv01(&self, _market: &MarketType) -> PV01Results {
-        let mut pv01_results = PV01Results::new();
-        let _ = pv01_results.insert(
-            self.trade_id.clone(),
-            PortfolioType::from([(self.stock.clone(), self.amount)]),
-        );
-        debug!("_pv01: PriceTrade: pv01 Future: {:?}", pv01_results);
-
-        pv01_results
-    }
-}
-
-impl BaseTrade for Future {
-    fn id(&self) -> String {
-        self.trade_id.clone() // TODO: FIX THIS HERE!!!
-    }
-
-    // TODO: THIS SHOULD BE FIXED.
-    fn direction(&self) -> TradeDirection {
-        //if self.amount >= 0. {
-        TradeDirection::Create // TODO: THIS SHOULD OBVIOUSLY BE FIXED
-                               //} else {
-                               //    TradeDirection::Delete
-                               //}
-    }
-}
-
-impl std::cmp::PartialEq for Future {
-    fn eq(&self, other: &Self) -> bool {
-        self.trade_id == other.trade_id
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Cash {
-    pub trade_id: String,
-    pub amount: f64,
-}
-
-impl PriceTrade for Cash {
-    fn initial_pv(&self) -> Option<f64> {
-        Some(self.amount)
-    }
-
-    fn price(&self, _market: &MarketType) -> Option<f64> {
-        Some(self.amount)
-    }
-
-    fn pv01(&self, _market: &MarketType) -> PV01Results {
-        PV01Results::new()
-    }
-}
-
-impl BaseTrade for Cash {
-    fn id(&self) -> String {
-        self.trade_id.clone() // TODO: THIS SHOULD BE FIXED
-    }
-
-    // TODO: THIS SHOULD BE FIXED.
-    fn direction(&self) -> TradeDirection {
-        //if self.amount >= 0. {
-        TradeDirection::Create // TODO: THIS SHOULD OBVIOUSLY BE FIXED
-                               //} else {
-                               //    TradeDirection::Delete
-                               //}
-    }
-}
-
-// TODO: MAKE A MACRO FOR THIS!!!
-impl std::cmp::PartialEq for Cash {
-    fn eq(&self, other: &Self) -> bool {
-        self.trade_id == other.trade_id
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum LETFHedge {
-    Future(Future),
-    Cash(Cash),
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub enum TradeTypes {
-    LETF(LETFTrade),
-    Future(Future),
-    Cash(Cash),
-}
-
-impl TradeTypes {
-    #[allow(dead_code)]
-    pub fn trade_name(&self) -> String {
-        match self {
-            TradeTypes::LETF(ref letf_trade) => letf_trade.stock.clone(),
-            TradeTypes::Future(ref letf_future) => letf_future.stock.clone(),
-            TradeTypes::Cash(_) => "Cash".to_string(),
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn amount(&self) -> f64 {
-        match self {
-            TradeTypes::LETF(ref letf_trade) => letf_trade.amount,
-            TradeTypes::Future(ref letf_future) => letf_future.amount,
-            TradeTypes::Cash(letf_cash) => letf_cash.amount,
-        }
-    }
-}
-
-impl PriceTrade for TradeTypes {
-    fn initial_pv(&self) -> Option<f64> {
-        match self {
-            TradeTypes::LETF(letf_trade) => letf_trade.initial_pv(),
-            TradeTypes::Future(letf_fut) => letf_fut.initial_pv(),
-            TradeTypes::Cash(letf_cash) => letf_cash.initial_pv(),
-        }
-    }
-
-    fn price(&self, market: &MarketType) -> Option<f64> {
-        match self {
-            TradeTypes::LETF(letf_trade) => {
-                match letf_trade.stock_value {
-                    None => None,
-                    Some(initial_value) => {
-                        let mut letf_new = letf_trade.clone();
-                        letf_new.stock_value = Some(initial_value); // TODO: HERE
-                        letf_new.price(market)
-                    }
-                }
-            }
-            TradeTypes::Future(letf_fut) => letf_fut.price(market),
-            TradeTypes::Cash(letf_cash) => letf_cash.price(market),
-        }
-    }
-
-    fn pv01(&self, market: &MarketType) -> PV01Results {
-        match self {
-            TradeTypes::LETF(letf_trade) => {
-                match letf_trade.stock_value {
-                    None => PV01Results::new(), // TODO: HERE
-                    Some(initial_value) => {
-                        let mut letf_new = letf_trade.clone();
-                        letf_new.stock_value = Some(initial_value); // TODO: HERE
-                        letf_new.pv01(market)
-                    }
-                }
-            }
-            TradeTypes::Future(letf_fut) => letf_fut.pv01(market),
-            TradeTypes::Cash(letf_cash) => letf_cash.pv01(market),
-        }
-    }
-}
-
-impl BaseTrade for TradeTypes {
-    fn id(&self) -> String {
-        match self {
-            TradeTypes::LETF(letf_trade) => letf_trade.id(),
-            TradeTypes::Future(letf_future) => letf_future.id(),
-            TradeTypes::Cash(cash) => cash.id(),
-        }
-    }
-
-    // TODO: THIS SHOULD BE FIXED.
-    fn direction(&self) -> TradeDirection {
-        TradeDirection::Create // TODO: THIS SHOULD OBVIOUSLY BE FIXED
-    }
-}
-
-pub trait LETFTradeHandling {
-    fn recover_trade(msg_decoded: &Value) -> Option<LETFTrade>;
-}
-
-pub type TradeTypesInner = TradeTypes;
-pub struct TradeTypesRep(pub TradeTypesInner);
-
-ref_deref_trait!(TradeTypesRep, TradeTypesInner);
-
-impl BaseTrade for TradeTypesRep {
-    fn id(&self) -> String {
-        self.id()
-    }
-
-    fn direction(&self) -> TradeDirection {
-        TradeDirection::Create
-    }
-}
-
-impl PriceTrade for TradeTypesRep {
-    fn initial_pv(&self) -> Option<f64> {
-        Some(0.)
-    }
-
-    fn price(&self, market: &MarketType) -> Option<f64> {
-        self.price(market)
-    }
-    fn pv01(&self, market: &MarketType) -> PV01Results {
-        self.pv01(market)
-    }
+    #[error("No payload in the message")]
+    NoPayload,
 }
 
 /// Internal representations of trades.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct TradeRep<TR>(pub HashMap<String, TR>);
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TradeRep<TR>(pub DashMap<String, TR>);
+
+
+impl<TR> PartialEq for TradeRep<TR> {
+    // trade representations are equal if they have the same trade descriptors.
+    fn eq(&self, other: &Self) -> bool {
+
+        for entry in self.iter() {
+            if !other.contains(entry.key()) {
+                return false;
+            }
+        }
+
+        for trade_entry in other.iter() {
+            // .key is the trade name, .value is the trade representation
+            if !self.contains(trade_entry.key()) {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
 
 impl<TR> Deref for TradeRep<TR> {
-    type Target = HashMap<String, TR>;
+    type Target = DashMap<String, TR>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -390,41 +69,81 @@ impl<TR> DerefMut for TradeRep<TR> {
     }
 }
 
+
 pub trait TradeReduce {
-    type TradeType: BaseTrade;
-    type ReductionType: Send + Clone + BaseTrade;
+    type TradeType: BaseTrade + Send;
+    type ReductionType: Send + Sync + Clone + BaseTrade;
 
     fn reduce(&self, trade: &Self::TradeType) -> Self::ReductionType;
 }
 
-impl<TR> TradeRep<TR> {
-    pub fn new() -> Self {
-        Self(HashMap::<String, TR>::new())
+impl<TR> Default for TradeRep<TR> {
+    fn default() -> Self {
+        Self(DashMap::<String, TR>::new())
     }
+}
+
+impl<TR> TradeRep<TR> {
 
     /// returns all trade ids in the trade representation.
-    pub fn all_trade_names(&self) -> Vec<&String> {
-        self.keys().into_iter().collect::<Vec<&String>>()
+    // this does copy the trade names out. POTENTIAL COPY IMPACT.
+    fn _keys(&self) -> Vec<String> {
+        self.iter().map(|entry| entry.key().clone()).collect::<Vec<String>>()
     }
 
-    /// returns a vector of references to the representation. Used for reading.
-    pub fn all_trades_ref(&self) -> Vec<&TR> {
-        self.values().into_iter().collect::<Vec<&TR>>()
+    pub fn all_trade_names(&self) -> Vec<String> {
+        self._keys()
     }
 
     /// does trade representation contain trade_id
     pub fn contains(&self, trade_id: &String) -> bool {
-        self.keys()
-            .position(|tradeid| tradeid.eq(trade_id))
-            .is_some()
+        self.iter().position(|entry| entry.key() == trade_id).is_some()
     }
 }
 
+impl<TR: Clone + BaseTrade> AddAssign<(String, TR)> for TradeRep<TR> {
+    // adds the elements of the other TradeRep to this traderep
+    // uses cloning.
+    fn add_assign(&mut self, other: (String, TR)) {
+        self.insert(other.0, other.1);
+    }
+}
+
+
 impl<TR: Clone + BaseTrade> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
+    // adds the elements of the other TradeRep to this traderep
+    // uses cloning.
     fn add_assign(&mut self, other: &TradeRep<TR>) {
-        for (trade_id, trade_value) in other.iter() {
-            self.insert((*trade_id).clone(), (*trade_value).clone());
+        for other_entry in other.iter() {
+            self.insert(
+                other_entry.key().clone(), other_entry.value().clone()
+            );
         }
+    }
+}
+
+impl<TR: Clone + BaseTrade> SubAssign<&TradeRep<TR>> for TradeRep<TR> {
+    fn sub_assign(&mut self, other: &TradeRep<TR>) {
+        for other_entry in other.iter() {
+	    self.remove(other_entry.key());
+	}
+    }
+}
+
+impl<TR: Clone + BaseTrade> Sub<&TradeRep<TR>> for TradeRep<TR> {
+    type Output = Self;
+
+    fn sub(self, other: &TradeRep<TR>) -> Self::Output {
+	// create a separate hashmap.
+	let res_traderep = Self::default();
+	for entry in self.iter() {  // (trade_id, trade_rr)
+            let trade_id = entry.key();
+            let trade_rr = entry.value();
+	    if !other.contains(trade_id) {
+		res_traderep.insert(trade_id.clone(), trade_rr.clone());  // TODO: CHECK IF CLONE IS GOOD!!!
+	    }
+	}
+	res_traderep
     }
 }
 
@@ -436,7 +155,7 @@ impl<TR: Clone + BaseTrade> AddAssign<&TR> for TradeRep<TR> {
 
 impl<const N: usize, TR: BaseTrade> From<[TR; N]> for TradeRep<TR> {
     fn from(arr: [TR; N]) -> Self {
-        let mut hm = HashMap::with_capacity(N);
+        let hm = DashMap::with_capacity(N);
         for tr in arr {
             let trade_id = tr.id();
             hm.insert(trade_id, tr);

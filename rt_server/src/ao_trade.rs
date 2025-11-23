@@ -1,18 +1,19 @@
-use kafka::consumer::Message;
-use log::{debug, error, warn};
+use tracing::{debug, error, warn};
 use serde::{Deserialize, Serialize};
-use std::future::Future;
-use std::marker::Sync;
 use std::ops::{Deref, DerefMut};
+use std::fmt;
+use ractor::async_trait;
+use std::sync::Arc;
 
-use crate::market::CurrNewMarket;
 use crate::portfolio::PV01Results;
 use crate::portfolio::PricingResults;
-use crate::pricer::{Decoder, MarketPricingOptions, PriceTradeAsync, PricingMetric};
-use crate::ref_deref::TryFromRef;
+use crate::pricer::{Decoder, PricingMetric, PriceTrade};  // PriceTradeAsync,
+use crate::ref_deref::TryFromRef2;
 use crate::ref_deref_trait;
 use crate::trade::BaseTrade;
-use crate::trade::{TradeDirection, TradeError};
+use crate::trade::TradeDirection;
+use crate::ao_market::{AOMarketParams, AOMarketType};
+use crate::market::MarketTypeT;
 
 // structure of the AOTrade payload, possibly can be simplified.
 //
@@ -40,86 +41,142 @@ pub struct AOTrade {
 }
 
 impl Decoder for AOTrade {}
+impl TryFromRef2 for AOTrade {}
 
-impl<T: BaseTrade + Decoder + Sync> PriceTradeAsync for T {
-    fn initial_pv(&self) -> impl Future<Output = Option<f64>> + Send {
-        async { Some(0.) }
+impl fmt::Display for AOTrade {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let pos_id = self.payload.after.position_id;
+        write!(f, "{}", pos_id)
+    }
+}
+
+
+impl AOTrade {
+
+    /// computes the pricing request.
+    async fn _pricing_request(
+        &self,
+        _metric: PricingMetric,
+        _market: Arc<dyn MarketTypeT<MP=AOMarketParams> + Send + Sync>,
+        _trades: Vec<String>,
+    ) -> Result<reqwest::Response, reqwest::Error> {
+
+        todo!()
+        // let endpoint = market.endpoint_pricer(metric, trades);
+        // let req_res = reqwest::get(endpoint).await;
+
     }
 
-    fn price(
+}
+
+#[async_trait]
+impl PriceTrade<AOMarketType> for AOTrade {
+    async fn initial_pv(&self) -> Option<f64> {
+        Some(0.)
+    }
+
+    async fn price(
         &self,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
-    ) -> impl Future<Output = Option<f64>> + Send {
-        async move {
-            let trade_id = self.id();
+        market: Arc<AOMarketType>, // dyn MarketTypeT<MP=AOMarketParams> + Send + Sync>,
+    ) -> Option<f64> {
+        let trade_id = self.id();
+        let results_pricing = self
+            ._pricing_request(PricingMetric::PV, market, vec![trade_id.clone()])
+            .await;
 
-            let results_pricing = self
-                ._pricing_request(PricingMetric::PV, pricing_options, curr_new_mkt)
-                .await;
+        match results_pricing {
+            Ok(result_price) => {
+                let unwrapped_price = self
+                    ._unwrap_pricing_results_a(result_price, PricingMetric::PV)
+                    .await;
 
-            match results_pricing {
-                Ok(result_price) => {
-                    let unwrapped_price = self
-                        ._unwrap_pricing_results_a(result_price, PricingMetric::PV)
-                        .await;
-
-                    debug!("_price_ao_trade: Result = {:?}", unwrapped_price);
-                    if let PricingResults::PV(pv_result) = unwrapped_price {
-                        let result_keys: Vec<_> = pv_result.keys().into_iter().collect();
-                        // TODO: THIS IS GARBARGE
-                        if result_keys.len() == 0 {
-                            Some(0.) // PortfolioType::new()
-                        } else {
-                            pv_result.get(result_keys[0]).copied()
-                        }
+                debug!("_price_ao_trade: Result = {:?}", unwrapped_price);
+                if let PricingResults::PV(pv_result) = unwrapped_price {
+                    let result_keys: Vec<_> = pv_result.keys().collect();
+                    // TODO: THIS IS GARBARGE
+                    if result_keys.is_empty() {
+                        Some(0.) // PortfolioType::new()
                     } else {
-                        error!("Remote pricing of {} didnt go right!", trade_id);
-                        None
+                        pv_result.get(result_keys[0]).copied()
                     }
-                }
-                Err(e) => {
-                    warn!("Trade {:?} could not price correctly: {}", trade_id, e);
+                } else {
+                    error!("Remote pricing of {} didnt go right!", trade_id);
                     None
                 }
             }
-        }
-    }
-
-    fn pv01(
-        &self,
-        pricing_options: &MarketPricingOptions,
-        curr_new_mkt: CurrNewMarket,
-    ) -> impl Future<Output = PV01Results> + Send {
-        async move {
-            let trade_id = self.id();
-            let results_pricing = self
-                ._pricing_request(PricingMetric::PV01, pricing_options, curr_new_mkt)
-                .await;
-
-            match results_pricing {
-                Ok(result_price) => {
-                    let unwrapped_price = self
-                        ._unwrap_pricing_results_a(result_price, PricingMetric::PV01)
-                        .await;
-                    if let PricingResults::PV01(pv01_result) = unwrapped_price {
-                        pv01_result
-                    } else {
-                        error!(
-                            "pv01: Remote PV01 of {} didnt go right. Continuing w/o priced trade.",
-                            trade_id
-                        );
-                        PV01Results::new()
-                    }
-                }
-                Err(e) => {
-                    warn!("Trade {:?} could not price correctly: {}", trade_id, e);
-                    PV01Results::new()
-                }
+            Err(e) => {
+                warn!("Trade {:?} could not price correctly: {}", trade_id, e);
+                None
             }
         }
     }
+
+    async fn pv01(&self, market: Arc<AOMarketType>) -> PV01Results {
+
+        let trade_id = self.id();
+        let results_pricing = self._pricing_request(
+            PricingMetric::PV01,
+            market,
+            vec![trade_id.clone()]
+            ).await;
+
+        match results_pricing {
+            Ok(result_price) => {
+                let unwrapped_price = self
+                    ._unwrap_pricing_results_a(result_price, PricingMetric::PV01)
+                    .await;
+                if let PricingResults::PV01(pv01_result) = unwrapped_price {
+                    pv01_result
+                } else {
+                    error!(
+                        "pv01: Remote PV01 of {} didnt go right. Continuing w/o priced trade.",
+                        trade_id
+                    );
+                    PV01Results::new()
+                }
+            }
+            Err(e) => {
+                warn!("Trade {:?} could not price correctly: {}", trade_id, e);
+                PV01Results::new()
+            }
+        }
+    }
+
+    async fn pnl(&self, market: Arc<AOMarketType>) -> Option<f64> {
+        let trade_id = self.id();
+        let results_pricing = self._pricing_request(
+            PricingMetric::PnL, market, vec![trade_id.clone()]
+        ).await;
+
+        match results_pricing {
+            Ok(result_price) => {
+                let unwrapped_price = self
+                    ._unwrap_pricing_results_a(result_price, PricingMetric::PV)
+                    .await;
+
+                debug!("_price_ao_trade: Result = {:?}", unwrapped_price);
+                if let PricingResults::PV(pv_result) = unwrapped_price {
+                    let result_keys: Vec<_> = pv_result.keys().collect();
+                    // TODO: THIS IS GARBARGE
+                    if result_keys.is_empty() {
+                        Some(0.) // PortfolioType::new()
+                    } else {
+                        pv_result.get(result_keys[0]).copied()
+                    }
+                } else {
+                    error!("Remote pricing of {} didnt go right!", trade_id);
+                    None
+                }
+            }
+            Err(e) => {
+                warn!("Trade {:?} could not price correctly: {}", trade_id, e);
+                None
+            }
+        }
+
+    }
 }
+
 
 impl BaseTrade for AOTrade {
     fn id(&self) -> String {
@@ -131,20 +188,6 @@ impl BaseTrade for AOTrade {
             "d" => TradeDirection::Delete,
             &_ => todo!(),
         }
-    }
-}
-
-impl TryFromRef<Message<'_>> for AOTrade {
-    type Error = TradeError;
-
-    fn try_from_ref(value: &Message) -> Result<Self, Self::Error> {
-        let msg_utf = std::str::from_utf8(value.value)?;
-        debug!("try_from_ref: Message received: {}", msg_utf);
-
-        let msg_serialized = serde_json::from_str::<AOTrade>(msg_utf)?;
-        debug!("try_from_ref: Message serialized {:?}", msg_serialized);
-
-        Ok(msg_serialized)
     }
 }
 
