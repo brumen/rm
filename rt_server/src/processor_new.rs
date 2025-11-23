@@ -48,18 +48,12 @@ where
 
         let processor_fut_mkt_name = format!("{}_future", processor_name.clone());
 
+        // constructing "new" market. market where this processor_new operates
         let processor_new_mkt = MT::new(processor_name.clone(), mp.clone());
-        let processor_fut_mkt = MT::new(processor_fut_mkt_name.clone(), mp.clone());
-
         // insert a proper market into the all_market.
         all_markets.insert(
             processor_name.clone(),
             processor_new_mkt,
-        );
-
-        all_markets.insert(
-            processor_fut_mkt_name.clone(),
-            processor_fut_mkt,
         );
 
         Self {
