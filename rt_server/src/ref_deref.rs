@@ -1,5 +1,3 @@
-use std::fmt::Debug;
-
 use rdkafka::{message::BorrowedMessage, Message};
 use serde::Deserialize;
 
@@ -58,7 +56,7 @@ where
             let msg_utf = std::str::from_utf8(msg_value)?;
             Ok(serde_json::from_str::<Self>(msg_utf)?)
         } else {
-            return Err(TradeError::NoPayload);
+            Err(TradeError::NoPayload)
         }
     }
 }

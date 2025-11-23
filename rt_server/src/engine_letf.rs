@@ -33,11 +33,10 @@ pub(crate) async fn start2<T, MT>(
 where
     T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MT> + TryFromRef2,
     MT::MP : 'static + Send + Sync + Clone,
-    // Arc<MT>: Send + Sync + MarketTypeT<MP=MP> + 'static + Clone,
     for <'a> MT: Send + Sync + MarketTypeT + 'static + Clone + AddAssign<&'a MT>,
 {
     // create the current processor.
-    let (curr_processor, curr_processor_bulk_h) = create_curr_actor(
+    let (curr_processor, _curr_processor_bulk_h) = create_curr_actor(
         kafka_params.clone(),
         metric,
         all_markets.clone(),
@@ -77,7 +76,6 @@ where
 	).await;
 
     let last_middle = processor_actors.last().unwrap(); // last middle processor
-    let nb_middle_mkts = all_markets.markets.len();
     let last_market_name = all_markets.last_market_name();  // last market name in all_markets, should be "new" or similar
 
     // creating the bulk processor

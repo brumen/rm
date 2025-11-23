@@ -1,9 +1,6 @@
-use all_markets::AllMarkets;
 // Starts the controller.
 use tracing::{info, Level, instrument};
-use tracing_subscriber;
-use tracing_subscriber::fmt::format::FmtSpan;
-use trade_letf::{LETFHedge, TradeTypes};
+use trade_letf::{TradeTypes};
 use crate::pricer::PricingMetric;
 use futures::future::join_all;
 use axum::{
@@ -16,23 +13,14 @@ use std::net::SocketAddr;
 use tokio::task;
 use dotenv::dotenv;
 
-
-//mod ao_risk;
-//mod ao_risk_seq;
-mod ao_trade;
-//mod engine;
-//mod letf_trader;
 mod market;
 mod portfolio;
 mod portfolio_sender;
 mod pricer;
-//mod process_trade;
 mod publish;
 mod ref_deref;
-//mod rm_local;
 mod streaming;
 mod trade;
-//mod trader;
 mod all_markets;
 
 // actor framework new
@@ -43,7 +31,6 @@ pub(crate) mod processor_new;
 pub(crate) mod processor_bulk;
 pub(crate) mod processor_middle;
 pub(crate) mod engine_actor;
-//pub(crate) mod engine_ao2;
 pub(crate) mod processor_msg;
 pub(crate) mod trade_letf;
 pub(crate) mod ao_market;
@@ -51,12 +38,8 @@ pub(crate) mod engine_letf;
 pub(crate) mod letf_market;
 
 use crate::trade::TradeRep;
-use crate::ao_market::AOMarketType;
-//use crate::engine_ao2::start2;
 use crate::engine_letf::start2;
 use crate::letf_market::LETFMarketType;
-
-
 
 
 #[tokio::main]
@@ -141,10 +124,10 @@ async fn run_all() {
 }
 
 // initialize the letf market.
-fn init_letf() -> (Arc<TradeRep<TradeTypes>>, Arc<AllMarkets<Arc<LETFMarketType>>>) {
+fn init_letf() -> (Arc<TradeRep<TradeTypes>>, Arc<all_markets::AllMarkets<Arc<LETFMarketType>>>) {
     let initial_trades = Arc::new(TradeRep::<TradeTypes>::default());  // defines the type of trades.
     let initial_market = LETFMarketType::new("name1".to_string());  // TODO: CHANGE HERW
-    let all_markets = Arc::new(AllMarkets::<Arc<LETFMarketType>>::new() );  // how many in-between markets there are.
+    let all_markets = Arc::new(all_markets::AllMarkets::<Arc<LETFMarketType>>::new() );  // how many in-between markets there are.
 
     (initial_trades, all_markets)
 }

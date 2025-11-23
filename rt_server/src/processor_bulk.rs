@@ -64,14 +64,6 @@ pub enum ProcessorBulkState<MT> {
 }
 
 
-// impl<T, MP> Decoder for ProcessorBulk<T, MP>
-// where
-//     dyn MarketTypeT<MP=MP>: Sized + std::fmt::Debug,
-//     dyn MarketTypeT<MP=MP> + Send + Sync + 'static: Sized,
-// {}
-
-
-
 // impl<ReductionType, T, MP> RestPricerSpark<ReductionType> for ProcessorBulk<T, MP>
 // where
 //     ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
@@ -98,16 +90,12 @@ pub enum ProcessorBulkState<MT> {
 impl<T, MT> Actor for ProcessorBulk<T, MT>
 where
     T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static,
-// dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-//     dyn MarketTypeT<MP=MP>: Sized + Sync + Send,
-//    MP: 'static + Send + Sync + Clone,
-    // Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
     MT: MarketTypeT + Send + Sync + 'static,
     MT::MP : Send + Sync,
 {
     type Msg = ProcessorBulkMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
-    type State = Option<Arc<MT>>;  // dyn MarketTypeT<MP=MP>>;
+    type State = Option<Arc<MT>>;
     type Arguments = MT::MP;
 
     async fn pre_start(
@@ -152,9 +140,7 @@ where
 
                 // we have a market
 		let mut portfolio = PortfolioType::default();
-
                 let mut non_pricing_trades = Vec::<String>::new();
-
                 let mut used_trades = vec![];
                 for trade_name in new_trades.iter() {
 		    debug!(
@@ -173,36 +159,42 @@ where
                     used_trades.push(trade);
                 }
 
-                let market_actual = self.all_markets.markets.get(&market).unwrap();
-                let market_actual = market_actual.value();
-                // pricing_futs are futures where the trades are getting priced.
-                //let mut pricing_futs = vec![];
-                //for used_trade in used_trades {
-                for used_trade in new_trades.iter() {
-                    let used_trade = self.all_trades.get(used_trade).unwrap();
-                    let price = used_trade.value_by_metric(
-			self.metric,
-                        market_actual.clone(),
-		    ).await;
-                    portfolio += price.aggregate()
-		}
-                // TODO: Finish this part here!
-		// updating the portfolio
-		// let pricing_res = join_all(pricing_futs).await;
-                //for pricing in pricing_res.iter() {
-		//    portfolio += pricing.aggregate();
-		// }
+                match self.all_markets.markets.get(&market) {
+                    None => {
+                        warn!("Could not find market {}. Continuing.", market);
+                    },
+                    Some(market_actual) => {
+                        let market_actual = market_actual.value();
+                        // pricing_futs are futures where the trades are getting priced.
+                        //let mut pricing_futs = vec![];
+                        //for used_trade in used_trades {
+                        for used_trade in new_trades.iter() {
+                            let used_trade = self.all_trades.get(used_trade).unwrap();
+                            let price = used_trade.value_by_metric(
+			        self.metric,
+                                market_actual.clone(),
+		            ).await;
+                            portfolio += price.aggregate()
+		        }
+                        // TODO: Finish this part here!
+		        // updating the portfolio
+		        // let pricing_res = join_all(pricing_futs).await;
+                        //for pricing in pricing_res.iter() {
+		        //    portfolio += pricing.aggregate();
+		        // }
 
-		debug!(
-                    "Bulk processor {}: portfolio back to middle actor: {:?}",
-                    self.processor_name, portfolio,
-                );
+		        debug!(
+                            "Bulk processor {}: portfolio back to middle actor: {:?}",
+                            self.processor_name, portfolio,
+                        );
 
-		sending_processor.send_message(
-		    ProcessorMiddleMessage::BulkReceive(
-			(new_trades, portfolio, non_pricing_trades, market)
-		    )
-		)?;
+		        sending_processor.send_message(
+		            ProcessorMiddleMessage::BulkReceive(
+			        (new_trades, portfolio, non_pricing_trades, market)
+		            )
+		        )?;
+                    },
+                }
 	    },
 
 	    ProcessorBulkMessage::Abandon => {

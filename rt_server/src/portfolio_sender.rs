@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::ref_deref::TryFromRef;
 use crate::streaming::Streaming;
@@ -20,12 +20,13 @@ use uuid::Uuid;
 /// to new portfolio sender and current portfolio sender.
 /// if it receives a signal to resend existing trades, it resends them
 pub trait PortfolioSender: TradeReduce + Streaming + Sync {
+
     //#[instrument]
     fn __construct_portfolio(
         &self,
         sender_new: Sender<<Self as TradeReduce>::ReductionType>,
         sender_curr: Sender<<Self as TradeReduce>::ReductionType>,
-        resend_existing: Receiver<bool>,
+        _resend_existing: Receiver<bool>,
         pos_topic: String,
     ) -> impl Future<Output = ()> + Send
     where

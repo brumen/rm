@@ -8,6 +8,10 @@ path = "src/lib.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lints.clippy]
+recursive_call = "deny"
+
+
 [dependencies]
 actix = "0.13.0"
 actix-rt = "2.9.0"

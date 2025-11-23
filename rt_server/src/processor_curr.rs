@@ -1,4 +1,4 @@
-use tracing::info;
+use tracing::{info, warn};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 use rdkafka::error::KafkaError;
@@ -163,28 +163,34 @@ where
                 let trade_info = self.all_trades.get(&trade).unwrap();
                 let trade_real = trade_info.value();
 
-                let market_info = self.all_markets.markets.get(market).unwrap();
-                let market_info = market_info.value();
-		let valued_trade = trade_real.value_by_metric(
-		    self.metric,
-	            market_info.clone(),
-		).await;
+                match self.all_markets.markets.get(market) {
+                    None => {
+                        warn!("Could not find market {}. Ignoring the market", market);
+                    },
+                    Some(market_info) => {
+                        let market_info = market_info.value();
+		        let valued_trade = trade_real.value_by_metric(
+		            self.metric,
+	                    market_info.clone(),
+		        ).await;
 
-		// updating the portfolio
-		//*trades += &trade; // TODO: THIS CAN BE FIXED.
-                trades.push(trade);
-		*portf += valued_trade;
+		        // updating the portfolio
+		        //*trades += &trade; // TODO: THIS CAN BE FIXED.
+                        trades.push(trade);
+		        *portf += valued_trade;
 
-                // send information about all the trades to the trade processor
-                // let now = Local::now();
-                //self.trade_processor.send_message(
-                //    ProcessorMiddleMessage::ProcessingStat(
-                //        (self.processor_name.clone(), now.naive_local(), trades.len())
-                //    )
-                //);
+                        // send information about all the trades to the trade processor
+                        // let now = Local::now();
+                        //self.trade_processor.send_message(
+                        //    ProcessorMiddleMessage::ProcessingStat(
+                        //        (self.processor_name.clone(), now.naive_local(), trades.len())
+                        //    )
+                        //);
 
-                // TODO: FOLLOWING LINE SHOULD BE PUT BACK
-		self._publish_result_portfolio(portf.clone()).await?
+                        // TODO: FOLLOWING LINE SHOULD BE PUT BACK
+		        self._publish_result_portfolio(portf.clone()).await?
+                    },
+                }
             },
 
 	    ProcessorMiddleMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {

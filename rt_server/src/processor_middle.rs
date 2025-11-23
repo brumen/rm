@@ -167,28 +167,34 @@ where
 		);
 
                 // let market_info = self.all_markets.get_m(market.to_string());
-                let market_info = self.all_markets.markets.get(market).unwrap();
-                let market_info = market_info.value();
-                let real_trade = trade_info.value();
-                let new_trade_price = real_trade.value_by_metric(
-		    self.metric,
-		    market_info.clone(),
-		).await;
-		*portf += new_trade_price;  // portfolio update
-		//*trade_l += &new_trade;  // we add the trade to the list.
-                trade_l.push(new_trade);
+                match self.all_markets.markets.get(market) {
+                    None => {
+                        warn!("Could not get market {}. Continuing.", market);
+                    },
+                    Some(market_info) => {
+                        let market_info = market_info.value();
+                        let real_trade = trade_info.value();
+                        let new_trade_price = real_trade.value_by_metric(
+		            self.metric,
+		            market_info.clone(),
+		        ).await;
+		        *portf += new_trade_price;  // portfolio update
+		        //*trade_l += &new_trade;  // we add the trade to the list.
+                        trade_l.push(new_trade);
 
-		// we send the computed portfolio & trades to the processor below
-		//   hoping that we are ahead.
-		info!(
-		    "Processor: {}, State: CalculatingSingle: sending potential portfolio to processor below.",
-		    self.processor_name,
-		);
-		self.processor_below.send_message(
-		    ProcessorMiddleMessage::NewTradePortfolio(
-			(trade_l.clone(), portf.clone(), market.clone(), myself)
-		    )
-		)?;
+		        // we send the computed portfolio & trades to the processor below
+		        //   hoping that we are ahead.
+		        info!(
+		            "Processor: {}, State: CalculatingSingle: sending potential portfolio to processor below.",
+		            self.processor_name,
+		        );
+		        self.processor_below.send_message(
+		            ProcessorMiddleMessage::NewTradePortfolio(
+			        (trade_l.clone(), portf.clone(), market.clone(), myself)
+		            )
+		        )?;
+                    },
+                }
 	    },
 
 	    (ProcessorMiddleMessage::NewTrade(new_trade), ProcessorMiddleState::Idle) => {

@@ -11,7 +11,7 @@ use chrono::NaiveDateTime;
 use std::sync::Arc;
 
 use crate::portfolio_sender::connect_with_retries_rd;
-use crate::ref_deref::{TryFromRef, TryFromRef2,};
+use crate::ref_deref::{TryFromRef2};
 use crate::trade::{BaseTrade, TradeRep};
 
 // new and current processors.
@@ -30,6 +30,7 @@ pub struct TradeProducer<T>{
     trade_list: Arc<TradeRep<T>>,
     processing_stat: Vec<CB>,
 }
+
 
 impl<T> TradeProducer<T> {
     pub fn new(

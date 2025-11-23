@@ -34,11 +34,11 @@ impl<T:MarketTypeT> MarketTypeT for Arc<T> {
     }
 
     async fn get(&self, stock: &String) -> Option<f64> {
-        self.get(stock).await
+        (**self).get(stock).await
     }
 
     async fn insert(&self, key: String, value: f64) {
-        self.insert(key, value).await;
+        (**self).insert(key, value).await;
     }
 
     fn is_empty(&self) -> bool {

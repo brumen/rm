@@ -56,9 +56,9 @@ impl AOTrade {
     /// computes the pricing request.
     async fn _pricing_request(
         &self,
-        metric: PricingMetric,
-        market: Arc<dyn MarketTypeT<MP=AOMarketParams> + Send + Sync>,
-        trades: Vec<String>,
+        _metric: PricingMetric,
+        _market: Arc<dyn MarketTypeT<MP=AOMarketParams> + Send + Sync>,
+        _trades: Vec<String>,
     ) -> Result<reqwest::Response, reqwest::Error> {
 
         todo!()

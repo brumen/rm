@@ -2,7 +2,6 @@ use rdkafka::config::FromClientConfig;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
-use serde_json::Error;
 use std::cmp::min;
 use std::thread::sleep;
 use std::time::Duration;
