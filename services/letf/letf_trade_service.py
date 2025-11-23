@@ -8,8 +8,11 @@
 """
 
 import os
+import logging
 from dotenv import load_dotenv
 from logging import getLogger
+
+logging.basicConfig(level=logging.INFO)
 
 from rm.services.letf.trade_service import LETFTradeProducer
 from rm.services.letf.letf_market_service import LETFMarketProducer

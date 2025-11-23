@@ -51,7 +51,7 @@ class BaseProducer:
         """
 
         for value in self._value_to_publish(sleep_between_publish=sleep_delay):
-            print(f'Publishing to {self._value_producer_topic}: {value}.')
+            logger.info(f'Publishing to {self._value_producer_topic}: {value}.')
 
             self._value_producer.send(
                 self._value_producer_topic,
