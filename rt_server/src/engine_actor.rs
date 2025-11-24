@@ -111,7 +111,6 @@ where
         metric,
         initial_trades.clone(),
         all_markets.clone(),
-        mp.clone()
     );
 
     (proc_middle, bulk_actor_future)

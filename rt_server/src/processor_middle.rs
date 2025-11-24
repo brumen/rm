@@ -40,16 +40,7 @@ where
         metric: PricingMetric,
         all_trades: Arc<TradeRep<T>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
-        mp: MT::MP,
     ) -> Self {
-
-        let processor_middle_mkt = MT::new(processor_name.clone(), mp);
-
-        // insert a proper market into the all_market.
-        all_markets.insert(
-            processor_name.clone(),
-            processor_middle_mkt,
-        );
 
         Self {
             metric,
