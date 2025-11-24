@@ -304,27 +304,21 @@ where
                         //    new_market,
                         //    future_m,
                         //).await?;
-                        let new_market_str = self.all_markets.markets.get(&new_market);
 
-                        match new_market_str {
-                            None => {
-                                warn!("Could not get market {} from all_markets. Ignoring the market and continuing", new_market);
-                                return Ok(());
-                            },
-                            Some(new_market_val) => {
-                                let new_market_val = new_market_val.value();
-                                *future_m = new_market_val.clone();
+                        let Some(new_market_val) = self.all_markets.get(&new_market) else {
+                            warn!("Could not get market {} from all_markets. Ignoring the market and continuing", new_market);
+                            return Ok(());
+                        };
+                        *future_m = new_market_val.clone();
 
-			        // we are idle, we can start calculating, start calculating
-                                info!("Idle, NewMarket: sending to bulk. State -> CalculatingBulk");
-                                *pns = ProcessorNewState::CalculatingBulk;
-			        self.processor_bulk.send_message(
-			            ProcessorBulkMessage::NewBulk(
-                                        (new_m.market_name(), trade_l.clone(), myself)
-                                    )
-			        )?;
-                            },
-                        }
+			// we are idle, we can start calculating, start calculating
+                        info!("Idle, NewMarket: sending to bulk. State -> CalculatingBulk");
+                        *pns = ProcessorNewState::CalculatingBulk;
+			self.processor_bulk.send_message(
+			    ProcessorBulkMessage::NewBulk(
+                                (new_m.market_name(), trade_l.clone(), myself)
+                            )
+			)?;
 		    },
 
 		    ProcessorNewState::CalculatingSingle => {
@@ -403,8 +397,9 @@ where
 
                             // TODO: CHECK IF ANYTHING ELSE NEEDS TO BE DONE
                             //self._switch_markets(new_m, future_m).await?;
-                            // TODO: SUPER IMPORTANT - CHANGE MARKET
-                            //*new_m = *future_m;
+
+                            // put the future_m to
+                            *new_m = future_m.clone();
 
                             info!(
                                 "Processor: new, State: (Behind, CalculatingSingle): Going to state Idle."
