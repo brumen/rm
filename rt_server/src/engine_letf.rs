@@ -8,7 +8,7 @@ use std::ops::AddAssign;
 use crate::mkt_handler_actor::{MarketProducer};
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PricingMetric;
-use crate::market::MarketTypeT;
+use crate::market::{MarketTypeT, SetName};
 use crate::all_markets::AllMarkets;
 use crate::trade_sender::TradeProducer;
 use crate::processor_new::ProcessorNew;
@@ -33,7 +33,7 @@ pub(crate) async fn start2<T, MT>(
 where
     T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MT> + TryFromRef2,
     MT::MP : 'static + Send + Sync + Clone,
-    for <'a> MT: Send + Sync + MarketTypeT + 'static + Clone + AddAssign<&'a MT>,
+    for <'a> MT: Send + Sync + MarketTypeT + 'static + Clone + AddAssign<&'a MT> + SetName,
 {
     // create the current processor.
     let (curr_processor, _curr_processor_bulk_h) = create_curr_actor(

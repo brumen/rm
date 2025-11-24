@@ -21,6 +21,12 @@ where
 }
 
 
+// Setting the name of the market
+pub trait SetName {
+    fn set_name(&mut self, new_name: String);
+}
+
+
 #[async_trait]
 impl<T:MarketTypeT> MarketTypeT for Arc<T> {
     type MP = T::MP;

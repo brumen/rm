@@ -34,9 +34,6 @@ where
 impl<T, MT> std::fmt::Debug for ProcessorCurr<T, MT>
 where
     MT: MarketTypeT
-//     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-//    dyn MarketTypeT<MP=MP>: Sized,
-//    T: Send + Sync,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CurrentProcessor({self.processor_name})")
@@ -66,8 +63,6 @@ pub(crate) trait PublishPortfolio
 #[async_trait]
 impl<T, MT> PublishPortfolio for ProcessorCurr<T, MT>
 where
-    //dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-    // dyn MarketTypeT<MP=MP>: Sized,
     T: Send + Sync,
     MT: Send + Sync + MarketTypeT,
 {
@@ -123,7 +118,7 @@ where
     //    current portfolio
     //    current market name
     //       representation.
-    type State = (Vec<String>, PortfolioType, String);
+    type State = (Vec<String>, PortfolioType, Option<String>);
     type Arguments = ();
 
     async fn pre_start(
@@ -136,7 +131,7 @@ where
 	let initial_curr_portf = PortfolioType::default();
         let market = self.processor_name.clone();
 
-	Ok((initial_trades, initial_curr_portf, market))
+	Ok((initial_trades, initial_curr_portf, None))
     }
 
     async fn handle(
@@ -150,6 +145,12 @@ where
         match message {
 	    ProcessorMiddleMessage::NewTrade(trade) => {
 
+                let Some(real_market) = market else {
+                    // only continue if you have a market.
+                    warn!("Do not have market. Ignoring the trade.");
+                    return Ok(());
+                };
+
                 let Some(trade_info) = self.all_trades.get(&trade) else {
                     warn!("Could not find {} among all_atrades. Ignoring and continuing.", trade);
                     return Ok(());
@@ -158,8 +159,8 @@ where
                 info!("Adding new trade: {}", trade);
                 let trade_real = trade_info.value();
 
-                let Some(market_info) = self.all_markets.markets.get(market) else {
-                    warn!("Could not find market {}. Ignoring the market", market);
+                let Some(market_info) = self.all_markets.markets.get(real_market) else {
+                    warn!("Could not find market {}. Ignoring the market", real_market);
                     return Ok(());
                 };
 
@@ -213,14 +214,16 @@ where
                     // market that we were holding should be removed from the all_markets,
                     // as it's not needed anymore.
                     // IMPORTANT: this .remove call CAN DEADLOCK!!!
-                    let _ = self.all_markets.markets.remove(&market.clone());  // TODO: HANDLE ERROR MESSAGES
+                    if let Some(real_market) = market {
+                        let _ = self.all_markets.markets.remove(&real_market.clone());  // TODO: HANDLE ERROR MESSAGES
+                    };
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;
 		    //*trades += &new_trades;
                     // TODO: CHECK IF THIS IS OK
                     trades.extend(new_trades);
-		    *market = new_market;
+		    *market = Some(new_market);  // markets should trickle down.
 		} // otherwise dont do anything.
 	    },
 

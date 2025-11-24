@@ -40,29 +40,16 @@ where
     MT: MarketTypeT + Send + Sync + 'static + Clone,
 {
 
-    //let current_market = markets_used[0];
-    // let mp = all_markets.get_market_params().unwrap();
-
-//    let mp = all_markets.get_market_params().unwrap();
-
-    let curr_mkt = MT::new(curr_mkt_name.clone(), mp.clone());
-    let curr_mkt_bulk_name = format!("{}_bulk", curr_mkt_name);
-    let curr_mkt_bulk = MT::new(curr_mkt_bulk_name.clone(), mp.clone());
-
-    all_markets.insert(curr_mkt_name.clone(), curr_mkt);
-    all_markets.insert(curr_mkt_bulk_name.clone(), curr_mkt_bulk);
+    let curr_bulk = ProcessorBulk::new(
+	"curr".to_string(),  // bulk is for processor current
+	metric,
+        initial_trades.clone(),
+        all_markets.clone(),
+    );
 
     // bulk processor for the current processor.
     let (_processor_bulk_a, processor_new_bulk_h) = Actor::spawn(
-	None,
-	ProcessorBulk {
-	    processor_name: curr_mkt_bulk_name,
-	    metric,
-            trade_names: vec![],
-            all_trades: initial_trades.clone(),
-            all_markets: all_markets.clone(),
-	},
-	mp.clone(),
+	None, curr_bulk, mp.clone(),
     )
         .await
         .expect("Could not start current_bulk processor.");
@@ -88,7 +75,7 @@ where
 // creates a middle portion of the actor.
 //  returns: processor middle, and the future
 pub(crate) async fn create_middle_actor<T, MT>(
-    market_name: String,
+    processor_name: String,
     metric: PricingMetric,
     all_markets: Arc<AllMarkets<Arc<MT>>>,
     initial_trades: Arc<TradeRep<T>>,
@@ -101,16 +88,14 @@ where
     MT: MarketTypeT + 'static,
 {
 
-    let middle_bulk_mkt_name = format!("{}_bulk", market_name);
-    let middle_mkt_name = format!("middle_{}", market_name);
+    let middle_bulk_name = format!("{}_bulk", processor_name);
 
     // TODO: NEXT STAGE IS TO CONSTRUCT BULK INSIDE PROCESSOR MIDDLE
     let bulk_middle = ProcessorBulk::new(
-	middle_bulk_mkt_name,
+	middle_bulk_name,
 	metric,
         initial_trades.clone(),
         all_markets.clone(),
-        mp.clone(),
     );
 
     let (bulk_actor, bulk_actor_future) = Actor::spawn(
@@ -120,7 +105,7 @@ where
 	.expect("Could not create bulk middle processor");
 
     let proc_middle = ProcessorMiddle::new(
-	middle_mkt_name.clone(),
+	processor_name,
         processor_below,
         bulk_actor,
         metric,

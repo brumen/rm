@@ -1,13 +1,13 @@
 use tracing::info;
 use rdkafka::consumer::StreamConsumer;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
-// use uuid::Uuid;
+use uuid::Uuid;
 use std::ops::AddAssign;
 use std::sync::Arc;
 
 use crate::processor_msg::ProcessorMiddleMessage;
 use crate::pricer::PricingMetric;
-use crate::market::MarketTypeT;
+use crate::market::{MarketTypeT, SetName};
 use crate::all_markets::AllMarkets;
 
 
@@ -29,7 +29,7 @@ where
 #[async_trait]
 impl<MT> Actor for MarketProducer<MT>
 where
-    for<'a> MT: MarketTypeT + Send + Sync + AddAssign<&'a MT> + Clone + 'static,
+    for<'a> MT: MarketTypeT + Send + Sync + AddAssign<&'a MT> + Clone + 'static + SetName,
     MT::MP : 'static + Send + Sync + Clone,
 {
     type Msg = MT;
@@ -43,17 +43,19 @@ where
     ) -> Result<Self::State, ActorProcessingErr> {
 
         let mp = self.pricing_options.clone();  // market params
-        let fut_mkt = MT::new("future".to_string(), mp.clone());
+        let fut_mkt_tag = Uuid::new_v4();
+        let fut_mkt = MT::new(fut_mkt_tag.to_string(), mp.clone());
 
         info!("Adding initial _future_ market to all_markets.");
         self.all_markets.insert(
-            "future".to_string(),
+            "future".to_string(),  // market is inserted at "future" entry
             fut_mkt
         );
 
 	info!("Initializing MarketProducer. Waiting on first message");
 	let new_mkt_msg = self.mkt_listener.recv().await?;
-        let new_mkt = Self::Msg::try_from_ref("future".to_string(), &new_mkt_msg, self.pricing_options.clone())?;
+        let fut_mkt_tag_2 = Uuid::new_v4();
+        let new_mkt = Self::Msg::try_from_ref(fut_mkt_tag_2.to_string(), &new_mkt_msg, self.pricing_options.clone())?;
 
 	myself.send_message((*new_mkt.clone()).clone())?;
 
@@ -70,7 +72,9 @@ where
 	info!("Handling new market message.");
 	let market = state;  // state holds the market.
         let market_addition = message;
+        let new_name = market_addition.market_name();
         *market += &market_addition;  // adding a new market
+        market.set_name(new_name);
         let market_sent = Arc::new((*market).clone());
         // this insertion here is done efficiently.
         self.all_markets.insert(
@@ -84,7 +88,8 @@ where
 
 	// wait for new message
 	let new_msg = self.mkt_listener.recv().await?;
-        let new_mkt = Self::Msg::try_from_ref("future".to_string(), &new_msg, self.pricing_options.clone())?;
+        let additional_name = Uuid::new_v4().to_string();
+        let new_mkt = Self::Msg::try_from_ref(additional_name, &new_msg, self.pricing_options.clone())?;
 	myself.send_message((*new_mkt).clone())?;
 
 	Ok(())

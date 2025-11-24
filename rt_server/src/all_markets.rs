@@ -1,5 +1,6 @@
 use dashmap::DashMap;
 use std::sync::Arc;
+use tracing::{info, debug, warn};
 
 use crate::market::MarketTypeT;
 
@@ -30,7 +31,18 @@ where
     MT: MarketTypeT + Clone + Send + Sync,  // this will be fine since MT is an Arc.
     MT::MP : Clone,
 {
-    //type MT = Arc<dyn MarketTypeT<MP=MP> + Sync + Send>;
+
+    pub(crate) fn list_market_names(&self) -> Vec<String> {
+        self.markets
+            .iter()
+            .map(
+                |mn_mv| {
+                    let mn = mn_mv.key();
+                    mn.clone()
+                }
+            )
+            .collect::<Vec<String>>()
+    }
 
     // creates a new empty all markets structure
     //pub(crate) fn new(mp: Option<MT::MP> ) -> Self {
@@ -38,7 +50,6 @@ where
         Self {
             markets: DashMap::<String,MT>::new(),
             market_names: DashMap::<usize, String>::new(),
-//            mp,
         }
     }
 
@@ -65,7 +76,12 @@ where
 
     // inserts the market into the all structure.
     pub(crate) fn insert(&self, market_name: String, market: MT) {
-        self.markets.insert(market_name, market);
+        self.markets.insert(market_name.clone(), market);
+        debug!(
+            "Inserting {} into all_market. All_markets: {:?}",
+            market_name,
+            self.list_market_names(),
+        );
     }
 
     pub(crate) fn insert_name(&self, market_name: String, market_nb: usize) {
@@ -131,6 +147,12 @@ where
     // remove the market from self.markets
     pub(crate) fn remove(&self, market_name: &String) {
         self.markets.remove(market_name);
+
+        debug!(
+            "Removing {} from all_markets. Current markets: {:?}",
+            market_name,
+            self.list_market_names()
+        );
     }
 
     // remove the name from self.market_names

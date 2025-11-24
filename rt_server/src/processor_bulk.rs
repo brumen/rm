@@ -17,7 +17,7 @@ pub struct ProcessorBulk<T, MT>
 where
     MT: MarketTypeT,
 {
-    pub processor_name: String,
+    pub processor_name: String,  // name of the bulk processor
     pub metric: PricingMetric,
     pub(crate) trade_names: Vec<String>,
     pub(crate) all_trades: Arc<TradeRep<T>>,  // all_trades is a reference to the structure that contains all trades.
@@ -31,23 +31,16 @@ where
     MT::MP : Clone,
 {
     pub(crate) fn new(
-        processor_name: String,
+        processor_name: String,  // original processor on which this depends.
         metric: PricingMetric,
         all_trades: Arc<TradeRep<T>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
-        mp: MT::MP,
     ) -> Self {
 
-        let bulk_mkt = MT::new(processor_name.clone(), mp);
-
-        // insert a proper market into the all_market.
-        all_markets.insert(
-           processor_name.clone(),
-           bulk_mkt,
-        );
+        let bulk_name = format!("{}_bulk", processor_name.clone());
 
         Self {
-            processor_name,
+            processor_name: bulk_name,
             metric,
             trade_names: vec![],
             all_trades,

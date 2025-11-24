@@ -6,7 +6,7 @@ use uuid::Uuid;
 use std::ops::{AddAssign};
 use std::sync::Arc;
 
-use crate::market::{MarketTypeT, MarketTypeError};
+use crate::market::{MarketTypeT, MarketTypeError, SetName};
 use crate::trade_letf::LETFHedge;
 
 pub(crate) type MarketInner = DashMap<String, f64>;
@@ -153,6 +153,13 @@ impl MarketTypeT for LETFMarketType {
 
     fn market_params(&self) {  }
 
+}
+
+
+impl SetName for LETFMarketType {
+    fn set_name(&mut self, new_name: String) {
+        self.market_name = new_name;
+    }
 }
 
 

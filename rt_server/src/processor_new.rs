@@ -395,11 +395,16 @@ where
                                 new_m.market_name(),
                             );
 
-                            // TODO: CHECK IF ANYTHING ELSE NEEDS TO BE DONE
-                            //self._switch_markets(new_m, future_m).await?;
-
-                            // put the future_m to
+                            // switch markets: new_m <- future_m
+                            // put the future_m to the new market.
+                            let prev_new_m_name = new_m.market_name();
+                            info!(
+                                "Swithcing markets: new_m {} <- future_m {}",
+                                prev_new_m_name,
+                                future_m.market_name(),
+                            );
                             *new_m = future_m.clone();
+                            self.all_markets.remove(&prev_new_m_name);
 
                             info!(
                                 "Processor: new, State: (Behind, CalculatingSingle): Going to state Idle."
