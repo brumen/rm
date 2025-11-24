@@ -126,7 +126,6 @@ async fn run_all() {
 // initialize the letf market.
 fn init_letf() -> (Arc<TradeRep<TradeTypes>>, Arc<all_markets::AllMarkets<Arc<LETFMarketType>>>) {
     let initial_trades = Arc::new(TradeRep::<TradeTypes>::default());  // defines the type of trades.
-    let initial_market = LETFMarketType::new("name1".to_string());  // TODO: CHANGE HERW
     let all_markets = Arc::new(all_markets::AllMarkets::<Arc<LETFMarketType>>::new() );  // how many in-between markets there are.
 
     (initial_trades, all_markets)
