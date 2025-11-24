@@ -46,7 +46,7 @@ where
         mp: MT::MP,
     ) -> Self {
 
-        let processor_fut_mkt_name = format!("{}_future", processor_name.clone());
+        //let processor_fut_mkt_name = format!("{}_future", processor_name.clone());
 
         // constructing "new" market. market where this processor_new operates
         let processor_new_mkt = MT::new(processor_name.clone(), mp.clone());
@@ -63,7 +63,7 @@ where
             processor_bulk,
             all_markets,
             all_trades,
-            market_name: (processor_name, processor_fut_mkt_name),
+            market_name: (processor_name, "future".to_string()),  // new, future market
             market_params: mp
         }
     }
@@ -151,9 +151,8 @@ where
 impl<T, MT> Actor for ProcessorNew<T, MT>
 where
     T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MT>,
-    //    MP: 'static + Send + Sync + Clone,
     MT: MarketTypeT + Send + Sync + 'static,
-    MT::MP : Send + Sync,
+    MT::MP : Send + Sync + Clone,
 {
     type Msg = ProcessorMiddleMessage<String>;
 
@@ -268,27 +267,26 @@ where
 
 			//*trade_l += &new_trade;  // we add the trade to the list.
                         trade_l.push(new_trade.clone());
-                        match self.all_trades.get(&new_trade) {
-                            None => {
-                                warn!("Could not get trade {}. Continuing", new_trade);  // TODO: THIS SHOULD BE BETTER
-                            },
-                            Some(new_trade_info) => {
-			        let new_trade_price = new_trade_info.value_by_metric(
-			            self.metric,
-			            new_m.clone(),
-			        ).await;
-			        *portf += new_trade_price;  // portfolio update
-                                info!(
-                                    "CalculatingBulk, NewTrade: Sending to lower processor. Portf size: {}",
-                                    portf.len(),
-                                );
-                                self.processor_middle.send_message(
-                                    ProcessorMiddleMessage::NewTradePortfolio(
-                                        (trade_l.clone(), portf.clone(), new_m.market_name(), myself)
-                                    )
-                                )?;
-                            },
-                        }
+
+                        let Some(new_trade_info) = self.all_trades.get(&new_trade) else {
+                            warn!("Could not get trade {}. Continuing", new_trade);
+                            return Ok(());
+                        };
+
+			let new_trade_price = new_trade_info.value_by_metric(
+			    self.metric,
+			    new_m.clone(),
+			).await;
+			*portf += new_trade_price;  // portfolio update
+                        info!(
+                            "CalculatingBulk, NewTrade: Sending to lower processor. Portf size: {}",
+                            portf.len(),
+                        );
+                        self.processor_middle.send_message(
+                            ProcessorMiddleMessage::NewTradePortfolio(
+                                (trade_l.clone(), portf.clone(), new_m.market_name(), myself)
+                            )
+                        )?;
 		    },
 		}
 	    },
@@ -350,15 +348,12 @@ where
                         //    new_market,  //replace_mkt: MarketType,
                         //    future_m,  // future_mkt: &mut MarketType
                         //).await?;
-                        match self.all_markets.markets.get(&new_market) {
-                            None => {
-                                warn!("Could not find market {}. Continuing", new_market);
-                            },
-                            Some(new_market_val) => {
-                                let new_market_val = new_market_val.value();
-                                *future_m = new_market_val.clone();
-                            },
-                        }
+                        let Some(new_market_val) = self.all_markets.get(&new_market) else {
+                            warn!("Could not find market {}. Continuing", new_market);
+                            return Ok(());
+                        };
+
+                        *future_m = new_market_val.clone();
 		    }
 		    // ignore if new market comes in, no
 		    //   action taken.

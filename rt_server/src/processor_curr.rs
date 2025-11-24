@@ -1,4 +1,4 @@
-use tracing::{info, warn};
+use tracing::{info, warn, debug};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 use rdkafka::error::KafkaError;
@@ -19,9 +19,6 @@ use crate::market::MarketTypeT;
 pub(crate) struct ProcessorCurr<T, MT>
 where
     MT: MarketTypeT
-//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-//    dyn MarketTypeT<MP=MP>: Sized,
-//    T: Send + Sync,
 {
     pub processor_name: String,
     pub metric: PricingMetric,
@@ -117,11 +114,7 @@ where
 impl<T, MT> Actor for ProcessorCurr<T, MT>
 where
     T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static,
-//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-//    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
-//    MP: 'static + Send + Sync + Clone,
     ProcessorCurr<T,MT>: PublishPortfolio,
-    //Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
     MT: MarketTypeT + Send + Sync + 'static,
 {
     type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
@@ -157,40 +150,40 @@ where
         match message {
 	    ProcessorMiddleMessage::NewTrade(trade) => {
 
-		info!("Adding new trade: {}", trade);
-                // TODO: REWRITE THIS SHIT!!!
-                // TODO: WHAT TO DO IF trade_info = None
-                let trade_info = self.all_trades.get(&trade).unwrap();
+                let Some(trade_info) = self.all_trades.get(&trade) else {
+                    warn!("Could not find {} among all_atrades. Ignoring and continuing.", trade);
+                    return Ok(());
+                };
+
+                info!("Adding new trade: {}", trade);
                 let trade_real = trade_info.value();
 
-                match self.all_markets.markets.get(market) {
-                    None => {
-                        warn!("Could not find market {}. Ignoring the market", market);
-                    },
-                    Some(market_info) => {
-                        let market_info = market_info.value();
-		        let valued_trade = trade_real.value_by_metric(
-		            self.metric,
-	                    market_info.clone(),
-		        ).await;
+                let Some(market_info) = self.all_markets.markets.get(market) else {
+                    warn!("Could not find market {}. Ignoring the market", market);
+                    return Ok(());
+                };
 
-		        // updating the portfolio
-		        //*trades += &trade; // TODO: THIS CAN BE FIXED.
-                        trades.push(trade);
-		        *portf += valued_trade;
+                let market_info = market_info.value();
+                debug!("Valuing trade {} on market {:?}", trade, market_info.market_name());
+		let valued_trade = trade_real.value_by_metric(
+		    self.metric,
+	            market_info.clone(),
+		).await;
 
-                        // send information about all the trades to the trade processor
-                        // let now = Local::now();
-                        //self.trade_processor.send_message(
-                        //    ProcessorMiddleMessage::ProcessingStat(
-                        //        (self.processor_name.clone(), now.naive_local(), trades.len())
-                        //    )
-                        //);
+		// updating the portfolio
+		//*trades += &trade; // TODO: THIS CAN BE FIXED.
+                trades.push(trade);
+		*portf += valued_trade;
 
-                        // TODO: FOLLOWING LINE SHOULD BE PUT BACK
-		        self._publish_result_portfolio(portf.clone()).await?
-                    },
-                }
+                // send information about all the trades to the trade processor
+                // let now = Local::now();
+                //self.trade_processor.send_message(
+                //    ProcessorMiddleMessage::ProcessingStat(
+                //        (self.processor_name.clone(), now.naive_local(), trades.len())
+                //    )
+                //);
+
+		self._publish_result_portfolio(portf.clone()).await?
             },
 
 	    ProcessorMiddleMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {

@@ -68,24 +68,22 @@ where
     ) -> Result<(), ActorProcessingErr> {
 
 	info!("Handling new market message.");
-
-	let market = state;
+	let market = state;  // state holds the market.
         let market_addition = message;
         *market += &market_addition;  // adding a new market
-        let market_sent = Arc::new((*market).clone());  // TODO: THIS SHOULD BE BETTER!!
+        let market_sent = Arc::new((*market).clone());
+        // this insertion here is done efficiently.
         self.all_markets.insert(
             "future".to_string(),
             market_sent,
         );
 
-        let market_name = market.market_name();
 	self.new_processor.send_message(
-	    ProcessorMiddleMessage::NewMarket(market_name)  // notification that the future market was updated.
+	    ProcessorMiddleMessage::NewMarket("future".to_string())  // notification that the future market was updated.
 	)?;
 
 	// wait for new message
 	let new_msg = self.mkt_listener.recv().await?;
-        // let market_name = Uuid::new_v4().to_string();   // name of the current market.
         let new_mkt = Self::Msg::try_from_ref("future".to_string(), &new_msg, self.pricing_options.clone())?;
 	myself.send_message((*new_mkt).clone())?;
 
