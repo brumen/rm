@@ -84,7 +84,7 @@ impl<T, MT> Actor for ProcessorBulk<T, MT>
 where
     T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static,
     MT: MarketTypeT + Send + Sync + 'static,
-    MT::MP : Send + Sync,
+    MT::MP : Send + Sync + Clone,
 {
     type Msg = ProcessorBulkMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
@@ -120,7 +120,7 @@ where
 		    self.processor_name,
 		    new_trades.len(),
 		);
-                let curr_mkt_attempt = self.all_markets.markets.get(&market);
+                let curr_mkt_attempt = self.all_markets.get(&market);
 
                 // if curr_mkt == None, we couldnt get the market, abandon the attempts
                 if curr_mkt_attempt.is_none() {
@@ -152,42 +152,40 @@ where
                     used_trades.push(trade);
                 }
 
-                match self.all_markets.markets.get(&market) {
-                    None => {
-                        warn!("Could not find market {}. Continuing.", market);
-                    },
-                    Some(market_actual) => {
-                        let market_actual = market_actual.value();
-                        // pricing_futs are futures where the trades are getting priced.
-                        //let mut pricing_futs = vec![];
-                        //for used_trade in used_trades {
-                        for used_trade in new_trades.iter() {
-                            let used_trade = self.all_trades.get(used_trade).unwrap();
-                            let price = used_trade.value_by_metric(
-			        self.metric,
-                                market_actual.clone(),
-		            ).await;
-                            portfolio += price.aggregate()
-		        }
-                        // TODO: Finish this part here!
-		        // updating the portfolio
-		        // let pricing_res = join_all(pricing_futs).await;
-                        //for pricing in pricing_res.iter() {
-		        //    portfolio += pricing.aggregate();
-		        // }
+                let Some(market_actual) = self.all_markets.get(&market) else {
+                    warn!("Could not find market {}. Continuing.", market);
+                    return Ok(());
+                };
 
-		        debug!(
-                            "Bulk processor {}: portfolio back to middle actor: {:?}",
-                            self.processor_name, portfolio,
-                        );
+                // pricing_futs are futures where the trades are getting priced.
+                //let mut pricing_futs = vec![];
+                //for used_trade in used_trades {
+                for used_trade in new_trades.iter() {
+                    let used_trade = self.all_trades.get(used_trade).unwrap();
+                    let price = used_trade.value_by_metric(
+			self.metric,
+                        market_actual.clone(),
+		    ).await;
+                    debug!("Priced trade {}: {:?}", used_trade.key(), price);
+                    portfolio += price.aggregate()
+		}
+                // TODO: Finish this part here!
+		// updating the portfolio
+		// let pricing_res = join_all(pricing_futs).await;
+                //for pricing in pricing_res.iter() {
+		//    portfolio += pricing.aggregate();
+		// }
 
-		        sending_processor.send_message(
-		            ProcessorMiddleMessage::BulkReceive(
-			        (new_trades, portfolio, non_pricing_trades, market)
-		            )
-		        )?;
-                    },
-                }
+		debug!(
+                    "Bulk processor {}: portfolio back to middle actor: {:?}",
+                    self.processor_name, portfolio,
+                );
+
+		sending_processor.send_message(
+		    ProcessorMiddleMessage::BulkReceive(
+			(new_trades, portfolio, non_pricing_trades, market)
+		    )
+		)?;
 	    },
 
 	    ProcessorBulkMessage::Abandon => {

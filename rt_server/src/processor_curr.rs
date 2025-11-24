@@ -111,6 +111,7 @@ where
     T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static,
     ProcessorCurr<T,MT>: PublishPortfolio,
     MT: MarketTypeT + Send + Sync + 'static,
+    MT::MP: Clone,
 {
     type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // state is a tuple of
@@ -214,8 +215,9 @@ where
                     // market that we were holding should be removed from the all_markets,
                     // as it's not needed anymore.
                     // IMPORTANT: this .remove call CAN DEADLOCK!!!
+                    // destroys the market at the end.
                     if let Some(real_market) = market {
-                        let _ = self.all_markets.markets.remove(&real_market.clone());  // TODO: HANDLE ERROR MESSAGES
+                        let _ = self.all_markets.remove(&real_market.clone());  // TODO: HANDLE ERROR MESSAGES
                     };
 
 		    // update the state of current processor.

@@ -404,7 +404,8 @@ where
                                 future_m.market_name(),
                             );
                             *new_m = future_m.clone();
-                            self.all_markets.remove(&prev_new_m_name);
+                            //self.all_markets.remove(&prev_new_m_name);
+                            self.all_markets.insert(new_m.market_name(), new_m.clone());  // insert the new_m into all markets, as this will become the next market to price.
 
                             info!(
                                 "Processor: new, State: (Behind, CalculatingSingle): Going to state Idle."
