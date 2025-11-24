@@ -84,7 +84,6 @@ where
 	metric,
         initial_trades.clone(),
         all_markets.clone(),
-        mp.clone(),
     );
 
 
