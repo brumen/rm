@@ -190,13 +190,10 @@ where
 
 	    ProcessorMiddleMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {
 		// we got a new portfolio, possibly switch it
-		// let new_behind_curr = trades.clone() - &new_trades.clone();
-                // TODO: This can be better optimized here!!!
-                let new_behind_curr = trades.iter().cloned().filter(|x| !new_trades.contains(x)).collect::<Vec<_>>();
 
-		new_processor.send_message(
-		    ProcessorMiddleMessage::Behind(new_behind_curr.clone())
-		)?;
+		// let new_behind_curr = trades - new_trades;
+                let new_behind_curr = trades.iter().filter(|&x| !new_trades.contains(x)).cloned().collect::<Vec<_>>();
+
 		info!(
                     "Received new trade portfolio, behind: {:?}, portf size: {}",
                     new_behind_curr.len(),
@@ -231,6 +228,12 @@ where
 		    *market = Some(new_market);  // markets should trickle down.
                     debug!("Switching to market {:?}", market);  // market should be created.
 		} // otherwise dont do anything.
+
+                // send the behind information to the middle processor.
+                new_processor.send_message(
+		    ProcessorMiddleMessage::Behind(new_behind_curr.clone())
+		)?;
+
 	    },
 
 	    _ => {

@@ -579,14 +579,11 @@ where
 		let (potential_trades, potential_portfolio, _new_market, upstream_processor) = ntp;  // new trade portfolio
 
 		// TODO: WRONG - IMPLEMENT > JUST FOR REFERENCES!!!
-		//let new_behind_curr = trade_l.clone() - &potential_trades;
-                // TODO: CHECK IF IT GOES WITHOUT CLONING
-                let new_behind_curr = trade_l.iter().cloned()
-                    .filter(|x| !potential_trades.contains(x))
-                    .collect::<Vec<String>>();
+		//let new_behind_curr = trade_l - &potential_trades;
+                let new_behind_curr = trade_l.iter().filter(|&x| !potential_trades.contains(x)).cloned().collect::<Vec<String>>();
                 info!(
-                    "Processor {}, NewPortfolio: My trades: {}, Potential trades: {}, New trades: {}, New portf: {}",
-                    self.processor_name, trade_l.len(), potential_trades.len(), new_behind_curr.len(), potential_portfolio.len(),
+                    "NewPortfolio: My trades: {}, Potential trades: {}, New trades: {}, New portf: {}",
+                    trade_l.len(), potential_trades.len(), new_behind_curr.len(), potential_portfolio.len(),
                 );
 
 		if new_behind_curr.is_empty() {

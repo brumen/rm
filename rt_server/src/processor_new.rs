@@ -430,7 +430,6 @@ where
                             info!("{:?} -> {:?}", pns, ProcessorNewState::Idle);  // from pns -> Idle
                             *pns = ProcessorNewState::Idle;
 
-                            // TODO: REMOVE THIS AT LATER POINT
                             match new_m {
                                 None => {}, // cant be, do nothing.
                                 Some(new_m_real) => {
