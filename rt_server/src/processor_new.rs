@@ -1,4 +1,4 @@
-use tracing::{info, warn};
+use tracing::{info, warn, debug};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 
@@ -396,7 +396,7 @@ where
 		}
 	    },
 
-	    // this only comes from ProcessorBulk, so we already launched a bulk request.
+	    // this only comes from ProcessorMiddle
 	    ProcessorMiddleMessage::Behind(trades_behind) => {
 		// we are behind trades behind the current processor
 		match pns { // what is the processor doing right now
@@ -427,17 +427,18 @@ where
                             // put the future_m to the new market.
                             *new_m = Some(future_m.clone());
 
-                            match new_m {
-                                None => {}, // cant be
-                                Some(new_m_real) => {
-                                    self.all_markets.insert(
-                                        new_m_real.market_name(), new_m_real.clone()  // unwrap is warranted here
-                                    );  // insert the new_m into all markets, as this will become the next market to price.
+                            info!("{:?} -> {:?}", pns, ProcessorNewState::Idle);  // from pns -> Idle
+                            *pns = ProcessorNewState::Idle;
 
-                                    info!(
-                                        "Processor: new, State: (Behind, CalculatingSingle): Going to state Idle."
-                                    );
-                                    *pns = ProcessorNewState::Idle;
+                            // TODO: REMOVE THIS AT LATER POINT
+                            match new_m {
+                                None => {}, // cant be, do nothing.
+                                Some(new_m_real) => {
+                                    let new_m_market_name = new_m_real.market_name();
+                                    info!("Inserting market {}", new_m_market_name);
+                                    self.all_markets.insert(new_m_market_name, new_m_real.clone());  // unwrap is warranted here
+                                    // insert the new_m into all markets, as this will become the next market to price.
+
                                 },
                             }
 
@@ -445,9 +446,8 @@ where
 			    // we are still behind the current processor.
                             // TODO: HERE COMES IN HEURISTICS, WHETHER TO SWITCH TO THE FUTURE MARKET.
                             info!(
-                                "Processor: new, State: (Behind, CalculatingSingle): Still behind lower processor,\
-                                 adding trades ({}) and computing bulk.",
-                                trade_l.len(),
+                                "State: {:?}: Still behind lower processor, adding trades ({}) and computing bulk.",
+                                pns, trade_l.len(),
                             );
                             trade_l.extend(trades_behind.clone());  //*trade_l += &trades_behind;
 

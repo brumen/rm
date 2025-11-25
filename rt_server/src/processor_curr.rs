@@ -217,8 +217,10 @@ where
                     // IMPORTANT: this .remove call CAN DEADLOCK!!!
                     // destroys the market at the end.
                     if let Some(real_market) = market {
-                        debug!("Destroying the market {}", real_market);
-                        let _ = self.all_markets.remove(&real_market.clone());  // TODO: HANDLE ERROR MESSAGES
+                        if *real_market != new_market {  // only destroy if the markets are different
+                            info!("Destroying the market {}", real_market);
+                            let _ = self.all_markets.remove(&real_market.clone());  // TODO: HANDLE ERROR MESSAGES
+                        }
                     };
 
 		    // update the state of current processor.

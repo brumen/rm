@@ -81,6 +81,9 @@ where
             "future".to_string(),
             market_sent,
         );
+        info!(
+            "Current markets: {:?}", self.all_markets.list_market_names()
+        );
 
 	self.new_processor.send_message(
 	    ProcessorMiddleMessage::NewMarket("future".to_string())  // notification that the future market was updated.
