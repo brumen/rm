@@ -130,7 +130,6 @@ where
 
 	let initial_trades = vec![];
 	let initial_curr_portf = PortfolioType::default();
-        let market = self.processor_name.clone();
 
 	Ok((initial_trades, initial_curr_portf, None))
     }
@@ -160,12 +159,11 @@ where
                 info!("Adding new trade: {}", trade);
                 let trade_real = trade_info.value();
 
-                let Some(market_info) = self.all_markets.markets.get(real_market) else {
+                let Some(market_info) = self.all_markets.get(real_market) else {
                     warn!("Could not find market {}. Ignoring the market", real_market);
                     return Ok(());
                 };
 
-                let market_info = market_info.value();
                 debug!("Valuing trade {} on market {:?}", trade, market_info.market_name());
 		let valued_trade = trade_real.value_by_metric(
 		    self.metric,
@@ -176,7 +174,9 @@ where
 		//*trades += &trade; // TODO: THIS CAN BE FIXED.
                 trades.push(trade);
 		*portf += valued_trade;
-
+                debug!(
+                    "Current portfolio: {:?}", portf
+                );
                 // send information about all the trades to the trade processor
                 // let now = Local::now();
                 //self.trade_processor.send_message(
@@ -217,6 +217,7 @@ where
                     // IMPORTANT: this .remove call CAN DEADLOCK!!!
                     // destroys the market at the end.
                     if let Some(real_market) = market {
+                        debug!("Destroying the market {}", real_market);
                         let _ = self.all_markets.remove(&real_market.clone());  // TODO: HANDLE ERROR MESSAGES
                     };
 
@@ -226,6 +227,7 @@ where
                     // TODO: CHECK IF THIS IS OK
                     trades.extend(new_trades);
 		    *market = Some(new_market);  // markets should trickle down.
+                    debug!("Switching to market {:?}", market);  // market should be created.
 		} // otherwise dont do anything.
 	    },
 

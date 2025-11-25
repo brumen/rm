@@ -51,7 +51,7 @@ async fn main() {
 async fn run_all() {
     dotenv().ok();  // .env is loaded.
 
-    let tracing_level = Level::DEBUG;
+    let tracing_level = Level::INFO;
     tracing_subscriber::fmt()
         .with_max_level(tracing_level)
         //.with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)

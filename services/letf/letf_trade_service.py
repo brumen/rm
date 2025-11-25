@@ -41,9 +41,9 @@ letf_trade_producer = LETFTradeProducer(
     mkt_producer=letf_market_producer,
 )
 
-market_thread = letf_market_producer.create_thread(sleep_between_publish=3)
+market_thread = letf_market_producer.create_thread(sleep_between_publish=5)
 
-frequency_of_trades = 1
+frequency_of_trades = 5
 trade_thread = letf_trade_producer.create_thread(
     sleep_between_publish=frequency_of_trades
 )

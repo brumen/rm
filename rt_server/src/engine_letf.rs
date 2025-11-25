@@ -104,11 +104,8 @@ where
 	mp.clone(),
     );
 
-    let last_market_name = all_markets.last_market_name();
-    let last_market = all_markets.get(&last_market_name).unwrap().clone();
-    let last_market = (*last_market).clone();
     let (_processor_new_a, processor_new_handle) = Actor::spawn(
-	None, processor_new, (last_market.clone(), last_market.clone()),
+	None, processor_new, (),
     ).await
         .expect("Could not start new processor");
 
