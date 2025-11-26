@@ -152,12 +152,13 @@ where
     //   third is the current portfolio result of correctly pricing trades.
     //   fourth is the computation state.
     //   fifth is the tuple: (new market where we are pricing now, future_market)
+    //      actual name of market, not "future"
     type State = (
         Vec<String>,
         Vec<String>,
         PortfolioType,
         ProcessorNewState,
-        (Option<Arc<MT>>, Arc<MT>),
+        Option<String>,  // Arc<MT>>, // Arc<MT>),
     );
     type Arguments = ();  // initial market
 
@@ -170,7 +171,7 @@ where
 
         info!("Starting Processor New.");
         // empty futures market.
-        let future_market = MT::new("future".to_string(), self.market_params.clone());
+        // let future_market = MT::new("future".to_string(), self.market_params.clone());
 
         Ok(
 	    (
@@ -178,7 +179,8 @@ where
 		vec![],
 		PortfolioType::default(),
 		ProcessorNewState::Idle,
-                (None, future_market),
+                None,
+                // (None, future_market),
 	    )
 	)
     }
@@ -190,7 +192,7 @@ where
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	let (trade_l, trades_non_pricing, portf, pns, (new_m, future_m)) = state;
+	let (trade_l, trades_non_pricing, portf, pns, new_m) = state;  // (new_m, future_m)
 
         info!(
             "State: {:?}. Portf size: {}, Nb trades: {}",
@@ -209,20 +211,30 @@ where
                             "CalculatingSingle, NewTrade:, computing trade {}.",
                             new_trade
                         );
+
+                        // the next 3 are conditions when we can actually compute something
+                        // condition if we can get the relevant trade
                         let Some(new_trade_info) = self.all_trades.get(&new_trade) else {
                             // we dont have a trade info - ignore and continue.
                             warn!("No trade info could be obtained for {}. Continuing.", new_trade);
                             return Ok(());
                         };
-
+                        // condition if new_m is a market or just None
                         let Some(new_m_real) = new_m else {
                             warn!("Do not have new_m. Continuing.");
                             return Ok(());
                         };
+                        // condition if we can find new_m in the all_markets.
+                        let Some(new_m_actual) = self.all_markets.get(&new_m_real) else {
+                            warn!("Market {} not in all_markets", new_m_real);
+                            return Ok(());
+                        };
 
+                        // if all the three conditions above are satisfied, continue
+                        //   w/ actual pricing.
 			let new_trade_price = new_trade_info.value_by_metric(
 			    self.metric,
-			    new_m_real.clone(),
+			    new_m_actual.clone(),
 			).await;
 
 			*portf += new_trade_price;  // portfolio update
@@ -236,7 +248,7 @@ where
                         );
 			self.processor_middle.send_message(
 			    ProcessorMiddleMessage::NewTradePortfolio(
-				(trade_l.clone(), portf.clone(), new_m_real.market_name(), myself)
+				(trade_l.clone(), portf.clone(), new_m_real.to_string(), myself)
 			    )
 			)?;
 		    },
@@ -257,7 +269,7 @@ where
                             Some(new_m_real) => {
                                 self.processor_bulk.send_message(
 			            ProcessorBulkMessage::NewBulk(
-				        (new_m_real.market_name(), trade_l.clone(), myself)
+				        (new_m_real.to_string(), trade_l.clone(), myself)
 			            )
 			        )?;
 			        *pns = ProcessorNewState::CalculatingBulk;
@@ -283,9 +295,14 @@ where
                             return Ok(());
                         };
 
+                        let Some(new_m_actual) = self.all_markets.get(&new_m_real) else {
+                            warn!("all_markets does not have {}. Continuing", new_m_real);
+                            return Ok(());
+                        };
+
 			let new_trade_price = new_trade_info.value_by_metric(
 			    self.metric,
-			    new_m_real.clone(),
+			    new_m_actual.clone(),
 			).await;
 			*portf += new_trade_price;  // portfolio update
                         info!(
@@ -294,13 +311,17 @@ where
                         );
                         self.processor_middle.send_message(
                             ProcessorMiddleMessage::NewTradePortfolio(
-                                (trade_l.clone(), portf.clone(), new_m_real.market_name(), myself)
+                                (trade_l.clone(), portf.clone(), new_m_real.to_string(), myself)
                             )
                         )?;
 		    },
 		}
 	    },
+
+            // this is coming from mkt_handler, and market handler only produces
+            //   "future" market.
 	    ProcessorMiddleMessage::NewMarket(new_market) => {
+                debug!("Getting NewMarket: {}", new_market);  // TODO: IMPORTANT: this should be "future".
 
                 match pns { // what is the processor doing right now
 
@@ -310,17 +331,14 @@ where
                             "Idle, NewMarket: setting future market: {:?}", new_market
                         );
 
-                        //self._replace_fut_market(
-                        //    new_market,
-                        //    future_m,
-                        //).await?;
-
+                        // IMPORTANT: new_market IS "future", so get this.
                         let Some(new_market_val) = self.all_markets.get(&new_market) else {
                             warn!("Could not get market {} from all_markets. Ignoring the market and continuing", new_market);
                             return Ok(());
                         };
-                        *future_m = new_market_val.clone();
-                        *new_m = Some(new_market_val.clone());  // new market is also assigned. TODO: CHECK THESE
+
+                        // *future_m = new_market_val.clone();
+                        *new_m = Some(new_market_val.market_name());
 
 			// we are idle, we can start calculating, start calculating
                         let Some(new_m_real) = new_m else {
@@ -332,7 +350,7 @@ where
                         *pns = ProcessorNewState::CalculatingBulk;
 			self.processor_bulk.send_message(
 			    ProcessorBulkMessage::NewBulk(
-                                (new_m_real.market_name(), trade_l.clone(), myself)
+                                (new_m_real.to_string(), trade_l.clone(), myself)
                             )
 			)?;
 		    },
@@ -346,22 +364,14 @@ where
                         );
 
 			// we're calculating, update the future market, not current
-                        info!(
-                            "CalculatingSingle, NewMarket: setting Future market."
-                        );
-
-                        //self._replace_fut_market(
-                        //    new_market,  //replace_mkt: MarketType,
-                        //    future_m,  // future_mkt: &mut MarketType
-                        //).await?;
+                        //   "new_market" here should always be "future" - otherwise there's
+                        //   something wrong.
                         let Some(new_market_val) = self.all_markets.get(&new_market) else {
                             warn!("Could not find market {}. Continuing", new_market);
                             return Ok(());
                         };
 
-                        *future_m = new_market_val.clone();
-
-
+                        // TODO: HERE TO FINISH - I DONT THINK WE SHOULD DO ANYTHING HERE!!!
                         let Some(new_m_real) = new_m else {
                             warn!("Does not have new_m market. Contiuning and ignoring.");
                             return Ok(());
@@ -379,10 +389,6 @@ where
 			// just update the future market
                         info!("CalculatingBulk, NewMarket: Setting Future market.");
 
-                        //self._replace_fut_market(
-                        //    new_market,  //replace_mkt: MarketType,
-                        //    future_m,  // future_mkt: &mut MarketType
-                        //).await?;
                         match self.all_markets.markets.get(&new_market) {
                             None => {
                                 warn!("Could not find market {}. Continuing.", new_market);
@@ -397,8 +403,8 @@ where
 	    },
 
 	    // this only comes from ProcessorMiddle
-	    ProcessorMiddleMessage::Behind(trades_behind) => {
-		// we are behind trades behind the current processor
+	    ProcessorMiddleMessage::Behind(market_behind, trades_behind) => {
+		// we are behind trades behind the below processor
 		match pns { // what is the processor doing right now
 		    ProcessorNewState::CalculatingSingle => {
 			// TODO: HERE PERHAPS CONSIDER DEPENDING ON HOW MANY

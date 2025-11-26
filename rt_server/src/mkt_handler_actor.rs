@@ -23,8 +23,8 @@ where
 }
 
 
-//pub(crate) type HandlerMarketType<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
-
+// mkt_handler deposits the new market information into the "future' market,
+//    and writes it to the "future" market in all_markets
 // MT ... market type, must have MP - market parameters as associated type.
 #[async_trait]
 impl<MT> Actor for MarketProducer<MT>

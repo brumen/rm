@@ -9,7 +9,11 @@ use crate::portfolio::PortfolioType;
 pub enum ProcessorMiddleMessage<MT> {
     NewTrade(String),  // message from trade producer, trade id.
     NewMarket(MT),  // message from market handler, market_name
-    Behind(Vec<String>),  // message from Processor_below, missing trades to calculate.
+    // message from Processor_below:
+    //    1st arg: market that we are evaluating
+    //    2nd arg: missing trades that we still need -
+    //                if Vec.is_empty() then we accepted the portfolio, otherwise market is not accepted.
+    Behind(String, Vec<String>),
 
     // message from Bulk computation
     // first elt: all trades,

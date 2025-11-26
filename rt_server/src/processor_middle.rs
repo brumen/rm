@@ -1,7 +1,6 @@
 // middle processor, sits between 2 new processors
-
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::all_markets::AllMarkets;
@@ -13,16 +12,11 @@ use crate::market::MarketTypeT;
 
 
 // T is mnemonic for trade type, MT is mnemonic for market type
-pub(crate) struct ProcessorMiddle<T, MT>
-//where
-//    dyn MarketTypeT<MP=MP>: Sized,
-//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-{
+pub(crate) struct ProcessorMiddle<T, MT> {
     pub(crate) metric: PricingMetric,
-    // pub(crate) pricing_options: MarketPricingOptions,
     pub(crate) processor_name: String,
-    pub processor_below: ActorRef<ProcessorMiddleMessage<String>>,   //dyn MarketTypeT<MP=MP>>>,  // processor below
-    pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>,  // dyn MarketTypeT<MP=MP>>>,  // bulk processor ref.
+    pub processor_below: ActorRef<ProcessorMiddleMessage<String>>,
+    pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
     pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
 }
@@ -35,7 +29,7 @@ where
 {
     pub(crate) fn new(
         processor_name: String,
-        processor_below: ActorRef<ProcessorMiddleMessage<String>>,   //dyn MarketTypeT<MP=MP>>>,  // process
+        processor_below: ActorRef<ProcessorMiddleMessage<String>>,
         processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
         metric: PricingMetric,
         all_trades: Arc<TradeRep<T>>,
@@ -54,7 +48,6 @@ where
 }
 
 
-
 #[derive(Debug, Clone)]
 pub enum ProcessorMiddleState {
     CalculatingSingle,  // when bulk has finished and we're only calculating single trades.
@@ -63,30 +56,6 @@ pub enum ProcessorMiddleState {
     // switched in the meantime, so the old calculating is not valid anymore
     Idle,
 }
-
-
-// impl<T, MP> MarketSwitching<MP> for ProcessorMiddle<T, MP>
-// where
-//     dyn MarketTypeT<MP=MP> + 'static: Sized,
-//     dyn MarketTypeT<MP=MP>: std::fmt::Debug
-// {
-
-//     fn processor_name(&self) -> String {
-//         self.processor_name.clone()
-//     }
-
-//     fn all_markets(&self) -> std::sync::Arc<AllMarkets<dyn MarketTypeT<MP=MP>>> {
-// 	self.all_markets.clone()
-//     }
-
-//     fn r_client(&self) ->  Option<&reqwest::Client> {
-//         self.r_client.as_ref()
-//     }
-
-//     fn market_endpoint(&self) -> String {
-// 	format!("http://{0}/market", self.pricing_options.market_server.clone())
-//     }
-// }
 
 
 #[async_trait]
@@ -136,7 +105,7 @@ where
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	let (trade_l, trades_non_pricing, portf, pns, market) = state;
+	let (trade_l, trades_non_pricing, portf, pns, market) = state;  // market is the market where we're operating
 	let pns_old = (*pns).clone();  // otherwise we cant match
 
 	info!(
@@ -207,7 +176,7 @@ where
 
 	    (ProcessorMiddleMessage::NewTrade(new_trade), ProcessorMiddleState::CalculatingBulk | ProcessorMiddleState::CalculatingBulkMarketSwitch) => {
 		info!(
-		    "Processor {}, CaluclatingBulk: got new trade.",
+		    "Processor {}, CalculatingBulk|CalculatingBulkMarketSwitch: got new trade.",
 		    self.processor_name,
 		);
 
@@ -249,14 +218,16 @@ where
 	    },
 
 	    (ProcessorMiddleMessage::NewMarket(_new_market), _) => {
-		panic!(
-		    "Processor {}: received market message. THIS SHOULDNT HAPPEN!",
+                let msg =  format!(
+		    "Processor {}: received NewMarket. THIS SHOULDNT HAPPEN!",
 		    self.processor_name,
 		);
+                error!(msg);  // log the error and panic
+                panic!("{}", msg);
 	    },
 
 	    // this only comes from processor below
-	    (ProcessorMiddleMessage::Behind(trades_behind), ProcessorMiddleState::CalculatingSingle) => {
+	    (ProcessorMiddleMessage::Behind(market_behind, trades_behind), ProcessorMiddleState::CalculatingSingle) => {
 		// we are behind trades behind the current processor
 
 		// TODO: HERE PERHAPS CONSIDER DEPENDING ON HOW MANY
@@ -477,12 +448,14 @@ where
 	    // ntp = (trades, potential_portfolio, market, upstream_processor)
 	    (ProcessorMiddleMessage::NewTradePortfolio(ntp), ProcessorMiddleState::Idle) => {
 		// just pass it to the processor below, dont do anything else
-		info!(
-		    "Processor {}, Idle: Switching market",
-		    self.processor_name,
-		);
 
                 let (ref potential_trades, ref potential_portfolio, ref new_market, ref upstream_processor) = ntp;
+
+                info!(
+		    "Processor {}, Idle: Switching market <- {}",
+		    self.processor_name, new_market
+		);
+
 
 		// switch markets as well
                 // self._switch_markets(market, new_market).await?;
@@ -502,7 +475,7 @@ where
 
                 // TODO: CHECK IF THIS SHOULD BE HANDLED???
                 let _ = upstream_processor.send_message(
-                   ProcessorMiddleMessage::Behind(vec![])  // TODO: IS THIS RIGHT HERE??
+                   ProcessorMiddleMessage::Behind(vec![])  // portfolio is accepted, notify the upstream that we're accepting
                 );
 
 	    },

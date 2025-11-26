@@ -188,7 +188,7 @@ where
 		self._publish_result_portfolio(portf.clone()).await?
             },
 
-	    ProcessorMiddleMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {
+	    ProcessorMiddleMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, upstream_processor)) => {
 		// we got a new portfolio, possibly switch it
 
 		// let new_behind_curr = trades - new_trades;
@@ -200,15 +200,10 @@ where
                     new_portfolio.len(),
                 );
 
-		//let send_cnd = new_behind_curr.is_empty();  // new portfolio has more trades.
-                if *portf <= new_portfolio {  // when to send the portfolio to publisher.
-                //if new_behind_curr.is_empty() {
-		    // publish the new portfolio
-                    info!("Changing portfolio.");
+		// new portfolio has more trades, send the portfolio to publisher.
+                if *portf <= new_portfolio {
 		    self._publish_result_portfolio(new_portfolio.clone()).await?;
 
-                    // TODO: WHAT TO DO W/ THIS SWITCH_MARKETS
-                    // self._switch_markets(market, &new_market).await?;
                     // market that we were holding should be removed from the all_markets,
                     // as it's not needed anymore.
                     // IMPORTANT: this .remove call CAN DEADLOCK!!!
@@ -222,16 +217,14 @@ where
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;
-		    //*trades += &new_trades;
-                    // TODO: CHECK IF THIS IS OK
-                    trades.extend(new_trades);
-		    *market = Some(new_market);  // markets should trickle down.
+                    trades.extend(new_trades);  // *trades += &new_trades;
+		    *market = Some(new_market.clone());  // markets should trickle down.
                     debug!("Switching to market {:?}", market);  // market should be created.
 		} // otherwise dont do anything.
 
                 // send the behind information to the middle processor.
-                new_processor.send_message(
-		    ProcessorMiddleMessage::Behind(new_behind_curr.clone())
+                upstream_processor.send_message(
+		    ProcessorMiddleMessage::Behind(new_market, new_behind_curr.clone())
 		)?;
 
 	    },

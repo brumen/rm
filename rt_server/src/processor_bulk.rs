@@ -116,7 +116,7 @@ where
 		// start the long-running pricing procedure
 
                 info!(
-		    "BulkProcessor {}: NewBulk - Computing {} trades.",
+		    "{}: NewBulk - Computing {} trades.",
 		    self.processor_name,
 		    new_trades.len(),
 		);
