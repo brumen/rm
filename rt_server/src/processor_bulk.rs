@@ -120,42 +120,31 @@ where
 		    self.processor_name,
 		    new_trades.len(),
 		);
-                let curr_mkt_attempt = self.all_markets.get(&market);
 
-                // if curr_mkt == None, we couldnt get the market, abandon the attempts
-                if curr_mkt_attempt.is_none() {
+                let Some(market_actual) = self.all_markets.get(&market) else {
+                    warn!("Could not get market {}. Abandoning pricing.", market);
+                    // if curr_mkt == None, we couldnt get the market, abandon the attempts
                     sending_processor.send_message(
                         ProcessorMiddleMessage::BulkReceive(
                             (new_trades.clone(), PortfolioType::default(), vec![], market.clone())
                         )
                     )?;
-                }
+                    return Ok(());
+                };
+
 
                 // we have a market
 		let mut portfolio = PortfolioType::default();
                 let mut non_pricing_trades = Vec::<String>::new();
                 let mut used_trades = vec![];
                 for trade_name in new_trades.iter() {
-		    debug!(
-			"Processor: {}: valuing single trade: {}",
-			self.processor_name,
-			trade_name
-		    );
-
-                    let trade_attempt = self.all_trades.get(trade_name);
-                    if trade_attempt.is_none() {
+                    let Some(trade_attempt) = self.all_trades.get(trade_name) else {
                         warn!("Could not get trade {} from all_trades. Continuing w/o it.", trade_name);
                         non_pricing_trades.push(trade_name.to_string());
                         continue;
-                    }
-                    let trade = trade_attempt.unwrap();
-                    used_trades.push(trade);
+                    };
+                    used_trades.push(trade_attempt);
                 }
-
-                let Some(market_actual) = self.all_markets.get(&market) else {
-                    warn!("Could not find market {}. Continuing.", market);
-                    return Ok(());
-                };
 
                 // pricing_futs are futures where the trades are getting priced.
                 //let mut pricing_futs = vec![];
