@@ -17,7 +17,7 @@ pub struct ProcessorBulk<T, MT>
 where
     MT: MarketTypeT,
 {
-    pub processor_name: String,  // name of the bulk processor
+    pub processor_name: String,  // name of the bulk processor, usually curr_bulk, new_bulk, middle_1_bulk
     pub metric: PricingMetric,
     pub(crate) trade_names: Vec<String>,
     pub(crate) all_trades: Arc<TradeRep<T>>,  // all_trades is a reference to the structure that contains all trades.
@@ -86,9 +86,9 @@ where
     MT: MarketTypeT + Send + Sync + 'static,
     MT::MP : Send + Sync + Clone,
 {
-    type Msg = ProcessorBulkMessage<String>;  // dyn MarketTypeT<MP=MP>>;
+    type Msg = ProcessorBulkMessage<String>;
     // type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
-    type State = Option<Arc<MT>>;
+    type State = ();  // which market are we pointing to.
     type Arguments = MT::MP;
 
     async fn pre_start(
@@ -98,7 +98,7 @@ where
     ) -> Result<Self::State, ActorProcessingErr> {
 
 	info!("Initializing Bulk processor: {}", self.processor_name);
-        Ok(None)  //  (0, None)  // intialized to 0 attempts.
+        Ok(())  //  (0, None)  // intialized to 0 attempts.
     }
 
     async fn handle(

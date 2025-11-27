@@ -332,9 +332,13 @@ where
                         );
 
                         // removing the old new_m market
-                        if new_m.is_some() {
-                            let new_m_name = new_m.unwrap();
-                            self.all_markets.remove(&new_m_name);
+                        match new_m {
+                            None => {
+                                warn!("new_m is None. Not doing anything");
+                            },
+                            Some(real_market) => {
+                                self.all_markets.remove(&real_market);
+                            },
                         }
 
 
@@ -347,7 +351,7 @@ where
                         let new_market_val_name = new_market_val.market_name();
                         info!("Inserting market {} into all_markets", new_market_val_name.clone());
                         self.all_markets.insert(new_market_val_name.clone(), new_market_val);  // insert the value under the new name
-                        *new_m = Some(new_market_val_name);
+                        *new_m = Some(new_market_val_name.clone());
 
                         info!("Idle, NewMarket: sending to bulk. State -> CalculatingBulk");
                         *pns = ProcessorNewState::CalculatingBulk;
@@ -417,7 +421,7 @@ where
                             *portf = PortfolioType::default();
 
                             // this shouldnt fail, but we have a failsafe
-                            let Some(future_market) = self.all_markets.get("future".to_string()) else {
+                            let Some(future_market) = self.all_markets.get(&"future".to_string()) else {
                                 warn!("Could not find 'future' market. This is weird. Continuing w/o it.");
                                 return Ok(());
                             };
@@ -436,12 +440,16 @@ where
 
                             // destroying the market_behind
 
-                            if new_m.is_none() {
-                                self.all_markets.remove(&market_behind);
-                            }
-
-                            if market_behind != new_m.unwrap() {  // TODO: DO THIS unwrap nicer
-                                self.all_markets.remove(&market_behind);  // also destroy in this case
+                            match new_m {
+                                None => {
+                                    info!("Removing market {}", market_behind);
+                                    self.all_markets.remove(&market_behind);
+                                },
+                                Some(real_market) => {
+                                    if market_behind != *real_market {  // TODO: DO THIS unwrap nicer
+                                        self.all_markets.remove(&market_behind);  // also destroy in this case
+                                    }
+                                },
                             }
 
                             info!(
