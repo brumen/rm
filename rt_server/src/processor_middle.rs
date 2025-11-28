@@ -547,10 +547,12 @@ where
 		    *pns = ProcessorMiddleState::CalculatingBulkMarketSwitch;
 
 		} else {
-		    info!(
-			"Processor {}, CalculatingBulk: received new portfolio, but was behind. Ignoring.",
-			self.processor_name,
-		    );
+                    info!(
+			"Processor {}, CalculatingBulk: current portfolio: {:?}, new portfolio: {:?}. Ignoring the portfolio.",
+			self.processor_name, portf.keys().len(), potential_trades,
+                    );
+
+                    // (trade_l, trades_non_pricing, portf, pns, market)
 		}
                 // send upstream a message that the portfolio is accepted.
                 // TODO: CHECK IF THIS SHOULD BE BETTER HANDLED

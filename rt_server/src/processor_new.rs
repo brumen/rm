@@ -143,7 +143,7 @@ where
 	)
     }
 
-    #[instrument]
+    // #[instrument(skip(myself, message, state),level= "debug")]
     async fn handle(
         &self,
 	myself: ActorRef<Self::Msg>,
@@ -456,8 +456,7 @@ where
                             info!(
                                 "CalculatingBulk, Behind: adding non-computed trades to trade list."
                             );
-                            //*trade_l += &trades_behind;
-                            // trade_l.extend(trades_behind);  // TODO: WHAT IS HERE!!!
+                            trade_l.extend(trades_behind);
 			}
 		    },
 
