@@ -408,8 +408,9 @@ where
 
                             match new_m {
                                 None => {
-                                    warn!("Removing market {}", market_behind);
-                                    self.all_markets.remove(&market_behind);
+                                    *new_m = Some(market_behind);
+                                    // warn!("Removing market {}", market_behind);
+                                    // self.all_markets.remove(&market_behind);
                                 },
                                 Some(real_market) => {
                                     if market_behind != *real_market {  // TODO: DO THIS unwrap nicer

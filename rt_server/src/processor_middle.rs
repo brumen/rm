@@ -322,10 +322,7 @@ where
                         self.processor_name, market_behind,
                     );
                     let Some(real_market) = market else {
-                        warn!("{}: Destroying market: {}",
-                              self.processor_name, market_behind,
-                        );
-                        self.all_markets.remove(&market_behind);
+                        *market = Some(market_behind);
                         return Ok(());
                     };
 
@@ -375,10 +372,7 @@ where
 		} else {
                     // remove the market_behind.
                     let Some(real_market) = market else {
-                        warn!("{}: Destroying market {}",
-                              self.processor_name, market_behind,
-                        );
-                        self.all_markets.remove(&market_behind);
+                        *market = Some(market_behind);
                         return Ok(());
                     };
 
@@ -388,7 +382,6 @@ where
                         );
                         self.all_markets.remove(&market_behind);
                     }
-
                 }
 	    },
 

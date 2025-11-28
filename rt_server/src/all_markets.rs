@@ -42,7 +42,6 @@ where
     }
 
     // creates a new empty all markets structure
-    //pub(crate) fn new(mp: Option<MT::MP> ) -> Self {
     pub(crate) fn new() -> Self {
         Self {
             markets: DashMap::<String,MT>::new(),
