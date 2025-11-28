@@ -1,4 +1,4 @@
-use tracing::{info, warn, debug};
+use tracing::{info, warn, debug, instrument};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 
@@ -10,9 +10,11 @@ use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesL
 use crate::trade::{BaseTrade, TradeRep};
 
 
+#[derive(Debug)]
 pub struct ProcessorNew<T, MT>
 where
-    MT: MarketTypeT
+    MT: MarketTypeT + std::fmt::Debug,
+    T: std::fmt::Debug,
 {
     pub processor_name: String,
     pub metric: PricingMetric,
@@ -32,8 +34,9 @@ pub enum ProcessorNewState {
 
 impl<T, MT> ProcessorNew<T,MT>
 where
-    MT: MarketTypeT,
+    MT: MarketTypeT + std::fmt::Debug,
     MT::MP : Clone,
+    T: std::fmt::Debug,
 {
     pub(crate) fn new(
         processor_name: String,
@@ -99,8 +102,8 @@ where
 #[async_trait]
 impl<T, MT> Actor for ProcessorNew<T, MT>
 where
-    T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MT>,
-    MT: MarketTypeT + Send + Sync + 'static,
+    T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MT> + std::fmt::Debug,
+    MT: MarketTypeT + Send + Sync + 'static + std::fmt::Debug,
     MT::MP : Send + Sync + Clone,
 {
     type Msg = ProcessorMiddleMessage<String>;
@@ -140,6 +143,7 @@ where
 	)
     }
 
+    #[instrument]
     async fn handle(
         &self,
 	myself: ActorRef<Self::Msg>,

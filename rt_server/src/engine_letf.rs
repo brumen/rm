@@ -31,9 +31,9 @@ pub(crate) async fn start2<T, MT>(
     nb_middle: usize,
 ) -> Vec<JoinHandle<()>>
 where
-    T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MT> + TryFromRef2,
+    T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MT> + TryFromRef2 + std::fmt::Debug,
     MT::MP : 'static + Send + Sync + Clone,
-    for <'a> MT: Send + Sync + MarketTypeT + 'static + Clone + AddAssign<&'a MT> + SetName,
+    for <'a> MT: Send + Sync + MarketTypeT + 'static + Clone + AddAssign<&'a MT> + SetName + std::fmt::Debug,
 {
     // create the current processor.
     let (curr_processor, _curr_processor_bulk_h) = create_curr_actor(

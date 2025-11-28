@@ -8,6 +8,7 @@ use crate::market::MarketTypeT;
 // MT.. market type
 // MP .. market params.
 // MT = MarketTypeT<MP>
+#[derive(Debug)]
 pub(crate) struct AllMarkets<MT> {
     pub(crate) markets: DashMap<String, MT>,
     pub(crate) market_names: DashMap<usize, String>,  // mapping of numbers to markets.
