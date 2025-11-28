@@ -290,6 +290,7 @@ where
                                 warn!("new_m is None. Not doing anything");
                             },
                             Some(real_market) => {
+                                warn!("Destroying market {}", real_market);
                                 self.all_markets.remove(&real_market);
                             },
                         }
@@ -407,11 +408,12 @@ where
 
                             match new_m {
                                 None => {
-                                    info!("Removing market {}", market_behind);
+                                    warn!("Removing market {}", market_behind);
                                     self.all_markets.remove(&market_behind);
                                 },
                                 Some(real_market) => {
                                     if market_behind != *real_market {  // TODO: DO THIS unwrap nicer
+                                        warn!("Destroying market {}", market_behind);
                                         self.all_markets.remove(&market_behind);  // also destroy in this case
                                     }
                                 },

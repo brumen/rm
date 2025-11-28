@@ -255,11 +255,17 @@ where
 
                     let Some(real_market) = market else {
                         warn!("Does not have market. Ignoring.");
+                        warn!("{}: Destroying the market {}",
+                              self.processor_name, market_behind,
+                        );
                         self.all_markets.remove(&market_behind);
                         return Ok(());
                     };
 
                     if market_behind != *real_market {
+                        warn!("{}: Destroying the market {}",
+                              self.processor_name, market_behind,
+                        );
                         self.all_markets.remove(&market_behind);
                     }
 
@@ -316,12 +322,18 @@ where
                         self.processor_name, market_behind,
                     );
                     let Some(real_market) = market else {
+                        warn!("{}: Destroying market: {}",
+                              self.processor_name, market_behind,
+                        );
                         self.all_markets.remove(&market_behind);
                         return Ok(());
                     };
 
                     // remove market_behind if not equal to current market here - should never happen
                     if *real_market != market_behind {
+                        warn!("{}: Destroying market: {}",
+                              self.processor_name, market_behind,
+                        );
                         self.all_markets.remove(&market_behind);
                     }
 
@@ -359,15 +371,21 @@ where
 			)
 		    )?;
 		    *pns = ProcessorMiddleState::CalculatingBulk;
-		    //*trade_l += &trades_behind;
+		    trade_l.extend(trades_behind);  //*trade_l += &trades_behind;
 		} else {
                     // remove the market_behind.
                     let Some(real_market) = market else {
+                        warn!("{}: Destroying market {}",
+                              self.processor_name, market_behind,
+                        );
                         self.all_markets.remove(&market_behind);
                         return Ok(());
                     };
 
                     if market_behind != *real_market {
+                        warn!("{}: Destroying market {}",
+                              self.processor_name, market_behind,
+                        );
                         self.all_markets.remove(&market_behind);
                     }
 
