@@ -511,9 +511,8 @@ where
 		// TODO: ALSO, SHOULDNT WE NOTIFY THE BULK PROCESSOR THAT WE ARE ABANDONING THE ATTEMPT.
 		// TODO: WRONG - IMPLEMENT > JUST FOR REFERENCES!!!
 
-                // TODO: CHECK IF THIS IS CORRECT?
                 // let new_behind_curr = potential_trades.clone() - &new_trades;
-                let new_behind_curr = potential_trades.iter().filter(|x| !trade_l.contains(x.as_str())).cloned().collect::<TradesLocal>();
+                let new_behind_curr = trade_l.iter().filter(|x| !potential_trades.contains(x.as_str())).cloned().collect::<TradesLocal>();
 
 		if new_behind_curr.is_empty() {
 		    info!(
@@ -549,7 +548,7 @@ where
 		} else {
                     info!(
 			"Processor {}, CalculatingBulk: current portfolio: {:?}, new portfolio: {:?}. Ignoring the portfolio.",
-			self.processor_name, portf.keys().len(), potential_trades,
+			self.processor_name, portf.keys(), potential_trades,
                     );
 
                     // (trade_l, trades_non_pricing, portf, pns, market)
