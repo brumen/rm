@@ -8,7 +8,7 @@ use std::ops::AddAssign;
 use crate::mkt_handler_actor::{MarketProducer};
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PricingMetric;
-use crate::market::MarketTypeT;
+use crate::market::{MarketTypeT, SetName};
 use crate::all_markets::AllMarkets;
 use crate::trade_sender::TradeProducer;
 use crate::processor_new::ProcessorNew;
@@ -33,7 +33,7 @@ pub(crate) async fn start2<T, MT>(
 where
     T : BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MT> + TryFromRef2,
     MT::MP : 'static + Send + Sync + Clone,
-    for <'a> MT: Send + Sync + MarketTypeT + 'static + Clone + AddAssign<&'a MT>,
+    for <'a> MT: Send + Sync + MarketTypeT + 'static + Clone + AddAssign<&'a MT> + SetName,
 {
     // create the current processor.
     let (curr_processor, _curr_processor_bulk_h) = create_curr_actor(
@@ -84,7 +84,6 @@ where
 	metric,
         initial_trades.clone(),
         all_markets.clone(),
-        mp.clone(),
     );
 
 
@@ -101,15 +100,11 @@ where
 	last_middle.clone(),
 	processor_new_bulk_actor.clone(),
 	all_markets.clone(),
-	Arc::new(TradeRep::<T>::default()),
-	mp.clone(),
+        initial_trades.clone(),
     );
 
-    let last_market_name = all_markets.last_market_name();
-    let last_market = all_markets.get(&last_market_name).unwrap().clone();
-    let last_market = (*last_market).clone();
     let (_processor_new_a, processor_new_handle) = Actor::spawn(
-	None, processor_new, (last_market.clone(), last_market.clone()),
+	None, processor_new, (),
     ).await
         .expect("Could not start new processor");
 

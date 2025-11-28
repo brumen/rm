@@ -7,9 +7,8 @@ use std::sync::Arc;
 
 use crate::processor_msg::ProcessorMiddleMessage;
 use crate::pricer::PricingMetric;
-use crate::market::MarketTypeT;
+use crate::market::{MarketTypeT, SetName};
 use crate::all_markets::AllMarkets;
-use crate::ref_deref::TryFromRef2;
 
 
 pub struct MarketProducer<MT>
@@ -24,23 +23,17 @@ where
 }
 
 
-//pub(crate) type HandlerMarketType<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
-
-// MP ... market parameters
-// MM ... market message - message we receive from Kafka.
+// mkt_handler deposits the new market information into the "future' market,
+//    and writes it to the "future" market in all_markets
+// MT ... market type, must have MP - market parameters as associated type.
 #[async_trait]
 impl<MT> Actor for MarketProducer<MT>
 where
-    for<'a> MT: MarketTypeT + Send + Sync + AddAssign<&'a MT> + Clone + 'static,
-    //dyn MarketTypeT + Send + Sync: Sized + Send + Sync + Clone + MarketTypeT + AddAssign<dyn MarketTypeT + Send + Sync>,
+    for<'a> MT: MarketTypeT + Send + Sync + AddAssign<&'a MT> + Clone + 'static + SetName,
     MT::MP : 'static + Send + Sync + Clone,
-    // dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
-    // Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: AddAssign<Arc<dyn MarketTypeT<MP=MP> + Send + Sync>>,
-    // Arc<MT>: AddAssign<MT>,
-    //MT: Send + Sync + MarketTypeT<MP=MP> + 'static,
 {
-    type Msg = MT;  // dyn MarketTypeT<MP=MP> + Send + Sync;
-    type State = MT; // dyn MarketTypeT<MP=MP> + Send + Sync;
+    type Msg = MT;
+    type State = MT;
     type Arguments = ();
 
     async fn pre_start(
@@ -49,12 +42,21 @@ where
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
+        let mp = self.pricing_options.clone();  // market params
+        let fut_mkt_tag = Uuid::new_v4();
+        let fut_mkt = MT::new(fut_mkt_tag.to_string(), mp.clone());
+
+        info!("Adding initial _future_ market to all_markets.");
+        self.all_markets.insert(
+            "future".to_string(),  // market is inserted at "future" entry
+            fut_mkt
+        );
+
 	info!("Initializing MarketProducer. Waiting on first message");
 	let new_mkt_msg = self.mkt_listener.recv().await?;
-        let market_name = Uuid::new_v4().to_string();  // TODO: THIS IS WRONG - CHECK
-        let new_mkt = Self::Msg::try_from_ref(market_name, &new_mkt_msg, self.pricing_options.clone())?;
+        let fut_mkt_tag_2 = Uuid::new_v4();
+        let new_mkt = Self::Msg::try_from_ref(fut_mkt_tag_2.to_string(), &new_mkt_msg, self.pricing_options.clone())?;
 
-        //self.all_markets.insert(market_name, mew_mkt);
 	myself.send_message((*new_mkt.clone()).clone())?;
 
 	Ok((*new_mkt).clone())
@@ -68,20 +70,29 @@ where
     ) -> Result<(), ActorProcessingErr> {
 
 	info!("Handling new market message.");
-
-	let market = state;
+	let market = state;  // state holds the market.
         let market_addition = message;
-	// *market += &message;
+        let new_name = market_addition.market_name();
         *market += &market_addition;  // adding a new market
-        let market_name = market.market_name();
+        market.set_name(new_name);
+        let market_sent = Arc::new((*market).clone());
+        // this insertion here is done efficiently.
+        self.all_markets.insert(
+            "future".to_string(),
+            market_sent,
+        );
+        info!(
+            "Current markets: {:?}", self.all_markets.list_market_names()
+        );
+
 	self.new_processor.send_message(
-	    ProcessorMiddleMessage::NewMarket(market_name)
+	    ProcessorMiddleMessage::NewMarket("future".to_string())  // notification that the future market was updated.
 	)?;
 
 	// wait for new message
 	let new_msg = self.mkt_listener.recv().await?;
-        let market_name = Uuid::new_v4().to_string();  // TODO: FIX THIS HERE!!!
-        let new_mkt = Self::Msg::try_from_ref(market_name, &new_msg, self.pricing_options.clone())?;
+        let additional_name = Uuid::new_v4().to_string();
+        let new_mkt = Self::Msg::try_from_ref(additional_name, &new_msg, self.pricing_options.clone())?;
 	myself.send_message((*new_mkt).clone())?;
 
 	Ok(())

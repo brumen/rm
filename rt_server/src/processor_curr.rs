@@ -1,4 +1,4 @@
-use tracing::{info, warn};
+use tracing::{info, warn, debug};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 use rdkafka::error::KafkaError;
@@ -11,7 +11,7 @@ use rdkafka::util::Timeout;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{ PricingMetric, PriceTrade};
 use crate::trade::{BaseTrade, TradeRep};
-use crate::processor_msg::ProcessorMiddleMessage;
+use crate::processor_msg::{ProcessorMiddleMessage, TradesLocal};
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 
@@ -19,9 +19,6 @@ use crate::market::MarketTypeT;
 pub(crate) struct ProcessorCurr<T, MT>
 where
     MT: MarketTypeT
-//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-//    dyn MarketTypeT<MP=MP>: Sized,
-//    T: Send + Sync,
 {
     pub processor_name: String,
     pub metric: PricingMetric,
@@ -37,9 +34,6 @@ where
 impl<T, MT> std::fmt::Debug for ProcessorCurr<T, MT>
 where
     MT: MarketTypeT
-//     dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-//    dyn MarketTypeT<MP=MP>: Sized,
-//    T: Send + Sync,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CurrentProcessor({self.processor_name})")
@@ -69,8 +63,6 @@ pub(crate) trait PublishPortfolio
 #[async_trait]
 impl<T, MT> PublishPortfolio for ProcessorCurr<T, MT>
 where
-    //dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-    // dyn MarketTypeT<MP=MP>: Sized,
     T: Send + Sync,
     MT: Send + Sync + MarketTypeT,
 {
@@ -117,12 +109,9 @@ where
 impl<T, MT> Actor for ProcessorCurr<T, MT>
 where
     T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static,
-//    dyn MarketTypeT<MP=MP> + Send + Sync: Sized,
-//    dyn MarketTypeT<MP=MP>: Send + Sync + Sized,
-//    MP: 'static + Send + Sync + Clone,
     ProcessorCurr<T,MT>: PublishPortfolio,
-    //Arc<dyn MarketTypeT<MP=MP> + Send + Sync>: MarketTypeT<MP=MP> + Clone,
     MT: MarketTypeT + Send + Sync + 'static,
+    MT::MP: Clone,
 {
     type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // state is a tuple of
@@ -130,7 +119,7 @@ where
     //    current portfolio
     //    current market name
     //       representation.
-    type State = (Vec<String>, PortfolioType, String);
+    type State = (TradesLocal, PortfolioType, Option<String>);
     type Arguments = ();
 
     async fn pre_start(
@@ -139,11 +128,10 @@ where
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
-	let initial_trades = vec![];
+	let initial_trades = TradesLocal::new();
 	let initial_curr_portf = PortfolioType::default();
-        let market = self.processor_name.clone();
 
-	Ok((initial_trades, initial_curr_portf, market))
+	Ok((initial_trades, initial_curr_portf, None))
     }
 
     async fn handle(
@@ -157,78 +145,88 @@ where
         match message {
 	    ProcessorMiddleMessage::NewTrade(trade) => {
 
-		info!("Adding new trade: {}", trade);
-                // TODO: REWRITE THIS SHIT!!!
-                // TODO: WHAT TO DO IF trade_info = None
-                let trade_info = self.all_trades.get(&trade).unwrap();
+                let Some(real_market) = market else {
+                    // only continue if you have a market.
+                    warn!("Do not have market. Ignoring the trade.");
+                    return Ok(());
+                };
+
+                let Some(trade_info) = self.all_trades.get(&trade) else {
+                    warn!("Could not find {} among all_atrades. Ignoring and continuing.", trade);
+                    return Ok(());
+                };
+
+                info!("Adding new trade: {}", trade);
                 let trade_real = trade_info.value();
 
-                match self.all_markets.markets.get(market) {
-                    None => {
-                        warn!("Could not find market {}. Ignoring the market", market);
-                    },
-                    Some(market_info) => {
-                        let market_info = market_info.value();
-		        let valued_trade = trade_real.value_by_metric(
-		            self.metric,
-	                    market_info.clone(),
-		        ).await;
+                let Some(market_info) = self.all_markets.get(real_market) else {
+                    warn!("Could not find market {}. Ignoring the market", real_market);
+                    return Ok(());
+                };
 
-		        // updating the portfolio
-		        //*trades += &trade; // TODO: THIS CAN BE FIXED.
-                        trades.push(trade);
-		        *portf += valued_trade;
+                debug!("Valuing trade {} on market {:?}", trade, market_info.market_name());
+		let valued_trade = trade_real.value_by_metric(
+		    self.metric,
+	            market_info.clone(),
+		).await;
 
-                        // send information about all the trades to the trade processor
-                        // let now = Local::now();
-                        //self.trade_processor.send_message(
-                        //    ProcessorMiddleMessage::ProcessingStat(
-                        //        (self.processor_name.clone(), now.naive_local(), trades.len())
-                        //    )
-                        //);
+		// updating the portfolio
+		//*trades += &trade; // TODO: THIS CAN BE FIXED.
+                trades.insert(trade);
+		*portf += valued_trade;
+                debug!(
+                    "Current portfolio: {:?}", portf
+                );
+                // send information about all the trades to the trade processor
+                // let now = Local::now();
+                //self.trade_processor.send_message(
+                //    ProcessorMiddleMessage::ProcessingStat(
+                //        (self.processor_name.clone(), now.naive_local(), trades.len())
+                //    )
+                //);
 
-                        // TODO: FOLLOWING LINE SHOULD BE PUT BACK
-		        self._publish_result_portfolio(portf.clone()).await?
-                    },
-                }
+		self._publish_result_portfolio(portf.clone()).await?
             },
 
-	    ProcessorMiddleMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, new_processor)) => {
+	    ProcessorMiddleMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, upstream_processor)) => {
 		// we got a new portfolio, possibly switch it
-		// let new_behind_curr = trades.clone() - &new_trades.clone();
-                // TODO: This can be better optimized here!!!
-                let new_behind_curr = trades.iter().cloned().filter(|x| !new_trades.contains(x)).collect::<Vec<_>>();
 
-		new_processor.send_message(
-		    ProcessorMiddleMessage::Behind(new_behind_curr.clone())
-		)?;
+		// let new_behind_curr = trades - new_trades;
+                let new_behind_curr = trades.iter().filter(|&x| !new_trades.contains(x.as_str())).cloned().collect::<TradesLocal>();
+
 		info!(
                     "Received new trade portfolio, behind: {:?}, portf size: {}",
                     new_behind_curr.len(),
                     new_portfolio.len(),
                 );
 
-		//let send_cnd = new_behind_curr.is_empty();  // new portfolio has more trades.
-                if *portf <= new_portfolio {  // when to send the portfolio to publisher.
-                //if new_behind_curr.is_empty() {
-		    // publish the new portfolio
-                    info!("Changing portfolio.");
+		// new portfolio has more trades, send the portfolio to publisher.
+                if *portf <= new_portfolio {
 		    self._publish_result_portfolio(new_portfolio.clone()).await?;
 
-                    // TODO: WHAT TO DO W/ THIS SWITCH_MARKETS
-                    // self._switch_markets(market, &new_market).await?;
                     // market that we were holding should be removed from the all_markets,
                     // as it's not needed anymore.
                     // IMPORTANT: this .remove call CAN DEADLOCK!!!
-                    let _ = self.all_markets.markets.remove(&market.clone());  // TODO: HANDLE ERROR MESSAGES
+                    // destroys the market at the end.
+                    if let Some(real_market) = market {
+                        if *real_market != new_market {  // only destroy if the markets are different
+                            info!("Destroying the market {}", real_market);
+                            let _ = self.all_markets.remove(&real_market.clone());  // TODO: HANDLE ERROR MESSAGES
+                        }
+                    };
 
 		    // update the state of current processor.
 		    *portf = new_portfolio;
-		    //*trades += &new_trades;
-                    // TODO: CHECK IF THIS IS OK
-                    trades.extend(new_trades);
-		    *market = new_market;
+                    trades.extend(new_trades);  // *trades += &new_trades;
+		    *market = Some(new_market.clone());  // markets should trickle down.
+                    debug!("Switching to market {:?}", market);  // market should be created.
 		} // otherwise dont do anything.
+
+                // send the behind information to the middle processor.
+                upstream_processor.send_message(
+		    ProcessorMiddleMessage::Behind(new_market, new_behind_curr.clone())
+		)?;
+
 	    },
 
 	    _ => {

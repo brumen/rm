@@ -9,7 +9,7 @@ use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{PricingMetric, PriceTrade};
 use crate::trade::{BaseTrade, TradeRep};
-use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
+use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage, TradesLocal};
 
 
 // computes bulk evaluation of trades in trade_names
@@ -17,7 +17,7 @@ pub struct ProcessorBulk<T, MT>
 where
     MT: MarketTypeT,
 {
-    pub processor_name: String,
+    pub processor_name: String,  // name of the bulk processor, usually curr_bulk, new_bulk, middle_1_bulk
     pub metric: PricingMetric,
     pub(crate) trade_names: Vec<String>,
     pub(crate) all_trades: Arc<TradeRep<T>>,  // all_trades is a reference to the structure that contains all trades.
@@ -31,23 +31,16 @@ where
     MT::MP : Clone,
 {
     pub(crate) fn new(
-        processor_name: String,
+        processor_name: String,  // original processor on which this depends.
         metric: PricingMetric,
         all_trades: Arc<TradeRep<T>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
-        mp: MT::MP,
     ) -> Self {
 
-        let bulk_mkt = MT::new(processor_name.clone(), mp);
-
-        // insert a proper market into the all_market.
-        all_markets.insert(
-           processor_name.clone(),
-           bulk_mkt,
-        );
+        let bulk_name = format!("{}_bulk", processor_name.clone());
 
         Self {
-            processor_name,
+            processor_name: bulk_name,
             metric,
             trade_names: vec![],
             all_trades,
@@ -91,11 +84,11 @@ impl<T, MT> Actor for ProcessorBulk<T, MT>
 where
     T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static,
     MT: MarketTypeT + Send + Sync + 'static,
-    MT::MP : Send + Sync,
+    MT::MP : Send + Sync + Clone,
 {
-    type Msg = ProcessorBulkMessage<String>;  // dyn MarketTypeT<MP=MP>>;
+    type Msg = ProcessorBulkMessage<String>;
     // type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
-    type State = Option<Arc<MT>>;
+    type State = ();  // which market are we pointing to.
     type Arguments = MT::MP;
 
     async fn pre_start(
@@ -105,7 +98,7 @@ where
     ) -> Result<Self::State, ActorProcessingErr> {
 
 	info!("Initializing Bulk processor: {}", self.processor_name);
-        Ok(None)  //  (0, None)  // intialized to 0 attempts.
+        Ok(())  //  (0, None)  // intialized to 0 attempts.
     }
 
     async fn handle(
@@ -123,78 +116,65 @@ where
 		// start the long-running pricing procedure
 
                 info!(
-		    "BulkProcessor {}: NewBulk - Computing {} trades.",
+		    "{}: NewBulk - Computing {} trades.",
 		    self.processor_name,
 		    new_trades.len(),
 		);
-                let curr_mkt_attempt = self.all_markets.markets.get(&market);
 
-                // if curr_mkt == None, we couldnt get the market, abandon the attempts
-                if curr_mkt_attempt.is_none() {
+                let Some(market_actual) = self.all_markets.get(&market) else {
+                    warn!("Could not get market {}. Abandoning pricing.", market);
+                    // if curr_mkt == None, we couldnt get the market, abandon the attempts
                     sending_processor.send_message(
                         ProcessorMiddleMessage::BulkReceive(
-                            (new_trades.clone(), PortfolioType::default(), vec![], market.clone())
+                            (new_trades.clone(), PortfolioType::default(), TradesLocal::new(), market.clone())
                         )
                     )?;
-                }
+                    return Ok(());
+                };
+
 
                 // we have a market
 		let mut portfolio = PortfolioType::default();
-                let mut non_pricing_trades = Vec::<String>::new();
+                let mut non_pricing_trades = TradesLocal::new();
                 let mut used_trades = vec![];
                 for trade_name in new_trades.iter() {
-		    debug!(
-			"Processor: {}: valuing single trade: {}",
-			self.processor_name,
-			trade_name
-		    );
-
-                    let trade_attempt = self.all_trades.get(trade_name);
-                    if trade_attempt.is_none() {
+                    let Some(trade_attempt) = self.all_trades.get(trade_name) else {
                         warn!("Could not get trade {} from all_trades. Continuing w/o it.", trade_name);
-                        non_pricing_trades.push(trade_name.to_string());
+                        non_pricing_trades.insert(trade_name.to_string());
                         continue;
-                    }
-                    let trade = trade_attempt.unwrap();
-                    used_trades.push(trade);
+                    };
+                    used_trades.push(trade_attempt);
                 }
 
-                match self.all_markets.markets.get(&market) {
-                    None => {
-                        warn!("Could not find market {}. Continuing.", market);
-                    },
-                    Some(market_actual) => {
-                        let market_actual = market_actual.value();
-                        // pricing_futs are futures where the trades are getting priced.
-                        //let mut pricing_futs = vec![];
-                        //for used_trade in used_trades {
-                        for used_trade in new_trades.iter() {
-                            let used_trade = self.all_trades.get(used_trade).unwrap();
-                            let price = used_trade.value_by_metric(
-			        self.metric,
-                                market_actual.clone(),
-		            ).await;
-                            portfolio += price.aggregate()
-		        }
-                        // TODO: Finish this part here!
-		        // updating the portfolio
-		        // let pricing_res = join_all(pricing_futs).await;
-                        //for pricing in pricing_res.iter() {
-		        //    portfolio += pricing.aggregate();
-		        // }
+                // pricing_futs are futures where the trades are getting priced.
+                //let mut pricing_futs = vec![];
+                //for used_trade in used_trades {
+                for used_trade in new_trades.iter() {
+                    let used_trade = self.all_trades.get(used_trade).unwrap();
+                    let price = used_trade.value_by_metric(
+			self.metric,
+                        market_actual.clone(),
+		    ).await;
+                    debug!("Priced trade {}: {:?}", used_trade.key(), price);
+                    portfolio += price.aggregate()
+		}
+                // TODO: Finish this part here!
+		// updating the portfolio
+		// let pricing_res = join_all(pricing_futs).await;
+                //for pricing in pricing_res.iter() {
+		//    portfolio += pricing.aggregate();
+		// }
 
-		        debug!(
-                            "Bulk processor {}: portfolio back to middle actor: {:?}",
-                            self.processor_name, portfolio,
-                        );
+		debug!(
+                    "Bulk processor {}: portfolio back to middle actor: {:?}",
+                    self.processor_name, portfolio,
+                );
 
-		        sending_processor.send_message(
-		            ProcessorMiddleMessage::BulkReceive(
-			        (new_trades, portfolio, non_pricing_trades, market)
-		            )
-		        )?;
-                    },
-                }
+		sending_processor.send_message(
+		    ProcessorMiddleMessage::BulkReceive(
+			(new_trades, portfolio, non_pricing_trades, market)
+		    )
+		)?;
 	    },
 
 	    ProcessorBulkMessage::Abandon => {
