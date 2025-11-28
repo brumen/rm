@@ -175,7 +175,7 @@ where
                 trades.insert(trade);
 		*portf += valued_trade;
                 debug!(
-                    "Current portfolio: {:?}", portf
+                    "Current market: {:?}, portfolio: {:?}", market, portf
                 );
                 // send information about all the trades to the trade processor
                 // let now = Local::now();
@@ -220,6 +220,7 @@ where
                     trades.extend(new_trades);  // *trades += &new_trades;
 		    *market = Some(new_market.clone());  // markets should trickle down.
                     debug!("Switching to market {:?}", market);  // market should be created.
+                    info!("Market: {:?}, Portfolio: {:?}", market, portf);
 		} // otherwise dont do anything.
 
                 // send the behind information to the middle processor.
