@@ -100,8 +100,7 @@ where
 	last_middle.clone(),
 	processor_new_bulk_actor.clone(),
 	all_markets.clone(),
-	Arc::new(TradeRep::<T>::default()),
-	mp.clone(),
+        initial_trades.clone(),
     );
 
     let (_processor_new_a, processor_new_handle) = Actor::spawn(

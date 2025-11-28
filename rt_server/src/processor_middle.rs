@@ -6,7 +6,7 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{PricingMetric, PriceTrade};
-use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage};
+use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesLocal};
 use crate::trade::{TradeRep, BaseTrade};
 use crate::market::MarketTypeT;
 
@@ -66,14 +66,15 @@ where
     MT::MP : Clone,
 {
     type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
-    // first argument is list of trades,
-    //   second is the list of trades that didnt price correctly
+    // state of the processor middle:
+    //   1st arg: list of trades,
+    //   2nd arg: list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
     //   fourth is the computation state.
     //   fifth is the market that the processor is operating on.
     //      for remote pricing markets only market_name is fine,
     //      for local markets, the name and the market structure.
-    type State = (Vec<String>, Vec<String>, PortfolioType, ProcessorMiddleState, Option<String>);
+    type State = (TradesLocal, TradesLocal, PortfolioType, ProcessorMiddleState, Option<String>);
     type Arguments = ();
 
     // initialization of the new processor
@@ -88,8 +89,8 @@ where
 
         Ok(
 	    (
-		vec![],
-		vec![],
+		TradesLocal::new(),
+		TradesLocal::new(),
 		PortfolioType::default(),
 		ProcessorMiddleState::Idle,
                 None,  // original market, none
@@ -136,8 +137,7 @@ where
 		    market_info.clone(),
 		).await;
 		*portf += new_trade_price;  // portfolio update
-		//*trade_l += &new_trade;  // we add the trade to the list.
-                trade_l.push(new_trade);
+                trade_l.insert(new_trade);  // we add the trade to the list.
 
 		// we send the computed portfolio & trades to the processor below
 		//   hoping that we are ahead.
@@ -159,7 +159,7 @@ where
 		    self.processor_name,
 		);
 
-                trade_l.push(new_trade);  //*trade_l += &new_trade;
+                trade_l.insert(new_trade);  //*trade_l += &new_trade;
 
                 let Some(real_market) = market else {
                     warn!("Does not have real market. Ignoring.");
@@ -192,16 +192,15 @@ where
 		            real_market.clone(),
 		        ).await;
 		        *portf += new_trade_price;  // portfolio update
-                        trade_l.push(new_trade);
+                        trade_l.insert(new_trade);
                     } else {
                         warn!("Could not get market {}", real_market);
-                        trades_non_pricing.push(new_trade);
+                        trades_non_pricing.insert(new_trade);
                     }
                 } else {
                     warn!("Could not get the representation of {}", new_trade);
-                    trades_non_pricing.push(new_trade);
+                    trades_non_pricing.insert(new_trade);
                 }
-
 
 		// send downstream the updated portfolio
                 info!(
@@ -485,7 +484,7 @@ where
                 // TODO: CHECK IF THIS SHOULD BE HANDLED???
                 // market is Some, so unwrap is justified.
                 let _ = upstream_processor.send_message(
-                   ProcessorMiddleMessage::Behind(new_market.to_string(), vec![])  // portfolio is accepted, notify the upstream that we're accepting
+                   ProcessorMiddleMessage::Behind(new_market.to_string(), TradesLocal::new())  // portfolio is accepted, notify the upstream that we're accepting
                 );
 
 	    },
@@ -503,7 +502,7 @@ where
 
                 // TODO: CHECK IF THIS IS CORRECT?
                 // let new_behind_curr = potential_trades.clone() - &new_trades;
-                let new_behind_curr = potential_trades.iter().filter(|x| !trade_l.contains(x)).cloned().collect::<Vec<String>>();
+                let new_behind_curr = potential_trades.iter().filter(|x| !trade_l.contains(x.as_str())).cloned().collect::<TradesLocal>();
 
 		if new_behind_curr.is_empty() {
 		    info!(
@@ -564,7 +563,7 @@ where
 
 		// TODO: WRONG - IMPLEMENT > JUST FOR REFERENCES!!!
 		//let new_behind_curr = trade_l - &potential_trades;
-                let new_behind_curr = trade_l.iter().filter(|&x| !potential_trades.contains(x)).cloned().collect::<Vec<String>>();
+                let new_behind_curr = trade_l.iter().filter(|&x| !potential_trades.contains(x)).cloned().collect::<TradesLocal>();
                 info!(
                     "NewPortfolio: My trades: {}, Potential trades: {}, New trades: {}, New portf: {}",
                     trade_l.len(), potential_trades.len(), new_behind_curr.len(), potential_portfolio.len(),

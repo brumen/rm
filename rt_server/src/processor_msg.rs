@@ -1,7 +1,10 @@
 /// messages for the Multiple Actor references.
 use ractor::ActorRef;
+use std::collections::HashSet;
 
 use crate::portfolio::PortfolioType;
+
+pub(crate) type TradesLocal = HashSet<String>;
 
 
 /// message that the new processor receives
@@ -13,7 +16,7 @@ pub enum ProcessorMiddleMessage<MT> {
     //    1st arg: market that we are evaluating
     //    2nd arg: missing trades that we still need -
     //                if Vec.is_empty() then we accepted the portfolio, otherwise market is not accepted.
-    Behind(String, Vec<String>),
+    Behind(String, TradesLocal),
 
     // message from Bulk computation
     // first elt: all trades,
@@ -21,7 +24,7 @@ pub enum ProcessorMiddleMessage<MT> {
     // third: offending trades.
     // fourth: market reference on which these trades were computed.
     BulkReceive(
-	(Vec<String>, PortfolioType, Vec<String>, String)
+	(TradesLocal, PortfolioType, TradesLocal, String)
     ),
 
     // message from the processor above.
@@ -31,7 +34,7 @@ pub enum ProcessorMiddleMessage<MT> {
     //    3rd market for which it was computed.
     //    4th actor where this was sent from.
     NewTradePortfolio(
-	(Vec<String>, PortfolioType, String, ActorRef<ProcessorMiddleMessage<MT>>)
+	(TradesLocal, PortfolioType, String, ActorRef<ProcessorMiddleMessage<MT>>)
     ),
     // processing stat:
     //   1st arg: processor name
@@ -58,7 +61,7 @@ pub enum ProcessorBulkMessage<MT> {
     //    second - is a vector of trades that need to be computed.
     //    third - an actor processing ProcessorMiddleMessage
     NewBulk(
-        (String, Vec<String>, ActorRef<ProcessorMiddleMessage<MT>>)
+        (String, TradesLocal, ActorRef<ProcessorMiddleMessage<MT>>)
     ),
     Abandon,  // TODO: WHAT TO DO W/ THIS???
 }

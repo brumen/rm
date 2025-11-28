@@ -9,7 +9,7 @@ use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{PricingMetric, PriceTrade};
 use crate::trade::{BaseTrade, TradeRep};
-use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage};
+use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage, TradesLocal};
 
 
 // computes bulk evaluation of trades in trade_names
@@ -126,7 +126,7 @@ where
                     // if curr_mkt == None, we couldnt get the market, abandon the attempts
                     sending_processor.send_message(
                         ProcessorMiddleMessage::BulkReceive(
-                            (new_trades.clone(), PortfolioType::default(), vec![], market.clone())
+                            (new_trades.clone(), PortfolioType::default(), TradesLocal::new(), market.clone())
                         )
                     )?;
                     return Ok(());
@@ -135,12 +135,12 @@ where
 
                 // we have a market
 		let mut portfolio = PortfolioType::default();
-                let mut non_pricing_trades = Vec::<String>::new();
+                let mut non_pricing_trades = TradesLocal::new();
                 let mut used_trades = vec![];
                 for trade_name in new_trades.iter() {
                     let Some(trade_attempt) = self.all_trades.get(trade_name) else {
                         warn!("Could not get trade {} from all_trades. Continuing w/o it.", trade_name);
-                        non_pricing_trades.push(trade_name.to_string());
+                        non_pricing_trades.insert(trade_name.to_string());
                         continue;
                     };
                     used_trades.push(trade_attempt);

@@ -11,7 +11,7 @@ use rdkafka::util::Timeout;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{ PricingMetric, PriceTrade};
 use crate::trade::{BaseTrade, TradeRep};
-use crate::processor_msg::ProcessorMiddleMessage;
+use crate::processor_msg::{ProcessorMiddleMessage, TradesLocal};
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 
@@ -119,7 +119,7 @@ where
     //    current portfolio
     //    current market name
     //       representation.
-    type State = (Vec<String>, PortfolioType, Option<String>);
+    type State = (TradesLocal, PortfolioType, Option<String>);
     type Arguments = ();
 
     async fn pre_start(
@@ -128,7 +128,7 @@ where
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
-	let initial_trades = vec![];
+	let initial_trades = TradesLocal::new();
 	let initial_curr_portf = PortfolioType::default();
 
 	Ok((initial_trades, initial_curr_portf, None))
@@ -172,7 +172,7 @@ where
 
 		// updating the portfolio
 		//*trades += &trade; // TODO: THIS CAN BE FIXED.
-                trades.push(trade);
+                trades.insert(trade);
 		*portf += valued_trade;
                 debug!(
                     "Current portfolio: {:?}", portf
@@ -192,7 +192,7 @@ where
 		// we got a new portfolio, possibly switch it
 
 		// let new_behind_curr = trades - new_trades;
-                let new_behind_curr = trades.iter().filter(|&x| !new_trades.contains(x)).cloned().collect::<Vec<_>>();
+                let new_behind_curr = trades.iter().filter(|&x| !new_trades.contains(x.as_str())).cloned().collect::<TradesLocal>();
 
 		info!(
                     "Received new trade portfolio, behind: {:?}, portf size: {}",

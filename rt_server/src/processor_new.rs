@@ -6,7 +6,7 @@ use crate::market::MarketTypeT;
 use crate::all_markets::AllMarkets;
 use crate::portfolio::PortfolioType;
 use crate::pricer::{PricingMetric, PriceTrade};
-use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage,};
+use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesLocal};
 use crate::trade::{BaseTrade, TradeRep};
 
 
@@ -21,7 +21,6 @@ where
     pub all_markets: Arc<AllMarkets<Arc<MT>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub market_name: (Option<String>, Option<String>),  // first item: new market, second item: future market.
-    pub(crate) market_params: MT::MP, // market parameters.
 }
 
 #[derive(Debug)]
@@ -43,7 +42,6 @@ where
         processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
         all_trades: Arc<TradeRep<T>>,
-        mp: MT::MP,
     ) -> Self {
 
 
@@ -55,49 +53,9 @@ where
             all_markets,
             all_trades,
             market_name: (None, None),  // new, future market
-            market_params: mp
         }
     }
 }
-
-
-
-// impl<T, MT, MP> ProcessorNew<T, MT>
-// where
-//     MT: MarketTypeT<MP=MP> + Send + Sync,
-//     T: Send + Sync,
-// {
-
-//     /// replaces the future_mkt with replace_mkt.
-//     ///   either on the server or in the controller.
-//     ///   future_mkt <- replace_mkt
-//     async fn _replace_fut_market(
-//         &self,
-//         replace_mkt: Arc<Mutex<MT>>,
-//         future_mkt: &mut Arc<Mutex<MT>>,
-//     ) -> Result<(), ActorProcessingErr> {
-
-//         todo!()
-//     }
-//     //     let actual_market = replace_mkt.lock().unwrap().market;
-//     //     match self.r_client() {
-//     //         Some(_) => {
-//     //     	self.set_market(
-//     //     	    MarketType{
-//     //                     market_name: "future".to_string(),
-//     //                     market: actual_market
-//     //                 },
-//     //     	    future_mkt,
-//     //     	).await?;
-//     //         },
-//     //         None => {
-//     //             future_mkt.lock().unwrap().market = actual_market;
-//     //         }
-//     //     }
-//     //     Ok(())
-//     // }
-
-// }
 
 
 // impl<T, MT: MarketTypeT> MarketSwitching for ProcessorNew<T, MT> {
@@ -147,14 +105,15 @@ where
 {
     type Msg = ProcessorMiddleMessage<String>;
 
-    // first argument is list of trades,
+    // the state of the processor is:
+    //   1st arg: hashset of trades,
     //   second is the list of trades that didnt price correctly
     //   third is the current portfolio result of correctly pricing trades.
     //   fourth is the computation state.
     //   fifth is the tuple: (new market where we are pricing now, future_market)
     //      actual name of market, not "future"
     type State = (
-        Vec<String>,
+        TradesLocal,
         Vec<String>,
         PortfolioType,
         ProcessorNewState,
@@ -170,17 +129,13 @@ where
     ) -> Result<Self::State, ActorProcessingErr> {
 
         info!("Starting Processor New.");
-        // empty futures market.
-        // let future_market = MT::new("future".to_string(), self.market_params.clone());
-
         Ok(
 	    (
-		vec![],
+		TradesLocal::new(),
 		vec![],
 		PortfolioType::default(),
 		ProcessorNewState::Idle,
                 None,
-                // (None, future_market),
 	    )
 	)
     }
@@ -238,8 +193,7 @@ where
 			).await;
 
 			*portf += new_trade_price;  // portfolio update
-			//*trade_l += &new_trade;  // we add the trade to the list.
-                        trade_l.push(new_trade);
+                        trade_l.insert(new_trade);  // we add the trade to the list.
 
 			// we send the computed portfolio & trades to the current processor
 			//   hoping that we are ahead.
@@ -260,7 +214,7 @@ where
                             trade_l.len(),
                         );
 
-                        trade_l.push(new_trade);  // *trade_l += &new_trade;
+                        trade_l.insert(new_trade);  // *trade_l += &new_trade;
                         match new_m {
                             None => {
                                 warn!("Does not have new_m. Ignoring for now.");
@@ -282,8 +236,7 @@ where
                             "CalculatingBulk, NewTrade: adding trade and sending to lower."
                         );
 
-			//*trade_l += &new_trade;  // we add the trade to the list.
-                        trade_l.push(new_trade.clone());
+                        trade_l.insert(new_trade.clone());  // we add the trade to the list.
 
                         let Some(new_trade_info) = self.all_trades.get(&new_trade) else {
                             warn!("Could not get trade {}. Continuing", new_trade);
@@ -395,6 +348,18 @@ where
 		    ProcessorNewState::CalculatingBulk => {
 			// just update the future market
                         info!("CalculatingBulk, NewMarket: Not doing anything.");
+
+                        // TODO: CHECK IF THIS REALLY NEEDS TO BE DONE.
+                        //    COMMENTED OUT FOR NOW!!!
+                        // new_m market should be updated.
+                        // HERE IT STARTS:
+                        // let Some(new_market_val) = self.all_markets.get(&new_market) else {
+                        //     warn!("Could not get market {} from all_markets. Ignoring the market and continuing", new_market);
+                        //     return Ok(());
+                        // };
+                        // let new_market_name = new_market_val.market_name();
+                        // *new_m = Some(new_market_name);
+
 		    },
 		}
 	    },
@@ -456,7 +421,9 @@ where
                                 "State: {:?}: Still behind lower processor, adding trades ({}) and computing bulk.",
                                 pns, trade_l.len(),
                             );
-                            trade_l.extend(trades_behind.clone());  //*trade_l += &trades_behind;
+
+                            // TODO: CHECK HERE!!! THIS PROBABLY DOESNT WORK
+                            // trade_l.extend(trades_behind.clone());  //*trade_l += &trades_behind;
 
                             // check if we have a new_m
                             let Some(new_m_real) = new_m else {
@@ -483,7 +450,7 @@ where
                                 "CalculatingBulk, Behind: adding non-computed trades to trade list."
                             );
                             //*trade_l += &trades_behind;
-                            trade_l.extend(trades_behind);
+                            // trade_l.extend(trades_behind);  // TODO: WHAT IS HERE!!!
 			}
 		    },
 
@@ -493,7 +460,8 @@ where
                         }
 
                         info!("Idle, Behind: Starting new bulk compute.");
-                        trade_l.extend(trades_behind);  // *trade_l += &trades_behind;
+                        // TODO: CHECK HERE!!!
+                        // trade_l.extend(trades_behind);  // *trade_l += &trades_behind;
 
                         let Some(new_m_real) = new_m else {
                             warn!("No new_m market. Ignoring and continuing.");
@@ -525,8 +493,8 @@ where
 			// result of computation has arrived.
 			// TODO: FINISH THIS HERE!!!
 			*portf += &computed_portf;
-			//*trade_l += &new_trade_l;
-                        trade_l.extend(new_trade_l);
+			// TODO: CHECK HERE!!!
+                        trade_l.extend(new_trade_l);  // *trade_l += &new_trade_l;
 			// *trades_non_pricing += &offending_trades;
                         trades_non_pricing.extend(offending_trades);
 
