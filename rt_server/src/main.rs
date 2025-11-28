@@ -86,24 +86,25 @@ async fn run_all() {
     );
     let state2 = state.clone();
 
-    let axum_process = task::spawn(
-	async move {
-	    let app = Router::new()
-		.route("/portfolio", get(portfolio_handler))
-		.with_state(state2);
+    // let axum_process = task::spawn(
+    //     async move {
+    //         let app = Router::new()
+    //     	.route("/portfolio", get(portfolio_handler))
+    //     	.with_state(state2);
 
-	    //let listener = tokio::net::TcpListener::bind("192.168.1.51:3000").await.unwrap();
+    //         //let listener = tokio::net::TcpListener::bind("192.168.1.51:3000").await.unwrap();
 
-	    info!("Starting axum");
-	    let addr: SocketAddr = format!("{host}:3000").parse().unwrap();
-	    //axum::serve(listener, app).await.unwrap();
-	    axum_server::bind(addr).serve(app.into_make_service())
-                .await
-                .unwrap();
-        }
-    );
+    //         info!("Starting axum");
+    //         let addr: SocketAddr = format!("{host}:3000").parse().unwrap();
+    //         //axum::serve(listener, app).await.unwrap();
+    //         axum_server::bind(addr).serve(app.into_make_service())
+    //             .await
+    //             .unwrap();
+    //     }
+    // );
 
-    let mut results = vec![axum_process];
+    // let mut results = vec![axum_process];
+    let mut results = vec![];
     let markets_used = vec!["curr".to_string(), "new".to_string()];
 
     let (initial_trades, all_markets) = init_letf();
