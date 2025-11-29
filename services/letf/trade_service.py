@@ -23,6 +23,7 @@ class LETFTradeProducer(BaseProducer):
             ),
             beta=2.,
             mkt_producer=None,
+            trade_nb_start=5,
     ):
         """ LETF trade producer.
         :param stocks: stocks relevant to the trade producer.
@@ -35,6 +36,7 @@ class LETFTradeProducer(BaseProducer):
         self._stocks = stocks
         self._beta = beta
         self._mkt_producer = mkt_producer
+        self._trade_nb_start = trade_nb_start
 
     def _value_to_publish(self, sleep_between_publish=11.):
         """ Keeps generating new fictitious market for stocks.
@@ -43,7 +45,7 @@ class LETFTradeProducer(BaseProducer):
                     publishing.
         """
 
-        trade_nb = 0
+        trade_nb = self._trade_nb_start
 
         while True:
 
