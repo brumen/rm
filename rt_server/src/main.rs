@@ -24,8 +24,8 @@ mod trade;
 mod all_markets;
 
 // actor framework new
-pub mod trade_sender;
-pub mod mkt_handler_actor;
+pub(crate) mod trade_sender;
+pub(crate) mod mkt_handler_actor;
 pub(crate) mod processor_curr;
 pub(crate) mod processor_new;
 pub(crate) mod processor_bulk;

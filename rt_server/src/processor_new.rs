@@ -41,7 +41,7 @@ where
     pub(crate) fn new(
         processor_name: String,
         metric: PricingMetric,
-        processor_middle: ActorRef<ProcessorMiddleMessage<String>>,   //dyn MarketTypeT<MP=MP>>>,  // process
+        processor_middle: ActorRef<ProcessorMiddleMessage<String>>,
         processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
         all_trades: Arc<TradeRep<T>>,
