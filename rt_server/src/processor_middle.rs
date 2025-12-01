@@ -137,7 +137,7 @@ where
 		        *pm,
 		        market_info.clone(),
 		    ).await;
-                    let portf_pm = portf.get(*pm);  // only portfolio for that metric.
+                    let portf_pm = portf.get_mut(pm).unwrap();  // only portfolio for that metric.
                     *portf_pm += new_trade_price_pm;  // portfolio update
                 }
                 trade_l.insert(new_trade);  // we add the trade to the list.
@@ -195,7 +195,7 @@ where
 		                *pm,
 		                real_market.clone(),
 		            ).await;
-                            let portf_pm = portf.get(*pm);
+                            let portf_pm = portf.get_mut(pm).unwrap();
                             *portf_pm += new_trade_price;  // portfolio update
                         }
 
@@ -417,7 +417,7 @@ where
 		);
 
                 for (pm, computed_portf_pm) in computed_portf.iter() {
-                    let portf_pm = portf.get(*pm);
+                    let portf_pm = portf.get_mut(pm).unwrap();
                     *portf_pm += computed_portf_pm;
                 }
 

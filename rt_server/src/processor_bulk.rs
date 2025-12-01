@@ -132,7 +132,7 @@ where
 
 
                 // we have a market
-		let portfolio = PmPortfolio::new();
+		let mut portfolio = PmPortfolio::new();
                 let mut non_pricing_trades = TradesLocal::new();
                 let mut used_trades = vec![];
                 for trade_name in new_trades.iter() {
@@ -154,7 +154,7 @@ where
 			    pm,
                             market_actual.clone(),
 		        ).await;
-                        let portf_pm = portfolio.get(pm);
+                        let portf_pm = portfolio.get_mut(&pm).unwrap();
                         *portf_pm += price_pm.aggregate();
                         debug!("Priced trade {}: {:?}", used_trade.key(), price_pm);
                         //portfolio += price.aggregate()

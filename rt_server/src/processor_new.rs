@@ -11,7 +11,7 @@ use crate::trade::{BaseTrade, TradeRep};
 
 
 #[derive(Debug)]
-pub struct ProcessorNew<T, MT>
+pub(crate) struct ProcessorNew<T, MT>
 where
     MT: MarketTypeT + std::fmt::Debug,
     T: std::fmt::Debug,
@@ -196,7 +196,7 @@ where
 			        new_m_actual.clone(),
 			    ).await;
                             // *portf += new_trade_price;  // portfolio update
-                            let port_pm = portf.get(*pm);
+                            let port_pm = portf.get_mut(pm).unwrap();
                             *port_pm += new_trade_price_pm;
                         }
 
@@ -265,7 +265,7 @@ where
 			        *pm,
 			        new_m_actual.clone(),
 			    ).await;
-                            let portf_pm = portf.get(*pm);
+                            let portf_pm = portf.get_mut(pm).unwrap();
                             *portf_pm += new_trade_price;  // portfolio update
                         }
 
@@ -506,7 +506,7 @@ where
 			// result of computation has arrived.
 			// TODO: FINISH THIS HERE!!!
                         for (pm, comp_portf_pm) in computed_portf.iter() {
-                            let portf_pm = portf.get(*pm);
+                            let portf_pm = portf.get_mut(pm).unwrap();
                             *portf_pm += comp_portf_pm;
                         }
 

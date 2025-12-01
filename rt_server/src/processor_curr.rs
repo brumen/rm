@@ -35,7 +35,7 @@ where
     MT: MarketTypeT,
 {
     /// changes the PmPortfolio with respect to the new metrics that it receives.
-    fn _change_metrics(present_pm: PmPortfolio, new_metrics: Vec<PricingMetric>) -> PmPortfolio {
+    fn _change_metrics(present_pm: &mut PmPortfolio, new_metrics: Vec<PricingMetric>) {
         todo!()
     }
 
@@ -185,12 +185,12 @@ where
                     "Valuing trade {} on market {:?} for {:?}",
                     trade, market_info.market_name(), curr_pricing_metrics
                 );
-                for pm in curr_pricing_metrics {
+                for pm in curr_pricing_metrics.clone() {
 		    let valued_trade_pm = trade_real.value_by_metric(
-		        *pm,
+		        pm,
 	                market_info.clone(),
 		    ).await;
-                    let portf_pm = portf.get(*pm);
+                    let portf_pm = portf.get_mut(&pm).unwrap();
                     *portf_pm += valued_trade_pm;
                 }
 
@@ -209,9 +209,9 @@ where
                 //    )
                 //);
 
-                for pm in curr_pricing_metrics {
-                    let portf_pm = portf.get(*pm);
-		    self._publish_result_portfolio(portf_pm.clone(), *pm).await?
+                for pm in curr_pricing_metrics.clone() {
+                    let portf_pm = portf.get_mut(&pm).unwrap();
+		    self._publish_result_portfolio(portf_pm.clone(), pm).await?
                 }
             },
 
@@ -229,7 +229,9 @@ where
 
 		// new portfolio has more trades, send the portfolio to publisher.
                 if *portf <= new_portfolio {
-		    self._publish_result_portfolio(new_portfolio.clone()).await?;
+                    for (pm, new_portf_pm) in new_portfolio.iter() {
+                        self._publish_result_portfolio(new_portf_pm.clone(), *pm).await?;
+                    }
 
                     // market that we were holding should be removed from the all_markets,
                     // as it's not needed anymore.
@@ -260,7 +262,7 @@ where
             // we get a portfolio of different metrics
             ProcessorMiddleMessage::Metric(new_pricing_metrics) => {
                 // TODO: CHECK THE CONDITIONS, SO THAT YOU DONT HAVE TO COPY
-                *portf = Self::_change_metrics(*portf, new_pricing_metrics);
+                Self::_change_metrics(portf, new_pricing_metrics);
 
                 // sending it to for publishing
                 for (pm, portf_pm) in portf.iter() {

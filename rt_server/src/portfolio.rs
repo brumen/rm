@@ -453,7 +453,7 @@ impl MulAssign<&AggregatedTrades> for PricingResults {
 /// portfolio of pricing metrics.
 /// PmPortfolio - mnemonic for PricingMetric Portfolio
 pub(crate) type PmPortfolioInner = HashMap<PricingMetric, PortfolioType>;
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PmPortfolio(PmPortfolioInner);
 ref_deref_trait!(PmPortfolio, PmPortfolioInner);
 
@@ -463,17 +463,20 @@ impl PmPortfolio {
         let inner_portfolio = PmPortfolioInner::new();
         Self(inner_portfolio)
     }
-
-    pub(crate) fn insert(&mut self, pm: PricingMetric, portfolio: PortfolioType) {
-        // differentiate the two cases
-        todo!()
-    }
-
-    pub(crate) fn get(&self, pm: PricingMetric) -> &mut PortfolioType {
-        todo!()
-    }
 }
 
+
+// TODO:
+//   this determines when a PmPortfolio is accepted.
+impl PartialOrd for PmPortfolio {
+
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.keys().all(|key| other.contains_key(key)) {
+            return Some(std::cmp::Ordering::Less);
+        }
+        None
+    }
+}
 
 
 
