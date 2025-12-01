@@ -449,6 +449,34 @@ impl MulAssign<&AggregatedTrades> for PricingResults {
     }
 }
 
+
+/// portfolio of pricing metrics.
+/// PmPortfolio - mnemonic for PricingMetric Portfolio
+pub(crate) type PmPortfolioInner = HashMap<PricingMetric, PortfolioType>;
+#[derive(Debug, Clone)]
+pub(crate) struct PmPortfolio(PmPortfolioInner);
+ref_deref_trait!(PmPortfolio, PmPortfolioInner);
+
+
+impl PmPortfolio {
+    pub(crate) fn new() -> Self {
+        let inner_portfolio = PmPortfolioInner::new();
+        Self(inner_portfolio)
+    }
+
+    pub(crate) fn insert(&mut self, pm: PricingMetric, portfolio: PortfolioType) {
+        // differentiate the two cases
+        todo!()
+    }
+
+    pub(crate) fn get(&self, pm: PricingMetric) -> &mut PortfolioType {
+        todo!()
+    }
+}
+
+
+
+
 #[cfg(test)]
 mod portfolio_tests {
     use time::{Date, Month};

@@ -6,9 +6,9 @@ use rdkafka::producer::FutureProducer;
 // use chrono::Local;
 use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
+use std::collections::HashMap;
 
-
-use crate::portfolio::PortfolioType;
+use crate::portfolio::{PortfolioType, PmPortfolio};
 use crate::pricer::{ PricingMetric, PriceTrade};
 use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::{ProcessorMiddleMessage, TradesLocal};
@@ -21,13 +21,24 @@ where
     MT: MarketTypeT
 {
     pub processor_name: String,
-    pub metric: PricingMetric,
     pub results_topic: String,
     pub result_publisher: FutureProducer,
     pub all_markets: Arc<AllMarkets<Arc<MT>>>,  // all_markets is DashMap
     pub all_trades: Arc<TradeRep<T>>,  // all_trades is DashMap
     // trade_processor where we can send the info when the trades are processed
     // pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
+}
+
+
+impl<T, MT> ProcessorCurr<T, MT>
+where
+    MT: MarketTypeT,
+{
+    /// changes the PmPortfolio with respect to the new metrics that it receives.
+    fn _change_metrics(present_pm: PmPortfolio, new_metrics: Vec<PricingMetric>) -> PmPortfolio {
+        todo!()
+    }
+
 }
 
 
@@ -50,12 +61,14 @@ pub enum SendError {
 }
 
 
+/// publish the portfolio for a particular metric
 #[async_trait]
 pub(crate) trait PublishPortfolio
 {
     async fn _publish_result_portfolio(
 	&self,
 	portf: PortfolioType,
+        metric: PricingMetric,
     ) -> Result<(), SendError>;
 }
 
@@ -69,11 +82,13 @@ where
     async fn _publish_result_portfolio(
 	&self,
 	portf: PortfolioType,
+        metric: PricingMetric,
     ) -> Result<(), SendError>
     {
+
 	// sends to publisher actor
 	let curr_mkt_json = serde_json::ser::to_string(&portf.clone())?;
-        let curr_mkt_pv = format!("{{\"{}\": {}}}", self.metric, curr_mkt_json);
+        let curr_mkt_pv = format!("{{\"{}\": {}}}", metric, curr_mkt_json);
 
         // implements bytearray(str(dumps(self.curr_market)), ascii))
         let portf_record = FutureRecord::<'_, [u8], [u8]> {
@@ -115,11 +130,11 @@ where
 {
     type Msg = ProcessorMiddleMessage<String>;  // dyn MarketTypeT<MP=MP>>;
     // state is a tuple of
-    //    current trades,
-    //    current portfolio
-    //    current market name
-    //       representation.
-    type State = (TradesLocal, PortfolioType, Option<String>);
+    //  1st arg:  current trades,
+    //  2nd arg:  a map of metrics to portfolioTypes, e.g. PV: Portf1, PV01: Portf2...
+    //  3rd arg:  current market name
+    //  4th arg:  vector of pricing metrics for which we are computing.
+    type State = (TradesLocal, PmPortfolio, Option<String>, Vec<PricingMetric>);
     type Arguments = ();
 
     async fn pre_start(
@@ -129,9 +144,11 @@ where
     ) -> Result<Self::State, ActorProcessingErr> {
 
 	let initial_trades = TradesLocal::new();
-	let initial_curr_portf = PortfolioType::default();
-
-	Ok((initial_trades, initial_curr_portf, None))
+	let initial_curr_portf = PmPortfolio::new();
+        // no initial metrics
+	Ok(
+            (initial_trades, initial_curr_portf, None, vec![])
+        )
     }
 
     async fn handle(
@@ -140,7 +157,7 @@ where
 	message: Self::Msg,
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-	let (trades, portf, market, ) = state;
+	let (trades, portf, market, curr_pricing_metrics) = state;
 
         match message {
 	    ProcessorMiddleMessage::NewTrade(trade) => {
@@ -164,16 +181,23 @@ where
                     return Ok(());
                 };
 
-                debug!("Valuing trade {} on market {:?}", trade, market_info.market_name());
-		let valued_trade = trade_real.value_by_metric(
-		    self.metric,
-	            market_info.clone(),
-		).await;
+                debug!(
+                    "Valuing trade {} on market {:?} for {:?}",
+                    trade, market_info.market_name(), curr_pricing_metrics
+                );
+                for pm in curr_pricing_metrics {
+		    let valued_trade_pm = trade_real.value_by_metric(
+		        *pm,
+	                market_info.clone(),
+		    ).await;
+                    let portf_pm = portf.get(*pm);
+                    *portf_pm += valued_trade_pm;
+                }
 
 		// updating the portfolio
 		//*trades += &trade; // TODO: THIS CAN BE FIXED.
                 trades.insert(trade);
-		*portf += valued_trade;
+		// *portf += valued_trade;
                 debug!(
                     "Current market: {:?}, portfolio: {:?}", market, portf
                 );
@@ -185,7 +209,10 @@ where
                 //    )
                 //);
 
-		self._publish_result_portfolio(portf.clone()).await?
+                for pm in curr_pricing_metrics {
+                    let portf_pm = portf.get(*pm);
+		    self._publish_result_portfolio(portf_pm.clone(), *pm).await?
+                }
             },
 
 	    ProcessorMiddleMessage::NewTradePortfolio((new_trades, new_portfolio, new_market, upstream_processor)) => {
@@ -229,6 +256,17 @@ where
 		)?;
 
 	    },
+
+            // we get a portfolio of different metrics
+            ProcessorMiddleMessage::Metric(new_pricing_metrics) => {
+                // TODO: CHECK THE CONDITIONS, SO THAT YOU DONT HAVE TO COPY
+                *portf = Self::_change_metrics(*portf, new_pricing_metrics);
+
+                // sending it to for publishing
+                for (pm, portf_pm) in portf.iter() {
+                    self._publish_result_portfolio(portf_pm.clone(), *pm).await?;
+                }
+            }
 
 	    _ => {
                 panic!("Unusual message. Shouldnt happen");

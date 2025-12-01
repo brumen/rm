@@ -2,7 +2,8 @@
 use ractor::ActorRef;
 use std::collections::HashSet;
 
-use crate::portfolio::PortfolioType;
+use crate::portfolio::{PortfolioType, PmPortfolio};
+use crate::pricer::PricingMetric;
 
 pub(crate) type TradesLocal = HashSet<String>;
 
@@ -24,7 +25,7 @@ pub enum ProcessorMiddleMessage<MT> {
     // third: offending trades.
     // fourth: market reference on which these trades were computed.
     BulkReceive(
-	(TradesLocal, PortfolioType, TradesLocal, String)
+	(TradesLocal, PmPortfolio, TradesLocal, String)
     ),
 
     // message from the processor above.
@@ -34,13 +35,14 @@ pub enum ProcessorMiddleMessage<MT> {
     //    3rd market for which it was computed.
     //    4th actor where this was sent from.
     NewTradePortfolio(
-	(TradesLocal, PortfolioType, String, ActorRef<ProcessorMiddleMessage<MT>>)
+	(TradesLocal, PmPortfolio, String, ActorRef<ProcessorMiddleMessage<MT>>)
     ),
     // processing stat:
     //   1st arg: processor name
     //   2nd arg: when the events ocurred.
     //   3rd arg: cumulative number of trades processed.
     ProcessingStat((String, chrono::NaiveDateTime, usize)),
+    Metric(Vec<PricingMetric>),  // we compute the vector of pricing metrics.
 }
 
 
@@ -60,8 +62,9 @@ pub enum ProcessorBulkMessage<MT> {
     //    first is the market type, a name of the market
     //    second - is a vector of trades that need to be computed.
     //    third - an actor processing ProcessorMiddleMessage
+    //    4th: vector of pricing metrics to compute
     NewBulk(
-        (String, TradesLocal, ActorRef<ProcessorMiddleMessage<MT>>)
+        (String, TradesLocal, ActorRef<ProcessorMiddleMessage<MT>>, Vec<PricingMetric>)
     ),
     Abandon,  // TODO: WHAT TO DO W/ THIS???
 }

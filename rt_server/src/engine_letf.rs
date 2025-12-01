@@ -38,7 +38,6 @@ where
     // create the current processor.
     let (curr_processor, _curr_processor_bulk_h) = create_curr_actor(
         kafka_params.clone(),
-        metric,
         all_markets.clone(),
         markets_used[0].clone(),
         initial_trades.clone(),
@@ -69,7 +68,6 @@ where
 	create_middle_procs_chain(
             nb_middle,
 	    _processor_curr_a.clone(),
-	    metric,
 	    all_markets.clone(),
             initial_trades.clone(),
             mp.clone(),
@@ -80,8 +78,7 @@ where
 
     // creating the bulk processor
     let new_mkt_bulk = ProcessorBulk::new(
-	"processor_new_bulk".to_string(),
-	metric,
+	"processor_new".to_string(),
         initial_trades.clone(),
         all_markets.clone(),
     );
@@ -93,10 +90,8 @@ where
         .await
 	.expect("Could not start processor_new_bulk");
 
-
     let processor_new = ProcessorNew::new(
 	last_market_name.clone(),
-	metric,
 	last_middle.clone(),
 	processor_new_bulk_actor.clone(),
 	all_markets.clone(),

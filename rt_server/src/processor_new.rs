@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::market::MarketTypeT;
 use crate::all_markets::AllMarkets;
-use crate::portfolio::PortfolioType;
+use crate::portfolio::{PortfolioType, PmPortfolio};
 use crate::pricer::{PricingMetric, PriceTrade};
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesLocal};
 use crate::trade::{BaseTrade, TradeRep};
@@ -17,7 +17,6 @@ where
     T: std::fmt::Debug,
 {
     pub processor_name: String,
-    pub metric: PricingMetric,
     pub processor_middle: ActorRef<ProcessorMiddleMessage<String>>, // the middle processor just below the ProcessorNew
     pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>,  // bulk processor reference to the bulk actor corresponding to this processor_new
     pub all_markets: Arc<AllMarkets<Arc<MT>>>,
@@ -40,7 +39,6 @@ where
 {
     pub(crate) fn new(
         processor_name: String,
-        metric: PricingMetric,
         processor_middle: ActorRef<ProcessorMiddleMessage<String>>,
         processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
@@ -50,7 +48,6 @@ where
 
         Self {
             processor_name: processor_name.clone(),
-            metric,
             processor_middle,
             processor_bulk,
             all_markets,
@@ -110,17 +107,18 @@ where
 
     // the state of the processor is:
     //   1st arg: hashset of trades,
-    //   second is the list of trades that didnt price correctly
+    //   second is the list of trades that didnt price correctly -- check if this should also be TradesLocal???? TODO:
     //   third is the current portfolio result of correctly pricing trades.
     //   fourth is the computation state.
-    //   fifth is the tuple: (new market where we are pricing now, future_market)
-    //      actual name of market, not "future"
+    //   fifth is the "new" market where we are pricing now. 'future' market exists anyway.
+    //   6th: list of pricing metrics we are considering.
     type State = (
         TradesLocal,
         Vec<String>,
-        PortfolioType,
+        PmPortfolio,
         ProcessorNewState,
-        Option<String>,  // Arc<MT>>, // Arc<MT>),
+        Option<String>,
+        Vec<PricingMetric>,
     );
     type Arguments = ();  // initial market
 
@@ -131,14 +129,15 @@ where
         _args: Self::Arguments,  // market parameters are passed here
     ) -> Result<Self::State, ActorProcessingErr> {
 
-        info!("Starting Processor New.");
+        info!("Starting ProcessorNew.");
         Ok(
 	    (
 		TradesLocal::new(),
 		vec![],
-		PortfolioType::default(),
+		PmPortfolio::new(),
 		ProcessorNewState::Idle,
                 None,
+                vec![],
 	    )
 	)
     }
@@ -151,7 +150,7 @@ where
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	let (trade_l, trades_non_pricing, portf, pns, new_m) = state;  // (new_m, future_m)
+	let (trade_l, trades_non_pricing, portf, pns, new_m, pricing_metrics) = state;
 
         info!(
             "State: {:?}. Portf size: {}, Nb trades: {}",
@@ -191,12 +190,16 @@ where
 
                         // if all the three conditions above are satisfied, continue
                         //   w/ actual pricing.
-			let new_trade_price = new_trade_info.value_by_metric(
-			    self.metric,
-			    new_m_actual.clone(),
-			).await;
+                        for pm in pricing_metrics {
+			    let new_trade_price_pm = new_trade_info.value_by_metric(
+			        *pm,
+			        new_m_actual.clone(),
+			    ).await;
+                            // *portf += new_trade_price;  // portfolio update
+                            let port_pm = portf.get(*pm);
+                            *port_pm += new_trade_price_pm;
+                        }
 
-			*portf += new_trade_price;  // portfolio update
                         trade_l.insert(new_trade);  // we add the trade to the list.
 
 			// we send the computed portfolio & trades to the current processor
@@ -227,7 +230,7 @@ where
                             Some(new_m_real) => {
                                 self.processor_bulk.send_message(
 			            ProcessorBulkMessage::NewBulk(
-				        (new_m_real.to_string(), trade_l.clone(), myself)
+				        (new_m_real.to_string(), trade_l.clone(), myself, pricing_metrics.clone())
 			            )
 			        )?;
 			        *pns = ProcessorNewState::CalculatingBulk;
@@ -257,11 +260,15 @@ where
                             return Ok(());
                         };
 
-			let new_trade_price = new_trade_info.value_by_metric(
-			    self.metric,
-			    new_m_actual.clone(),
-			).await;
-			*portf += new_trade_price;  // portfolio update
+                        for pm in pricing_metrics {
+			    let new_trade_price = new_trade_info.value_by_metric(
+			        *pm,
+			        new_m_actual.clone(),
+			    ).await;
+                            let portf_pm = portf.get(*pm);
+                            *portf_pm += new_trade_price;  // portfolio update
+                        }
+
                         info!(
                             "CalculatingBulk, NewTrade: Sending to lower processor. Portf size: {}",
                             portf.len(),
@@ -315,7 +322,7 @@ where
                         *pns = ProcessorNewState::CalculatingBulk;
 			self.processor_bulk.send_message(
 			    ProcessorBulkMessage::NewBulk(
-                                (new_market_val_name, trade_l.clone(), myself)
+                                (new_market_val_name, trade_l.clone(), myself, pricing_metrics.clone())
                             )
 			)?;
 		    },
@@ -388,7 +395,7 @@ where
                             info!(
                                 "Behind, CalculatingSingle: Successfully accepted. Resetting portfolio."
                             );
-                            *portf = PortfolioType::default();
+                            *portf = PmPortfolio::new();
 
                             // this shouldnt fail, but we have a failsafe
                             let Some(future_market) = self.all_markets.get(&"future".to_string()) else {
@@ -441,7 +448,7 @@ where
                             // if we have it, compute it
 			    self.processor_bulk.send_message(
 				ProcessorBulkMessage::NewBulk(
-				    (new_m_real.to_string(), trades_behind, myself)
+				    (new_m_real.to_string(), trades_behind, myself, pricing_metrics.clone())
 				)
 			    )?;
 			    *pns = ProcessorNewState::CalculatingBulk;
@@ -476,7 +483,7 @@ where
 
                         self.processor_bulk.send_message(
 			    ProcessorBulkMessage::NewBulk(
-				(new_m_real.to_string(), trade_l.clone(), myself)
+				(new_m_real.to_string(), trade_l.clone(), myself, pricing_metrics.clone())
 			    )
 			)?;
                         info!(
@@ -498,8 +505,12 @@ where
 		    ProcessorNewState::CalculatingBulk => {
 			// result of computation has arrived.
 			// TODO: FINISH THIS HERE!!!
-			*portf += &computed_portf;
-			// TODO: CHECK HERE!!!
+                        for (pm, comp_portf_pm) in computed_portf.iter() {
+                            let portf_pm = portf.get(*pm);
+                            *portf_pm += comp_portf_pm;
+                        }
+
+                        // TODO: CHECK HERE!!!
                         trade_l.extend(new_trade_l);  // *trade_l += &new_trade_l;
 			// *trades_non_pricing += &offending_trades;
                         trades_non_pricing.extend(offending_trades);

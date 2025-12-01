@@ -28,7 +28,6 @@ pub(crate) struct KafkaParams {
 
 pub(crate) async fn create_curr_actor<T, MT> (
     kafka_params: KafkaParams,
-    metric: PricingMetric,  // pricing metric, like PV
     all_markets: Arc<AllMarkets<Arc<MT>>>,
     curr_mkt_name: String,
     initial_trades: Arc<TradeRep::<T>>,
@@ -42,7 +41,6 @@ where
 
     let curr_bulk = ProcessorBulk::new(
 	"curr".to_string(),  // bulk is for processor current
-	metric,
         initial_trades.clone(),
         all_markets.clone(),
     );
@@ -60,7 +58,6 @@ where
 
     let processor_curr = ProcessorCurr {
 	processor_name: curr_mkt_name,  // TODO: CHECK IF THIS NAME IS CORRECT
-	metric,
         results_topic: kafka_params.results_topic,
 	result_publisher,
 	all_markets: all_markets.clone(),
@@ -76,7 +73,6 @@ where
 //  returns: processor middle, and the future
 pub(crate) async fn create_middle_actor<T, MT>(
     processor_name: String,
-    metric: PricingMetric,
     all_markets: Arc<AllMarkets<Arc<MT>>>,
     initial_trades: Arc<TradeRep<T>>,
     processor_below: ActorRef<ProcessorMiddleMessage<String>>,
@@ -93,7 +89,6 @@ where
     // TODO: NEXT STAGE IS TO CONSTRUCT BULK INSIDE PROCESSOR MIDDLE
     let bulk_middle = ProcessorBulk::new(
 	middle_bulk_name,
-	metric,
         initial_trades.clone(),
         all_markets.clone(),
     );
@@ -108,7 +103,6 @@ where
 	processor_name,
         processor_below,
         bulk_actor,
-        metric,
         initial_trades.clone(),
         all_markets.clone(),
     );
@@ -127,7 +121,6 @@ where
 pub(crate) async fn create_middle_procs_chain<T, MT> (
     nb_middle: usize,  // number of middle actors.
     processor_curr: ActorRef<ProcessorMiddleMessage<String>>,
-    metric: PricingMetric,
     all_markets: Arc<AllMarkets<Arc<MT>>>,
     initial_trades: Arc<TradeRep<T>>,
     mp: MT::MP,
@@ -153,7 +146,6 @@ where
         let market_name = format!("middle_{}", market_nb);
         let (processor_middle, bulk_actor_future) = create_middle_actor(
             market_name,
-            metric,
             all_markets.clone(),
             initial_trades.clone(),
             last_middle.clone(),

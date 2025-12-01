@@ -4,7 +4,7 @@ use tracing::{info, warn, error};
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 
 use crate::all_markets::AllMarkets;
-use crate::portfolio::PortfolioType;
+use crate::portfolio::{PortfolioType, PmPortfolio};
 use crate::pricer::{PricingMetric, PriceTrade};
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesLocal};
 use crate::trade::{TradeRep, BaseTrade};
@@ -13,7 +13,6 @@ use crate::market::MarketTypeT;
 
 // T is mnemonic for trade type, MT is mnemonic for market type
 pub(crate) struct ProcessorMiddle<T, MT> {
-    pub(crate) metric: PricingMetric,
     pub(crate) processor_name: String,
     pub processor_below: ActorRef<ProcessorMiddleMessage<String>>,
     pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
@@ -31,13 +30,11 @@ where
         processor_name: String,
         processor_below: ActorRef<ProcessorMiddleMessage<String>>,
         processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
-        metric: PricingMetric,
         all_trades: Arc<TradeRep<T>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
     ) -> Self {
 
         Self {
-            metric,
             processor_name,
             processor_below,
             processor_bulk,
@@ -69,12 +66,13 @@ where
     // state of the processor middle:
     //   1st arg: list of trades,
     //   2nd arg: list of trades that didnt price correctly
-    //   third is the current portfolio result of correctly pricing trades.
+    //   3rd: third is the current portfolio result for each pricing metric of correctly pricing trades.
     //   fourth is the computation state.
     //   fifth is the market that the processor is operating on.
     //      for remote pricing markets only market_name is fine,
     //      for local markets, the name and the market structure.
-    type State = (TradesLocal, TradesLocal, PortfolioType, ProcessorMiddleState, Option<String>);
+    //   6th: list of metrics that the system is operating on.
+    type State = (TradesLocal, TradesLocal, PmPortfolio, ProcessorMiddleState, Option<String>, Vec<PricingMetric>);
     type Arguments = ();
 
     // initialization of the new processor
@@ -91,9 +89,10 @@ where
 	    (
 		TradesLocal::new(),
 		TradesLocal::new(),
-		PortfolioType::default(),
+		PmPortfolio::new(),  // no portfolio
 		ProcessorMiddleState::Idle,
                 None,  // original market, none
+                vec![],  // no metrics at first
 	    )
 	)
     }
@@ -106,7 +105,7 @@ where
 	state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
 
-	let (trade_l, trades_non_pricing, portf, pns, market) = state;  // market is the market where we're operating
+	let (trade_l, trades_non_pricing, portf, pns, market, pricing_metrics) = state;  // market is the market where we're operating
 	let pns_old = (*pns).clone();  // otherwise we cant match
 
 	info!(
@@ -132,11 +131,15 @@ where
                     return Ok(());
                 };
                 let real_trade = trade_info.value();
-                let new_trade_price = real_trade.value_by_metric(
-		    self.metric,
-		    market_info.clone(),
-		).await;
-		*portf += new_trade_price;  // portfolio update
+
+                for pm in pricing_metrics {
+                    let new_trade_price_pm = real_trade.value_by_metric(
+		        *pm,
+		        market_info.clone(),
+		    ).await;
+                    let portf_pm = portf.get(*pm);  // only portfolio for that metric.
+                    *portf_pm += new_trade_price_pm;  // portfolio update
+                }
                 trade_l.insert(new_trade);  // we add the trade to the list.
 
 		// we send the computed portfolio & trades to the processor below
@@ -168,7 +171,7 @@ where
 
 		self.processor_bulk.send_message(
 		    ProcessorBulkMessage::NewBulk(
-			(real_market.to_string(), trade_l.clone(), myself)
+			(real_market.to_string(), trade_l.clone(), myself, pricing_metrics.clone())
 		    )
 		)?;
 		*pns = ProcessorMiddleState::CalculatingBulk;
@@ -187,11 +190,15 @@ where
 
                 if let Some(real_trade) = self.all_trades.get(&new_trade) {
                     if let Some(real_market) = self.all_markets.get(real_market) {
-                        let new_trade_price = real_trade.value_by_metric(
-		            self.metric,
-		            real_market.clone(),
-		        ).await;
-		        *portf += new_trade_price;  // portfolio update
+                        for pm in pricing_metrics {
+                            let new_trade_price = real_trade.value_by_metric(
+		                *pm,
+		                real_market.clone(),
+		            ).await;
+                            let portf_pm = portf.get(*pm);
+                            *portf_pm += new_trade_price;  // portfolio update
+                        }
+
                         trade_l.insert(new_trade);
                     } else {
                         warn!("Could not get market {}", real_market);
@@ -274,7 +281,7 @@ where
                     );
 		    self.processor_bulk.send_message(
 			ProcessorBulkMessage::NewBulk(
-			    (real_market.to_string(), trades_behind, myself)
+			    (real_market.to_string(), trades_behind, myself, pricing_metrics.clone())
 			)
 		    )?;
 		    *pns = ProcessorMiddleState::CalculatingBulk;
@@ -341,7 +348,7 @@ where
 
 		    self.processor_bulk.send_message(
 			ProcessorBulkMessage::NewBulk(
-		 	    (real_market.to_string(), trade_l.clone(), myself)
+		 	    (real_market.to_string(), trade_l.clone(), myself, pricing_metrics.clone())
 			)
 		    )?;
 		}
@@ -364,7 +371,7 @@ where
 
 		    self.processor_bulk.send_message(
 			ProcessorBulkMessage::NewBulk(
-			    (real_market.to_string(), trades_behind.clone(), myself)
+			    (real_market.to_string(), trades_behind.clone(), myself, pricing_metrics.clone())
 			)
 		    )?;
 		    *pns = ProcessorMiddleState::CalculatingBulk;
@@ -409,7 +416,11 @@ where
 		    self.processor_name,
 		);
 
-		*portf += &computed_portf;
+                for (pm, computed_portf_pm) in computed_portf.iter() {
+                    let portf_pm = portf.get(*pm);
+                    *portf_pm += computed_portf_pm;
+                }
+
                 trade_l.extend(new_trade_l);  //*trade_l += &new_trade_l;
                 trades_non_pricing.extend(offending_trades);  //*trades_non_pricing += &offending_trades;
 
@@ -620,6 +631,11 @@ where
 	    },
 
             (ProcessorMiddleMessage::ProcessingStat(_), _) => {}, // processing stat is not for this processor
+
+            // we get new metrics from the metric dispatch
+            (ProcessorMiddleMessage::Metric(new_pricing_metrics), _) => {
+                todo!()
+            },
 	}
 	Ok(())
     }

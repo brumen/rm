@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::market::{MarketTypeT};
 use crate::all_markets::AllMarkets;
-use crate::portfolio::PortfolioType;
+use crate::portfolio::{PortfolioType, PmPortfolio};
 use crate::pricer::{PricingMetric, PriceTrade};
 use crate::trade::{BaseTrade, TradeRep};
 use crate::processor_msg::{ProcessorMiddleMessage, ProcessorBulkMessage, TradesLocal};
@@ -18,7 +18,6 @@ where
     MT: MarketTypeT,
 {
     pub processor_name: String,  // name of the bulk processor, usually curr_bulk, new_bulk, middle_1_bulk
-    pub metric: PricingMetric,
     pub(crate) trade_names: Vec<String>,
     pub(crate) all_trades: Arc<TradeRep<T>>,  // all_trades is a reference to the structure that contains all trades.
     pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>, // dyn MarketTypeT<MP=MP> + Send + Sync>>>,
@@ -32,7 +31,6 @@ where
 {
     pub(crate) fn new(
         processor_name: String,  // original processor on which this depends.
-        metric: PricingMetric,
         all_trades: Arc<TradeRep<T>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
     ) -> Self {
@@ -41,7 +39,6 @@ where
 
         Self {
             processor_name: bulk_name,
-            metric,
             trade_names: vec![],
             all_trades,
             all_markets,
@@ -88,7 +85,7 @@ where
 {
     type Msg = ProcessorBulkMessage<String>;
     // type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
-    type State = ();  // which market are we pointing to.
+    type State = ();
     type Arguments = MT::MP;
 
     async fn pre_start(
@@ -112,13 +109,14 @@ where
             // market is where the trades are priced.
             // new_trades are trades that should be priced.
             // sending_processor ... processor where the result should be sent.
-            ProcessorBulkMessage::NewBulk((market, new_trades, sending_processor)) => {
+            ProcessorBulkMessage::NewBulk((market, new_trades, sending_processor, pricing_metrics)) => {
 		// start the long-running pricing procedure
 
                 info!(
-		    "{}: NewBulk - Computing {} trades.",
+		    "{}: NewBulk - Computing {} trades for {:?}.",
 		    self.processor_name,
 		    new_trades.len(),
+                    pricing_metrics,
 		);
 
                 let Some(market_actual) = self.all_markets.get(&market) else {
@@ -126,7 +124,7 @@ where
                     // if curr_mkt == None, we couldnt get the market, abandon the attempts
                     sending_processor.send_message(
                         ProcessorMiddleMessage::BulkReceive(
-                            (new_trades.clone(), PortfolioType::default(), TradesLocal::new(), market.clone())
+                            (new_trades.clone(), PmPortfolio::new(), TradesLocal::new(), market.clone())
                         )
                     )?;
                     return Ok(());
@@ -134,7 +132,7 @@ where
 
 
                 // we have a market
-		let mut portfolio = PortfolioType::default();
+		let portfolio = PmPortfolio::new();
                 let mut non_pricing_trades = TradesLocal::new();
                 let mut used_trades = vec![];
                 for trade_name in new_trades.iter() {
@@ -151,12 +149,16 @@ where
                 //for used_trade in used_trades {
                 for used_trade in new_trades.iter() {
                     let used_trade = self.all_trades.get(used_trade).unwrap();
-                    let price = used_trade.value_by_metric(
-			self.metric,
-                        market_actual.clone(),
-		    ).await;
-                    debug!("Priced trade {}: {:?}", used_trade.key(), price);
-                    portfolio += price.aggregate()
+                    for pm in pricing_metrics.clone() {
+                        let price_pm = used_trade.value_by_metric(
+			    pm,
+                            market_actual.clone(),
+		        ).await;
+                        let portf_pm = portfolio.get(pm);
+                        *portf_pm += price_pm.aggregate();
+                        debug!("Priced trade {}: {:?}", used_trade.key(), price_pm);
+                        //portfolio += price.aggregate()
+                    }
 		}
                 // TODO: Finish this part here!
 		// updating the portfolio
