@@ -3,7 +3,6 @@ use rdkafka::error::KafkaError;
 use rdkafka::producer::FutureProducer;
 use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
-use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -25,21 +24,6 @@ where
     pub all_trades: Arc<TradeRep<T>>,          // all_trades is DashMap
                                                // trade_processor where we can send the info when the trades are processed
                                                // pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
-}
-
-impl<T, MT> ProcessorCurr<T, MT>
-where
-    MT: MarketTypeT,
-{
-    /// changes the PmPortfolio with respect to the new metrics that it receives.
-    /// these are the rules it implements:
-    ///   1. if a metric in present_pm is in new_metrics, it stays.
-    ///   2. if a metric in present_pm is not in new_metrics, it id dropped.
-    ///   3. if a metric is in new_metrics, but not in present_pm, it's added w/ the
-    ///         default portfolio type.
-    fn _change_metrics(present_pm: &mut PmPortfolio, new_metrics: Vec<PricingMetric>) {
-        crate::utils::change_metrics(present_pm, new_metrics);
-    }
 }
 
 impl<T, MT> std::fmt::Debug for ProcessorCurr<T, MT>
@@ -267,8 +251,7 @@ where
 
             // we get a portfolio of different metrics
             ProcessorMiddleMessage::Metric(new_pricing_metrics) => {
-                // TODO: CHECK THE CONDITIONS, SO THAT YOU DONT HAVE TO COPY
-                Self::_change_metrics(portf, new_pricing_metrics);
+                crate::utils::change_metrics(portf, new_pricing_metrics);  // fixes the portf to correspond to new_pricing_metrics
 
                 // sending it to for publishing
                 for (pm, portf_pm) in portf.iter() {
