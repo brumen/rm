@@ -1,12 +1,9 @@
 // Starts the controller.
 use crate::pricer::PricingMetric;
-use axum::{extract::State, routing::get, Router};
 use dotenv::dotenv;
 use futures::future::join_all;
-use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
-use tokio::task;
-use tracing::{info, instrument, Level};
+use std::sync::Arc;
+use tracing::{info, Level};
 use trade_letf::TradeTypes;
 
 mod all_markets;
@@ -33,6 +30,7 @@ pub(crate) mod processor_new;
 pub(crate) mod processor_setup;
 pub(crate) mod trade_letf;
 pub(crate) mod trade_sender;
+pub(crate) mod utils;
 
 use crate::engine_letf::start2;
 use crate::letf_market::LETFMarketType;

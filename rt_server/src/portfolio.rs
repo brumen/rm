@@ -31,15 +31,14 @@ impl PortfolioType {
 }
 
 impl PartialOrd for PortfolioType {
-
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         if self.keys().all(|key| other.contains_key(key)) {
             return Some(std::cmp::Ordering::Less);
         }
         None
     }
-
 }
+
 
 impl Add for PortfolioType {
     type Output = PortfolioType;
