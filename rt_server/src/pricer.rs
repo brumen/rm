@@ -10,10 +10,13 @@ use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
 use crate::trade::{BaseTrade, TradeRep, TradeDirection};
 
 // which metric to compute
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Deserialize)]
 pub enum PricingMetric {
+    #[serde(rename = "PV")]
     PV,
+    #[serde(rename = "PV01")]
     PV01,
+    #[serde(rename = "PnL")]
     PnL,
 }
 

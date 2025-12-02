@@ -28,9 +28,14 @@ pub(crate) mod processor_middle;
 pub(crate) mod processor_msg;
 pub(crate) mod processor_new;
 pub(crate) mod processor_setup;
+pub(crate) mod processor_setup_actor;
 pub(crate) mod trade_letf;
 pub(crate) mod trade_sender;
 pub(crate) mod utils;
+
+use crate::processor_msg::ProcessorMiddleMessage;
+use crate::processor_setup_actor::start_setup_actor;
+use ractor::ActorRef;
 
 use crate::engine_letf::start2;
 use crate::letf_market::LETFMarketType;
@@ -53,6 +58,7 @@ async fn run_all() {
     let mkt_topic = std::env::var("MKT_TOPIC").expect("Could not find MKT_TOPIC in .env"); // "air_options.ao.mkt_events"
     let results_topic =
         std::env::var("RESULTS_TOPIC").expect("Could not find RESULTS_TOPIC in .env"); //"air_options.ao.results"
+    let setup_topic = std::env::var("SETUP_TOPIC").expect("Could not find SETUP_TOPIC in .env");
     let market_port = std::env::var("MARKET_PORT").expect("Could not find MARKET_PORT in .env");
     let pricing_port = std::env::var("PRICING_PORT").expect("Could not find PRICING_PORT in .env");
     info!(".env data loaded.");
@@ -70,7 +76,9 @@ async fn run_all() {
         .init();
 
     info!("Starting setup actor.");
-    let axum_process = processor_setup::axum_process(host);
+    let axum_process = processor_setup::axum_process(host.clone());
+
+    // Start the setup actor that listens to the setup kafka topic.
 
     let mut all_handles = vec![axum_process];
     let markets_used = vec!["curr".to_string(), "new".to_string()];
@@ -78,7 +86,7 @@ async fn run_all() {
     let (initial_trades, all_markets) = init_letf();
 
     info!("Starting main system controller.");
-    let mut all_actors = start2(
+    let (all_actors, mut all_actors_handles) = start2(
         kafka_params,
         metric,
         all_markets,
@@ -89,7 +97,9 @@ async fn run_all() {
     )
     .await;
 
-    all_handles.append(&mut all_actors);
+    let setup_actor_handle = start_setup_actor(host, setup_topic, all_actors);
+
+    all_handles.append(&mut all_actors_handles);
     // tokio::join!(results);
     join_all(all_handles).await;
 }
