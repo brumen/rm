@@ -33,12 +33,9 @@ pub(crate) mod trade_letf;
 pub(crate) mod trade_sender;
 pub(crate) mod utils;
 
-use crate::processor_msg::ProcessorMiddleMessage;
-use crate::processor_setup_actor::start_setup_actor;
-use ractor::ActorRef;
-
 use crate::engine_letf::start2;
 use crate::letf_market::LETFMarketType;
+use crate::processor_setup_actor::start_setup_actor;
 use crate::trade::TradeRep;
 
 #[tokio::main]
@@ -97,9 +94,10 @@ async fn run_all() {
     )
     .await;
 
-    let setup_actor_handle = start_setup_actor(host, setup_topic, all_actors);
+    let setup_actor_handle = start_setup_actor(host, setup_topic, all_actors).await;
 
     all_handles.append(&mut all_actors_handles);
+    all_handles.push(setup_actor_handle);
     // tokio::join!(results);
     join_all(all_handles).await;
 }
