@@ -692,7 +692,9 @@ where
 
             // we get new metrics from the metric dispatch
             (ProcessorMiddleMessage::Metric(new_pricing_metrics), _) => {
-                crate::utils::change_metrics(portf, new_pricing_metrics);
+                info!("Changing metrics to {:?}", new_pricing_metrics);
+                crate::utils::change_metrics(portf, new_pricing_metrics.clone());
+                *pricing_metrics = new_pricing_metrics;
             }
         }
         Ok(())

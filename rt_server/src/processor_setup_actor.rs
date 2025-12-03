@@ -56,16 +56,27 @@ impl Actor for SetupActor {
 
     async fn pre_start(
         &self,
-        myself: ActorRef<Self::Msg>,
+        _myself: ActorRef<Self::Msg>,
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        info!("SetupActor initialized and waiting for first Kafka message");
+        info!("SetupActor initialized. Handles architecture setup.");
+        Ok(())
+    }
+
+    async fn post_start(
+        &self,
+        myself: ActorRef<Self::Msg>,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+
+        info!("Waiting on first setup message...");
         // Receive the first setup message
         let msg = self.setup_listener.recv().await?;
         let payload = msg.payload_view::<str>().unwrap().unwrap();
         let setup_req: SetupRequest = serde_json::from_str(payload)?;
         info!("Initial setup request received: {:?}", setup_req);
         myself.send_message(setup_req)?;
+
         Ok(())
     }
 
@@ -77,15 +88,17 @@ impl Actor for SetupActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             SetupRequest::Metrics(pricing_metrics) => {
+                info!("Sending metrics {:?} to all relevant processors.", pricing_metrics);
                 for proc in &self.processors {
                     let _ =
                         proc.send_message(ProcessorMiddleMessage::Metric(pricing_metrics.clone()));
                 }
 
+                info!("Listening on a setup request...");
                 let msg = self.setup_listener.recv().await?;
                 let payload = msg.payload_view::<str>().unwrap().unwrap();
                 let setup_req: SetupRequest = serde_json::from_str(payload)?;
-                info!("Received subsequent setup request: {:?}", setup_req);
+                info!("Received setup request: {:?}", setup_req);
 
                 // Continue listening for next message
                 myself.send_message(setup_req)?;

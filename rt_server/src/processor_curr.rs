@@ -251,7 +251,9 @@ where
 
             // we get a portfolio of different metrics
             ProcessorMiddleMessage::Metric(new_pricing_metrics) => {
-                crate::utils::change_metrics(portf, new_pricing_metrics);  // fixes the portf to correspond to new_pricing_metrics
+                info!("Changing metrics to {:?}", new_pricing_metrics);
+                crate::utils::change_metrics(portf, new_pricing_metrics.clone()); // fixes the portf to correspond to new_pricing_metrics
+                *curr_pricing_metrics = new_pricing_metrics;
 
                 // sending it to for publishing
                 for (pm, portf_pm) in portf.iter() {
