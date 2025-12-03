@@ -45,7 +45,8 @@ async fn main() {
 
 async fn run_all() {
     info!("Reading data from .env");
-    dotenv().ok(); // .env is loaded.
+    // dotenv().ok(); // .env is loaded.
+    let x = dotenv();
     let host = std::env::var("HOST").expect("Could not find HOST in .env");
     let kafka_port = std::env::var("KAFKA_PORT").expect("Could not find KAFKA_PORT in .env");
     let kafka_server = format!("{host}:{kafka_port}");
@@ -72,7 +73,6 @@ async fn run_all() {
         //.with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
         .init();
 
-    info!("Starting setup actor.");
     let axum_process = processor_setup::axum_process(host.clone());
 
     // Start the setup actor that listens to the setup kafka topic.

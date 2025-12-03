@@ -40,7 +40,7 @@ impl<T> TradeProducer<T> {
         trade_list: Arc<TradeRep<T>>,
     ) -> Self {
 
-	info!("Starting trade producer on {:?}", pos_topic);
+	info!("Constructing trade producer on {:?}. Connecting to topic.", pos_topic);
 	let position_listener = connect_with_retries_rd(&kafka_server, &pos_topic);
         let nb_processors = processors.len();
         // let p1 = processors[0].get_name();
@@ -131,12 +131,20 @@ where
 
     async fn pre_start(
         &self,
-        myself: ActorRef<Self::Msg>,
+        _myself: ActorRef<Self::Msg>,
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-
 	info!("Initiating TradeProducer");
+        Ok(())
+    }
 
+    async fn post_start(
+        &self,
+        myself: ActorRef<Self::Msg>,
+        _state: &mut Self::State,
+    ) -> Result<Self::State, ActorProcessingErr> {
+
+        info!("Trade Producer waiting on first message.");
         // starting w/ the first trade.
         let trade_msg = self.position_listener.recv().await?;
         let trade_1 = T::try_from_ref(&trade_msg)?;

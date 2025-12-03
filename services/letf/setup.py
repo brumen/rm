@@ -10,7 +10,7 @@ from typing import List
 
 logging.basicConfig(level=logging.INFO)
 
-from rm.services.base_producer import BaseProducer
+from rm.base_producer import BaseProducer
 
 _logger = getLogger(__name__)
 
@@ -39,3 +39,6 @@ class SetupProducer(BaseProducer):
             SETUP_TOPIC,
             value=msg_value,
         )
+
+
+setup_producer = SetupProducer(server_port_topic=('192.168.1.107', 9092, 'letf.setup'))

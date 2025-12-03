@@ -38,10 +38,11 @@ where
 
     async fn pre_start(
         &self,
-        myself: ActorRef<Self::Msg>,
+        _myself: ActorRef<Self::Msg>,
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
 
+        info!("Initializaing MarketProducer.");
         let mp = self.pricing_options.clone();  // market params
         let fut_mkt_tag = Uuid::new_v4();
         let fut_mkt = MT::new(fut_mkt_tag.to_string(), mp.clone());
@@ -49,17 +50,26 @@ where
         info!("Adding initial _future_ market to all_markets.");
         self.all_markets.insert(
             "future".to_string(),  // market is inserted at "future" entry
-            fut_mkt
+            fut_mkt.clone(),
         );
 
-	info!("Initializing MarketProducer. Waiting on first message");
+        Ok((*fut_mkt).clone())  // state after initialization is empty market.
+    }
+
+    async fn post_start(
+        &self,
+        myself: ActorRef<Self::Msg>,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+
+	info!("Waiting on first message");
 	let new_mkt_msg = self.mkt_listener.recv().await?;
         let fut_mkt_tag_2 = Uuid::new_v4();
         let new_mkt = Self::Msg::try_from_ref(fut_mkt_tag_2.to_string(), &new_mkt_msg, self.pricing_options.clone())?;
 
 	myself.send_message((*new_mkt.clone()).clone())?;
 
-	Ok((*new_mkt).clone())
+	Ok(())
     }
 
     async fn handle(
