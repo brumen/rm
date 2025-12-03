@@ -20,7 +20,6 @@ use uuid::Uuid;
 /// to new portfolio sender and current portfolio sender.
 /// if it receives a signal to resend existing trades, it resends them
 pub trait PortfolioSender: TradeReduce + Streaming + Sync {
-
     //#[instrument]
     fn __construct_portfolio(
         &self,
@@ -44,14 +43,10 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
 
             //tokio_scoped::scope(|scope| {
             //scope.spawn(
-            self._send_trade_fut(
-                    position_listener,
-                    sender_new,
-                    sender_curr,
-                    existing_trades,
-                ).await;
+            self._send_trade_fut(position_listener, sender_new, sender_curr, existing_trades)
+                .await;
 
-                //scope.spawn(self._resend_value(resend_existing, existing_trades_2, sender_new_2));
+            //scope.spawn(self._resend_value(resend_existing, existing_trades_2, sender_new_2));
             //});
         }
     }
@@ -71,12 +66,12 @@ pub trait PortfolioSender: TradeReduce + Streaming + Sync {
                 let trade = position_listener.recv().await;
                 debug!("Got trade: {:?}", trade);
                 let message = match trade {
-		            Ok(kafka_msg) => kafka_msg,
-		            Err(e) => {
-			            error!("Error receiving a message from Kafka: {:?}", e);
-			            continue;
-		            },
-		        };
+                    Ok(kafka_msg) => kafka_msg,
+                    Err(e) => {
+                        error!("Error receiving a message from Kafka: {:?}", e);
+                        continue;
+                    }
+                };
 
                 match <Self as TradeReduce>::TradeType::try_from_ref(&message) {
                     Err(e) => {
@@ -141,7 +136,8 @@ impl<T> PortfolioSender for T
 where
     T: Streaming + TradeReduce + std::fmt::Debug + Sync,
     for<'a> <T as TradeReduce>::TradeType: TryFromRef<BorrowedMessage<'a>> + std::fmt::Debug,
-{ }
+{
+}
 
 /// attempts to connect the RDKafka consumer to Kafka
 ///  if it cant, returns the KafkaErr TODO: TO BE CHANGED.

@@ -40,6 +40,7 @@ pub(crate) async fn start_setup_actor(
     topic: String,
     processors: Vec<ActorRef<ProcessorMiddleMessage<String>>>,
 ) -> JoinHandle<()> {
+    info!("Setting up listener to {}:{}", kafka_server, topic);
     let setup_actor = SetupActor::new(kafka_server, topic, processors);
     let (_setup_process_a, setup_process_handle) = Actor::spawn(None, setup_actor, ())
         .await
@@ -68,7 +69,6 @@ impl Actor for SetupActor {
         myself: ActorRef<Self::Msg>,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-
         info!("Waiting on first setup message...");
         // Receive the first setup message
         let msg = self.setup_listener.recv().await?;
@@ -88,7 +88,10 @@ impl Actor for SetupActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             SetupRequest::Metrics(pricing_metrics) => {
-                info!("Sending metrics {:?} to all relevant processors.", pricing_metrics);
+                info!(
+                    "Sending metrics {:?} to all relevant processors.",
+                    pricing_metrics
+                );
                 for proc in &self.processors {
                     let _ =
                         proc.send_message(ProcessorMiddleMessage::Metric(pricing_metrics.clone()));

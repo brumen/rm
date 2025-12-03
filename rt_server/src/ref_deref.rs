@@ -45,12 +45,10 @@ pub trait TryFromRef<T: Sized> {
         Self: Sized;
 }
 
-
 pub trait TryFromRef2
 where
-    for <'a> Self: Deserialize<'a>,
+    for<'a> Self: Deserialize<'a>,
 {
-
     fn try_from_ref(value: &BorrowedMessage) -> Result<Self, TradeError> {
         if let Some(msg_value) = value.payload() {
             let msg_utf = std::str::from_utf8(msg_value)?;

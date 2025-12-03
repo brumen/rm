@@ -1,13 +1,13 @@
+use ractor::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use tracing::{debug, warn};
-use ractor::async_trait;
 use std::sync::Arc;
+use tracing::{debug, warn};
 
-use crate::market::{MarketTypeT};
+use crate::market::MarketTypeT;
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
-use crate::trade::{BaseTrade, TradeRep, TradeDirection};
+use crate::trade::{BaseTrade, TradeDirection, TradeRep};
 
 // which metric to compute
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Deserialize)]
@@ -35,7 +35,6 @@ pub struct PricingStruct {
     pub nb_sim: i32,
     pub default_price: f64,
 }
-
 
 // Decoder decodes the pricing results from a trade and
 #[async_trait]
@@ -82,7 +81,7 @@ pub trait Decoder {
         &self,
         result_price: reqwest::Response,
         metric: PricingMetric,
-    ) -> PricingResults  {
+    ) -> PricingResults {
         match metric {
             PricingMetric::PV => {
                 let results_conv = result_price.json::<HashMap<String, f64>>().await;
@@ -118,7 +117,6 @@ pub trait Decoder {
     }
 }
 
-
 // market type T send and sync version,
 // pub(crate) type MarketTypeTSend<MP> = dyn MarketTypeT<MP=MP> + Send + Sync;
 
@@ -128,13 +126,12 @@ pub trait Decoder {
 pub trait PriceTrade<MT>: BaseTrade + Send + Sync
 where
     MT: MarketTypeT + Send + Sync + 'static,
-    // dyn MarketTypeT<MP=MP>: Send + Sync,
-    // MP: 'static + Send,
 {
-
-    async fn initial_pv(&self) -> Option<f64> where Self: Send;
-    async fn price(&self, market: Arc<MT> ) -> Option<f64>;
-    async fn pv01(&self, market: Arc<MT> ) -> PV01Results;
+    async fn initial_pv(&self) -> Option<f64>
+    where
+        Self: Send;
+    async fn price(&self, market: Arc<MT>) -> Option<f64>;
+    async fn pv01(&self, market: Arc<MT>) -> PV01Results;
     async fn pnl(&self, market: Arc<MT>) -> Option<f64> {
         let initial_pv_val = self.initial_pv().await?;
 
@@ -145,12 +142,7 @@ where
 
     /// values the trade for a specific metric.
     #[allow(dead_code)]
-    async fn value_by_metric(
-        &self,
-        metric: PricingMetric,
-        market: Arc<MT>,
-    ) -> PricingResults {
-
+    async fn value_by_metric(&self, metric: PricingMetric, market: Arc<MT>) -> PricingResults {
         let trade_name = self.id();
 
         match metric {
@@ -186,14 +178,13 @@ where
 // This is not important, but was implemented to implement PriceTrade
 impl<TR> BaseTrade for TradeRep<TR> {
     fn id(&self) -> String {
-        "TradeRep".to_string()  // PERHAPS FIX THIS.
+        "TradeRep".to_string() // PERHAPS FIX THIS.
     }
 
     fn direction(&self) -> TradeDirection {
         TradeDirection::Create
     }
 }
-
 
 // if we have PriceTrade implementation for TR
 //   then we have the PriceTrade implementation for TradeReduce
@@ -204,22 +195,21 @@ impl<MT, TR> PriceTrade<MT> for TradeRep<TR>
 where
     TR: PriceTrade<MT> + Send + Sync,
     //MP: 'static + Send + Sync,
-    MT: MarketTypeT +  Send + Sync + 'static,
+    MT: MarketTypeT + Send + Sync + 'static,
 {
-
     async fn initial_pv(&self) -> Option<f64> {
         let mut portf_val = 0.;
-        for indiv_trade in self.iter()  {
+        for indiv_trade in self.iter() {
             let (_trade_name, trade_v) = indiv_trade.pair();
 
             let tv = trade_v.initial_pv().await; // tv = trade value
             match tv {
                 None => {
                     warn!("Could not initial_pv of {:?}", trade_v.id());
-                },
+                }
                 Some(tv_real) => {
                     portf_val += tv_real;
-                },
+                }
             }
         }
         Some(portf_val)
@@ -227,17 +217,17 @@ where
 
     async fn price(&self, market: Arc<MT>) -> Option<f64> {
         let mut portf_val = 0.;
-        for indiv_trade in self.iter()  {
+        for indiv_trade in self.iter() {
             let (_trade_name, trade_v) = indiv_trade.pair();
 
             let tv = trade_v.price(market.clone()).await; // only clonging the Arc
             match tv {
                 None => {
                     warn!("Could not price of {:?}", trade_v.id());
-                },
+                }
                 Some(tv_real) => {
                     portf_val += tv_real;
-                },
+                }
             }
         }
         Some(portf_val)
@@ -245,7 +235,7 @@ where
 
     async fn pv01(&self, market: Arc<MT>) -> PV01Results {
         let mut portf_val = PV01Results::new();
-        for indiv_trade in self.iter()  {
+        for indiv_trade in self.iter() {
             let (_trade_name, trade_v) = indiv_trade.pair();
 
             let tv = trade_v.pv01(market.clone()).await;

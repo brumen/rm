@@ -1,15 +1,15 @@
-use serde::{Deserialize, Serialize};
-use tracing::{debug, warn};
-use std::fmt;
 use ractor::async_trait;
+use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::sync::Arc;
+use tracing::{debug, warn};
 
+use crate::letf_market::LETFMarketType;
+use crate::market::MarketTypeT;
 use crate::portfolio::{PV01Results, PortfolioType};
 use crate::pricer::{Decoder, PriceTrade};
 use crate::ref_deref::TryFromRef2;
 use crate::trade::{BaseTrade, TradeDirection, TradeReduce};
-use crate::market::MarketTypeT;
-use crate::letf_market::LETFMarketType;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LETFTrade {
@@ -26,7 +26,6 @@ impl fmt::Display for LETFTrade {
         write!(f, "{}", pos_id)
     }
 }
-
 
 impl BaseTrade for LETFTrade {
     fn id(&self) -> String {
@@ -95,18 +94,18 @@ impl PriceTrade<LETFMarketType> for LETFTrade {
 impl LETFTrade {
     /// produces the hedge of the LETF trade.
     /// stock_value : value of the stock that we are hedging LETF with.
-    pub async fn hedge(&mut self, market: &dyn MarketTypeT<MP=()>) -> Vec<LETFHedge> {
+    pub async fn hedge(&mut self, market: &dyn MarketTypeT<MP = ()>) -> Vec<LETFHedge> {
         let stock_name = &self.stock;
         let stock = match market.get(stock_name).await {
-	    None => {
-		warn!(
+            None => {
+                warn!(
                     "hedge: Could not find {:?} in the market. Leaving unhedged: {:?}",
                     stock_name, self,
-		);
-		return vec![]; // Cant do much w/ it.
-            },
-	    Some(sv) => sv,
-	};
+                );
+                return vec![]; // Cant do much w/ it.
+            }
+            Some(sv) => sv,
+        };
 
         let trade_id = self.id();
         self.stock_value = Some(stock); // adding the actual value into the LETF  WEIRD
@@ -136,7 +135,6 @@ pub struct Future {
     pub amount: f64,
     pub initial_val: Option<f64>,
 }
-
 
 #[async_trait]
 impl PriceTrade<LETFMarketType> for Future {
@@ -229,7 +227,6 @@ pub enum TradeTypes {
     Cash(Cash),
 }
 
-
 impl fmt::Display for TradeTypes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let pos_id = match self {
@@ -240,7 +237,6 @@ impl fmt::Display for TradeTypes {
         write!(f, "{}", pos_id)
     }
 }
-
 
 impl TradeTypes {
     #[allow(dead_code)]
@@ -298,12 +294,10 @@ impl TradeTypes {
     //         }
     //     }
     // }
-
 }
 
 impl Decoder for TradeTypes {}
 impl TryFromRef2 for TradeTypes {}
-
 
 #[async_trait]
 impl PriceTrade<LETFMarketType> for TradeTypes {
@@ -370,10 +364,9 @@ impl TradeReduce for TradeTypes {
     type ReductionType = TradeTypes;
 
     fn reduce(&self, trade: &Self::TradeType) -> Self::ReductionType {
-        trade.clone()  // TODO: FIX THIS LATER, WITHOUT CLONE
+        trade.clone() // TODO: FIX THIS LATER, WITHOUT CLONE
     }
 }
-
 
 // pub type TradeTypesInner = TradeTypes;
 // pub struct TradeTypesRep(pub TradeTypesInner);

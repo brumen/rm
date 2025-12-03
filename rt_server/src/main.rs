@@ -96,9 +96,9 @@ async fn run_all() {
 
     let setup_actor_handle = start_setup_actor(host, setup_topic, all_actors).await;
 
+    info!("All relevant actors initialized.");
     all_handles.append(&mut all_actors_handles);
     all_handles.push(setup_actor_handle);
-    // tokio::join!(results);
     join_all(all_handles).await;
 }
 

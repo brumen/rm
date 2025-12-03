@@ -16,7 +16,7 @@ use crate::streaming::Streaming;
 /// to the results topic.
 pub trait PublishResults: Streaming
 where
-    Self: Sync,  // std::fmt::Debug + Sync,
+    Self: Sync,
 {
     fn metric(&self) -> PricingMetric;
 

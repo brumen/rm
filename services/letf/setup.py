@@ -6,7 +6,7 @@ import logging
 import json
 from dotenv import load_dotenv
 from logging import getLogger
-from typing import List
+from typing import List, Tuple
 
 logging.basicConfig(level=logging.INFO)
 
@@ -28,17 +28,27 @@ _logger.info(
 
 class SetupProducer(BaseProducer):
 
+    def __init__(
+            self,
+            server_port_topic: Tuple[str, str, str] = (
+                'localhost',
+                9092,
+                'letf.mkt',
+            ),
+    ):
+        super().__init__(server_port_topic=(KAFKA_HOST, KAFKA_PORT, SETUP_TOPIC))
+
     def send_metrics(self, metrics_l: List[str] = ['PV']):
         setup_value = {
-            'metrics': metrics_l,
+            'Metrics': metrics_l,
         }
-
-        msg_value = json.dumps(setup_value)
 
         self._value_producer.send(
             SETUP_TOPIC,
-            value=msg_value,
+            value=setup_value,
         )
 
 
-setup_producer = SetupProducer(server_port_topic=('192.168.1.107', 9092, 'letf.setup'))
+if __name__ == '__main__':
+    setup_producer = SetupProducer()
+    setup_producer.send_metrics(['PV'])

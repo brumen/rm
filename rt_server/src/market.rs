@@ -1,37 +1,46 @@
 use ractor::async_trait;
 use rdkafka::message::BorrowedMessage;
-use thiserror::Error;
 use std::sync::Arc;
+use thiserror::Error;
 
 // MP is mnemonic for market parameters.
 #[async_trait]
 pub trait MarketTypeT
 where
-    Self: Send + Sync
+    Self: Send + Sync,
 {
     type MP;
 
-    fn new(market_name: String, mp: Self::MP) -> Arc<Self> where Self: Sized;
+    fn new(market_name: String, mp: Self::MP) -> Arc<Self>
+    where
+        Self: Sized;
     fn market_name(&self) -> String;
-    async fn get(&self, stock: &String) -> Option<f64>;  // getting stock values.
-    async fn insert(&self, key: String, value: f64);  // Important: insert is _NOT_ mutable self
+    async fn get(&self, stock: &String) -> Option<f64>; // getting stock values.
+    async fn insert(&self, key: String, value: f64); // Important: insert is _NOT_ mutable self
     fn is_empty(&self) -> bool;
-    fn try_from_ref(market_name: String, value: &BorrowedMessage, mp: Self::MP) -> Result<Arc<Self>, MarketTypeError> where Self:Sized;
+    fn try_from_ref(
+        market_name: String,
+        value: &BorrowedMessage,
+        mp: Self::MP,
+    ) -> Result<Arc<Self>, MarketTypeError>
+    where
+        Self: Sized;
     fn market_params(&self) -> Self::MP;
 }
-
 
 // Setting the name of the market
 pub trait SetName {
     fn set_name(&mut self, new_name: String);
 }
 
-
 #[async_trait]
-impl<T:MarketTypeT> MarketTypeT for Arc<T> {
+impl<T: MarketTypeT> MarketTypeT for Arc<T> {
     type MP = T::MP;
 
-    fn new(market_name: String, mp: Self::MP) -> Arc<Self> where Self: Sized {
+    fn new(market_name: String, mp: Self::MP) -> Arc<Self>
+    where
+        Self: Sized,
+    {
         Arc::new(T::new(market_name, mp))
     }
 
@@ -51,31 +60,46 @@ impl<T:MarketTypeT> MarketTypeT for Arc<T> {
         (**self).is_empty()
     }
 
-    fn try_from_ref(market_name: String, value: &BorrowedMessage, mp: Self::MP) -> Result<Arc<Self>, MarketTypeError> where Self:Sized {
+    fn try_from_ref(
+        market_name: String,
+        value: &BorrowedMessage,
+        mp: Self::MP,
+    ) -> Result<Arc<Self>, MarketTypeError>
+    where
+        Self: Sized,
+    {
         Ok(Arc::new(T::try_from_ref(market_name, value, mp)?))
     }
 
     fn market_params(&self) -> Self::MP {
         (**self).market_params()
     }
-
 }
-
 
 // MP is mnemonic for market parameters.
 #[async_trait]
 pub trait MarketTypeTOriginal {
     type MP;
 
-    fn new(market_name: String, mp: Self::MP) -> Arc<dyn MarketTypeTOriginal<MP=Self::MP> + Send + Sync> where Self: Sized + Send + Sync;
+    fn new(
+        market_name: String,
+        mp: Self::MP,
+    ) -> Arc<dyn MarketTypeTOriginal<MP = Self::MP> + Send + Sync>
+    where
+        Self: Sized + Send + Sync;
     fn market_name(&self) -> String;
-    async fn get(&self, stock: &String) -> Option<f64>;  // getting stock values.
-    async fn insert(&self, key: String, value: f64);  // Important: insert is _NOT_ mutable self
+    async fn get(&self, stock: &String) -> Option<f64>; // getting stock values.
+    async fn insert(&self, key: String, value: f64); // Important: insert is _NOT_ mutable self
     fn is_empty(&self) -> bool;
-    fn try_from_ref(market_name: String, value: &BorrowedMessage, mp: Self::MP) -> Result<Arc<dyn MarketTypeTOriginal<MP=Self::MP> + Send + Sync>, MarketTypeError> where Self:Sized + Send + Sync;
+    fn try_from_ref(
+        market_name: String,
+        value: &BorrowedMessage,
+        mp: Self::MP,
+    ) -> Result<Arc<dyn MarketTypeTOriginal<MP = Self::MP> + Send + Sync>, MarketTypeError>
+    where
+        Self: Sized + Send + Sync;
     fn market_params(&self) -> &Self::MP;
 }
-
 
 #[derive(Error, Debug)]
 pub enum MarketTypeError {

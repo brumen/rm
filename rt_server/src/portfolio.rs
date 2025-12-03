@@ -1,10 +1,10 @@
 use log::warn;
 use serde::Serialize;
+use std::cmp::PartialOrd;
 use std::default::Default;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Deref, DerefMut, Mul, MulAssign, Neg};
 use std::{collections::HashMap, ops::SubAssign};
-use std::cmp::PartialOrd;
 
 use crate::pricer::PricingMetric;
 use crate::ref_deref_trait;
@@ -38,7 +38,6 @@ impl PartialOrd for PortfolioType {
         None
     }
 }
-
 
 impl Add for PortfolioType {
     type Output = PortfolioType;
@@ -244,7 +243,6 @@ impl AddAssign<&PV01Results> for PV01Results {
     }
 }
 
-
 impl MulAssign<&AggregatedTrades> for PV01Results {
     fn mul_assign(&mut self, rhs: &AggregatedTrades) {
         for (trade_id, trade_val) in self.iter_mut() {
@@ -448,14 +446,12 @@ impl MulAssign<&AggregatedTrades> for PricingResults {
     }
 }
 
-
 /// portfolio of pricing metrics.
 /// PmPortfolio - mnemonic for PricingMetric Portfolio
 pub(crate) type PmPortfolioInner = HashMap<PricingMetric, PortfolioType>;
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PmPortfolio(PmPortfolioInner);
 ref_deref_trait!(PmPortfolio, PmPortfolioInner);
-
 
 impl PmPortfolio {
     pub(crate) fn new() -> Self {
@@ -464,11 +460,9 @@ impl PmPortfolio {
     }
 }
 
-
 // TODO:
 //   this determines when a PmPortfolio is accepted.
 impl PartialOrd for PmPortfolio {
-
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         if self.keys().all(|key| other.contains_key(key)) {
             return Some(std::cmp::Ordering::Less);
@@ -476,8 +470,6 @@ impl PartialOrd for PmPortfolio {
         None
     }
 }
-
-
 
 #[cfg(test)]
 mod portfolio_tests {
