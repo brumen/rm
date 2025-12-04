@@ -322,7 +322,7 @@ where
                             }
                             Some(real_market) => {
                                 warn!("Destroying market {}", real_market);
-                                self.all_markets.remove(&real_market);
+                                self.all_markets.remove(real_market);
                             }
                         }
 
@@ -334,12 +334,12 @@ where
 
                         let new_market_val_name = new_market_val.market_name();
                         info!(
-                            "Inserting market {} into all_markets. All markets: {:?}",
+                            "Inserting market {} into all_markets.",
                             new_market_val_name.clone(),
-                            self.all_markets.list_market_names(),
                         );
                         self.all_markets
                             .insert(new_market_val_name.clone(), new_market_val); // insert the value under the new name
+                        info!("All_markets: {:?}", self.all_markets.list_market_names());
                         *new_m = Some(new_market_val_name.clone());
 
                         info!("Idle, NewMarket: sending to bulk. State -> CalculatingBulk");
