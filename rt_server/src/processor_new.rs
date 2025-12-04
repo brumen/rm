@@ -334,8 +334,9 @@ where
 
                         let new_market_val_name = new_market_val.market_name();
                         info!(
-                            "Inserting market {} into all_markets",
-                            new_market_val_name.clone()
+                            "Inserting market {} into all_markets. All markets: {:?}",
+                            new_market_val_name.clone(),
+                            self.all_markets.list_market_names(),
                         );
                         self.all_markets
                             .insert(new_market_val_name.clone(), new_market_val); // insert the value under the new name
