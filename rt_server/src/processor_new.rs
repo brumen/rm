@@ -179,7 +179,7 @@ where
                             return Ok(());
                         };
                         // condition if we can find new_m in the all_markets.
-                        let Some(new_m_actual) = self.all_markets.get(&new_m_real) else {
+                        let Some(new_m_actual) = self.all_markets.get(new_m_real) else {
                             warn!("Market {} not in all_markets", new_m_real);
                             return Ok(());
                         };
@@ -191,8 +191,20 @@ where
                                 .value_by_metric(*pm, new_m_actual.clone())
                                 .await;
                             // *portf += new_trade_price;  // portfolio update
-                            let port_pm = portf.get_mut(pm).unwrap();
-                            *port_pm += new_trade_price_pm;
+
+                            match portf.get_mut(pm) {
+                                Some(portf_pm) => {
+                                    *portf_pm += new_trade_price_pm;
+                                }
+                                None => {
+                                    let mut portfolio_pm = PortfolioType::default();
+                                    portfolio_pm += new_trade_price_pm;
+                                    portf.insert(*pm, portfolio_pm);
+                                }
+                            }
+
+                            //let port_pm = portf.get_mut(pm).unwrap();
+                            //*port_pm += new_trade_price_pm;
                         }
 
                         trade_l.insert(new_trade); // we add the trade to the list.
@@ -251,7 +263,7 @@ where
                             return Ok(());
                         };
 
-                        let Some(new_m_actual) = self.all_markets.get(&new_m_real) else {
+                        let Some(new_m_actual) = self.all_markets.get(new_m_real) else {
                             warn!("all_markets does not have {}. Continuing", new_m_real);
                             return Ok(());
                         };
@@ -260,8 +272,20 @@ where
                             let new_trade_price = new_trade_info
                                 .value_by_metric(*pm, new_m_actual.clone())
                                 .await;
-                            let portf_pm = portf.get_mut(pm).unwrap();
-                            *portf_pm += new_trade_price; // portfolio update
+
+                            match portf.get_mut(pm) {
+                                Some(portf_pm) => {
+                                    *portf_pm += new_trade_price;
+                                }
+                                None => {
+                                    let mut portfolio_pm = PortfolioType::default();
+                                    portfolio_pm += new_trade_price;
+                                    portf.insert(*pm, portfolio_pm);
+                                }
+                            }
+                            // TODO: REMOVE THESE TWO LINES LATER IF ALL WORKS
+                            // let portf_pm = portf.get_mut(pm).unwrap();
+                            // *portf_pm += new_trade_price; // portfolio update
                         }
 
                         info!(

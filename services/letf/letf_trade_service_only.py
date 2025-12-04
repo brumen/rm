@@ -31,11 +31,10 @@ letf_trade_producer = LETFTradeProducer(
 )
 
 
-frequency_of_trades = 1
-trade_thread = letf_trade_producer.create_thread(
-    sleep_between_publish=frequency_of_trades
-)
-
-# this just simulates markets
-# market_thread.start()
-trade_thread.start()
+if __name__ == '__main__':
+    frequency_of_trades = 1
+    trade_thread = letf_trade_producer.create_thread(
+        sleep_between_publish=frequency_of_trades
+    )
+    # inserts trades every 1 second
+    trade_thread.start()

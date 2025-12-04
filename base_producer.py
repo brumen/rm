@@ -44,6 +44,12 @@ class BaseProducer:
     def _serialize_msg(m):
         return json.dumps(m).encode('utf-8')
 
+    def publish_value(self, m):
+        self._value_producer.send(
+            self._value_producer_topic,
+            value=m
+        )
+
     def _producer_thread(self, sleep_delay=11.):
         """ Base producer thread.
 

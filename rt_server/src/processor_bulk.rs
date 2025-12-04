@@ -1,4 +1,5 @@
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
+use std::collections::HashSet;
 use std::sync::Arc;
 /// Processor which gets a bulk of work, and finishes it.
 ///
@@ -17,7 +18,6 @@ where
     MT: MarketTypeT,
 {
     pub processor_name: String, // name of the bulk processor, usually curr_bulk, new_bulk, middle_1_bulk
-    pub(crate) trade_names: Vec<String>,
     pub(crate) all_trades: Arc<TradeRep<T>>, // all_trades is a reference to the structure that contains all trades.
     pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>, // dyn MarketTypeT<MP=MP> + Send + Sync>>>,
 }
@@ -32,14 +32,60 @@ where
         all_trades: Arc<TradeRep<T>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
     ) -> Self {
+        // like processor_new_bulk, processor_curr_bulk, processor_middle_1_bulk
         let bulk_name = format!("{}_bulk", processor_name.clone());
 
         Self {
             processor_name: bulk_name,
-            trade_names: vec![],
             all_trades,
             all_markets,
         }
+    }
+
+    // you can override the
+}
+
+/// prices multiple trades - default configuration is to price them sequentially
+/// TODO: THIS SHOULD BE CHANGED - THIS TRAIT SHOULD GO TO MT: MarketTypeT
+#[async_trait]
+trait PriceMultiple<T, MT>
+where
+    MT: MarketTypeT + 'static,
+    MT::MP: Clone,
+    T: PriceTrade<MT> + 'static,
+{
+    // TODO: THIS CAN GET OPTIMIZED
+    async fn price_multiple(
+        &self,
+        new_trades: HashSet<String>,
+        pricing_metrics: Vec<PricingMetric>,
+        market_actual: Arc<MT>,
+        all_trades: Arc<TradeRep<T>>,
+    ) -> PmPortfolio {
+        let mut portfolio = PmPortfolio::new();
+
+        //for used_trade in used_trades {
+        for used_trade in new_trades.iter() {
+            let used_trade = all_trades.get(used_trade).unwrap();
+            for pm in pricing_metrics.clone() {
+                let price_pm = used_trade.value_by_metric(pm, market_actual.clone()).await;
+                debug!("Priced trade {}: {:?}", used_trade.key(), price_pm);
+
+                let price_pm_agg = price_pm.aggregate();
+                match portfolio.get_mut(&pm) {
+                    Some(portfolio_pm) => {
+                        *portfolio_pm += price_pm_agg;
+                    }
+                    None => {
+                        let mut new_pm = PortfolioType::default();
+                        new_pm += price_pm_agg;
+                        portfolio.insert(pm, new_pm);
+                    }
+                }
+            }
+        }
+
+        portfolio
     }
 }
 
@@ -68,6 +114,15 @@ pub enum ProcessorBulkState<MT> {
 // 	"spark".to_string()
 //     }
 // }
+
+#[async_trait]
+impl<T, MT> PriceMultiple<T, MT> for ProcessorBulk<T, MT>
+where
+    MT: MarketTypeT + 'static,
+    MT::MP: Clone,
+    T: PriceTrade<MT> + 'static,
+{
+}
 
 #[async_trait]
 impl<T, MT> Actor for ProcessorBulk<T, MT>
@@ -128,7 +183,7 @@ where
                 };
 
                 // we have a market
-                let mut portfolio = PmPortfolio::new();
+
                 let mut non_pricing_trades = TradesLocal::new();
                 let mut used_trades = vec![];
                 for trade_name in new_trades.iter() {
@@ -146,25 +201,34 @@ where
                 // pricing_futs are futures where the trades are getting priced.
                 //let mut pricing_futs = vec![];
                 //for used_trade in used_trades {
-                for used_trade in new_trades.iter() {
-                    let used_trade = self.all_trades.get(used_trade).unwrap();
-                    for pm in pricing_metrics.clone() {
-                        let price_pm = used_trade.value_by_metric(pm, market_actual.clone()).await;
-                        let price_pm_agg = price_pm.aggregate();
-                        match portfolio.get_mut(&pm) {
-                            Some(portfolio_pm) => {
-                                *portfolio_pm += price_pm_agg;
-                            }
-                            None => {
-                                let mut new_pm = PortfolioType::default();
-                                new_pm += price_pm_agg;
-                                portfolio.insert(pm, new_pm);
-                            }
-                        }
-                        debug!("Priced trade {}: {:?}", used_trade.key(), price_pm);
-                        //portfolio += price.aggregate()
-                    }
-                }
+                let portfolio = self
+                    .price_multiple(
+                        new_trades.clone(), // TODO: THIS .clone is NOT THE BEST - FIX IT
+                        pricing_metrics,
+                        market_actual.clone(),
+                        self.all_trades.clone(),
+                    )
+                    .await;
+
+                // let mut portfolio = PmPortfolio::new();
+                // for used_trade in new_trades.iter() {
+                //     let used_trade = self.all_trades.get(used_trade).unwrap();
+                //     for pm in pricing_metrics.clone() {
+                //         let price_pm = used_trade.value_by_metric(pm, market_actual.clone()).await;
+                //         let price_pm_agg = price_pm.aggregate();
+                //         match portfolio.get_mut(&pm) {
+                //             Some(portfolio_pm) => {
+                //                 *portfolio_pm += price_pm_agg;
+                //             }
+                //             None => {
+                //                 let mut new_pm = PortfolioType::default();
+                //                 new_pm += price_pm_agg;
+                //                 portfolio.insert(pm, new_pm);
+                //             }
+                //         }
+                //         debug!("Priced trade {}: {:?}", used_trade.key(), price_pm);
+                //     }
+                // }
                 // TODO: Finish this part here!
                 // updating the portfolio
                 // let pricing_res = join_all(pricing_futs).await;

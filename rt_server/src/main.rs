@@ -45,8 +45,7 @@ async fn main() {
 
 async fn run_all() {
     info!("Reading data from .env");
-    // dotenv().ok(); // .env is loaded.
-    let x = dotenv();
+    dotenv().ok(); // .env is loaded.
     let host = std::env::var("HOST").expect("Could not find HOST in .env");
     let kafka_port = std::env::var("KAFKA_PORT").expect("Could not find KAFKA_PORT in .env");
     let kafka_server = format!("{host}:{kafka_port}");
