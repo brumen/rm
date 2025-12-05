@@ -1,9 +1,9 @@
 use core::cmp::Eq;
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::default::Default;
-use std::ops::{AddAssign, Deref, DerefMut, SubAssign, Sub};
+use std::ops::{AddAssign, Deref, DerefMut, Sub, SubAssign};
 use thiserror::Error;
-use dashmap::DashMap;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
@@ -32,11 +32,9 @@ pub enum TradeError {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TradeRep<TR>(pub DashMap<String, TR>);
 
-
 impl<TR> PartialEq for TradeRep<TR> {
     // trade representations are equal if they have the same trade descriptors.
     fn eq(&self, other: &Self) -> bool {
-
         for entry in self.iter() {
             if !other.contains(entry.key()) {
                 return false;
@@ -54,7 +52,6 @@ impl<TR> PartialEq for TradeRep<TR> {
     }
 }
 
-
 impl<TR> Deref for TradeRep<TR> {
     type Target = DashMap<String, TR>;
 
@@ -68,7 +65,6 @@ impl<TR> DerefMut for TradeRep<TR> {
         &mut self.0
     }
 }
-
 
 pub trait TradeReduce {
     type TradeType: BaseTrade + Send;
@@ -84,11 +80,12 @@ impl<TR> Default for TradeRep<TR> {
 }
 
 impl<TR> TradeRep<TR> {
-
     /// returns all trade ids in the trade representation.
     // this does copy the trade names out. POTENTIAL COPY IMPACT.
     fn _keys(&self) -> Vec<String> {
-        self.iter().map(|entry| entry.key().clone()).collect::<Vec<String>>()
+        self.iter()
+            .map(|entry| entry.key().clone())
+            .collect::<Vec<String>>()
     }
 
     pub fn all_trade_names(&self) -> Vec<String> {
@@ -97,7 +94,9 @@ impl<TR> TradeRep<TR> {
 
     /// does trade representation contain trade_id
     pub fn contains(&self, trade_id: &String) -> bool {
-        self.iter().position(|entry| entry.key() == trade_id).is_some()
+        self.iter()
+            .position(|entry| entry.key() == trade_id)
+            .is_some()
     }
 }
 
@@ -109,15 +108,12 @@ impl<TR: Clone + BaseTrade> AddAssign<(String, TR)> for TradeRep<TR> {
     }
 }
 
-
 impl<TR: Clone + BaseTrade> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
     // adds the elements of the other TradeRep to this traderep
     // uses cloning.
     fn add_assign(&mut self, other: &TradeRep<TR>) {
         for other_entry in other.iter() {
-            self.insert(
-                other_entry.key().clone(), other_entry.value().clone()
-            );
+            self.insert(other_entry.key().clone(), other_entry.value().clone());
         }
     }
 }
@@ -125,8 +121,8 @@ impl<TR: Clone + BaseTrade> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
 impl<TR: Clone + BaseTrade> SubAssign<&TradeRep<TR>> for TradeRep<TR> {
     fn sub_assign(&mut self, other: &TradeRep<TR>) {
         for other_entry in other.iter() {
-	    self.remove(other_entry.key());
-	}
+            self.remove(other_entry.key());
+        }
     }
 }
 
@@ -134,16 +130,17 @@ impl<TR: Clone + BaseTrade> Sub<&TradeRep<TR>> for TradeRep<TR> {
     type Output = Self;
 
     fn sub(self, other: &TradeRep<TR>) -> Self::Output {
-	// create a separate hashmap.
-	let res_traderep = Self::default();
-	for entry in self.iter() {  // (trade_id, trade_rr)
+        // create a separate hashmap.
+        let res_traderep = Self::default();
+        for entry in self.iter() {
+            // (trade_id, trade_rr)
             let trade_id = entry.key();
             let trade_rr = entry.value();
-	    if !other.contains(trade_id) {
-		res_traderep.insert(trade_id.clone(), trade_rr.clone());  // TODO: CHECK IF CLONE IS GOOD!!!
-	    }
-	}
-	res_traderep
+            if !other.contains(trade_id) {
+                res_traderep.insert(trade_id.clone(), trade_rr.clone()); // TODO: CHECK IF CLONE IS GOOD!!!
+            }
+        }
+        res_traderep
     }
 }
 

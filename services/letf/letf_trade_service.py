@@ -1,9 +1,4 @@
-""" The actual rester for the market service.
-    The rester service is on: localhost:5000/mkt/get_market
-    The market reported is a tuple, with two elements:
-       1.st: uuid4 of the current market ("5342234234kasdasda-asd-asdasd-")
-       2nd: dictionary where keys are flight_nb|departure_date, values are prices
-            key = "UA06|20170608"; value=303
+""" Trade (and potentially) market producer.
     Market service publishes on mkt_events topic, mkt event is the uuid4 described above.
 """
 
@@ -41,12 +36,14 @@ letf_trade_producer = LETFTradeProducer(
     mkt_producer=letf_market_producer,
 )
 
-market_thread = letf_market_producer.create_thread(sleep_between_publish=15)
+frequency_of_market = 15
+market_thread = letf_market_producer.create_thread(sleep_between_publish=frequency_of_market)
 
-frequency_of_trades = 15
+frequency_of_trades = 1
 trade_thread = letf_trade_producer.create_thread(
     sleep_between_publish=frequency_of_trades
 )
 
+# this just simulates markets
 market_thread.start()
-trade_thread.start()
+# trade_thread.start()

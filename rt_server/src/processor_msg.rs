@@ -2,16 +2,16 @@
 use ractor::ActorRef;
 use std::collections::HashSet;
 
-use crate::portfolio::PortfolioType;
+use crate::portfolio::{PmPortfolio, PortfolioType};
+use crate::pricer::PricingMetric;
 
 pub(crate) type TradesLocal = HashSet<String>;
 
-
 /// message that the new processor receives
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ProcessorMiddleMessage<MT> {
-    NewTrade(String),  // message from trade producer, trade id.
-    NewMarket(MT),  // message from market handler, market_name
+    NewTrade(String), // message from trade producer, trade id.
+    NewMarket(MT),    // message from market handler, market_name
     // message from Processor_below:
     //    1st arg: market that we are evaluating
     //    2nd arg: missing trades that we still need -
@@ -23,9 +23,7 @@ pub enum ProcessorMiddleMessage<MT> {
     // second: portfolio from computed trades
     // third: offending trades.
     // fourth: market reference on which these trades were computed.
-    BulkReceive(
-	(TradesLocal, PortfolioType, TradesLocal, String)
-    ),
+    BulkReceive((TradesLocal, PmPortfolio, TradesLocal, String)),
 
     // message from the processor above.
     // elements:
@@ -34,15 +32,20 @@ pub enum ProcessorMiddleMessage<MT> {
     //    3rd market for which it was computed.
     //    4th actor where this was sent from.
     NewTradePortfolio(
-	(TradesLocal, PortfolioType, String, ActorRef<ProcessorMiddleMessage<MT>>)
+        (
+            TradesLocal,
+            PmPortfolio,
+            String,
+            ActorRef<ProcessorMiddleMessage<MT>>,
+        ),
     ),
     // processing stat:
     //   1st arg: processor name
     //   2nd arg: when the events ocurred.
     //   3rd arg: cumulative number of trades processed.
     ProcessingStat((String, chrono::NaiveDateTime, usize)),
+    Metric(Vec<PricingMetric>), // we compute the vector of pricing metrics.
 }
-
 
 impl<MT> ProcessorMiddleMessage<MT> {
     pub(crate) fn get_trade(&self) -> Option<String> {
@@ -53,15 +56,20 @@ impl<MT> ProcessorMiddleMessage<MT> {
     }
 }
 
-
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ProcessorBulkMessage<MT> {
     // is a triple
     //    first is the market type, a name of the market
     //    second - is a vector of trades that need to be computed.
     //    third - an actor processing ProcessorMiddleMessage
+    //    4th: vector of pricing metrics to compute
     NewBulk(
-        (String, TradesLocal, ActorRef<ProcessorMiddleMessage<MT>>)
+        (
+            String,
+            TradesLocal,
+            ActorRef<ProcessorMiddleMessage<MT>>,
+            Vec<PricingMetric>,
+        ),
     ),
-    Abandon,  // TODO: WHAT TO DO W/ THIS???
+    Abandon, // TODO: WHAT TO DO W/ THIS???
 }

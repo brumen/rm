@@ -1,6 +1,6 @@
 use dashmap::DashMap;
 use std::sync::Arc;
-use tracing::{info, debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::market::MarketTypeT;
 
@@ -8,10 +8,11 @@ use crate::market::MarketTypeT;
 // MT.. market type
 // MP .. market params.
 // MT = MarketTypeT<MP>
+#[derive(Debug)]
 pub(crate) struct AllMarkets<MT> {
     pub(crate) markets: DashMap<String, MT>,
-    pub(crate) market_names: DashMap<usize, String>,  // mapping of numbers to markets.
-//    pub(crate) mp: Option<MT::MP>,
+    pub(crate) market_names: DashMap<usize, String>, // mapping of numbers to markets.
+                                                     //    pub(crate) mp: Option<MT::MP>,
 }
 
 // impl<MT> Deref for AllMarkets<MT> {
@@ -22,30 +23,25 @@ pub(crate) struct AllMarkets<MT> {
 //     }
 // }
 
-
 impl<MT> AllMarkets<MT>
 where
-    MT: MarketTypeT + Clone + Send + Sync,  // this will be fine since MT is an Arc.
-    MT::MP : Clone,
+    MT: MarketTypeT + Clone + Send + Sync, // this will be fine since MT is an Arc.
+    MT::MP: Clone,
 {
-
     pub(crate) fn list_market_names(&self) -> Vec<String> {
         self.markets
             .iter()
-            .map(
-                |mn_mv| {
-                    let mn = mn_mv.key();
-                    mn.clone()
-                }
-            )
+            .map(|mn_mv| {
+                let mn = mn_mv.key();
+                mn.clone()
+            })
             .collect::<Vec<String>>()
     }
 
     // creates a new empty all markets structure
-    //pub(crate) fn new(mp: Option<MT::MP> ) -> Self {
     pub(crate) fn new() -> Self {
         Self {
-            markets: DashMap::<String,MT>::new(),
+            markets: DashMap::<String, MT>::new(),
             market_names: DashMap::<usize, String>::new(),
         }
     }
@@ -64,7 +60,7 @@ where
 
     pub(crate) fn get(&self, market_name: &String) -> Option<MT> {
         let actual_market = self.markets.get(market_name)?;
-        Some(actual_market.value().clone())  // .clone here is OK, since we're using it on Arc (MT = Arc<...>)
+        Some(actual_market.value().clone()) // .clone here is OK, since we're using it on Arc (MT = Arc<...>)
     }
 
     // inserts the market into the all structure.
@@ -134,7 +130,6 @@ where
         let mo = market_elt.value();
 
         Some(mo.market_params().clone())
-
     }
 
     // remove the market from self.markets
