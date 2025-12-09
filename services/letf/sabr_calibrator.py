@@ -77,11 +77,13 @@ if __name__ == "__main__":
     from services.letf.yf_option_chain_fetcher import YFOptionChainFetcher
 
     fetcher = YFOptionChainFetcher(["AAPL"])
-    data = fetcher.fetch_option_chain("AAPL")
+    option_chain = fetcher.fetch_option_chain("AAPL")
+    expiries = fetcher._get_ticker_expiries('AAPL')
+    expiry1 = expiries[0].strftime("%Y-%m-%d")
 
-    if "error" not in data:
-        F = np.mean([opt['lastPrice'] for opt in data])
-        T = 30 / 365  # assume 30 days to expiry
+
+    F = np.mean([opt['lastPrice'] for opt in data])
+    T = 30 / 365  # assume 30 days to expiry
         calibrator = SABRCalibratorMixin()
         params = calibrator.calibrate(calls, F, T)
         _logger.info("Calibrated SABR parameters:", params)

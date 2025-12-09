@@ -1,15 +1,40 @@
+use chrono::NaiveDate;
 use dashmap::DashMap;
 use ractor::async_trait;
 use rdkafka::message::{BorrowedMessage, Message};
 use serde::{Deserialize, Serialize};
+use std::hash::Hash;
 use std::ops::AddAssign;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::market::{MarketTypeError, MarketTypeT, SetName};
-use crate::trade_letf::LETFHedge;
+use crate::ref_deref::TryFromRef2;
+// use crate::trade_letf::LETFHedge;
 
-pub(crate) type MarketInner = DashMap<String, f64>;
+pub(crate) type MarketInner = DashMap<LETFMarketTypes, f64>;
+
+#[derive(PartialEq, Serialize, Deserialize, Hash, Eq, Debug, Clone)]
+enum SabrParamNames {
+    Alpha,
+    Beta,
+    Rho,
+    Nu,
+}
+
+#[derive(PartialEq, Serialize, Deserialize, Hash, Eq, Debug, Clone)]
+pub(crate) struct SabrParameters {
+    stock: String,
+    maturity: NaiveDate,
+    param_name: SabrParamNames,
+}
+
+#[derive(PartialEq, Serialize, Deserialize, Hash, Eq, Debug, Clone)]
+pub(crate) enum LETFMarketTypes {
+    Stock(String),
+    Option(String),       // option ticker, option value
+    Sabr(SabrParameters), // Sabr parameters, sabr param value
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LETFMarketType {
@@ -21,7 +46,7 @@ impl LETFMarketType {
     pub(crate) fn new(market_name: String) -> Self {
         Self {
             market_name,
-            market: DashMap::<String, f64>::new(),
+            market: DashMap::<LETFMarketTypes, f64>::new(),
         }
     }
 }
@@ -30,7 +55,7 @@ impl Default for LETFMarketType {
     fn default() -> Self {
         Self {
             market_name: format!("{}", Uuid::new_v4()),
-            market: DashMap::<String, f64>::default(),
+            market: DashMap::<LETFMarketTypes, f64>::default(),
         }
     }
 }
@@ -74,8 +99,8 @@ impl AddAssign<&LETFMarketType> for LETFMarketType {
     }
 }
 
-impl<const N: usize> From<(String, [(String, f64); N])> for LETFMarketType {
-    fn from(market_name_arr: (String, [(String, f64); N])) -> Self {
+impl<const N: usize> From<(String, [(LETFMarketTypes, f64); N])> for LETFMarketType {
+    fn from(market_name_arr: (String, [(LETFMarketTypes, f64); N])) -> Self {
         let (market_name, market_array) = market_name_arr;
         let mi = MarketInner::new();
         for (mn, mv) in market_array {
@@ -97,12 +122,12 @@ struct MktMsgDescr {
 #[async_trait]
 impl MarketTypeT for LETFMarketType {
     type MP = ();
+    type MK = LETFMarketTypes;
 
     fn new(market_name: String, _mp: ()) -> Arc<LETFMarketType> {
-        //dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
         Arc::new(LETFMarketType {
             market_name,
-            market: DashMap::<String, f64>::new(),
+            market: DashMap::<LETFMarketTypes, f64>::new(),
         })
     }
 
@@ -110,11 +135,11 @@ impl MarketTypeT for LETFMarketType {
         self.market_name.clone()
     }
 
-    async fn get(&self, stock: &String) -> Option<f64> {
+    async fn get(&self, stock: &Self::MK) -> Option<f64> {
         Some(*(self.market.get(stock)?))
     }
 
-    async fn insert(&self, key: String, value: f64) {
+    async fn insert(&self, key: Self::MK, value: f64) {
         self.market.insert(key, value);
     }
 
@@ -149,39 +174,4 @@ impl SetName for LETFMarketType {
     }
 }
 
-// #[async_trait]
-// impl MarketTypeT for Arc<LETFMarketType> {
-
-//     type MP = ();
-
-//     fn new(market_name: String, _mp: ()) -> Arc<LETFMarketType> { // dyn MarketTypeT<MP=Self::MP> + Send + Sync> {
-// 	Arc::new(LETFMarketType::new(market_name))
-//     }
-
-//     fn market_name(&self) -> String {
-//         self.market_name.clone()
-//     }
-
-//     async fn get(&self, stock: &String) -> Option<f64> {
-// 	self.as_ref().get(stock).await
-//     }
-
-//     async fn insert(&self, key: String, value: f64) {
-// 	let _ = self.as_ref().insert(key, value).await;
-//     }
-
-//     fn is_empty(&self) -> bool {
-// 	self.as_ref().is_empty()
-//     }
-
-//     fn try_from_ref(
-//         market_name: String,
-//         value: &BorrowedMessage,
-//         _mp: ()
-//     ) -> Result<Arc<LETFMarketType>, MarketTypeError> {  //dyn MarketTypeT<MP=Self::MP> + Send + Sync>, MarketTypeError> {
-// 	LETFMarketType::try_from_ref(market_name, value, _mp)
-//     }
-
-//     fn market_params(&self) {} // -> &Self::MP { &() }
-
-// }
+impl TryFromRef2 for (LETFMarketTypes, f64) {}

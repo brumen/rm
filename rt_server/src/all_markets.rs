@@ -15,14 +15,6 @@ pub(crate) struct AllMarkets<MT> {
                                                      //    pub(crate) mp: Option<MT::MP>,
 }
 
-// impl<MT> Deref for AllMarkets<MT> {
-//     type Target = DashMap<String, MT>;
-
-//     fn deref(&self) -> &Self::Target {
-//         &self.0
-//     }
-// }
-
 impl<MT> AllMarkets<MT>
 where
     MT: MarketTypeT + Clone + Send + Sync, // this will be fine since MT is an Arc.

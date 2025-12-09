@@ -138,7 +138,7 @@ def _fetcher_example():
 
 def _streamer_example():
     streamer = YFStockKafkaStreamer(["AAPL", "MSFT", "GOOG"])
-    streamer.stream_prices(interval=30)
+    streamer.stream_prices(interval=1)
 
 
 # if __name__ == "__main__":

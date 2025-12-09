@@ -4,7 +4,7 @@ use std::fmt;
 use std::sync::Arc;
 use tracing::{debug, warn};
 
-use crate::letf_market::LETFMarketType;
+use crate::letf_market::{LETFMarketType, LETFMarketTypes};
 use crate::market::MarketTypeT;
 use crate::portfolio::{PV01Results, PortfolioType};
 use crate::pricer::{Decoder, PriceTrade};
@@ -55,14 +55,18 @@ impl PriceTrade<LETFMarketType> for LETFTrade {
     }
 
     async fn price(&self, market: Arc<LETFMarketType>) -> Option<f64> {
-        let stock_v_real = market.get(&self.stock).await?;
+        let stock_v_real = market
+            .get(&LETFMarketTypes::Stock(self.stock.clone())) // TODO: CHECK IF WE DONT NEED TO CLONE HERE!!!
+            .await?;
 
         self.stock_value
             .map(|initial_stock| self.beta * self.amount * (stock_v_real / initial_stock - 1.))
     }
 
     async fn pv01(&self, market: Arc<LETFMarketType>) -> PV01Results {
-        let stock = market.get(&self.stock).await;
+        let stock = market
+            .get(&LETFMarketTypes::Stock(self.stock.clone()))
+            .await;
 
         match stock {
             None => {
@@ -94,9 +98,15 @@ impl PriceTrade<LETFMarketType> for LETFTrade {
 impl LETFTrade {
     /// produces the hedge of the LETF trade.
     /// stock_value : value of the stock that we are hedging LETF with.
-    pub async fn hedge(&mut self, market: &dyn MarketTypeT<MP = ()>) -> Vec<LETFHedge> {
+    pub async fn hedge(
+        &mut self,
+        market: &dyn MarketTypeT<MP = (), MK = LETFMarketTypes>,
+    ) -> Vec<LETFHedge> {
         let stock_name = &self.stock;
-        let stock = match market.get(stock_name).await {
+        let stock = match market
+            .get(&LETFMarketTypes::Stock(stock_name.clone()))
+            .await
+        {
             None => {
                 warn!(
                     "hedge: Could not find {:?} in the market. Leaving unhedged: {:?}",
@@ -143,7 +153,9 @@ impl PriceTrade<LETFMarketType> for Future {
     }
 
     async fn price(&self, market: Arc<LETFMarketType>) -> Option<f64> {
-        let stock = market.get(&self.stock).await?;
+        let stock = market
+            .get(&LETFMarketTypes::Stock(self.stock.clone()))
+            .await?;
 
         Some(stock * self.amount)
     }

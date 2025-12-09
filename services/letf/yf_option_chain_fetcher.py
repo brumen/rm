@@ -3,14 +3,15 @@ import threading
 import time
 import datetime
 import numpy as np
-from logging import getLogger
+import logging
 from typing import Dict, Any, List
 
 from rm.services.letf.yf_stock_fetcher import MarketStockFetcher
 from rm.services.letf.sabr_calibrator import SABRCalibratorMixin
 
 
-_logger = getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+_logger = logging.getLogger(__name__)
 
 
 class YFOptionChainFetcher(MarketStockFetcher):
@@ -23,7 +24,7 @@ class YFOptionChainFetcher(MarketStockFetcher):
             stock = yf.Ticker(ticker)
             option_expiries = stock.options
             return [
-                datetime.strptime(opt_expiry, '%Y-%m-%d')
+                datetime.datetime.strptime(opt_expiry, '%Y-%m-%d').date()
                 for opt_expiry in option_expiries
             ]
         except Exception as e:
@@ -35,12 +36,11 @@ class YFOptionChainFetcher(MarketStockFetcher):
         Fetches the full option chain (calls and puts) for a given ticker.
         Returns a dictionary with 'calls' and 'puts' DataFrames.
         """
+
+        expiry_str = expiry.strftime("%Y-%m-%d")
         try:
             stock = yf.Ticker(ticker)
-            # options_expiries = stock.options
-            # if not options_expiries:
-            #     return []
-            chain = stock.option_chain(expiry)
+            chain = stock.option_chain(expiry_str)
 
         except Exception as e:
             _logger.error(
@@ -115,7 +115,7 @@ class YFOptionChainFetcher(MarketStockFetcher):
                     # now run calibration and post that
                     curr_date = datetime.date.today()
                     normalized_expiry = (expiry - curr_date).days / 252.
-                    calibration = SABRCalibratorMixin.calibrate(
+                    calibration = SABRCalibratorMixin().calibrate(
                         option_chain,
                         avg_price,
                         normalized_expiry,
@@ -148,7 +148,6 @@ class YFOptionChainFetcher(MarketStockFetcher):
             time.sleep(5)
 
 
-if __name__ == "__main__":
+def _option_chain_example():
     fetcher = YFOptionChainFetcher(["AAPL", "MSFT"])
-    data = fetcher.fetch_all_option_chains()
-    fetcher.stream_option_chain()
+    fetcher._run_option_chains()

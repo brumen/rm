@@ -1,19 +1,19 @@
-use tracing::{debug, error, warn};
-use serde::{Deserialize, Serialize};
-use std::ops::{Deref, DerefMut};
-use std::fmt;
 use ractor::async_trait;
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
+use tracing::{debug, error, warn};
 
+use crate::ao_market::{AOMarketParams, AOMarketType};
+use crate::market::MarketTypeT;
 use crate::portfolio::PV01Results;
 use crate::portfolio::PricingResults;
-use crate::pricer::{Decoder, PricingMetric, PriceTrade};  // PriceTradeAsync,
+use crate::pricer::{Decoder, PriceTrade, PricingMetric}; // PriceTradeAsync,
 use crate::ref_deref::TryFromRef2;
 use crate::ref_deref_trait;
 use crate::trade::BaseTrade;
 use crate::trade::TradeDirection;
-use crate::ao_market::{AOMarketParams, AOMarketType};
-use crate::market::MarketTypeT;
 
 // structure of the AOTrade payload, possibly can be simplified.
 //
@@ -50,23 +50,18 @@ impl fmt::Display for AOTrade {
     }
 }
 
-
 impl AOTrade {
-
     /// computes the pricing request.
     async fn _pricing_request(
         &self,
         _metric: PricingMetric,
-        _market: Arc<dyn MarketTypeT<MP=AOMarketParams> + Send + Sync>,
+        _market: Arc<dyn MarketTypeT<MP = AOMarketParams> + Send + Sync>,
         _trades: Vec<String>,
     ) -> Result<reqwest::Response, reqwest::Error> {
-
         todo!()
         // let endpoint = market.endpoint_pricer(metric, trades);
         // let req_res = reqwest::get(endpoint).await;
-
     }
-
 }
 
 #[async_trait]
@@ -112,13 +107,10 @@ impl PriceTrade<AOMarketType> for AOTrade {
     }
 
     async fn pv01(&self, market: Arc<AOMarketType>) -> PV01Results {
-
         let trade_id = self.id();
-        let results_pricing = self._pricing_request(
-            PricingMetric::PV01,
-            market,
-            vec![trade_id.clone()]
-            ).await;
+        let results_pricing = self
+            ._pricing_request(PricingMetric::PV01, market, vec![trade_id.clone()])
+            .await;
 
         match results_pricing {
             Ok(result_price) => {
@@ -144,9 +136,9 @@ impl PriceTrade<AOMarketType> for AOTrade {
 
     async fn pnl(&self, market: Arc<AOMarketType>) -> Option<f64> {
         let trade_id = self.id();
-        let results_pricing = self._pricing_request(
-            PricingMetric::PnL, market, vec![trade_id.clone()]
-        ).await;
+        let results_pricing = self
+            ._pricing_request(PricingMetric::PnL, market, vec![trade_id.clone()])
+            .await;
 
         match results_pricing {
             Ok(result_price) => {
@@ -173,10 +165,8 @@ impl PriceTrade<AOMarketType> for AOTrade {
                 None
             }
         }
-
     }
 }
-
 
 impl BaseTrade for AOTrade {
     fn id(&self) -> String {
