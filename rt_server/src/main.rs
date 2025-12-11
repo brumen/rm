@@ -1,10 +1,10 @@
 // Starts the controller.
-use crate::pricer::PricingMetric;
 use dotenv::dotenv;
 use futures::future::join_all;
+use rdkafka::config::ClientConfig;
+use rdkafka::producer::FutureProducer;
 use std::sync::Arc;
 use tracing::{info, Level};
-use trade_letf::TradeTypes;
 
 mod all_markets;
 mod market;
@@ -16,27 +16,33 @@ mod ref_deref;
 mod streaming;
 mod trade;
 
+pub(crate) mod markets;
+
 // actor framework new
-pub(crate) mod ao_market;
 pub(crate) mod engine_actor;
 pub(crate) mod engine_letf;
-pub(crate) mod letf_market;
 pub(crate) mod mkt_handler_actor;
 pub(crate) mod processor_bulk;
 pub(crate) mod processor_curr;
 pub(crate) mod processor_middle;
 pub(crate) mod processor_msg;
 pub(crate) mod processor_new;
-pub(crate) mod processor_setup;
+// pub(crate) mod processor_setup;
 pub(crate) mod processor_setup_actor;
-pub(crate) mod trade_letf;
 pub(crate) mod trade_sender;
+pub(crate) mod trades;
 pub(crate) mod utils;
+// pub(crate) mod yf;
 
 use crate::engine_letf::start2;
-use crate::letf_market::LETFMarketType;
+// use crate::markets::ao_market;
+use crate::markets::letf_market::LETFMarketType;
+use crate::pricer::PricingMetric;
 use crate::processor_setup_actor::start_setup_actor;
+use crate::processor_setup_actor::SetupRequest;
+// use crate::spot_fetcher::{SpotFetcherActor, SpotFetcherMessage};
 use crate::trade::TradeRep;
+use trades::trade_letf::TradeTypes;
 
 #[tokio::main]
 async fn main() {
@@ -72,11 +78,11 @@ async fn run_all() {
         //.with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
         .init();
 
-    let axum_process = processor_setup::axum_process(host.clone());
+    // let axum_process = processor_setup::axum_process(host.clone());
 
     // Start the setup actor that listens to the setup kafka topic.
 
-    let mut all_handles = vec![axum_process];
+    let mut all_handles = vec![]; // vec![axum_process];
     let markets_used = vec!["curr".to_string(), "new".to_string()];
 
     let (initial_trades, all_markets) = init_letf();
@@ -93,11 +99,25 @@ async fn run_all() {
     )
     .await;
 
-    let setup_actor_handle = start_setup_actor(host, setup_topic, all_actors).await;
+    // this creates the setup actor.
+    let setup_actor_handle = start_setup_actor(host.clone(), setup_topic.clone(), all_actors).await;
+
+    // Initialize Kafka producer for spot fetcher
+    let producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", &host)
+        .create()
+        .expect("Failed to create Kafka producer");
+
+    // Start SpotFetcherActor
+    // let spot_fetcher = SpotFetcherActor::new(producer, "letf.mkt".to_string());
+    // let (spot_ref, spot_handle) = Actor::spawn::<SpotFetcherActor>(None, spot_fetcher, ())
+    //     .await
+    //     .expect("Failed to start SpotFetcherActor");
 
     info!("All relevant actors initialized.");
     all_handles.append(&mut all_actors_handles);
     all_handles.push(setup_actor_handle);
+    // all_handles.push(spot_handle);
     join_all(all_handles).await;
 }
 

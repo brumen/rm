@@ -30,7 +30,7 @@ pub(crate) struct SabrParameters {
 }
 
 #[derive(PartialEq, Serialize, Deserialize, Hash, Eq, Debug, Clone)]
-pub(crate) enum LETFMarketTypes {
+pub enum LETFMarketTypes {
     Stock(String),
     Option(String),       // option ticker, option value
     Sabr(SabrParameters), // Sabr parameters, sabr param value

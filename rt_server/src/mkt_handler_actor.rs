@@ -9,6 +9,7 @@ use crate::all_markets::AllMarkets;
 use crate::market::{MarketTypeT, SetName};
 use crate::pricer::PricingMetric;
 use crate::processor_msg::ProcessorMiddleMessage;
+use crate::ref_deref::TryFromRef2;
 
 pub struct MarketProducer<MT>
 where
@@ -29,6 +30,7 @@ impl<MT> Actor for MarketProducer<MT>
 where
     for<'a> MT: MarketTypeT + Send + Sync + AddAssign<&'a MT> + Clone + 'static + SetName,
     MT::MP: 'static + Send + Sync + Clone,
+    (MT::MK, f64): TryFromRef2,
 {
     type Msg = MT;
     type State = MT;
@@ -56,18 +58,17 @@ where
     async fn post_start(
         &self,
         myself: ActorRef<Self::Msg>,
-        _state: &mut Self::State,
+        state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         info!("Waiting on first message");
         let new_mkt_msg = self.mkt_listener.recv().await?;
-        let fut_mkt_tag_2 = Uuid::new_v4();
-        let new_mkt = Self::Msg::try_from_ref(
-            fut_mkt_tag_2.to_string(),
-            &new_mkt_msg,
-            self.pricing_options.clone(),
-        )?;
+        let (item_name, item_val) = <(MT::MK, f64)>::try_from_ref(&new_mkt_msg)?;
 
-        myself.send_message((*new_mkt.clone()).clone())?;
+        let market = state;
+        market.insert(item_name, item_val);
+        let new_market_name = Uuid::new_v4().to_string();
+        market.set_name(new_market_name);
+        myself.send_message(market.clone())?;
 
         Ok(())
     }
@@ -99,9 +100,10 @@ where
         // wait for new message
         let new_msg = self.mkt_listener.recv().await?;
         let additional_name = Uuid::new_v4().to_string();
-        let new_mkt =
-            Self::Msg::try_from_ref(additional_name, &new_msg, self.pricing_options.clone())?;
-        myself.send_message((*new_mkt).clone())?;
+        let (new_item_name, new_item_value) = <(MT::MK, f64)>::try_from_ref(&new_msg)?;
+        market.insert(new_item_name, new_item_value);
+        market.set_name(additional_name);
+        myself.send_message(market.clone())?;
 
         Ok(())
     }

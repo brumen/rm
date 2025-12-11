@@ -4,19 +4,22 @@ use std::sync::Arc;
 use thiserror::Error;
 
 // MP is mnemonic for market parameters.
+// MK is mnemonic for market keys
 #[async_trait]
 pub trait MarketTypeT
 where
     Self: Send + Sync,
+    Self::MK: Send + Sync,
 {
     type MP;
+    type MK; // this has to be hashable, maybe some other stuff as well.
 
     fn new(market_name: String, mp: Self::MP) -> Arc<Self>
     where
         Self: Sized;
     fn market_name(&self) -> String;
-    async fn get(&self, stock: &String) -> Option<f64>; // getting stock values.
-    async fn insert(&self, key: String, value: f64); // Important: insert is _NOT_ mutable self
+    async fn get(&self, stock: &Self::MK) -> Option<f64>; // getting stock values.
+    async fn insert(&self, key: Self::MK, value: f64); // Important: insert is _NOT_ mutable self
     fn is_empty(&self) -> bool;
     fn try_from_ref(
         market_name: String,
@@ -36,6 +39,7 @@ pub trait SetName {
 #[async_trait]
 impl<T: MarketTypeT> MarketTypeT for Arc<T> {
     type MP = T::MP;
+    type MK = T::MK;
 
     fn new(market_name: String, mp: Self::MP) -> Arc<Self>
     where
@@ -48,11 +52,11 @@ impl<T: MarketTypeT> MarketTypeT for Arc<T> {
         (**self).market_name()
     }
 
-    async fn get(&self, stock: &String) -> Option<f64> {
+    async fn get(&self, stock: &Self::MK) -> Option<f64> {
         (**self).get(stock).await
     }
 
-    async fn insert(&self, key: String, value: f64) {
+    async fn insert(&self, key: Self::MK, value: f64) {
         (**self).insert(key, value).await;
     }
 
@@ -74,31 +78,6 @@ impl<T: MarketTypeT> MarketTypeT for Arc<T> {
     fn market_params(&self) -> Self::MP {
         (**self).market_params()
     }
-}
-
-// MP is mnemonic for market parameters.
-#[async_trait]
-pub trait MarketTypeTOriginal {
-    type MP;
-
-    fn new(
-        market_name: String,
-        mp: Self::MP,
-    ) -> Arc<dyn MarketTypeTOriginal<MP = Self::MP> + Send + Sync>
-    where
-        Self: Sized + Send + Sync;
-    fn market_name(&self) -> String;
-    async fn get(&self, stock: &String) -> Option<f64>; // getting stock values.
-    async fn insert(&self, key: String, value: f64); // Important: insert is _NOT_ mutable self
-    fn is_empty(&self) -> bool;
-    fn try_from_ref(
-        market_name: String,
-        value: &BorrowedMessage,
-        mp: Self::MP,
-    ) -> Result<Arc<dyn MarketTypeTOriginal<MP = Self::MP> + Send + Sync>, MarketTypeError>
-    where
-        Self: Sized + Send + Sync;
-    fn market_params(&self) -> &Self::MP;
 }
 
 #[derive(Error, Debug)]

@@ -29,6 +29,7 @@ pub enum TradeError {
 }
 
 /// Internal representations of trades.
+/// String is the trade id, TR is the trade representation.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TradeRep<TR>(pub DashMap<String, TR>);
 

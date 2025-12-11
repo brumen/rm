@@ -7,7 +7,6 @@ use tokio::task::JoinHandle;
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 use crate::pricer::PriceTrade;
-use crate::pricer::PricingMetric;
 use crate::processor_bulk::ProcessorBulk;
 use crate::processor_curr::ProcessorCurr;
 use crate::processor_middle::ProcessorMiddle;
