@@ -64,29 +64,29 @@ class SABRCalibratorMixin:
         result = minimize(objective, initial_guess, bounds=bounds, method="L-BFGS-B")
 
         return {
-            "alpha": result.x[0],
-            "beta": beta,
-            "rho": result.x[1],
-            "nu": result.x[2],
+            "Alpha": result.x[0],
+            "Beta": beta,
+            "Rho": result.x[1],
+            "Nu": result.x[2],
             "success": result.success,
             "message": result.message,
         }
 
 
-if __name__ == "__main__":
-    from services.letf.yf_option_chain_fetcher import YFOptionChainFetcher
+# if __name__ == "__main__":
+#     from services.letf.yf_option_chain_fetcher import YFOptionChainFetcher
 
-    fetcher = YFOptionChainFetcher(["AAPL"])
-    option_chain = fetcher.fetch_option_chain("AAPL")
-    expiries = fetcher._get_ticker_expiries('AAPL')
-    expiry1 = expiries[0].strftime("%Y-%m-%d")
+#     fetcher = YFOptionChainFetcher(["AAPL"])
+#     option_chain = fetcher.fetch_option_chain("AAPL")
+#     expiries = fetcher._get_ticker_expiries('AAPL')
+#     expiry1 = expiries[0].strftime("%Y-%m-%d")
 
 
-    F = np.mean([opt['lastPrice'] for opt in data])
-    T = 30 / 365  # assume 30 days to expiry
-        calibrator = SABRCalibratorMixin()
-        params = calibrator.calibrate(calls, F, T)
-        _logger.info("Calibrated SABR parameters:", params)
+#     F = np.mean([opt['lastPrice'] for opt in data])
+#     T = 30 / 365  # assume 30 days to expiry
+#     calibrator = SABRCalibratorMixin()
+#     params = calibrator.calibrate(calls, F, T)
+#     _logger.info("Calibrated SABR parameters:", params)
 
-    else:
-        _logger.error("Error fetching option chain:", data["error"])
+#     else:
+#         _logger.error("Error fetching option chain:", data["error"])

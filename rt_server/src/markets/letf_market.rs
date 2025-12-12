@@ -23,7 +23,7 @@ enum SabrParamNames {
 }
 
 #[derive(PartialEq, Serialize, Deserialize, Hash, Eq, Debug, Clone)]
-pub(crate) struct SabrParameters {
+pub struct SabrParameters {
     stock: String,
     maturity: NaiveDate,
     param_name: SabrParamNames,
