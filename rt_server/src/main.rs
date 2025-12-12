@@ -58,7 +58,7 @@ async fn run_all() {
     let metric = PricingMetric::PV;
     let pos_topic =
         std::env::var("POSITIONS_TOPIC").expect("Could not find POSITIONS_TOPIC in .env"); // "air_options.ao.option_positions"
-    let mkt_topic = std::env::var("MKT_TOPIC").expect("Could not find MKT_TOPIC in .env"); // "air_options.ao.mkt_events"
+    let mkt_topic = std::env::var("MKT_RAW_TOPIC").expect("Could not find MKT_RAW_TOPIC in .env"); // "air_options.ao.mkt_events"
     let results_topic =
         std::env::var("RESULTS_TOPIC").expect("Could not find RESULTS_TOPIC in .env"); //"air_options.ao.results"
     let setup_topic = std::env::var("SETUP_TOPIC").expect("Could not find SETUP_TOPIC in .env");

@@ -37,6 +37,7 @@ pub(crate) async fn start2<T, MT>(
 where
     T: BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MT> + TryFromRef2 + std::fmt::Debug,
     MT::MP: 'static + Send + Sync + Clone,
+    MT::MK: std::fmt::Debug,
     (MT::MK, f64): TryFromRef2,
     for<'a> MT:
         Send + Sync + MarketTypeT + 'static + Clone + AddAssign<&'a MT> + SetName + std::fmt::Debug,

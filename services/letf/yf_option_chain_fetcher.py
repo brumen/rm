@@ -212,7 +212,7 @@ class YFOptionChainFetcher(MarketStockFetcher):
 
 
 def _option_chain_example():
-    fetcher = YFOptionChainFetcher(["AAPL", "MSFT"])
+    fetcher = YFOptionChainFetcher(["AAPL", "MSFT", 'GOOG',])
     fetcher.stream_option_chain()
 
 
