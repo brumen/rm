@@ -7,7 +7,7 @@ use tracing::{debug, warn};
 use crate::market::MarketTypeT;
 use crate::markets::letf_market::{LETFMarketType, LETFMarketTypes};
 use crate::portfolio::{PV01Results, PortfolioType};
-use crate::pricer::{Decoder, PriceTrade};
+use crate::pricer::{Decoder, HedgeTrade, PriceTrade};
 use crate::ref_deref::TryFromRef2;
 use crate::trade::{BaseTrade, TradeDirection, TradeReduce};
 
@@ -95,13 +95,9 @@ impl PriceTrade<LETFMarketType> for LETFTrade {
     }
 }
 
-impl LETFTrade {
-    /// produces the hedge of the LETF trade.
-    /// stock_value : value of the stock that we are hedging LETF with.
-    pub async fn hedge(
-        &mut self,
-        market: &dyn MarketTypeT<MP = (), MK = LETFMarketTypes>,
-    ) -> Vec<LETFHedge> {
+#[async_trait]
+impl HedgeTrade<LETFMarketType, Vec<LETFHedge>> for LETFTrade {
+    async fn hedge(&self, market: LETFMarketType) -> Vec<LETFHedge> {
         let stock_name = &self.stock;
         let stock = match market
             .get(&LETFMarketTypes::Stock(stock_name.clone()))
@@ -118,7 +114,7 @@ impl LETFTrade {
         };
 
         let trade_id = self.id();
-        self.stock_value = Some(stock); // adding the actual value into the LETF  WEIRD
+        // self.stock_value = Some(stock); // adding the actual value into the LETF  WEIRD
         let beta = self.beta;
         let amount = self.amount;
 

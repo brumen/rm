@@ -1,6 +1,6 @@
 use dashmap::DashMap;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::debug;
 
 use crate::market::MarketTypeT;
 

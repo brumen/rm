@@ -2,7 +2,7 @@
 use ractor::ActorRef;
 use std::collections::HashSet;
 
-use crate::portfolio::{PmPortfolio, PortfolioType};
+use crate::portfolio::PmPortfolio;
 use crate::pricer::PricingMetric;
 
 pub(crate) type TradesLocal = HashSet<String>;

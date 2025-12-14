@@ -5,7 +5,7 @@ use tracing::{error, info, warn};
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
-use crate::portfolio::{PmPortfolio, PortfolioType};
+use crate::portfolio::PmPortfolio; // , PortfolioType
 use crate::pricer::{PriceTrade, PricingMetric};
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesLocal};
 use crate::trade::{BaseTrade, TradeRep};

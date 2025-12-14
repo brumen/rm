@@ -448,7 +448,7 @@ impl MulAssign<&AggregatedTrades> for PricingResults {
 
 /// portfolio of pricing metrics.
 /// PmPortfolio - mnemonic for PricingMetric Portfolio
-pub(crate) type PmPortfolioInner = HashMap<PricingMetric, PortfolioType>;
+type PmPortfolioInner = HashMap<PricingMetric, PortfolioType>;
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PmPortfolio(PmPortfolioInner);
 ref_deref_trait!(PmPortfolio, PmPortfolioInner);

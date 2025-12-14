@@ -36,7 +36,7 @@ monoio = "0.2.4"
 nalgebra = "0.34.1"
 orx-concurrent-vec = "3.10.0"
 queues = "1.1.0"
-ractor = "0.13.5"
+ractor = { version = "0.15.9", features = ["async-trait"] }
 rdkafka = "0.36.2"
 reqwest = { version = "0.11.13", features = ["blocking", "json"] }
 serde = { version = "1.0.152", features = ["derive"] }

@@ -64,6 +64,7 @@ async fn run_all() {
     let setup_topic = std::env::var("SETUP_TOPIC").expect("Could not find SETUP_TOPIC in .env");
     let market_port = std::env::var("MARKET_PORT").expect("Could not find MARKET_PORT in .env");
     let pricing_port = std::env::var("PRICING_PORT").expect("Could not find PRICING_PORT in .env");
+    let debug_level = std::env::var("DEBUG_LEVEL").expect("Could not find DEBUG in .env");
     info!(".env data loaded.");
     let kafka_params = engine_actor::KafkaParams {
         kafka_server,
@@ -72,7 +73,11 @@ async fn run_all() {
         results_topic,
     };
 
-    let tracing_level = Level::INFO;
+    let tracing_level = match debug_level.as_str() {
+        "info" => Level::INFO,
+        "debug" => Level::DEBUG,
+        _ => Level::INFO,
+    };
     tracing_subscriber::fmt()
         .with_max_level(tracing_level)
         //.with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
