@@ -56,25 +56,6 @@ where
     }
 }
 
-// impl<T, MT: MarketTypeT> MarketSwitching for ProcessorNew<T, MT> {
-
-//     fn processor_name(&self) -> String {
-//         self.processor_name.clone()
-//     }
-
-//     fn all_markets(&self) -> std::sync::Arc<AllMarkets<MT>> {
-// 	self.all_markets.clone()
-//     }
-
-//     fn r_client(&self) ->  Option<&reqwest::Client> {
-//         self.r_client.as_ref()
-//     }
-
-//     fn market_endpoint(&self) -> String {
-// 	format!("http://{0}/market", self.pricing_options.market_server.clone())
-//     }
-// }
-
 // impl<T, MT> Decoder for ProcessorNew<T, MT> {}
 
 // impl<ReductionType, T, MT> RestPricerSpark<ReductionType> for ProcessorNew<T, MT>
