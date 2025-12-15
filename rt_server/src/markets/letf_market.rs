@@ -10,7 +10,6 @@ use uuid::Uuid;
 
 use crate::market::{MarketTypeError, MarketTypeT, SetName};
 use crate::ref_deref::TryFromRef2;
-// use crate::trade_letf::LETFHedge;
 
 pub(crate) type MarketInner = DashMap<LETFMarketTypes, f64>;
 
@@ -113,6 +112,7 @@ impl<const N: usize> From<(String, [(LETFMarketTypes, f64); N])> for LETFMarketT
     }
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct MktMsgDescr {
     market_name: String,
@@ -152,9 +152,12 @@ impl MarketTypeT for LETFMarketType {
         value: &BorrowedMessage,
         _mp: (),
     ) -> Result<Arc<LETFMarketType>, MarketTypeError> {
-        let msg_val = value.payload().ok_or(MarketTypeError::GeneralError(
-            "Didnt get payload".to_string(),
-        ))?;
+        let msg_val = value
+            .payload()
+            .ok_or(MarketTypeError::GeneralError(format!(
+                "Didnt get payload for {}",
+                market_name
+            )))?;
 
         let msg_utf = std::str::from_utf8(msg_val)?;
         let inner_dashmap = serde_json::from_str::<MktMsgDescr>(msg_utf)?;

@@ -23,6 +23,7 @@ pub(crate) struct KafkaParams {
     pub(crate) results_topic: String,
 }
 
+#[allow(dead_code)]
 pub(crate) async fn create_curr_actor<T, MT>(
     kafka_params: KafkaParams,
     all_markets: Arc<AllMarkets<Arc<MT>>>,
@@ -42,9 +43,10 @@ where
     );
 
     // bulk processor for the current processor.
-    let (_processor_bulk_a, processor_new_bulk_h) = Actor::spawn(None, curr_bulk, mp.clone())
-        .await
-        .expect("Could not start current_bulk processor.");
+    let (_processor_bulk_a, processor_new_bulk_h) =
+        Actor::spawn(Some("processor_curr".to_string()), curr_bulk, mp.clone())
+            .await
+            .expect("Could not start current_bulk processor.");
 
     let result_publisher = connect_with_retries_producer_rd(&kafka_params.kafka_server);
 
@@ -77,14 +79,18 @@ where
 
     // TODO: NEXT STAGE IS TO CONSTRUCT BULK INSIDE PROCESSOR MIDDLE
     let bulk_middle = ProcessorBulk::new(
-        middle_bulk_name,
+        middle_bulk_name.clone(),
         initial_trades.clone(),
         all_markets.clone(),
     );
 
-    let (bulk_actor, bulk_actor_future) = Actor::spawn(None, bulk_middle, mp.clone())
-        .await
-        .expect("Could not create bulk middle processor");
+    let (bulk_actor, bulk_actor_future) = Actor::spawn(
+        Some(format!("{}_bulk", middle_bulk_name)),
+        bulk_middle,
+        mp.clone(),
+    )
+    .await
+    .expect("Could not create bulk middle processor");
 
     let proc_middle = ProcessorMiddle::new(
         processor_name,
@@ -103,6 +109,7 @@ where
 ///   (vector of processor actors,
 ///    vector of bulk actors,
 ///    last middle processor actor - to be used for new_actor, special case)
+#[allow(dead_code)]
 pub(crate) async fn create_middle_procs_chain<T, MT>(
     nb_middle: usize, // number of middle actors.
     processor_curr: ActorRef<ProcessorMiddleMessage<String>>,
@@ -128,18 +135,17 @@ where
     for market_nb in 0..nb_middle {
         let market_name = format!("middle_{}", market_nb);
         let (processor_middle, bulk_actor_future) = create_middle_actor(
-            market_name,
+            market_name.clone(),
             all_markets.clone(),
             initial_trades.clone(),
             last_middle.clone(),
             mp.clone(),
         )
         .await;
-        //     .expect("Could not create bulk middle processor");
 
         bulk_actors_futures.push(bulk_actor_future);
 
-        let (proc_actor, proc_actor_future) = Actor::spawn(None, processor_middle, ())
+        let (proc_actor, proc_actor_future) = Actor::spawn(Some(market_name), processor_middle, ())
             .await
             .expect("Could not start middle actor");
 

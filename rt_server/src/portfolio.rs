@@ -4,7 +4,10 @@ use std::cmp::PartialOrd;
 use std::default::Default;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Deref, DerefMut, Mul, MulAssign, Neg};
-use std::{collections::HashMap, ops::SubAssign};
+use std::{
+    collections::{BTreeMap, HashMap},
+    ops::SubAssign,
+};
 
 use crate::pricer::PricingMetric;
 use crate::ref_deref_trait;
@@ -457,6 +460,26 @@ impl PmPortfolio {
     pub(crate) fn new() -> Self {
         let inner_portfolio = PmPortfolioInner::new();
         Self(inner_portfolio)
+    }
+
+    pub(crate) fn count(&self) -> HashMap<PricingMetric, usize> {
+        let mut pm_displ = HashMap::new();
+        for (pm, pi) in self.iter() {
+            pm_displ.insert(*pm, pi.len());
+        }
+
+        pm_displ
+    }
+
+    // simple display of pm.
+    pub(crate) fn simple(&self) -> String {
+        let mut pm_displ = String::new();
+        for (pm, pi) in self.iter() {
+            let pm_indiv = format!("{}: {:?}", pm, pi);
+            pm_displ += &pm_indiv;
+        }
+
+        pm_displ
     }
 }
 

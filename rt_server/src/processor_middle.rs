@@ -24,6 +24,7 @@ where
     MT: MarketTypeT,
     MT::MP: Clone,
 {
+    #[allow(dead_code)]
     pub(crate) fn new(
         processor_name: String,
         processor_below: ActorRef<ProcessorMiddleMessage<String>>,

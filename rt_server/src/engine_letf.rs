@@ -54,9 +54,10 @@ where
     )
     .await;
 
-    let (_processor_curr_a, processor_curr_handle) = Actor::spawn(None, curr_processor, ())
-        .await
-        .expect("Could not start current processor");
+    let (_processor_curr_a, processor_curr_handle) =
+        Actor::spawn(Some("processor_curr_actor".to_string()), curr_processor, ())
+            .await
+            .expect("Could not start current processor");
 
     actors_middle_msg.push(_processor_curr_a.clone());
 
@@ -83,10 +84,13 @@ where
         all_markets.clone(),
     );
 
-    let (processor_new_bulk_actor, processor_new_bulk_handle) =
-        Actor::spawn(None, new_mkt_bulk, mp.clone())
-            .await
-            .expect("Could not start processor_new_bulk");
+    let (processor_new_bulk_actor, processor_new_bulk_handle) = Actor::spawn(
+        Some("processor_new_bulk".to_string()),
+        new_mkt_bulk,
+        mp.clone(),
+    )
+    .await
+    .expect("Could not start processor_new_bulk");
 
     let processor_new = ProcessorNew::new(
         last_market_name.clone(),
@@ -96,9 +100,10 @@ where
         initial_trades.clone(),
     );
 
-    let (_processor_new_a, processor_new_handle) = Actor::spawn(None, processor_new, ())
-        .await
-        .expect("Could not start new processor");
+    let (_processor_new_a, processor_new_handle) =
+        Actor::spawn(Some("processor_new".to_string()), processor_new, ())
+            .await
+            .expect("Could not start new processor");
 
     actors_middle_msg.push(_processor_new_a.clone());
 
@@ -115,9 +120,10 @@ where
         new_processor: _processor_new_a.clone(),
         all_markets: all_markets.clone(),
     };
-    let (_mkt_producer_a, mkt_producer_handle) = Actor::spawn(None, market_producer, ())
-        .await
-        .expect("Could not start market producer");
+    let (_mkt_producer_a, mkt_producer_handle) =
+        Actor::spawn(Some("mkt_producer".to_string()), market_producer, ())
+            .await
+            .expect("Could not start market producer");
 
     let trade_producer = TradeProducer::new(
         kafka_params.kafka_server,
@@ -126,9 +132,10 @@ where
         initial_trades, // TODO: CHECK IF THIS NEEDS TO BE CHANGED.
     );
 
-    let (_trade_capture_a, trade_capture_handle) = Actor::spawn(None, trade_producer, ())
-        .await
-        .expect("Could not start trade producer");
+    let (_trade_capture_a, trade_capture_handle) =
+        Actor::spawn(Some("trade_producer".to_string()), trade_producer, ())
+            .await
+            .expect("Could not start trade producer");
 
     // special futures
     let mut all_futures = vec![
