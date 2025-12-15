@@ -2,7 +2,7 @@ use ractor::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::market::MarketTypeT;
 use crate::markets::letf_market::{LETFMarketType, LETFMarketTypes};
@@ -70,7 +70,7 @@ impl PriceTrade<LETFMarketType> for LETFTrade {
 
         match stock {
             None => {
-                warn!("Could not obtain {:?} from the market", stock);
+                warn!("Could not obtain stock {:?} from the market.", self.stock);
                 PV01Results::new()
             }
             Some(_stock_v) => match self.stock_value {

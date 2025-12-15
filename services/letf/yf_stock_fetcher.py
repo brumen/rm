@@ -250,7 +250,7 @@ def _streamer_example():
 
 
 def _streamer_example_sim():
-    streamer = YFStockKafkaStreamerSim(["AAPL", "MSFT", "GOOG"])
+    streamer = YFStockKafkaStreamerSim(["AAPL", "MSFT", "GOOG", "NVDA"])
     streamer.stream_prices(interval=1)
 
 
