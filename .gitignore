@@ -1,0 +1,10 @@
+*.pyc
+rt_server/src/logs/*
+rt_server/target/*
+venv/*
+*vscode*
+logs/*
+rt_server/src/.*~
+*.iml
+*.xml
+.idea/*

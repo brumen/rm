@@ -6,8 +6,7 @@ import sys
 import six.moves
 import logging
 import threading
-import datetime
-
+from numpy import random
 
 if sys.version_info >= (3, 12, 0):
     sys.modules["kafka.vendor.six.moves"] = six.moves
@@ -220,6 +219,26 @@ class YFStockKafkaStreamer(YFStockFetcher):
             time.sleep(1)
 
 
+class YFStockKafkaStreamerSim(YFStockKafkaStreamer):
+
+    def stream_prices(self, interval: int = 60):
+
+        ticker_val = {
+            ticker: 100
+            for ticker in self.tickers
+        }
+
+        while True:
+            for ticker in self.tickers:
+                ticker_val[ticker] += random.normal(loc=0., scale=1.)
+                msg = {
+                    'id': ticker,
+                    'price': ticker_val[ticker],
+                }
+                self._process_message(msg)
+            time.sleep(interval)
+
+
 def _fetcher_example():
     fetcher = YFStockFetcher(["AAPL", "MSFT", "GOOG"])
     _logger.info("Current Prices:", fetcher.fetch_repeated())
@@ -230,5 +249,10 @@ def _streamer_example():
     streamer.stream_prices(interval=1)
 
 
+def _streamer_example_sim():
+    streamer = YFStockKafkaStreamerSim(["AAPL", "MSFT", "GOOG"])
+    streamer.stream_prices(interval=1)
+
+
 if __name__ == "__main__":
-    _streamer_example()
+    _streamer_example_sim()
