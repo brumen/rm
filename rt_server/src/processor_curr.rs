@@ -90,6 +90,7 @@ where
         // error is the Kafka error
         // OwnedMessage - copy of the original message.
         // Result<(i32, i64), (KafkaError, OwnedMessage)>;
+        info!("Publishing portfolio: size {}", portf.len());
         match self
             .result_publisher
             .send(portf_record, Timeout::Never)
@@ -124,6 +125,7 @@ where
         _myself: ActorRef<Self::Msg>,
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
+        info!("Starting ProcessorCurr: {}", self.processor_name);
         let initial_trades = TradesLocal::new();
         let initial_curr_portf = PmPortfolio::new();
         // no initial metrics
@@ -137,9 +139,16 @@ where
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         let (trades, portf, market, curr_pricing_metrics) = state;
+        info!(
+            "State: Trades: {}, portf: {:?}, market: {:?}",
+            trades.len(),
+            portf.count(),
+            market,
+        );
 
         match message {
             ProcessorMiddleMessage::NewTrade(trade) => {
+                info!("Message: NewTrade: {:?}", trade);
                 let Some(real_market) = market else {
                     // only continue if you have a market.
                     warn!("Do not have market. Ignoring the trade.");
@@ -163,7 +172,7 @@ where
                 };
 
                 debug!(
-                    "Valuing trade {} on market {:?} for {:?}",
+                    "Valuing trade {} on market {:?} for {:?} and adding to portfolio.",
                     trade,
                     market_info.market_name(),
                     curr_pricing_metrics
@@ -178,7 +187,6 @@ where
                 //*trades += &trade; // TODO: THIS CAN BE FIXED.
                 trades.insert(trade);
                 // *portf += valued_trade;
-                debug!("Current market: {:?}, portfolio: {:?}", market, portf);
                 // send information about all the trades to the trade processor
                 // let now = Local::now();
                 //self.trade_processor.send_message(
@@ -199,6 +207,12 @@ where
                 new_market,
                 upstream_processor,
             )) => {
+                info!(
+                    "Message: NewTradePortfolio: Trades: {:?}, NewPortfolio: {:?}, NewMarket: {:?}",
+                    new_trades.len(),
+                    new_portfolio.count(),
+                    new_market,
+                );
                 // we got a new portfolio, possibly switch it
 
                 // let new_behind_curr = trades - new_trades;
@@ -209,13 +223,14 @@ where
                     .collect::<TradesLocal>();
 
                 info!(
-                    "Received new trade portfolio, behind: {:?}, portf size: {}",
+                    "NewPortfolio: behind curr: {:?}, portf size: {}",
                     new_behind_curr.len(),
                     new_portfolio.len(),
                 );
 
                 // new portfolio has more trades, send the portfolio to publisher.
                 if *portf <= new_portfolio {
+                    info!("NewPortfolio accepted. Publishing.");
                     for (pm, new_portf_pm) in new_portfolio.iter() {
                         self._publish_result_portfolio(new_portf_pm.clone(), *pm)
                             .await?;
@@ -225,11 +240,11 @@ where
                     // as it's not needed anymore.
                     // IMPORTANT: this .remove call CAN DEADLOCK!!!
                     // destroys the market at the end.
-                    if let Some(real_market) = market {
-                        if *real_market != new_market {
+                    if let Some(old_market) = market {
+                        if *old_market != new_market {
                             // only destroy if the markets are different
-                            info!("Destroying the market {}", real_market);
-                            let _ = self.all_markets.remove(&real_market.clone());
+                            info!("Got new market, destroying the market {}", old_market);
+                            let _ = self.all_markets.remove(&old_market.clone());
                             // TODO: HANDLE ERROR MESSAGES
                         }
                     };
@@ -238,11 +253,14 @@ where
                     *portf = new_portfolio;
                     trades.extend(new_trades); // *trades += &new_trades;
                     *market = Some(new_market.clone()); // markets should trickle down.
-                    debug!("Switching to market {:?}", market); // market should be created.
-                    info!("Market: {:?}, Portfolio: {:?}", market, portf);
+                    info!("Switching to market {:?}", market); // market should be created.
                 } // otherwise dont do anything.
 
                 // send the behind information to the middle processor.
+                info!(
+                    "Notifying upstream {:?} that message was accepted/rejected",
+                    upstream_processor.get_name()
+                );
                 upstream_processor.send_message(ProcessorMiddleMessage::Behind(
                     new_market,
                     new_behind_curr.clone(),

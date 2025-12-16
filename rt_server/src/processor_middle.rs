@@ -113,12 +113,11 @@ where
                 ProcessorMiddleMessage::NewTrade(new_trade),
                 ProcessorMiddleState::CalculatingSingle,
             ) => {
-                let trade_info = self.all_trades.get(&new_trade).ok_or("Trade not found")?;
-                info!(
-                    "Processor {}: CalculatingSingle, Calculating single trade {}.",
-                    self.processor_name,
-                    trade_info.id()
-                );
+                let trade_info = self
+                    .all_trades
+                    .get(&new_trade)
+                    .ok_or("Message: NewTrade: Trade not found")?;
+                info!("Message: NewTrade {}", trade_info.id());
 
                 let Some(real_market) = market else {
                     warn!("Does not have market. Ignoring.");
@@ -142,9 +141,10 @@ where
                 // we send the computed portfolio & trades to the processor below
                 //   hoping that we are ahead.
                 info!(
-		    "Processor: {}, State: CalculatingSingle: sending potential portfolio to processor below.",
-		    self.processor_name,
-		);
+                    "Sending portfolio {:?} to processor {:?}.",
+                    portf.count(),
+                    self.processor_below.get_name(),
+                );
                 self.processor_below
                     .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                         trade_l.clone(),
@@ -156,18 +156,19 @@ where
 
             (ProcessorMiddleMessage::NewTrade(new_trade), ProcessorMiddleState::Idle) => {
                 // start the new portfolio construction.
-                info!(
-                    "Processor {}, CalculatingSingle: got NewTrade, starting bulk computation.",
-                    self.processor_name,
-                );
-
+                info!("Message: NewTrade. Starting bulk computation.",);
                 trade_l.insert(new_trade); //*trade_l += &new_trade;
 
                 let Some(real_market) = market else {
-                    warn!("Does not have real market. Ignoring.");
+                    warn!("Does not have real market. Ignoring the trade and continuing.");
                     return Ok(());
                 };
 
+                info!(
+                    "Sending to {:?}, trades: {:?}",
+                    self.processor_bulk.get_name(),
+                    trade_l.len()
+                );
                 self.processor_bulk
                     .send_message(ProcessorBulkMessage::NewBulk((
                         real_market.to_string(),
@@ -175,6 +176,7 @@ where
                         myself,
                         pricing_metrics.clone(),
                     )))?;
+                info!("State: <- CalculatingBulk");
                 *pns = ProcessorMiddleState::CalculatingBulk;
             }
 
@@ -183,16 +185,14 @@ where
                 ProcessorMiddleState::CalculatingBulk
                 | ProcessorMiddleState::CalculatingBulkMarketSwitch,
             ) => {
-                info!(
-                    "Processor {}, CalculatingBulk|CalculatingBulkMarketSwitch: got new trade.",
-                    self.processor_name,
-                );
+                info!("Message: NewTrade",);
 
                 let Some(real_market) = market else {
-                    warn!("Does not have market. Ignoring.");
+                    warn!("Does not have market. Ignoring and continuing.");
                     return Ok(());
                 };
 
+                info!("Updating trades and portfolio computing");
                 if let Some(real_trade) = self.all_trades.get(&new_trade) {
                     if let Some(real_market) = self.all_markets.get(real_market) {
                         for pm in pricing_metrics {
@@ -214,8 +214,9 @@ where
 
                 // send downstream the updated portfolio
                 info!(
-                    "Processor {}, CalculatingBulk: Sending new portfolio below",
-                    self.processor_name,
+                    "Sending to {:?}: portfolio {:?}",
+                    self.processor_below.get_name(),
+                    portf.count(),
                 );
 
                 // TODO: CHECK IF THIS SHOULD BE HANDLED???
@@ -231,11 +232,10 @@ where
 
             (ProcessorMiddleMessage::NewMarket(_new_market), _) => {
                 let msg = format!(
-                    "Processor {}: received NewMarket. THIS SHOULDNT HAPPEN!",
+                    "Processor {:?} received NewMarket. THIS SHOULDNT HAPPEN! Ignoring and continuing.",
                     self.processor_name,
                 );
                 error!(msg); // log the error and panic
-                panic!("{}", msg);
             }
 
             // this only comes from processor below
@@ -252,30 +252,25 @@ where
                 if trades_behind.is_empty() {
                     // this processor below is ahead, reset the
                     //    processor to the new Idle state.
-                    info!(
-			"Processor: {}, State: (Behind, CalculatingSingle): Accepted portfolio from market below. Going Idle.",
-			self.processor_name,
-		    );
+                    info!("Processor below accepted portfolio from market below.",);
+                    info!("State: <- Idle");
                     *pns = ProcessorMiddleState::Idle;
                 } else {
                     // we are still behind the below processor.
                     //   we add the trades to the trade list, and
                     //   send it to the bulk processor.
                     info!(
-                        "Processor {}, State: (Behind, CalculatingSingle): Behind: {} trades.",
-                        self.processor_name,
+                        "Message: Behind: {} trades. Adding those trades to current population.",
                         trades_behind.len(),
                     );
-
                     trade_l.extend(trades_behind.clone()); // *trade_l += &trades_behind;
 
                     let Some(real_market) = market else {
-                        warn!("Does not have market. Ignoring.");
                         warn!(
-                            "{}: Destroying the market {}",
+                            "{} does not have market: Destroying the market {}",
                             self.processor_name, market_behind,
                         );
-                        self.all_markets.remove(&market_behind);
+                        self.all_markets.remove(&market_behind); // TODO: IS THIS CORRECT
                         return Ok(());
                     };
 
@@ -287,7 +282,11 @@ where
                         self.all_markets.remove(&market_behind);
                     }
 
-                    info!("Processor {}, Behind: Sending bulk compute.", real_market);
+                    info!(
+                        "Processor {}, Behind: Sending bulk compute to {:?}.",
+                        self.processor_name,
+                        self.processor_bulk.get_name(),
+                    );
                     self.processor_bulk
                         .send_message(ProcessorBulkMessage::NewBulk((
                             real_market.to_string(),
@@ -295,6 +294,7 @@ where
                             myself,
                             pricing_metrics.clone(),
                         )))?;
+                    info!("State: <- CalculatingBulk");
                     *pns = ProcessorMiddleState::CalculatingBulk;
                 }
             }
@@ -307,11 +307,10 @@ where
                 if trades_behind.is_empty() {
                     // new processor is ahead, reset the
                     //    processor to the new default state.
-
+                    // XXX
                     //*portf = PortfolioType::default();
-
                     info!(
-                        "Processor {}, Calculating bulk: Received confirmation \
+                        "Processor {}, CalculatingBulk: Received confirmation \
 			 that lower processor accepted portfolio. Defaulting.",
                         self.processor_name
                     );
@@ -417,7 +416,7 @@ where
                 // Important: This Souldnt happen.
                 // TODO: CHECK WHY THIS IS THE CASE???
                 warn!(
-                    "Processor {}, State: Idle: Ignoring bulk receive. Should not happen.",
+                    "Processor {}, Message: BulkReceive: Ignoring bulk receive. Should not happen.",
                     self.processor_name,
                 );
             }
@@ -435,7 +434,7 @@ where
                 // TODO: FINISH THIS HERE - what to do w/ offending trades???
                 //    Nothing for now.
                 info!(
-                    "Processor {}, CalculatingBulk: received response from bulk. \
+                    "Processor {}, Message: BulkReceive: 
 		     Normal case. Going to CalculatingSingle.",
                     self.processor_name,
                 );
@@ -687,6 +686,10 @@ where
                 let _ = upstream_processor.send_message(
                     ProcessorMiddleMessage::Behind(new_market.to_string(), new_behind_curr), // TODO: CHECK IF THIS IS REALLY NEW_MARKET??
                 );
+            }
+
+            (ProcessorMiddleMessage::BulkBusy, _) => {
+                info!("Message: BulkBusy. Ignore for now.");
             }
 
             (ProcessorMiddleMessage::ProcessingStat(_), _) => {} // processing stat is not for this processor

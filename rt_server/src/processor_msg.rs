@@ -24,6 +24,7 @@ pub enum ProcessorMiddleMessage<MT> {
     // third: offending trades.
     // fourth: market reference on which these trades were computed.
     BulkReceive((TradesLocal, PmPortfolio, TradesLocal, String)),
+    BulkBusy, // unable to compute right now, as it's busy
 
     // message from the processor above.
     // elements:

@@ -33,12 +33,25 @@ impl PortfolioType {
     }
 }
 
+// compares the two portfolios of PortfolioType
 impl PartialOrd for PortfolioType {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.keys().all(|key| other.contains_key(key)) {
+        let self_less_other = self.keys().all(|key| other.contains_key(key));
+        let other_less_self = other.keys().all(|key| self.contains_key(key));
+
+        if self_less_other && other_less_self {
+            return Some(std::cmp::Ordering::Equal);
+        }
+
+        if self_less_other {
             return Some(std::cmp::Ordering::Less);
         }
-        None
+
+        if other_less_self {
+            return Some(std::cmp::Ordering::Greater);
+        }
+
+        return None;
     }
 }
 
@@ -487,10 +500,50 @@ impl PmPortfolio {
 //   this determines when a PmPortfolio is accepted.
 impl PartialOrd for PmPortfolio {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.keys().all(|key| other.contains_key(key)) {
-            return Some(std::cmp::Ordering::Less);
+        let self_less_other = self.keys().all(|key| other.contains_key(key));
+        let other_less_self = other.keys().all(|key| self.contains_key(key));
+
+        // TODO: THIS IS REALLY ASSOCIATED w/ EQUAL
+        // if self_less_other && other_less_self {
+        //     let mut pm_orders = Vec::<bool>::new();
+
+        //     for pm in self.keys() {
+        //         let portf_comp = self.get(pm) <= other.get(pm);
+        //         pm_orders.push(portf_comp);
+        //     }
+
+        //     if pm_orders.iter().all(|pm_ord| *pm_ord) {
+        //         return Some(std::cmp::Ordering::Less); // TODO: could also be ==
+        //     }
+        // }
+
+        if self_less_other {
+            let mut pm_orders = Vec::<bool>::new();
+
+            for pm in self.keys() {
+                let portf_comp = self.get(pm) <= other.get(pm);
+                pm_orders.push(portf_comp);
+            }
+
+            if pm_orders.iter().all(|pm_ord| *pm_ord) {
+                return Some(std::cmp::Ordering::Less); // TODO: could also be ==
+            }
         }
-        None
+
+        if other_less_self {
+            let mut pm_orders = Vec::<bool>::new();
+
+            for pm in other.keys() {
+                let portf_comp = other.get(pm) <= self.get(pm);
+                pm_orders.push(portf_comp);
+            }
+
+            if pm_orders.iter().all(|pm_ord| *pm_ord) {
+                return Some(std::cmp::Ordering::Greater); // TODO: could also be ==
+            }
+        }
+
+        return None;
     }
 }
 
