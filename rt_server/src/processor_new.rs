@@ -385,18 +385,21 @@ where
                     //   action taken.
                     ProcessorNewState::CalculatingBulk => {
                         // just update the future market
-                        info!("Not doing anything.");
+                        info!("Switching new_m <- future.");
+                        let Some(future_market) = self.all_markets.get(&"future".to_string())
+                        else {
+                            warn!(
+                                "Could not find 'future' market. This is weird. Continuing w/o it."
+                            );
+                            return Ok(());
+                        };
+                        let future_market_name = future_market.market_name();
 
-                        // TODO: CHECK IF THIS REALLY NEEDS TO BE DONE.
-                        //    COMMENTED OUT FOR NOW!!!
-                        // new_m market should be updated.
-                        // HERE IT STARTS:
-                        // let Some(new_market_val) = self.all_markets.get(&new_market) else {
-                        //     warn!("Could not get market {} from all_markets. Ignoring the market and continuing", new_market);
-                        //     return Ok(());
-                        // };
-                        // let new_market_name = new_market_val.market_name();
-                        // *new_m = Some(new_market_name);
+                        info!(
+                            "Switching markets: New_m <- future market {}",
+                            future_market_name.clone()
+                        );
+                        *new_m = Some(future_market_name.clone());
                     }
                 }
             }
@@ -405,6 +408,10 @@ where
             //
             ProcessorMiddleMessage::Behind(market_behind, trades_behind) => {
                 // we are behind trades behind the below processor
+                info!(
+                    "Message: Behind, market: {:?}, trades_beind: {:?}",
+                    market_behind, trades_behind
+                );
                 match pns {
                     // what is the processor doing right now
                     ProcessorNewState::CalculatingSingle => {
@@ -419,7 +426,7 @@ where
                             // new processor is ahead, reset the
                             //    new processor to the new default state.
                             info!(
-                                "Behind, CalculatingSingle: Successfully accepted. Resetting portfolio: portf = empty"
+                                "Lower processor ccepted portfolio. Resetting portfolio: portf = empty"
                             );
                             *portf = PmPortfolio::new();
 
@@ -431,15 +438,19 @@ where
                             };
                             let future_market_name = future_market.market_name();
 
-                            info!("Behind, CalculatingSingle: Switching markets: New_m <- future market {}", future_market_name.clone());
+                            info!(
+                                "Switching markets: New_m <- future market {}",
+                                future_market_name.clone()
+                            );
                             *new_m = Some(future_market_name.clone());
 
-                            info!("{:?} -> {:?}", pns, ProcessorNewState::Idle); // from pns -> Idle
+                            info!("State: {:?} -> {:?}", pns, ProcessorNewState::Idle); // from pns -> Idle
                             *pns = ProcessorNewState::Idle;
                         } else {
                             // we are still behind the current processor. We destroy market_behind, and continue
                             //   computing on new_m.
                             // TODO: HERE COMES IN HEURISTICS, WHETHER TO SWITCH TO THE FUTURE MARKET.
+                            info!("Lower processor rejected portfolio.");
 
                             // destroying the market_behind
                             match new_m {
@@ -492,7 +503,7 @@ where
                         // add the trades to portfolio, nothing else.
                         if !trades_behind.is_empty() {
                             info!(
-                                "Adding non-computed trades {} to trade list.",
+                                "Adding non-computed trades {} to trade list. Not doing anything.",
                                 trades_behind.len()
                             );
                             trade_l.extend(trades_behind);

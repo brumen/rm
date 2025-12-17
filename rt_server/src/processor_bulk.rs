@@ -143,7 +143,7 @@ where
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         info!("Initializing Bulk processor: {}", self.processor_name);
-        Ok(ProcessorBulkState::Calculating) //  (0, None)  // intialized to 0 attempts.
+        Ok(ProcessorBulkState::Idle) //  (0, None)  // intialized to 0 attempts.
     }
 
     async fn handle(
@@ -152,10 +152,10 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        info!("State: {:?}", state);
+        info!("Processor: {}, State: {:?}", self.processor_name, state);
         match state {
             ProcessorBulkState::Calculating => {
-                warn!("Currently calculating, ignoring messages."); // TODO: This might change.
+                info!("Currently calculating, ignoring messages."); // TODO: This might change.
             }
 
             ProcessorBulkState::Idle => {
@@ -171,6 +171,8 @@ where
                     )) => {
                         // start the long-running pricing procedure
                         info!("Message: NewBulk");
+                        info!("State: {:?} -> Calculating", state);
+                        *state = ProcessorBulkState::Calculating;
                         info!(
                             "Computing {} trades for {:?}.",
                             new_trades.len(),
@@ -255,13 +257,14 @@ where
                             sending_processor.get_name(),
                             portfolio.simple(),
                         );
-
                         sending_processor.send_message(ProcessorMiddleMessage::BulkReceive((
                             new_trades,
                             portfolio,
                             non_pricing_trades,
                             market,
                         )))?;
+                        info!("State: {:?} -> Idle", state);
+                        *state = ProcessorBulkState::Idle;
                     }
 
                     ProcessorBulkMessage::Abandon => {
