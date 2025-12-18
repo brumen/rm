@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 /// Processor which gets a bulk of work, and finishes it.
 ///
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
@@ -13,9 +13,11 @@ use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesL
 use crate::trade::{BaseTrade, TradeRep};
 
 // computes bulk evaluation of trades in trade_names
+#[derive(Debug)]
 pub struct ProcessorBulk<T, MT>
 where
-    MT: MarketTypeT,
+    MT: MarketTypeT + std::fmt::Debug,
+    T: std::fmt::Debug,
 {
     pub processor_name: String, // name of the bulk processor, usually curr_bulk, new_bulk, middle_1_bulk
     pub(crate) all_trades: Arc<TradeRep<T>>, // all_trades is a reference to the structure that contains all trades.
@@ -24,8 +26,9 @@ where
 
 impl<T, MT> ProcessorBulk<T, MT>
 where
-    MT: MarketTypeT,
+    MT: MarketTypeT + std::fmt::Debug,
     MT::MP: Clone,
+    T: std::fmt::Debug,
 {
     pub(crate) fn new(
         processor_name: String, // original processor on which this depends.
@@ -119,17 +122,17 @@ pub enum ProcessorBulkState {
 #[async_trait]
 impl<T, MT> PriceMultiple<T, MT> for ProcessorBulk<T, MT>
 where
-    MT: MarketTypeT + 'static,
+    MT: MarketTypeT + 'static + std::fmt::Debug,
     MT::MP: Clone,
-    T: PriceTrade<MT> + 'static,
+    T: PriceTrade<MT> + 'static + std::fmt::Debug,
 {
 }
 
 #[async_trait]
 impl<T, MT> Actor for ProcessorBulk<T, MT>
 where
-    T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static,
-    MT: MarketTypeT + Send + Sync + 'static,
+    T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static + std::fmt::Debug,
+    MT: MarketTypeT + Send + Sync + 'static + std::fmt::Debug,
     MT::MP: Send + Sync + Clone,
 {
     type Msg = ProcessorBulkMessage<String>;
@@ -146,6 +149,7 @@ where
         Ok(ProcessorBulkState::Idle) //  (0, None)  // intialized to 0 attempts.
     }
 
+    #[instrument(name="pb_span", skip(message, state, _myself, self), fields(pb_name=self.processor_name))]
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -155,7 +159,8 @@ where
         info!("Processor: {}, State: {:?}", self.processor_name, state);
         match state {
             ProcessorBulkState::Calculating => {
-                info!("Currently calculating, ignoring messages."); // TODO: This might change.
+                info!("Currently calculating, ignoring messages for now. This might change.");
+                // TODO: This might change.
             }
 
             ProcessorBulkState::Idle => {
@@ -220,32 +225,6 @@ where
                                 self.all_trades.clone(),
                             )
                             .await;
-
-                        // let mut portfolio = PmPortfolio::new();
-                        // for used_trade in new_trades.iter() {
-                        //     let used_trade = self.all_trades.get(used_trade).unwrap();
-                        //     for pm in pricing_metrics.clone() {
-                        //         let price_pm = used_trade.value_by_metric(pm, market_actual.clone()).await;
-                        //         let price_pm_agg = price_pm.aggregate();
-                        //         match portfolio.get_mut(&pm) {
-                        //             Some(portfolio_pm) => {
-                        //                 *portfolio_pm += price_pm_agg;
-                        //             }
-                        //             None => {
-                        //                 let mut new_pm = PortfolioType::default();
-                        //                 new_pm += price_pm_agg;
-                        //                 portfolio.insert(pm, new_pm);
-                        //             }
-                        //         }
-                        //         debug!("Priced trade {}: {:?}", used_trade.key(), price_pm);
-                        //     }
-                        // }
-                        // TODO: Finish this part here!
-                        // updating the portfolio
-                        // let pricing_res = join_all(pricing_futs).await;
-                        //for pricing in pricing_res.iter() {
-                        //    portfolio += pricing.aggregate();
-                        // }
 
                         info!(
                             "Sending portfolio back to actor {:?}: {:?}",

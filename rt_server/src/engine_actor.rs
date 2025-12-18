@@ -32,9 +32,9 @@ pub(crate) async fn create_curr_actor<T, MT>(
     mp: MT::MP,
 ) -> (ProcessorCurr<T, MT>, JoinHandle<()>)
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT>,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT> + std::fmt::Debug,
     MT::MP: 'static + Send + Sync + Clone,
-    MT: MarketTypeT + Send + Sync + 'static + Clone,
+    MT: MarketTypeT + Send + Sync + 'static + Clone + std::fmt::Debug,
 {
     let curr_bulk = ProcessorBulk::new(
         "curr".to_string(), // bulk is for processor current
@@ -71,9 +71,9 @@ pub(crate) async fn create_middle_actor<T, MT>(
     mp: MT::MP,
 ) -> (ProcessorMiddle<T, MT>, JoinHandle<()>)
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT>,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT> + std::fmt::Debug,
     MT::MP: 'static + Send + Sync + Clone,
-    MT: MarketTypeT + 'static,
+    MT: MarketTypeT + 'static + std::fmt::Debug,
 {
     let middle_bulk_name = format!("{}_bulk", processor_name);
 
@@ -122,9 +122,9 @@ pub(crate) async fn create_middle_procs_chain<T, MT>(
     Vec<JoinHandle<()>>,                           // bulk processor handles.
 )
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT>,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT> + std::fmt::Debug,
     MT::MP: 'static + Send + Sync + Clone,
-    MT: MarketTypeT + Send + Sync + Clone + 'static,
+    MT: MarketTypeT + Send + Sync + Clone + 'static + std::fmt::Debug,
 {
     let mut bulk_actors_futures: Vec<JoinHandle<()>> = vec![];
     let mut processor_actors_futures: Vec<JoinHandle<()>> = vec![];
