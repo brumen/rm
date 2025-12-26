@@ -1,7 +1,11 @@
+// use circular_buffer::CircularBuffer;
+use crossbeam_queue::ArrayQueue;
 use dashmap::DashMap;
 use tracing::{debug, warn};
 
 use crate::market::MarketTypeT;
+
+const MN_LENGTH: usize = 100;
 
 /// list of (market names, actual market)
 // MT.. market type
@@ -10,8 +14,8 @@ use crate::market::MarketTypeT;
 #[derive(Debug)]
 pub(crate) struct AllMarkets<MT> {
     pub(crate) markets: DashMap<String, MT>,
-    pub(crate) market_names: DashMap<usize, String>, // mapping of numbers to markets.
-                                                     //    pub(crate) mp: Option<MT::MP>,
+    pub(crate) market_names: ArrayQueue<String>, // <usize, String>, // mapping of numbers to markets.
+                                                 //    pub(crate) mp: Option<MT::MP>,
 }
 
 impl<MT> AllMarkets<MT>
@@ -34,7 +38,7 @@ where
     pub(crate) fn new() -> Self {
         Self {
             markets: DashMap::<String, MT>::new(),
-            market_names: DashMap::<usize, String>::new(),
+            market_names: ArrayQueue::new(MN_LENGTH), // DashMap::<usize, String>::new(),
         }
     }
 
@@ -63,20 +67,7 @@ where
             market_name,
             self.list_market_names(),
         );
-        self._insert_name(market_name);
-    }
-
-    pub(crate) fn _insert_name(&self, market_name: String) {
-        // find the largest nb and insert a higher number
-        match self.market_names.iter().map(|r| *r.key()).max() {
-            None => {
-                // nothing was found - insert 0.
-                self.market_names.insert(0, market_name);
-            }
-            Some(highest_nb) => {
-                self.market_names.insert(highest_nb + 1, market_name);
-            }
-        }
+        self.market_names.push(market_name);
     }
 
     // pub(crate) fn get_market(&self, market_nb: &usize) -> Option<String> {
@@ -152,8 +143,7 @@ where
                 self.list_market_names()
             );
             self.markets.remove(market_name);
-            // TODO: REORDER THE NUMBERS SO THAT WE DONT GET TO HIGH OF A MARKET NB.
-            self._remove_name(market_name);
+            self.market_names.pop();
         } else {
             warn!(
                 "Market {} still used. Not deleting from all_markets.",
@@ -162,30 +152,11 @@ where
         }
     }
 
-    // remove the name from self.market_names
-    pub(crate) fn _remove_name(&self, market_name: &String) {
-        // iterate through it and remove the name
-        // TODO: CAN THIS BE WRITTEN AS A COMBINATOR?
-        for market_nb_mn in self.market_names.iter() {
-            let mn = market_nb_mn.value();
-            let market_nb = market_nb_mn.key();
-            if mn == market_name {
-                self.market_names.remove(market_nb);
-            }
-        }
-    }
-
     // returns the market name corresponding to the largets number in self.market_names
-    pub(crate) fn last_market_name(&self) -> String {
-        let mut highest_mkt: usize = 0;
-        let mut highest_mkt_name: String = String::new();
-        for mkt_nb_name in self.market_names.iter() {
-            let mkt_nb = mkt_nb_name.key();
-            if *mkt_nb >= highest_mkt {
-                highest_mkt = *mkt_nb;
-                highest_mkt_name = mkt_nb_name.value().to_string();
-            }
-        }
-        highest_mkt_name
+    pub(crate) fn last_market_name(&self) -> Option<String> {
+        let last_name = self.market_names.pop()?;
+        self.market_names.push(last_name.clone());
+
+        Some(last_name)
     }
 }
