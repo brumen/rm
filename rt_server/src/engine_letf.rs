@@ -22,6 +22,7 @@ use crate::trade_sender::TradeProducer;
 
 /// initializes all the actors and returns a vector of joint handles to start them
 ///   all.
+#[allow(dead_code)]
 pub(crate) async fn start2<T, MT>(
     kafka_params: KafkaParams,
     metric: PricingMetric, // pricing metric, like PV

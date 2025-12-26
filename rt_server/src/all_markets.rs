@@ -1,6 +1,5 @@
 use dashmap::DashMap;
-use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::market::MarketTypeT;
 
@@ -31,6 +30,7 @@ where
     }
 
     // creates a new empty all markets structure
+    #[allow(dead_code)]
     pub(crate) fn new() -> Self {
         Self {
             markets: DashMap::<String, MT>::new(),
@@ -38,17 +38,17 @@ where
         }
     }
 
-    pub(crate) fn new2(market_1_name: String, market_1: MT) -> AllMarkets<Arc<MT>> {
-        let new_dm = DashMap::<String, Arc<MT>>::new();
-        let market_1_cast = Arc::new(market_1);
-        new_dm.insert(market_1_name.clone(), market_1_cast);
-        let new_mn = DashMap::<usize, String>::new();
-        new_mn.insert(0, market_1_name);
-        AllMarkets {
-            markets: new_dm,
-            market_names: new_mn,
-        }
-    }
+    // pub(crate) fn new2(market_1_name: String, market_1: MT) -> AllMarkets<Arc<MT>> {
+    //     let new_dm = DashMap::<String, Arc<MT>>::new();
+    //     let market_1_cast = Arc::new(market_1);
+    //     new_dm.insert(market_1_name.clone(), market_1_cast);
+    //     let new_mn = DashMap::<usize, String>::new();
+    //     new_mn.insert(0, market_1_name);
+    //     AllMarkets {
+    //         markets: new_dm,
+    //         market_names: new_mn,
+    //     }
+    // }
 
     pub(crate) fn get(&self, market_name: &String) -> Option<MT> {
         let actual_market = self.markets.get(market_name)?;
@@ -63,16 +63,26 @@ where
             market_name,
             self.list_market_names(),
         );
+        self._insert_name(market_name);
     }
 
-    pub(crate) fn insert_name(&self, market_name: String, market_nb: usize) {
-        self.market_names.insert(market_nb, market_name);
+    pub(crate) fn _insert_name(&self, market_name: String) {
+        // find the largest nb and insert a higher number
+        match self.market_names.iter().map(|r| *r.key()).max() {
+            None => {
+                // nothing was found - insert 0.
+                self.market_names.insert(0, market_name);
+            }
+            Some(highest_nb) => {
+                self.market_names.insert(highest_nb + 1, market_name);
+            }
+        }
     }
 
-    pub(crate) fn get_market(&self, market_nb: &usize) -> Option<String> {
-        let mn = self.market_names.get(market_nb)?;
-        Some(mn.value().clone())
-    }
+    // pub(crate) fn get_market(&self, market_nb: &usize) -> Option<String> {
+    //     let mn = self.market_names.get(market_nb)?;
+    //     Some(mn.value().clone())
+    // }
 
     /// attempts to find the market name in the AllMarkets -
     /// if it cant find it, returns None
@@ -113,7 +123,7 @@ where
     /// returns the market params of some market in the collection
     pub(crate) fn get_market_params(&self) -> Option<MT::MP> {
         //
-        if self.market_names.len() == 0 {
+        if self.markets.is_empty() {
             return None;
         }
 
@@ -126,18 +136,36 @@ where
 
     // remove the market from self.markets
     pub(crate) fn remove(&self, market_name: &String) {
-        self.markets.remove(market_name);
+        // check if there are non-zero users
+        let Some(market_to_remove) = self.markets.get(market_name) else {
+            warn!(
+                "Attempting to remove {:?} but market isnt present in all_markets",
+                market_name,
+            );
+            return;
+        };
 
-        debug!(
-            "Removing {} from all_markets. Current markets: {:?}",
-            market_name,
-            self.list_market_names()
-        );
+        if !market_to_remove.is_used() {
+            debug!(
+                "Removing {} from all_markets. Before deletion all_markets: {:?}",
+                market_name,
+                self.list_market_names()
+            );
+            self.markets.remove(market_name);
+            // TODO: REORDER THE NUMBERS SO THAT WE DONT GET TO HIGH OF A MARKET NB.
+            self._remove_name(market_name);
+        } else {
+            warn!(
+                "Market {} still used. Not deleting from all_markets.",
+                market_name
+            );
+        }
     }
 
     // remove the name from self.market_names
-    pub(crate) fn remove_name(&self, market_name: &String) {
+    pub(crate) fn _remove_name(&self, market_name: &String) {
         // iterate through it and remove the name
+        // TODO: CAN THIS BE WRITTEN AS A COMBINATOR?
         for market_nb_mn in self.market_names.iter() {
             let mn = market_nb_mn.value();
             let market_nb = market_nb_mn.key();

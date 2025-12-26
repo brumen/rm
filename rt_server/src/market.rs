@@ -29,6 +29,9 @@ where
     where
         Self: Sized;
     fn market_params(&self) -> Self::MP;
+    fn is_used(&self) -> bool {
+        true
+    }
 }
 
 // Setting the name of the market
@@ -77,6 +80,10 @@ impl<T: MarketTypeT> MarketTypeT for Arc<T> {
 
     fn market_params(&self) -> Self::MP {
         (**self).market_params()
+    }
+
+    fn is_used(&self) -> bool {
+        Arc::strong_count(self) > 0
     }
 }
 

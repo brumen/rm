@@ -4,10 +4,7 @@ use std::cmp::PartialOrd;
 use std::default::Default;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Deref, DerefMut, Mul, MulAssign, Neg};
-use std::{
-    collections::{BTreeMap, HashMap},
-    ops::SubAssign,
-};
+use std::{collections::HashMap, ops::SubAssign};
 
 use crate::pricer::PricingMetric;
 use crate::ref_deref_trait;
@@ -16,16 +13,10 @@ use crate::trade::{BaseTrade, TradeDirection};
 pub type PortfolioInner = HashMap<String, f64>;
 
 /// PortfolioType is of form (trade_id, trade_pv)
-#[derive(Debug, PartialEq, Serialize, Clone)]
+#[derive(Debug, PartialEq, Serialize, Clone, Default)]
 pub struct PortfolioType(pub PortfolioInner);
 
 ref_deref_trait!(PortfolioType, PortfolioInner);
-
-impl Default for PortfolioType {
-    fn default() -> Self {
-        Self(PortfolioInner::new())
-    }
-}
 
 impl PortfolioType {
     fn len(&self) -> usize {
@@ -51,7 +42,7 @@ impl PartialOrd for PortfolioType {
             return Some(std::cmp::Ordering::Greater);
         }
 
-        return None;
+        None
     }
 }
 
