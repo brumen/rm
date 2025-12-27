@@ -1,7 +1,7 @@
 // use circular_buffer::CircularBuffer;
 use dashmap::DashMap;
 use std::fmt;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::market::MarketTypeT;
 
@@ -105,29 +105,8 @@ where
         self.insert_processor(processor_name, market_name);
     }
 
-    // pub(crate) fn get_market(&self, market_nb: &usize) -> Option<String> {
-    //     let mn = self.market_names.get(market_nb)?;
-    //     Some(mn.value().clone())
-    // }
-
-    /// attempts to find the market name in the AllMarkets -
-    /// if it cant find it, returns None
-    // fn _find_market(&self, mkt_name: &String) -> Option<usize> {
-    //     self.0.iter().position(|r| r.market_name() == *mkt_name)
-    // }
-
-    // gets the reference to the market w/ the name
-    // pub(crate) fn get_m(&self, market_name: &String) -> Option<MT> {
-    //     let k = self.get(market_name)?;
-
-    //     let m = k.value();
-
-    //     Some(m)
-    //     //market_ref.value()
-    //     // Some(&self.0[market_nb])
-    // }
-
     /// returns the market params of some market in the collection
+    #[allow(dead_code)]
     pub(crate) fn get_market_params(&self) -> Option<MT::MP> {
         //
         if self.markets.is_empty() {
@@ -142,32 +121,32 @@ where
     }
 
     // remove the market from self.markets
-    pub(crate) fn remove(&self, market_name: &String) {
-        // check if there are non-zero users
-        let Some(market_to_remove) = self.markets.get(market_name) else {
-            warn!(
-                "Attempting to remove {:?} but market isnt present in all_markets",
-                market_name,
-            );
-            return;
-        };
+    // pub(crate) fn remove(&self, market_name: &String) {
+    //     // check if there are non-zero users
+    //     let Some(market_to_remove) = self.markets.get(market_name) else {
+    //         warn!(
+    //             "Attempting to remove {:?} but market isnt present in all_markets",
+    //             market_name,
+    //         );
+    //         return;
+    //     };
 
-        if !market_to_remove.is_used() {
-            debug!(
-                "Removing {} from all_markets. Before deletion all_markets: {:?}",
-                market_name,
-                self.list_market_names()
-            );
-            self.markets.remove(market_name);
-        } else {
-            warn!(
-                "Market {} still used. Not deleting from all_markets.",
-                market_name
-            );
-        }
-    }
+    //     if !market_to_remove.is_used() {
+    //         debug!(
+    //             "Removing {} from all_markets. Before deletion all_markets: {:?}",
+    //             market_name,
+    //             self.list_market_names()
+    //         );
+    //         self.markets.remove(market_name);
+    //     } else {
+    //         warn!(
+    //             "Market {} still used. Not deleting from all_markets.",
+    //             market_name
+    //         );
+    //     }
+    // }
 
-    pub(crate) fn remove_processor(&self, processor_name: &String) {
-        self.market_names.remove(processor_name);
-    }
+    // pub(crate) fn remove_processor(&self, processor_name: &String) {
+    //     self.market_names.remove(processor_name);
+    // }
 }

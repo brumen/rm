@@ -92,6 +92,68 @@ class YFOptionChainFetcher(MarketStockFetcher):
             results[ticker] = self.fetch_option_chain(ticker, expiry)
         return results
 
+    def _calibrate_chain(
+            self,
+            curr_date: datetime.date,
+            ticker: str,
+            expiry: datetime.date,
+            option_chain: List,
+            avg_price: float,
+    ) -> MarketValueTuple:  # this is a generator
+        curr_date = datetime.date.today()
+        normalized_expiry = (expiry - curr_date).days / 252.
+        calibration = SABRCalibratorMixin().calibrate(
+            option_chain,
+            avg_price,
+            normalized_expiry,
+        )
+        expiry_str = expiry.strftime("%Y-%m-%d")
+        # calibration looks like this:
+        # {
+        #     "alpha" : 0.25197037965404656,
+        #     "beta" : 0.5,
+        #     "rho" : 0.8916287692857908,
+        #     "nu" : 0.0001,
+        #     "success" : true,
+        #     "message" : "CONVERGENCE: NORM_OF_PROJECTED_GRADIENT_<=_PGTOL",
+        #     "ticker" : "MSFT",
+        #     "expiry" : "2028-06-16",
+        #     "F" : 92.59881578947369
+        # }
+        calibration |= {
+            'ticker': ticker,
+            'expiry': expiry_str,
+            'F': avg_price,
+        }
+        # calibration_send will be decoded correctly by Rust.
+        for param_name in ('Alpha', 'Beta', 'Rho', 'Nu'):
+            # calibration_send = [
+            #     {
+            #         'Sabr',
+            #         {
+            #             'SabrParameters',
+            #             {
+            #                 'stock': ticker,
+            #                 'maturity': calibration['expiry'],
+            #                 'param_name': param_name,
+            #             },
+            #         },
+            #         calibration[param_name],
+            #     }
+            # ]
+            sabr_params = SabrParameters(
+                stock=ticker,
+                maturity=expiry_str,
+                param_name=param_name
+            )
+            sabr_instance = Sabr(Sabr=sabr_params)
+            calibration_send = MarketValueTuple(
+                market_key=sabr_instance,
+                value=calibration[param_name],
+            )
+
+            yield calibration_send
+
     def _run_option_chains(self, timeout: int = 60):
         """ Timeout for 60 seconds.
         """
@@ -135,63 +197,21 @@ class YFOptionChainFetcher(MarketStockFetcher):
                                 f'Could not send to {self.topic}: {e}'
                             )
 
-                    # now run calibration and post that
                     curr_date = datetime.date.today()
-                    normalized_expiry = (expiry - curr_date).days / 252.
-                    calibration = SABRCalibratorMixin().calibrate(
-                        option_chain,
-                        avg_price,
-                        normalized_expiry,
-                    )
-                    expiry_str = expiry.strftime("%Y-%m-%d")
-                    # calibration looks like this:
-                    # {
-                    #     "alpha" : 0.25197037965404656,
-                    #     "beta" : 0.5,
-                    #     "rho" : 0.8916287692857908,
-                    #     "nu" : 0.0001,
-                    #     "success" : true,
-                    #     "message" : "CONVERGENCE: NORM_OF_PROJECTED_GRADIENT_<=_PGTOL",
-                    #     "ticker" : "MSFT",
-                    #     "expiry" : "2028-06-16",
-                    #     "F" : 92.59881578947369
-                    # }
-                    calibration |= {
-                        'ticker': ticker,
-                        'expiry': expiry_str,
-                        'F': avg_price,
-                    }
-                    # calibration_send will be decoded correctly by Rust.
-                    for param_name in ('Alpha', 'Beta', 'Rho', 'Nu'):
-                        # calibration_send = [
-                        #     {
-                        #         'Sabr',
-                        #         {
-                        #             'SabrParameters',
-                        #             {
-                        #                 'stock': ticker,
-                        #                 'maturity': calibration['expiry'],
-                        #                 'param_name': param_name,
-                        #             },
-                        #         },
-                        #         calibration[param_name],
-                        #     }
-                        # ]
-                        sabr_params = SabrParameters(
-                            stock=ticker,
-                            maturity=expiry_str,
-                            param_name=param_name
-                        )
-                        sabr_instance = Sabr(Sabr=sabr_params)
-                        calibration_send = MarketValueTuple(
-                            market_key=sabr_instance,
-                            value=calibration[param_name],
-                        )
-
-                        # send the parameter in parameter name.
+                    for calibration_entry in self._calibrate_chain(
+                            curr_date,
+                            ticker,
+                            expiry,
+                            option_chain,
+                            avg_price,
+                    ):
                         try:
-                            self.producer.send(self.topic, calibration_send.to_json_array())
-                            _logger.info(f'Sent to {self.topic}: {calibration_send}')
+                            self.producer.send(
+                                self.topic, calibration_entry.to_json_array()
+                            )
+                            _logger.info(
+                                f'Sent to {self.topic}: {calibration_entry}'
+                            )
                         except Exception as e:
                             _logger.error(
                                 f'Could not send to {self.topic}: {e}'

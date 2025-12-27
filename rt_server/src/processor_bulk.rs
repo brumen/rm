@@ -1,8 +1,8 @@
+/// Processor which gets a bulk of work, and finishes it.
+///
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::collections::HashSet;
 use std::sync::Arc;
-/// Processor which gets a bulk of work, and finishes it.
-///
 use tracing::{debug, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;

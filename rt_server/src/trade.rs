@@ -67,6 +67,7 @@ impl<TR> DerefMut for TradeRep<TR> {
     }
 }
 
+#[allow(dead_code)]
 pub trait TradeReduce {
     type TradeType: BaseTrade + Send;
     type ReductionType: Send + Sync + Clone + BaseTrade;

@@ -55,13 +55,25 @@ class SABRCalibratorMixin:
 
         def objective(params):
             alpha, rho, nu = params
-            model_vols = [self.sabr_vol(F, K, T, alpha, beta, rho, nu) for K in strikes]
+            model_vols = [
+                self.sabr_vol(F, K, T, alpha, beta, rho, nu)
+                for K in strikes
+            ]
 
-            return np.mean([(model_vol - vol)**2 for (model_vol, vol) in zip(model_vols, vols)])
+            return np.mean(
+                [(model_vol - vol)**2
+                 for (model_vol, vol) in zip(model_vols, vols)
+                 ]
+            )
 
         initial_guess = [0.2, 0.0, 0.5]
         bounds = [(1e-4, 5.0), (-0.999, 0.999), (1e-4, 5.0)]
-        result = minimize(objective, initial_guess, bounds=bounds, method="L-BFGS-B")
+        result = minimize(
+            objective,
+            initial_guess,
+            bounds=bounds,
+            method="L-BFGS-B"
+        )
 
         return {
             "Alpha": result.x[0],

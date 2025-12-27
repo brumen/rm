@@ -534,7 +534,7 @@ impl PartialOrd for PmPortfolio {
             }
         }
 
-        return None;
+        None
     }
 }
 

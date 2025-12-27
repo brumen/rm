@@ -8,6 +8,7 @@ use crate::pricer::PricingMetric;
 pub(crate) type TradesLocal = HashSet<String>;
 
 /// message that the new processor receives
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub enum ProcessorMiddleMessage<MT> {
     NewTrade(String), // message from trade producer, trade id.
