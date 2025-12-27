@@ -11,7 +11,7 @@ use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesL
 use crate::trade::{BaseTrade, TradeRep};
 
 // T is mnemonic for trade type, MT is mnemonic for market type
-pub(crate) struct ProcessorMiddle<T, MT> {
+pub(crate) struct ProcessorMiddle<T, MT: std::fmt::Debug> {
     pub(crate) processor_name: String,
     pub processor_below: ActorRef<ProcessorMiddleMessage<String>>,
     pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
@@ -21,7 +21,7 @@ pub(crate) struct ProcessorMiddle<T, MT> {
 
 impl<T, MT> ProcessorMiddle<T, MT>
 where
-    MT: MarketTypeT,
+    MT: MarketTypeT + std::fmt::Debug,
     MT::MP: Clone,
 {
     #[allow(dead_code)]
@@ -55,7 +55,7 @@ pub enum ProcessorMiddleState {
 impl<T, MT> Actor for ProcessorMiddle<T, MT>
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT>,
-    MT: Send + Sync + MarketTypeT + 'static,
+    MT: Send + Sync + MarketTypeT + 'static + std::fmt::Debug,
     MT::MP: Clone,
 {
     type Msg = ProcessorMiddleMessage<String>;
@@ -198,8 +198,11 @@ where
                         for pm in pricing_metrics {
                             let new_trade_price =
                                 real_trade.value_by_metric(*pm, real_market.clone()).await;
-                            let portf_pm = portf.get_mut(pm).unwrap();
-                            *portf_pm += new_trade_price; // portfolio update
+                            if let Some(portf_pm) = portf.get_mut(pm) {
+                                *portf_pm += new_trade_price; // portfolio update
+                            } else {
+                                warn!("Could not get pricing metric {:?} in portfolio", pm);
+                            };
                         }
 
                         trade_l.insert(new_trade);
@@ -270,17 +273,23 @@ where
                             "{} does not have market: Destroying the market {}",
                             self.processor_name, market_behind,
                         );
-                        self.all_markets.remove(&market_behind); // TODO: IS THIS CORRECT
+                        // TODO: CHECK HERE!!
+                        //self.all_markets.remove(&market_behind); // TODO: IS THIS CORRECT
+                        //self.all_markets
+                        //    .insert_processor(self.processor_name.clone(), real_market.clone());
                         return Ok(());
                     };
 
-                    if market_behind != *real_market {
-                        warn!(
-                            "{}: Destroying the market {}",
-                            self.processor_name, market_behind,
-                        );
-                        self.all_markets.remove(&market_behind);
-                    }
+                    self.all_markets
+                        .insert_processor(self.processor_name.clone(), real_market.clone());
+
+                    // if market_behind != *real_market {
+                    //     warn!(
+                    //         "{}: Destroying the market {}",
+                    //         self.processor_name, market_behind,
+                    //     );
+                    //     self.all_markets.remove(&market_behind);
+                    // }
 
                     info!(
                         "Processor {}, Behind: Sending bulk compute to {:?}.",
@@ -339,18 +348,22 @@ where
                         self.processor_name, market_behind,
                     );
                     let Some(real_market) = market else {
-                        *market = Some(market_behind);
+                        *market = Some(market_behind.clone());
+                        self.all_markets
+                            .insert_processor(self.processor_name.clone(), market_behind);
                         return Ok(());
                     };
 
                     // remove market_behind if not equal to current market here - should never happen
-                    if *real_market != market_behind {
-                        warn!(
-                            "{}: Destroying market: {}",
-                            self.processor_name, market_behind,
-                        );
-                        self.all_markets.remove(&market_behind);
-                    }
+                    self.all_markets
+                        .insert_processor(self.processor_name.clone(), real_market.clone());
+                    // if *real_market != market_behind {
+                    //     warn!(
+                    //         "{}: Destroying market: {}",
+                    //         self.processor_name, market_behind,
+                    //     );
+                    //     self.all_markets.remove(&market_behind);
+                    // }
 
                     info!(
                         "Processor {}, State: CalculatingBulk|CalculatingBulkMarketSwitch: Sending for bulk compute.",
@@ -397,7 +410,9 @@ where
                 } else {
                     // remove the market_behind.
                     let Some(real_market) = market else {
-                        *market = Some(market_behind);
+                        *market = Some(market_behind.clone());
+                        self.all_markets
+                            .insert_processor(self.processor_name.clone(), market_behind);
                         return Ok(());
                     };
 
@@ -406,7 +421,9 @@ where
                             "{}: Destroying market {}",
                             self.processor_name, market_behind,
                         );
-                        self.all_markets.remove(&market_behind);
+                        self.all_markets
+                            .insert_processor(self.processor_name.clone(), real_market.clone());
+                        // self.all_markets.remove(&market_behind);
                     }
                 }
             }
@@ -528,8 +545,9 @@ where
                 );
 
                 // switch markets as well
-                // self._switch_markets(market, new_market).await?;
                 *market = Some(new_market.to_string());
+                self.all_markets
+                    .insert_processor(self.processor_name.clone(), new_market.clone());
 
                 info!(
                     "Processor {}, Idle: passing portfolio to lower processor",
@@ -600,6 +618,8 @@ where
                     // set the state of this processor to the state being sent.
                     //self._switch_markets(market, &_new_market).await?;  // changes markets
                     *market = Some(new_market.clone()); // market switch is simply a name change.
+                    self.all_markets
+                        .insert_processor(self.processor_name.clone(), new_market.clone());
                     *portf = potential_portfolio;
                     *trade_l = potential_trades;
                     *pns = ProcessorMiddleState::CalculatingBulkMarketSwitch;
@@ -677,8 +697,9 @@ where
                         self.processor_name,
                     );
 
-                    // self._switch_markets(market, &_new_market).await?;
                     *market = Some(new_market.clone()); // TODO: CHECK THIS PART!!!
+                    self.all_markets
+                        .insert_processor(self.processor_name.clone(), new_market.clone());
                 }
                 // sending upstream that we are done.
                 // TODO: CHECK IF THIS SHOULD BE BETTER HANDLED

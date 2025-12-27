@@ -83,7 +83,7 @@ impl<T: MarketTypeT> MarketTypeT for Arc<T> {
     }
 
     fn is_used(&self) -> bool {
-        Arc::strong_count(self) > 0
+        Arc::strong_count(self) > 1
     }
 }
 

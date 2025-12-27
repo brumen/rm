@@ -15,7 +15,7 @@ use crate::trade::{BaseTrade, TradeRep};
 
 pub(crate) struct ProcessorCurr<T, MT>
 where
-    MT: MarketTypeT,
+    MT: MarketTypeT + std::fmt::Debug,
 {
     pub processor_name: String,
     pub results_topic: String,
@@ -28,7 +28,7 @@ where
 
 impl<T, MT> std::fmt::Debug for ProcessorCurr<T, MT>
 where
-    MT: MarketTypeT,
+    MT: MarketTypeT + std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CurrentProcessor({self.processor_name})")
@@ -58,7 +58,7 @@ pub(crate) trait PublishPortfolio {
 impl<T, MT> PublishPortfolio for ProcessorCurr<T, MT>
 where
     T: Send + Sync,
-    MT: Send + Sync + MarketTypeT,
+    MT: Send + Sync + MarketTypeT + std::fmt::Debug,
 {
     async fn _publish_result_portfolio(
         &self,
@@ -108,7 +108,7 @@ impl<T, MT> Actor for ProcessorCurr<T, MT>
 where
     T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static,
     ProcessorCurr<T, MT>: PublishPortfolio,
-    MT: MarketTypeT + Send + Sync + 'static,
+    MT: MarketTypeT + Send + Sync + 'static + std::fmt::Debug,
     MT::MP: Clone,
 {
     type Msg = ProcessorMiddleMessage<String>; // dyn MarketTypeT<MP=MP>>;
@@ -244,7 +244,10 @@ where
                         if *old_market != new_market {
                             // only destroy if the markets are different
                             info!("Got new market, destroying the market {}", old_market);
-                            let _ = self.all_markets.remove(&old_market.clone());
+                            //let _ = self.all_markets.remove(&old_market.clone());
+                            let _ = self
+                                .all_markets
+                                .insert_processor(self.processor_name.clone(), new_market.clone());
                             // TODO: HANDLE ERROR MESSAGES
                         }
                     };

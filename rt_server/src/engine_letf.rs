@@ -74,7 +74,6 @@ where
         .await;
 
     let last_middle = processor_actors.last().unwrap().clone(); // last middle processor
-    let last_market_name = all_markets.last_market_name().unwrap(); // last market name in all_markets, should be "new" or similar - This has to have a market, otherwise fail.
 
     actors_middle_msg.extend(processor_actors.clone());
 
@@ -94,7 +93,7 @@ where
     .expect("Could not start processor_new_bulk");
 
     let processor_new = ProcessorNew::new(
-        last_market_name.clone(),
+        "processor_new".to_string(),
         last_middle.clone(),
         processor_new_bulk_actor.clone(),
         all_markets.clone(),

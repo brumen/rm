@@ -290,32 +290,33 @@ where
 
             // this is coming from mkt_handler, and market handler only produces
             //   "future" market.  Here we can potentially create a new market
-            ProcessorMiddleMessage::NewMarket(new_market) => {
+            ProcessorMiddleMessage::NewMarket(new_market_name) => {
                 info!(
                     "Message NewMarket: {}. <- This should be future.",
-                    new_market
+                    new_market_name
                 ); // TODO: IMPORTANT: this should be "future".
 
                 match pns {
                     // what is the processor doing right now
                     ProcessorNewState::Idle => {
                         // update the "new" market, and idle, change the new_m to future market
-                        info!("Setting future market: {:?}", new_market);
+                        info!("Setting future market to be: {:?}", new_market_name);
 
                         // removing the old new_m market
-                        match new_m {
-                            None => {
-                                info!("new_m is None. Not doing anything.");
-                            }
-                            Some(real_market) => {
-                                info!("Destroying new_m market {}.", real_market);
-                                self.all_markets.remove(real_market);
-                            }
-                        }
+                        // match new_m {
+                        //     None => {
+                        //         info!("new_m is None. Not doing anything.");
+                        //     }
+                        //     Some(real_market) => {
+                        //         info!("Destroying new_m market {}.", real_market);
+                        //         self.all_markets.remove(real_market);
+                        //         self.all_markets.remove_processor(&self.processor_name);
+                        //     }
+                        // }
 
                         // IMPORTANT: new_market IS "future", so get this.
-                        let Some(new_market_val) = self.all_markets.get(&new_market) else {
-                            warn!("Could not get market {} from all_markets. Ignoring the market and continuing.", new_market);
+                        let Some(new_market_val) = self.all_markets.get(&new_market_name) else {
+                            warn!("Could not get market {} from all_markets. Ignoring the market and continuing.", new_market_name);
                             return Ok(());
                         };
 
@@ -324,8 +325,18 @@ where
                             "Inserting market {} into all_markets.",
                             new_market_val_name.clone(),
                         );
-                        self.all_markets
-                            .insert(new_market_val_name.clone(), new_market_val); // insert the value under the new name
+                        // insert into markets
+                        self.all_markets.insert_both(
+                            self.processor_name.clone(),
+                            new_market_val_name.clone(),
+                            new_market_val,
+                        );
+                        // self.all_markets
+                        //     .insert(new_market_val_name.clone(), new_market_val); // insert the value under the new name
+                        // self.all_markets.insert_processor(
+                        //     self.processor_name.clone(),
+                        //     new_market_val_name.clone(),
+                        // );
                         info!("All_markets: {:?}", self.all_markets.list_market_names());
                         *new_m = Some(new_market_val_name.clone());
 
@@ -400,6 +411,11 @@ where
                             future_market_name.clone()
                         );
                         *new_m = Some(future_market_name.clone());
+                        self.all_markets.insert_both(
+                            self.processor_name.clone(),
+                            future_market_name.clone(),
+                            future_market,
+                        );
                     }
                 }
             }
@@ -443,6 +459,11 @@ where
                                 future_market_name.clone()
                             );
                             *new_m = Some(future_market_name.clone());
+                            self.all_markets.insert_both(
+                                self.processor_name.clone(),
+                                future_market_name.clone(),
+                                future_market,
+                            );
 
                             info!("State: {:?} -> {:?}", pns, ProcessorNewState::Idle); // from pns -> Idle
                             *pns = ProcessorNewState::Idle;
@@ -456,16 +477,19 @@ where
                             match new_m {
                                 None => {
                                     info!("New_m <- {}", market_behind.clone());
-                                    *new_m = Some(market_behind);
-                                    // warn!("Removing market {}", market_behind);
-                                    // self.all_markets.remove(&market_behind);
+                                    *new_m = Some(market_behind.clone());
+                                    self.all_markets.insert_processor(
+                                        self.processor_name.clone(),
+                                        market_behind,
+                                    );
                                 }
                                 Some(real_market) => {
-                                    if market_behind != *real_market {
-                                        info!("Destroying market {}", market_behind);
-                                        self.all_markets.remove(&market_behind);
-                                        // also destroy in this case
-                                    }
+                                    // if market_behind != *real_market {
+                                    self.all_markets.insert_processor(
+                                        self.processor_name.clone(),
+                                        real_market.to_string(),
+                                    );
+                                    //}
                                 }
                             }
 

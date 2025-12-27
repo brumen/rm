@@ -13,7 +13,7 @@ use crate::ref_deref::TryFromRef2;
 
 pub struct MarketProducer<MT>
 where
-    MT: MarketTypeT,
+    MT: MarketTypeT + std::fmt::Debug,
 {
     pub metric: PricingMetric,
     pub pricing_options: MT::MP,
