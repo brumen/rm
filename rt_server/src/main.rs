@@ -100,7 +100,7 @@ async fn run_all() {
         markets_used,
         initial_trades,
         (),
-        2,
+        3,
     )
     .await;
 

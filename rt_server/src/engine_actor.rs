@@ -130,7 +130,7 @@ where
     let mut processor_actors_futures: Vec<JoinHandle<()>> = vec![];
     let mut processor_actors: Vec<ActorRef<ProcessorMiddleMessage<String>>> = vec![];
 
-    let last_middle: ActorRef<ProcessorMiddleMessage<String>> = processor_curr.clone();
+    let mut last_middle: ActorRef<ProcessorMiddleMessage<String>> = processor_curr.clone();
 
     for market_nb in 0..nb_middle {
         let market_name = format!("middle_{}", market_nb);
@@ -151,6 +151,7 @@ where
 
         processor_actors.push(proc_actor.clone());
         processor_actors_futures.push(proc_actor_future);
+        last_middle = proc_actor;
     }
 
     (

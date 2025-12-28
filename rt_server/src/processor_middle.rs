@@ -165,7 +165,8 @@ where
                 };
 
                 info!(
-                    "Sending to {:?}, trades: {:?}",
+                    "Sending from {:?} to {:?}, trades: {:?}",
+                    self.processor_name.clone(),
                     self.processor_bulk.get_name(),
                     trade_l.len()
                 );
@@ -217,7 +218,8 @@ where
 
                 // send downstream the updated portfolio
                 info!(
-                    "Sending to {:?}: portfolio {:?}",
+                    "Sending from {:?} to {:?}: portfolio {:?}",
+                    self.processor_name.clone(),
                     self.processor_below.get_name(),
                     portf.count(),
                 );
