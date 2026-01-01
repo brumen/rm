@@ -8,3 +8,4 @@ rt_server/src/.*~
 *.iml
 *.xml
 .idea/*
+.aider*
