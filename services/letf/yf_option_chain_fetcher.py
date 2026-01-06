@@ -65,6 +65,7 @@ class YFOptionChainFetcher(MarketStockFetcher):
                 'ticker': ticker,
                 'lastPrice': call_opt[4],
                 'expiry': expiry,
+                'call_put': 'call',
             }
             all_chains.append(call_opt_d)
 
@@ -77,6 +78,7 @@ class YFOptionChainFetcher(MarketStockFetcher):
                 'ticker': ticker,
                 'lastPrice': call_opt[4],
                 'expiry': expiry,
+                'call_put': 'put',
             }
             all_chains.append(call_opt_d)
 
@@ -91,6 +93,45 @@ class YFOptionChainFetcher(MarketStockFetcher):
         for ticker in self.tickers:
             results[ticker] = self.fetch_option_chain(ticker, expiry)
         return results
+
+    def fetch_chains_for_ticker(self, ticker: str):
+        ticker_expiries = self._get_ticker_expiries(ticker)
+        for expiry in ticker_expiries:
+            option_chain = self.fetch_option_chain(ticker, expiry)
+            avg_price = np.mean([opt['lastPrice'] for opt in option_chain])
+            for option_entry in option_chain:
+                option_entry_str = option_entry
+                expiry_str = option_entry['expiry'].strftime('%Y-%m-%d')
+                option_entry_str['expiry'] = expiry_str
+                # option_entry_str is this:
+                # {
+                #     "symbol" : "MSFT280616P00700000",
+                #     "lastTradeDate" : "2025-12-05T15:29:27+00:00",
+                #     "volatility" : 0.000010000000000000003,
+                #     "strike" : 700.0,
+                #     "ticker" : "MSFT",
+                #     "lastPrice" : 218.55,
+                #     "expiry" : "2028-06-16"
+                # }
+                option_send = MarketValueTuple(
+                    market_key=Option(Option=option_entry_str['symbol']),
+                    value=option_entry_str['lastPrice'],
+                )
+                # option_send = [
+                #     {
+                #         "Option", option_entry_str['symbol']
+                #     },
+                #     option_entry_str['lastPrice'],
+                # ]
+                yield (option_send, avg_price)
+
+    def fetch_all_chains_all_maturs(self):
+        """ Genearates all tickers and all maturities.
+
+        """
+        for ticker in self.tickers:
+            for oc in self.fetch_chains_for_ticker(ticker):
+                yield oc
 
     def _calibrate_chain(
             self,

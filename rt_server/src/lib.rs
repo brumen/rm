@@ -13,7 +13,6 @@ pub mod trade;
 // pub mod trader;
 
 pub(crate) mod all_markets;
-// pub(crate) mod market_switching;
 pub(crate) mod engine_actor;
 pub(crate) mod engine_letf;
 pub(crate) mod markets;
@@ -28,4 +27,3 @@ pub(crate) mod trades;
 // pub(crate) mod processor_setup;  // TODO: include this after fixing the axum crate.
 pub(crate) mod processor_setup_actor;
 pub(crate) mod utils;
-// pub(crate) mod yf;

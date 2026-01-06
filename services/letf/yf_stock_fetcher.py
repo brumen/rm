@@ -51,8 +51,12 @@ class Sabr(BaseModel):
     Sabr: SabrParameters
 
 
+class MarketBreak(BaseModel):
+    Break: None
+
+
 # Union of all possible variants, representing the full LETFMarketTypes enum
-LETFMarketTypes = Union[Stock, Option, Sabr]
+LETFMarketTypes = Union[Stock, Option, Sabr, MarketBreak]
 
 
 class MarketValueTuple(BaseModel):
@@ -203,6 +207,19 @@ class YFStockKafkaStreamer(YFStockFetcher):
                 f"Error streaming message to {self.topic}: {e}, {stock_message}"
             )
 
+    def _break_point(self):
+        break_msg = MarketValueTuple(
+            market_key=MarketBreak(Break=None),
+            value=0.,  # irrelevant
+        )
+        try:
+            self.producer.send(self.topic, break_msg.to_json_array())
+            _logger.info(f"Streamed to {self.topic}: {break_msg}")
+        except Exception as e:
+            _logger.error(
+                f"Error streaming message to {self.topic}: {e}, {break_msg}"
+            )
+
     def stream_prices(self, interval: int = 60):
         """Streams stock prices to Kafka, uses yfinance's streaming (live) updates.
         """
@@ -236,6 +253,7 @@ class YFStockKafkaStreamerSim(YFStockKafkaStreamer):
                     'price': ticker_val[ticker],
                 }
                 self._process_message(msg)
+                self._break_point()  # send the break msg.
             time.sleep(interval)
 
 

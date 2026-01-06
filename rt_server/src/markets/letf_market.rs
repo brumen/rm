@@ -92,8 +92,7 @@ impl PartialEq for LETFMarketType {
 impl AddAssign<&LETFMarketType> for LETFMarketType {
     fn add_assign(&mut self, rhs: &Self) {
         for rhs_entry in rhs.market.iter() {
-            self.market
-                .insert(rhs_entry.key().clone(), rhs_entry.value().clone()); // TODO: clone here
+            self.market.insert(rhs_entry.key().clone(), *rhs_entry); // TODO: clone here
         }
     }
 }
