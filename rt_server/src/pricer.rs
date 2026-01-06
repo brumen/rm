@@ -175,6 +175,16 @@ where
     }
 }
 
+// implements the hedging of the trade
+// TODO: Check what TR should be.
+#[async_trait]
+pub trait HedgeTrade<MT, TR>
+where
+    MT: MarketTypeT + Send + Sync + 'static,
+{
+    async fn hedge(&self, market: MT) -> TR;
+}
+
 // This is not important, but was implemented to implement PriceTrade
 impl<TR> BaseTrade for TradeRep<TR> {
     fn id(&self) -> String {

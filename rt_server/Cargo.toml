@@ -15,10 +15,9 @@ recursive_call = "deny"
 [dependencies]
 actix = "0.13.0"
 actix-rt = "2.9.0"
+argmin = "0.11.0"
 async-std = "1.12.0"
 async-trait = "0.1.73"
-axum = "0.8.1"
-axum-server = "0.7.1"
 chrono = "0.4.42"
 circular-buffer = "1.2.0"
 console-subscriber = "0.2.0"
@@ -34,9 +33,10 @@ kafka = "0.9.0"
 lazy_static = "1.5.0"
 log = "0.4.18"
 monoio = "0.2.4"
+nalgebra = "0.34.1"
 orx-concurrent-vec = "3.10.0"
 queues = "1.1.0"
-ractor = "0.13.5"
+ractor = { version = "0.15.9", features = ["async-trait"] }
 rdkafka = "0.36.2"
 reqwest = { version = "0.11.13", features = ["blocking", "json"] }
 serde = { version = "1.0.152", features = ["derive"] }
@@ -45,8 +45,9 @@ serde_yaml = "0.9.16"
 string-join = "0.1.2"
 thiserror = "1.0.40"
 time = { version = "0.3.17", features = ["formatting", "parsing"] }
-tokio = { version = "1.24.2", features = ["macros", "rt", "rt-multi-thread"] }
+tokio = { version = "1.24.2", features = ["full", "macros", "rt", "rt-multi-thread"] }
 tokio-scoped = "0.2.0"
 tracing = { version = "0.1.37", features = ["log"] }
 tracing-subscriber = "0.3.18"
 uuid = { version = "1.3.4", features = ["v4"] }
+yfinance-rs = "0.7.2"

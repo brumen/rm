@@ -2,17 +2,18 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use rdkafka::consumer::StreamConsumer;
 use std::ops::AddAssign;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 use uuid::Uuid;
 
 use crate::all_markets::AllMarkets;
 use crate::market::{MarketTypeT, SetName};
 use crate::pricer::PricingMetric;
 use crate::processor_msg::ProcessorMiddleMessage;
+use crate::ref_deref::TryFromRef2;
 
 pub struct MarketProducer<MT>
 where
-    MT: MarketTypeT,
+    MT: MarketTypeT + std::fmt::Debug,
 {
     pub metric: PricingMetric,
     pub pricing_options: MT::MP,
@@ -27,8 +28,11 @@ where
 #[async_trait]
 impl<MT> Actor for MarketProducer<MT>
 where
-    for<'a> MT: MarketTypeT + Send + Sync + AddAssign<&'a MT> + Clone + 'static + SetName,
+    for<'a> MT:
+        MarketTypeT + Send + Sync + AddAssign<&'a MT> + Clone + 'static + SetName + std::fmt::Debug,
     MT::MP: 'static + Send + Sync + Clone,
+    MT::MK: std::fmt::Debug,
+    (MT::MK, f64): TryFromRef2,
 {
     type Msg = MT;
     type State = MT;
@@ -56,18 +60,17 @@ where
     async fn post_start(
         &self,
         myself: ActorRef<Self::Msg>,
-        _state: &mut Self::State,
+        state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        info!("Waiting on first message");
+        info!("Waiting on first message. Enable debug to display messages.");
         let new_mkt_msg = self.mkt_listener.recv().await?;
-        let fut_mkt_tag_2 = Uuid::new_v4();
-        let new_mkt = Self::Msg::try_from_ref(
-            fut_mkt_tag_2.to_string(),
-            &new_mkt_msg,
-            self.pricing_options.clone(),
-        )?;
+        let (item_name, item_val) = <(MT::MK, f64)>::try_from_ref(&new_mkt_msg)?;
 
-        myself.send_message((*new_mkt.clone()).clone())?;
+        let market = state;
+        let _ = market.insert(item_name, item_val).await;
+        let new_market_name = Uuid::new_v4().to_string();
+        market.set_name(new_market_name);
+        myself.send_message(market.clone())?;
 
         Ok(())
     }
@@ -78,11 +81,13 @@ where
         message: Self::Msg,      // message is new things about the market
         state: &mut Self::State, // market state is the market itself.
     ) -> Result<(), ActorProcessingErr> {
-        info!("Handling new market message.");
+        debug!("Handling new market message.");
         let market = state; // state holds the market.
         let market_addition = message;
         let new_name = market_addition.market_name();
+        debug!("Market addition = {:?}", market_addition);
         *market += &market_addition; // adding a new market
+        debug!("Market = {:?}", market);
         market.set_name(new_name);
         let market_sent = Arc::new((*market).clone());
         // this insertion here is done efficiently.
@@ -99,9 +104,14 @@ where
         // wait for new message
         let new_msg = self.mkt_listener.recv().await?;
         let additional_name = Uuid::new_v4().to_string();
-        let new_mkt =
-            Self::Msg::try_from_ref(additional_name, &new_msg, self.pricing_options.clone())?;
-        myself.send_message((*new_mkt).clone())?;
+        let (new_item_name, new_item_value) = <(MT::MK, f64)>::try_from_ref(&new_msg)?;
+        debug!(
+            "Inserting into market: {:?}, {:?}",
+            new_item_name, new_item_value
+        );
+        let _ = market.insert(new_item_name, new_item_value).await;
+        market.set_name(additional_name);
+        myself.send_message(market.clone())?;
 
         Ok(())
     }

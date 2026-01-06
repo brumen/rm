@@ -1,9 +1,9 @@
+/// Processor which gets a bulk of work, and finishes it.
+///
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::collections::HashSet;
 use std::sync::Arc;
-/// Processor which gets a bulk of work, and finishes it.
-///
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
@@ -13,9 +13,11 @@ use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesL
 use crate::trade::{BaseTrade, TradeRep};
 
 // computes bulk evaluation of trades in trade_names
+#[derive(Debug)]
 pub struct ProcessorBulk<T, MT>
 where
-    MT: MarketTypeT,
+    MT: MarketTypeT + std::fmt::Debug,
+    T: std::fmt::Debug,
 {
     pub processor_name: String, // name of the bulk processor, usually curr_bulk, new_bulk, middle_1_bulk
     pub(crate) all_trades: Arc<TradeRep<T>>, // all_trades is a reference to the structure that contains all trades.
@@ -24,8 +26,9 @@ where
 
 impl<T, MT> ProcessorBulk<T, MT>
 where
-    MT: MarketTypeT,
+    MT: MarketTypeT + std::fmt::Debug,
     MT::MP: Clone,
+    T: std::fmt::Debug,
 {
     pub(crate) fn new(
         processor_name: String, // original processor on which this depends.
@@ -89,8 +92,9 @@ where
     }
 }
 
-pub enum ProcessorBulkState<MT> {
-    Calculating(MT), // which market we are computing this on.
+#[derive(Debug)]
+pub enum ProcessorBulkState {
+    Calculating, // TODO: maybe include what market we are computing this on.
     Idle,
 }
 
@@ -118,22 +122,22 @@ pub enum ProcessorBulkState<MT> {
 #[async_trait]
 impl<T, MT> PriceMultiple<T, MT> for ProcessorBulk<T, MT>
 where
-    MT: MarketTypeT + 'static,
+    MT: MarketTypeT + 'static + std::fmt::Debug,
     MT::MP: Clone,
-    T: PriceTrade<MT> + 'static,
+    T: PriceTrade<MT> + 'static + std::fmt::Debug,
 {
 }
 
 #[async_trait]
 impl<T, MT> Actor for ProcessorBulk<T, MT>
 where
-    T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static,
-    MT: MarketTypeT + Send + Sync + 'static,
+    T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static + std::fmt::Debug,
+    MT: MarketTypeT + Send + Sync + 'static + std::fmt::Debug,
     MT::MP: Send + Sync + Clone,
 {
     type Msg = ProcessorBulkMessage<String>;
     // type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
-    type State = ();
+    type State = ProcessorBulkState;
     type Arguments = MT::MP;
 
     async fn pre_start(
@@ -142,118 +146,112 @@ where
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         info!("Initializing Bulk processor: {}", self.processor_name);
-        Ok(()) //  (0, None)  // intialized to 0 attempts.
+        Ok(ProcessorBulkState::Idle) //  (0, None)  // intialized to 0 attempts.
     }
 
+    #[instrument(name="pb_span", skip(message, state, _myself, self), fields(pb_name=self.processor_name))]
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
         message: Self::Msg,
-        _state: &mut Self::State,
+        state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        match message {
-            // market is where the trades are priced.
-            // new_trades are trades that should be priced.
-            // sending_processor ... processor where the result should be sent.
-            ProcessorBulkMessage::NewBulk((
-                market,
-                new_trades,
-                sending_processor,
-                pricing_metrics,
-            )) => {
-                // start the long-running pricing procedure
-
-                info!(
-                    "{}: NewBulk - Computing {} trades for {:?}.",
-                    self.processor_name,
-                    new_trades.len(),
-                    pricing_metrics,
-                );
-
-                let Some(market_actual) = self.all_markets.get(&market) else {
-                    warn!("Could not get market {}. Abandoning pricing.", market);
-                    // if curr_mkt == None, we couldnt get the market, abandon the attempts
-                    sending_processor.send_message(ProcessorMiddleMessage::BulkReceive((
-                        new_trades.clone(),
-                        PmPortfolio::new(),
-                        TradesLocal::new(),
-                        market.clone(),
-                    )))?;
-                    return Ok(());
-                };
-
-                // we have a market
-
-                let mut non_pricing_trades = TradesLocal::new();
-                let mut used_trades = vec![];
-                for trade_name in new_trades.iter() {
-                    let Some(trade_attempt) = self.all_trades.get(trade_name) else {
-                        warn!(
-                            "Could not get trade {} from all_trades. Continuing w/o it.",
-                            trade_name
-                        );
-                        non_pricing_trades.insert(trade_name.to_string());
-                        continue;
-                    };
-                    used_trades.push(trade_attempt);
-                }
-
-                // pricing_futs are futures where the trades are getting priced.
-                //let mut pricing_futs = vec![];
-                //for used_trade in used_trades {
-                let portfolio = self
-                    .price_multiple(
-                        new_trades.clone(), // TODO: THIS .clone is NOT THE BEST - FIX IT
-                        pricing_metrics,
-                        market_actual.clone(),
-                        self.all_trades.clone(),
-                    )
-                    .await;
-
-                // let mut portfolio = PmPortfolio::new();
-                // for used_trade in new_trades.iter() {
-                //     let used_trade = self.all_trades.get(used_trade).unwrap();
-                //     for pm in pricing_metrics.clone() {
-                //         let price_pm = used_trade.value_by_metric(pm, market_actual.clone()).await;
-                //         let price_pm_agg = price_pm.aggregate();
-                //         match portfolio.get_mut(&pm) {
-                //             Some(portfolio_pm) => {
-                //                 *portfolio_pm += price_pm_agg;
-                //             }
-                //             None => {
-                //                 let mut new_pm = PortfolioType::default();
-                //                 new_pm += price_pm_agg;
-                //                 portfolio.insert(pm, new_pm);
-                //             }
-                //         }
-                //         debug!("Priced trade {}: {:?}", used_trade.key(), price_pm);
-                //     }
-                // }
-                // TODO: Finish this part here!
-                // updating the portfolio
-                // let pricing_res = join_all(pricing_futs).await;
-                //for pricing in pricing_res.iter() {
-                //    portfolio += pricing.aggregate();
-                // }
-
-                debug!(
-                    "Bulk processor {}: portfolio back to middle actor: {:?}",
-                    self.processor_name, portfolio,
-                );
-
-                sending_processor.send_message(ProcessorMiddleMessage::BulkReceive((
-                    new_trades,
-                    portfolio,
-                    non_pricing_trades,
-                    market,
-                )))?;
+        info!("Processor: {}, State: {:?}", self.processor_name, state);
+        match state {
+            ProcessorBulkState::Calculating => {
+                info!("Currently calculating, ignoring messages for now. This might change.");
+                // TODO: This might change.
             }
 
-            ProcessorBulkMessage::Abandon => {
-                // stop the computation and go into idle.
+            ProcessorBulkState::Idle => {
+                match message {
+                    // market is where the trades are priced.
+                    // new_trades are trades that should be priced.
+                    // sending_processor ... processor where the result should be sent.
+                    ProcessorBulkMessage::NewBulk((
+                        market,
+                        new_trades,
+                        sending_processor,
+                        pricing_metrics,
+                    )) => {
+                        // start the long-running pricing procedure
+                        info!("Message: NewBulk");
+                        info!("State: {:?} -> Calculating", state);
+                        *state = ProcessorBulkState::Calculating;
+                        info!(
+                            "Computing {} trades for {:?}.",
+                            new_trades.len(),
+                            pricing_metrics,
+                        );
+
+                        let Some(market_actual) = self.all_markets.get(&market) else {
+                            warn!("Could not get market {}. Abandoning pricing.", market);
+                            // if curr_mkt == None, we couldnt get the market, abandon the attempts
+                            sending_processor.send_message(ProcessorMiddleMessage::BulkReceive(
+                                (
+                                    new_trades.clone(),
+                                    PmPortfolio::new(),
+                                    TradesLocal::new(),
+                                    market.clone(),
+                                ),
+                            ))?;
+                            return Ok(());
+                        };
+
+                        // we have a market
+
+                        let mut non_pricing_trades = TradesLocal::new();
+                        let mut used_trades = vec![];
+                        for trade_name in new_trades.iter() {
+                            let Some(trade_attempt) = self.all_trades.get(trade_name) else {
+                                warn!(
+                                    "Could not get trade {} from all_trades. Continuing w/o it.",
+                                    trade_name
+                                );
+                                non_pricing_trades.insert(trade_name.to_string());
+                                continue;
+                            };
+                            used_trades.push(trade_attempt);
+                        }
+
+                        // pricing_futs are futures where the trades are getting priced.
+                        //let mut pricing_futs = vec![];
+                        //for used_trade in used_trades {
+                        let portfolio = self
+                            .price_multiple(
+                                new_trades.clone(), // TODO: THIS .clone is NOT THE BEST - FIX IT
+                                pricing_metrics,
+                                market_actual.clone(),
+                                self.all_trades.clone(),
+                            )
+                            .await;
+
+                        info!(
+                            "Sending portfolio back to actor {:?}: {:?}",
+                            sending_processor.get_name(),
+                            portfolio.count(),
+                        );
+                        debug!(
+                            "Sending portfolio back to actor {:?}: {:?}",
+                            sending_processor.get_name(),
+                            portfolio.simple(),
+                        );
+                        sending_processor.send_message(ProcessorMiddleMessage::BulkReceive((
+                            new_trades,
+                            portfolio,
+                            non_pricing_trades,
+                            market,
+                        )))?;
+                        info!("State: {:?} -> Idle", state);
+                        *state = ProcessorBulkState::Idle;
+                    }
+
+                    ProcessorBulkMessage::Abandon => {
+                        // stop the computation and go into idle.
+                    }
+                }
             }
         }
-
         Ok(())
     }
 }

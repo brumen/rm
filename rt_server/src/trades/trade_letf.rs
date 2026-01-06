@@ -2,12 +2,12 @@ use ractor::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
-use crate::letf_market::LETFMarketType;
 use crate::market::MarketTypeT;
+use crate::markets::letf_market::{LETFMarketType, LETFMarketTypes};
 use crate::portfolio::{PV01Results, PortfolioType};
-use crate::pricer::{Decoder, PriceTrade};
+use crate::pricer::{Decoder, HedgeTrade, PriceTrade};
 use crate::ref_deref::TryFromRef2;
 use crate::trade::{BaseTrade, TradeDirection, TradeReduce};
 
@@ -55,18 +55,22 @@ impl PriceTrade<LETFMarketType> for LETFTrade {
     }
 
     async fn price(&self, market: Arc<LETFMarketType>) -> Option<f64> {
-        let stock_v_real = market.get(&self.stock).await?;
+        let stock_v_real = market
+            .get(&LETFMarketTypes::Stock(self.stock.clone())) // TODO: CHECK IF WE DONT NEED TO CLONE HERE!!!
+            .await?;
 
         self.stock_value
             .map(|initial_stock| self.beta * self.amount * (stock_v_real / initial_stock - 1.))
     }
 
     async fn pv01(&self, market: Arc<LETFMarketType>) -> PV01Results {
-        let stock = market.get(&self.stock).await;
+        let stock = market
+            .get(&LETFMarketTypes::Stock(self.stock.clone()))
+            .await;
 
         match stock {
             None => {
-                warn!("Could not obtain {:?} from the market", stock);
+                warn!("Could not obtain stock {:?} from the market.", self.stock);
                 PV01Results::new()
             }
             Some(_stock_v) => match self.stock_value {
@@ -91,12 +95,14 @@ impl PriceTrade<LETFMarketType> for LETFTrade {
     }
 }
 
-impl LETFTrade {
-    /// produces the hedge of the LETF trade.
-    /// stock_value : value of the stock that we are hedging LETF with.
-    pub async fn hedge(&mut self, market: &dyn MarketTypeT<MP = ()>) -> Vec<LETFHedge> {
+#[async_trait]
+impl HedgeTrade<LETFMarketType, Vec<LETFHedge>> for LETFTrade {
+    async fn hedge(&self, market: LETFMarketType) -> Vec<LETFHedge> {
         let stock_name = &self.stock;
-        let stock = match market.get(stock_name).await {
+        let stock = match market
+            .get(&LETFMarketTypes::Stock(stock_name.clone()))
+            .await
+        {
             None => {
                 warn!(
                     "hedge: Could not find {:?} in the market. Leaving unhedged: {:?}",
@@ -108,7 +114,7 @@ impl LETFTrade {
         };
 
         let trade_id = self.id();
-        self.stock_value = Some(stock); // adding the actual value into the LETF  WEIRD
+        // self.stock_value = Some(stock); // adding the actual value into the LETF  WEIRD
         let beta = self.beta;
         let amount = self.amount;
 
@@ -143,7 +149,9 @@ impl PriceTrade<LETFMarketType> for Future {
     }
 
     async fn price(&self, market: Arc<LETFMarketType>) -> Option<f64> {
-        let stock = market.get(&self.stock).await?;
+        let stock = market
+            .get(&LETFMarketTypes::Stock(self.stock.clone()))
+            .await?;
 
         Some(stock * self.amount)
     }

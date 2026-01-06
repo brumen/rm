@@ -25,7 +25,7 @@ _logger.info(
 )
 
 letf_trade_producer = LETFTradeProducer(
-    stocks=['AAPL', 'NVDA', ],
+    stocks=['AAPL', 'NVDA', 'GOOG', 'MSFT'],
     server_port_topic=(KAFKA_HOST, KAFKA_PORT, POSITIONS_TOPIC, ),
     trade_nb_start=int(sys.argv[1]),
 )

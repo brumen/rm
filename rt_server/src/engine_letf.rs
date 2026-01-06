@@ -22,6 +22,7 @@ use crate::trade_sender::TradeProducer;
 
 /// initializes all the actors and returns a vector of joint handles to start them
 ///   all.
+#[allow(dead_code)]
 pub(crate) async fn start2<T, MT>(
     kafka_params: KafkaParams,
     metric: PricingMetric, // pricing metric, like PV
@@ -37,6 +38,8 @@ pub(crate) async fn start2<T, MT>(
 where
     T: BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MT> + TryFromRef2 + std::fmt::Debug,
     MT::MP: 'static + Send + Sync + Clone,
+    MT::MK: std::fmt::Debug,
+    (MT::MK, f64): TryFromRef2,
     for<'a> MT:
         Send + Sync + MarketTypeT + 'static + Clone + AddAssign<&'a MT> + SetName + std::fmt::Debug,
 {
@@ -52,9 +55,10 @@ where
     )
     .await;
 
-    let (_processor_curr_a, processor_curr_handle) = Actor::spawn(None, curr_processor, ())
-        .await
-        .expect("Could not start current processor");
+    let (_processor_curr_a, processor_curr_handle) =
+        Actor::spawn(Some("processor_curr_actor".to_string()), curr_processor, ())
+            .await
+            .expect("Could not start current processor");
 
     actors_middle_msg.push(_processor_curr_a.clone());
 
@@ -70,7 +74,6 @@ where
         .await;
 
     let last_middle = processor_actors.last().unwrap().clone(); // last middle processor
-    let last_market_name = all_markets.last_market_name(); // last market name in all_markets, should be "new" or similar
 
     actors_middle_msg.extend(processor_actors.clone());
 
@@ -81,22 +84,26 @@ where
         all_markets.clone(),
     );
 
-    let (processor_new_bulk_actor, processor_new_bulk_handle) =
-        Actor::spawn(None, new_mkt_bulk, mp.clone())
-            .await
-            .expect("Could not start processor_new_bulk");
+    let (processor_new_bulk_actor, processor_new_bulk_handle) = Actor::spawn(
+        Some("processor_new_bulk".to_string()),
+        new_mkt_bulk,
+        mp.clone(),
+    )
+    .await
+    .expect("Could not start processor_new_bulk");
 
     let processor_new = ProcessorNew::new(
-        last_market_name.clone(),
+        "processor_new".to_string(),
         last_middle.clone(),
         processor_new_bulk_actor.clone(),
         all_markets.clone(),
         initial_trades.clone(),
     );
 
-    let (_processor_new_a, processor_new_handle) = Actor::spawn(None, processor_new, ())
-        .await
-        .expect("Could not start new processor");
+    let (_processor_new_a, processor_new_handle) =
+        Actor::spawn(Some("processor_new".to_string()), processor_new, ())
+            .await
+            .expect("Could not start new processor");
 
     actors_middle_msg.push(_processor_new_a.clone());
 
@@ -113,9 +120,10 @@ where
         new_processor: _processor_new_a.clone(),
         all_markets: all_markets.clone(),
     };
-    let (_mkt_producer_a, mkt_producer_handle) = Actor::spawn(None, market_producer, ())
-        .await
-        .expect("Could not start market producer");
+    let (_mkt_producer_a, mkt_producer_handle) =
+        Actor::spawn(Some("mkt_producer".to_string()), market_producer, ())
+            .await
+            .expect("Could not start market producer");
 
     let trade_producer = TradeProducer::new(
         kafka_params.kafka_server,
@@ -124,9 +132,10 @@ where
         initial_trades, // TODO: CHECK IF THIS NEEDS TO BE CHANGED.
     );
 
-    let (_trade_capture_a, trade_capture_handle) = Actor::spawn(None, trade_producer, ())
-        .await
-        .expect("Could not start trade producer");
+    let (_trade_capture_a, trade_capture_handle) =
+        Actor::spawn(Some("trade_producer".to_string()), trade_producer, ())
+            .await
+            .expect("Could not start trade producer");
 
     // special futures
     let mut all_futures = vec![

@@ -2,12 +2,13 @@
 use ractor::ActorRef;
 use std::collections::HashSet;
 
-use crate::portfolio::{PmPortfolio, PortfolioType};
+use crate::portfolio::PmPortfolio;
 use crate::pricer::PricingMetric;
 
 pub(crate) type TradesLocal = HashSet<String>;
 
 /// message that the new processor receives
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub enum ProcessorMiddleMessage<MT> {
     NewTrade(String), // message from trade producer, trade id.
@@ -24,6 +25,7 @@ pub enum ProcessorMiddleMessage<MT> {
     // third: offending trades.
     // fourth: market reference on which these trades were computed.
     BulkReceive((TradesLocal, PmPortfolio, TradesLocal, String)),
+    BulkBusy, // unable to compute right now, as it's busy
 
     // message from the processor above.
     // elements:

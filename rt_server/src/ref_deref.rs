@@ -50,11 +50,8 @@ where
     for<'a> Self: Deserialize<'a>,
 {
     fn try_from_ref(value: &BorrowedMessage) -> Result<Self, TradeError> {
-        if let Some(msg_value) = value.payload() {
-            let msg_utf = std::str::from_utf8(msg_value)?;
-            Ok(serde_json::from_str::<Self>(msg_utf)?)
-        } else {
-            Err(TradeError::NoPayload)
-        }
+        let msg_value = value.payload().ok_or(TradeError::NoPayload)?;
+        let msg_utf = std::str::from_utf8(msg_value)?;
+        Ok(serde_json::from_str::<Self>(msg_utf)?)
     }
 }

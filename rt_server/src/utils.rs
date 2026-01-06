@@ -1,4 +1,4 @@
-use crate::portfolio::{PmPortfolio, PortfolioType};
+use crate::portfolio::PmPortfolio;
 use crate::pricer::PricingMetric;
 use std::collections::HashSet;
 

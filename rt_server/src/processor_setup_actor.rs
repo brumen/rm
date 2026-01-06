@@ -35,6 +35,7 @@ impl SetupActor {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) async fn start_setup_actor(
     kafka_server: String,
     topic: String,

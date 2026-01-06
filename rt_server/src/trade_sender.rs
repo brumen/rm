@@ -23,6 +23,7 @@ const CB_LENGTH: usize = 10;
 //   that timestamp.
 type CB = CircularBuffer<CB_LENGTH, (NaiveDateTime, usize)>;
 
+#[allow(dead_code)]
 pub struct TradeProducer<T> {
     position_listener: StreamConsumer,
     processors: Vec<ActorRef<ProcessorMiddleMessage<String>>>,
