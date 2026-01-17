@@ -45,12 +45,24 @@ class SABRCalibratorMixin:
         self.T = None
 
     def initial_params(self):
+        # alpha  : Initial volatility (scaling factor)
+        # beta   : Elasticity parameter (0 = Normal, 1 = Lognormal)
+        # rho    : Correlation between asset and volatility
+        # nu     : Volatility of volatility (nu)
         # (alpha, rho, nu, beta) params of the SABR model.
-        return [0.2, 0.0, 0.5, 0.5]
-    
+        return [0.44, -0.5, 0.5, 0.5]
+
     def bounds_params(self):
         # bounds on the 4 params above.
-        return [(1e-4, 5.0), (-0.999, 0.999), (1e-4, 25.0), (-10.5, 10.)]
+        # (alpha, rho, nu, beta)
+        return [(1e-4, 5.0), (-0.999, 0.999), (1e-4, 25.0), (1e-4, .99)]
+        # return [(0.43, 0.45), (-0.999, 0.999), (1e-4, 25.0), (1e-4, .99)]
+
+    def results_display(self):
+        alpha, rho, nu, beta = self.params
+        _logger.info(
+            f'Results: alpha = {alpha}, beta = {beta}, rho = {rho}, nu = {nu}'
+        )
 
     @staticmethod
     def model_vol(F: float, K: float, T: float, params: List[float]) -> float:
@@ -58,7 +70,7 @@ class SABRCalibratorMixin:
         Hagan et al. (2002) SABR implied volatility approximation.
         """
 
-        alpha, beta, rho, nu = params
+        alpha, rho, nu, beta = params
 
         if F == K:
             term1 = (alpha / (F ** (1 - beta)))
@@ -103,7 +115,7 @@ class SABRCalibratorMixin:
         def objective(params):
             # alpha, rho, nu, beta = params
             model_vols = [
-                self.model_vol(F, K, T, params)  # alpha, beta, rho, nu)
+                self.model_vol(K, F, T, params)  # alpha, beta, rho, nu)
                 for K in strikes
             ]
 
@@ -119,7 +131,8 @@ class SABRCalibratorMixin:
             objective,
             initial_guess,
             bounds=bounds,
-            method="L-BFGS-B"
+            #             method='Nelder-Mead',
+            method="L-BFGS-B",
         )
 
         self.params = result.x
@@ -127,7 +140,7 @@ class SABRCalibratorMixin:
         self.T = T
 
         _logger.info(
-            f"Calibration results: Success: {result.success}, Message: {result.message}"
+            f"Calibration results: Success: {result.success}, Message: {result.message}. Results: {self.results_display()}"
         )
 
         return {
@@ -146,7 +159,7 @@ class BergomiCalibrationMixin(SABRCalibratorMixin):
     def initial_params(self):
         # (alpha, H, rho, eta) params of the rough Bergomi model.
         return [0.2, 0.25, 0.5, 0.5]
-    
+
     def bounds_params(self):
         # bounds on the 4 params above.
         return [(-np.inf, np.inf), (0.01, 0.5), (-0.999, 0.999), (0.01, np.inf)]
@@ -247,10 +260,10 @@ class BergomiNet(nn.Module):
 class BergomiCalibrationNN(SABRCalibratorMixin):
     def __init__(self, model_path: Optional[str] = None):
         super().__init__()
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = "cpu"  # torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = BergomiNet(input_dim=6).to(self.device)
         self.model_trained = False
-        
+
         if model_path:
             try:
                 self.model.load_state_dict(torch.load(model_path, map_location=self.device))
@@ -262,54 +275,70 @@ class BergomiCalibrationNN(SABRCalibratorMixin):
 
     def initial_params(self):
         # (alpha, H, rho, eta)
+        # alpha = initial vol
+        # H ... hurst parameter 0 < H < 0.5
+        # rho ... correlation between vol of vol and stock
+        # eta .. initial vol of vol.
         return [0.2, 0.25, -0.7, 1.5]
 
     def bounds_params(self):
+        # (alpha, H, rho, eta), see meanings above.
         return [(1e-4, 5.0), (0.01, 0.49), (-0.999, 0.999), (0.01, 5.0)]
 
-    @staticmethod
-    def _generate_mc_samples(n_samples: int = 1000, T_max: float = 2.0):
+    def results_display(self):
+        alpha, H, rho, eta = self.params
+        _logger.info(
+            f'Results: alpha = {alpha}, H = {H}, rho = {rho}, eta = {eta}'
+        )
+
+    def _generate_mc_samples(self, n_samples: int = 1000, T_max: float = 2.0):
         """
         Generate random (parameters, T, k) -> implied_vol samples
         using the Monte Carlo pricer for training data.
         """
         rng = np.random.default_rng()
-        
+
         # Sample parameters uniformly within reasonable bounds
-        alphas = rng.uniform(0.05, 0.5, n_samples)
-        Hs = rng.uniform(0.05, 0.45, n_samples)
-        rhos = rng.uniform(-0.9, 0.0, n_samples) # Equities typically have negative skew
-        etas = rng.uniform(0.5, 3.0, n_samples)
-        
+        alpha_bounds, H_bounds, rho_bounds, eta_bounds = self.bounds_params()
+
+        alphas = rng.uniform(alpha_bounds[0], alpha_bounds[1], n_samples)
+        Hs = rng.uniform(H_bounds[0], H_bounds[1], n_samples)
+        rhos = rng.uniform(rho_bounds[0], rho_bounds[1], n_samples) # Equities typically have negative skew
+        etas = rng.uniform(eta_bounds[0], eta_bounds[1], n_samples)
+
         Ts = rng.uniform(0.1, T_max, n_samples)
-        ks = rng.uniform(-0.5, 0.5, n_samples) # log-moneyness
-        
+        ks = rng.uniform(-0.9, 0.9, n_samples) # log-moneyness
+
         X_data = []
         y_data = []
-        
+
         # We need to run MC for each sample. This is slow, so we do it in a loop
         # In a real scenario, this would be parallelized or pre-computed.
         # Re-using the logic from the previous MC implementation (but putting it here explicitly)
-        
+
+        n_steps = 100
+        n_paths = 5000  # Lower paths for speed during data gen, maybe insufficient
+        dW_joint = rng.standard_normal((n_paths, n_steps))
+
         for i in range(n_samples):
             alpha, H, rho, eta = alphas[i], Hs[i], rhos[i], etas[i]
             T, k = Ts[i], ks[i]
-            
+
             # Convert log-moneyness to Strike (assuming F=1 for training)
             F = 1.0
             K = F * np.exp(k)
-            
+
             # --- MC Pricer Logic ---
             xi = alpha ** 2
-            n_steps = 100
-            n_paths = 1000 # Lower paths for speed during data gen, maybe insufficient
             dt = T / n_steps
             sqrt_dt = np.sqrt(dt)
-            
+
             # Random variates
-            dW1 = rng.standard_normal((n_paths, n_steps)) * sqrt_dt
-            dW2 = rng.standard_normal((n_paths, n_steps)) * sqrt_dt
-            
+            # dW1 = rng.standard_normal((n_paths, n_steps)) * sqrt_dt
+            # dW2 = rng.standard_normal((n_paths, n_steps)) * sqrt_dt
+            dW1 = dW_joint * sqrt_dt
+            dW2 = dW_joint * sqrt_dt
+
             # Volterra kernel approximation
             k_idx = np.arange(1, n_steps + 1)
             G = np.sqrt(2 * H) * (k_idx * dt) ** (H - 0.5)
@@ -317,50 +346,50 @@ class BergomiCalibrationNN(SABRCalibratorMixin):
             for j in range(1, n_steps):
                 M[j, :j] = G[:j][::-1]
             Y = dW1 @ M.T
-            
+
             # Variance process
             t_vals = np.arange(n_steps) * dt
             drift_correction = 0.5 * eta ** 2 * (t_vals ** (2 * H))
             V = xi * np.exp(eta * Y - drift_correction)
-            
+
             # Price process
             dZ = rho * dW1 + np.sqrt(1 - rho ** 2) * dW2
             log_ret = -0.5 * V * dt + np.sqrt(V) * dZ
             total_log_ret = np.sum(log_ret, axis=1)
             ST = F * np.exp(total_log_ret)
-            
+
             payoff = np.maximum(ST - K, 0)
             price = np.mean(payoff)
-            
+
             # Implied vol
             vol = _bs_implied_vol(price, F, K, T)
-            
+
             if not np.isnan(vol) and vol > 0:
                 X_data.append([alpha, H, rho, eta, T, k])
                 y_data.append(vol)
-        
+
         return np.array(X_data, dtype=np.float32), np.array(y_data, dtype=np.float32)
 
     def train_model(self, n_samples=5000, epochs=100, batch_size=64):
         _logger.info(f"Generating {n_samples} MC samples for training...")
-        X_np, y_np = self._generate_mc_samples(n_samples)
-        
+        X_np, y_np = self._generate_mc_samples(n_samples=n_samples)
+
         # Prepare Tensors
         # Inputs: [alpha, H, rho, eta, T, k] -> Network input dim should be 6
         # Wait, previous class defined input_dim=5. Let's adjust.
         # Let's say inputs are (alpha, H, rho, eta, T*k? No, separate T and k).
         # We need to re-instantiate model if dimensions don't match or fix model def.
         # Let's fix model def in __init__ to input_dim=6.
-        
+
         X = torch.from_numpy(X_np).to(self.device)
         y = torch.from_numpy(y_np).unsqueeze(1).to(self.device)
-        
+
         dataset = torch.utils.data.TensorDataset(X, y)
         loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
-        
+
         optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
         criterion = nn.MSELoss()
-        
+
         _logger.info("Starting training...")
         self.model.train()
         for epoch in range(epochs):
@@ -372,10 +401,10 @@ class BergomiCalibrationNN(SABRCalibratorMixin):
                 loss.backward()
                 optimizer.step()
                 total_loss += loss.item()
-            
+
             if (epoch + 1) % 10 == 0:
                 _logger.info(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss / len(loader):.6f}")
-        
+
         self.model_trained = True
         self.model.eval()
         _logger.info("Training complete.")
@@ -387,18 +416,17 @@ class BergomiCalibrationNN(SABRCalibratorMixin):
             _logger.warning("BergomiNN not trained. Training on small sample now...")
             # Re-init model with correct dim
             self.model = BergomiNet(input_dim=6).to(self.device)
-            self.train_model(n_samples=200, epochs=50) # Tiny training for demo
-        
+            self.train_model(n_samples=1000, epochs=100) # Tiny training for demo
+
         # Prepare input
         # params: [alpha, H, rho, eta]
         alpha, H, rho, eta = params
         k = np.log(K / F)
-        
+
         # Input vector: [alpha, H, rho, eta, T, k]
         x_in = torch.tensor([[alpha, H, rho, eta, T, k]], dtype=torch.float32).to(self.device)
-        
+
         with torch.no_grad():
             vol = self.model(x_in).item()
-        
-        return vol
 
+        return vol

@@ -8,7 +8,10 @@ from typing import Dict, Any, List
 
 from rm.services.letf.yf_stock_fetcher import (
     MarketStockFetcher,
-    Option, Sabr, SabrParameters, MarketValueTuple,
+    Option,
+    Sabr,
+    SabrParameters,
+    MarketValueTuple,
 )
 from rm.services.letf.sabr_calibrator import SABRCalibratorMixin
 
@@ -22,22 +25,34 @@ class YFOptionChainFetcher(MarketStockFetcher):
     Fetches option chain data for selected stocks using yfinance.
     """
 
+    def _get_ticker_price(self, ticker: str) -> float:
+        """Gets the latest ticker price. """
+        ticker = yf.Ticker(ticker)
+        latest_data = ticker.history(period="1d")
+        latest_price = latest_data['Close'].iloc[-1]
+        return latest_price
+
     def _get_ticker_expiries(self, ticker: str) -> List[datetime.date]:
         try:
             stock = yf.Ticker(ticker)
             option_expiries = stock.options
             return [
-                datetime.datetime.strptime(opt_expiry, '%Y-%m-%d').date()
+                datetime.datetime.strptime(opt_expiry, "%Y-%m-%d").date()
                 for opt_expiry in option_expiries
             ]
         except Exception as e:
             _logger.error(f"Error fetching option expiries: {e}")
             return []
 
-    def fetch_option_chain(self, ticker: str, expiry: datetime.date) -> List[Dict[str, Any]]:
+    def fetch_option_chain(
+        self, ticker: str, expiry: datetime.date
+    ) -> List[Dict[str, Any]]:
         """
         Fetches the full option chain (calls and puts) for a given ticker.
         Returns a dictionary with 'calls' and 'puts' DataFrames.
+
+        :param ticker: ticker for which options are fetched
+        :param expiry: expiry for which options are fetched.
         """
 
         expiry_str = expiry.strftime("%Y-%m-%d")
@@ -46,9 +61,7 @@ class YFOptionChainFetcher(MarketStockFetcher):
             chain = stock.option_chain(expiry_str)
 
         except Exception as e:
-            _logger.error(
-                f"Could not get option chain. Returning empty list: {e}"
-            )
+            _logger.error(f"Could not get option chain. Returning empty list: {e}")
             return []
 
         # construct call/put chain
@@ -58,212 +71,91 @@ class YFOptionChainFetcher(MarketStockFetcher):
         all_chains = []
         for call_opt in call_chain:
             call_opt_d = {
-                'symbol': call_opt[1],
-                'lastTradeDate': call_opt[2].isoformat(),
-                'volatility': call_opt[-4],
-                'strike': call_opt[3],
-                'ticker': ticker,
-                'lastPrice': call_opt[4],
-                'expiry': expiry,
-                'call_put': 'call',
+                "symbol": call_opt[1],
+                "lastTradeDate": call_opt[2].isoformat(),
+                "volatility": call_opt[-4],
+                "strike": call_opt[3],
+                "ticker": ticker,
+                "lastPrice": call_opt[4],
+                "expiry": expiry,
+                "call_put": "call",
             }
             all_chains.append(call_opt_d)
 
         for call_opt in put_chain:
             call_opt_d = {
-                'symbol': call_opt[1],
-                'lastTradeDate': call_opt[2].isoformat(),
-                'volatility': call_opt[-4],
-                'strike': call_opt[3],
-                'ticker': ticker,
-                'lastPrice': call_opt[4],
-                'expiry': expiry,
-                'call_put': 'put',
+                "symbol": call_opt[1],
+                "lastTradeDate": call_opt[2].isoformat(),
+                "volatility": call_opt[-4],
+                "strike": call_opt[3],
+                "ticker": ticker,
+                "lastPrice": call_opt[4],
+                "expiry": expiry,
+                "call_put": "put",
             }
             all_chains.append(call_opt_d)
 
         return all_chains
 
-    def fetch_all_option_chains(self, expiry: datetime.date) -> Dict[str, Any]:
-        """
-        Fetches option chains for all tickers in the list.
-        Returns a dictionary mapping ticker -> option chain data.
-        """
-        results = {}
-        for ticker in self.tickers:
-            results[ticker] = self.fetch_option_chain(ticker, expiry)
-        return results
+    @staticmethod
+    def _tsf_one_option(option_entry: Dict[str, Any]) -> MarketValueTuple:
+        option_entry_str = option_entry
+        expiry_str = option_entry["expiry"].strftime("%Y-%m-%d")
+        option_entry_str["expiry"] = expiry_str
+        # option_entry_str is this:
+        # {
+        #     "symbol" : "MSFT280616P00700000",
+        #     "lastTradeDate" : "2025-12-05T15:29:27+00:00",
+        #     "volatility" : 0.000010000000000000003,
+        #     "strike" : 700.0,
+        #     "ticker" : "MSFT",
+        #     "lastPrice" : 218.55,
+        #     "expiry" : "2028-06-16"
+        # }
+        option_send = MarketValueTuple(
+            market_key=Option(Option=option_entry_str["symbol"]),
+            value=option_entry_str["lastPrice"],
+        )
 
-    def fetch_chains_for_ticker(self, ticker: str):
-        ticker_expiries = self._get_ticker_expiries(ticker)
+        return option_send
+
+    def chains_for_ticker_publish(self, ticker: str) -> MarketValueTuple:
+        ticker_expiries: List[datetime.date] = self._get_ticker_expiries(ticker)
         for expiry in ticker_expiries:
             option_chain = self.fetch_option_chain(ticker, expiry)
-            avg_price = np.mean([opt['lastPrice'] for opt in option_chain])
             for option_entry in option_chain:
-                option_entry_str = option_entry
-                expiry_str = option_entry['expiry'].strftime('%Y-%m-%d')
-                option_entry_str['expiry'] = expiry_str
-                # option_entry_str is this:
-                # {
-                #     "symbol" : "MSFT280616P00700000",
-                #     "lastTradeDate" : "2025-12-05T15:29:27+00:00",
-                #     "volatility" : 0.000010000000000000003,
-                #     "strike" : 700.0,
-                #     "ticker" : "MSFT",
-                #     "lastPrice" : 218.55,
-                #     "expiry" : "2028-06-16"
-                # }
-                option_send = MarketValueTuple(
-                    market_key=Option(Option=option_entry_str['symbol']),
-                    value=option_entry_str['lastPrice'],
-                )
-                # option_send = [
-                #     {
-                #         "Option", option_entry_str['symbol']
-                #     },
-                #     option_entry_str['lastPrice'],
-                # ]
-                yield (option_send, avg_price)
+                option_to_send = self._tsf_one_option(option_entry)
+                yield option_send
 
-    def fetch_all_chains_all_maturs(self):
-        """ Genearates all tickers and all maturities.
+    def _one_entry_send(self, option_send):
+        try:
+            self.producer.send(self.topic, option_send.to_json_array())
+            _logger.debug(f"Sent to {self.topic}: {option_send}")
+        except Exception as e:
+            _logger.error(f"Could not send to {self.topic}: {e}")
 
+    def _one_iteration(self, ticker: str):
+        """ Runs one iteration for the ticker.        
         """
-        for ticker in self.tickers:
-            for oc in self.fetch_chains_for_ticker(ticker):
-                yield oc
 
-    def _calibrate_chain(
-            self,
-            curr_date: datetime.date,
-            ticker: str,
-            expiry: datetime.date,
-            option_chain: List,
-            avg_price: float,
-    ) -> MarketValueTuple:  # this is a generator
-        curr_date = datetime.date.today()
-        normalized_expiry = (expiry - curr_date).days / 252.
-        calibration = SABRCalibratorMixin().calibrate(
-            option_chain,
-            avg_price,
-            normalized_expiry,
-        )
-        expiry_str = expiry.strftime("%Y-%m-%d")
-        # calibration looks like this:
-        # {
-        #     "alpha" : 0.25197037965404656,
-        #     "beta" : 0.5,
-        #     "rho" : 0.8916287692857908,
-        #     "nu" : 0.0001,
-        #     "success" : true,
-        #     "message" : "CONVERGENCE: NORM_OF_PROJECTED_GRADIENT_<=_PGTOL",
-        #     "ticker" : "MSFT",
-        #     "expiry" : "2028-06-16",
-        #     "F" : 92.59881578947369
-        # }
-        calibration |= {
-            'ticker': ticker,
-            'expiry': expiry_str,
-            'F': avg_price,
-        }
-        # calibration_send will be decoded correctly by Rust.
-        for param_name in ('Alpha', 'Beta', 'Rho', 'Nu'):
-            # calibration_send = [
-            #     {
-            #         'Sabr',
-            #         {
-            #             'SabrParameters',
-            #             {
-            #                 'stock': ticker,
-            #                 'maturity': calibration['expiry'],
-            #                 'param_name': param_name,
-            #             },
-            #         },
-            #         calibration[param_name],
-            #     }
-            # ]
-            sabr_params = SabrParameters(
-                stock=ticker,
-                maturity=expiry_str,
-                param_name=param_name
-            )
-            sabr_instance = Sabr(Sabr=sabr_params)
-            calibration_send = MarketValueTuple(
-                market_key=sabr_instance,
-                value=calibration[param_name],
-            )
+        for option_send in self.chains_for_ticker_publish(ticker):
+            self._one_entry_send(option_send)
 
-            yield calibration_send
-
-    def _run_option_chains(self, timeout: int = 60):
-        """ Timeout for 60 seconds.
+    def publish_option_chains(self, timeout: int = 60):
+        """
+        Publishes all option entries for all chains,
+           including all the 
         """
 
         while True:
             for ticker in self.tickers:
-                # for ticker, option_chain in option_chains.items():
-                ticker_expiries = self._get_ticker_expiries(ticker)
-                for expiry in ticker_expiries:
-                    option_chain = self.fetch_option_chain(ticker, expiry)
-                    avg_price = np.mean([opt['lastPrice'] for opt in option_chain])
-                    for option_entry in option_chain:
-                        option_entry_str = option_entry
-                        expiry_str = option_entry['expiry'].strftime('%Y-%m-%d')
-                        option_entry_str['expiry'] = expiry_str
-                        try:
-                            # option_entry_str is this:
-                            # {
-                            #     "symbol" : "MSFT280616P00700000",
-                            #     "lastTradeDate" : "2025-12-05T15:29:27+00:00",
-                            #     "volatility" : 0.000010000000000000003,
-                            #     "strike" : 700.0,
-                            #     "ticker" : "MSFT",
-                            #     "lastPrice" : 218.55,
-                            #     "expiry" : "2028-06-16"
-                            # }
-                            option_send = MarketValueTuple(
-                                market_key=Option(Option=option_entry_str['symbol']),
-                                value=option_entry_str['lastPrice'],
-                            )
-                            # option_send = [
-                            #     {
-                            #         "Option", option_entry_str['symbol']
-                            #     },
-                            #     option_entry_str['lastPrice'],
-                            # ]
-                            self.producer.send(self.topic, option_send.to_json_array())
-                            _logger.info(f'Sent to {self.topic}: {option_send}')
-                        except Exception as e:
-                            _logger.error(
-                                f'Could not send to {self.topic}: {e}'
-                            )
-
-                    curr_date = datetime.date.today()
-                    for calibration_entry in self._calibrate_chain(
-                            curr_date,
-                            ticker,
-                            expiry,
-                            option_chain,
-                            avg_price,
-                    ):
-                        try:
-                            self.producer.send(
-                                self.topic, calibration_entry.to_json_array()
-                            )
-                            _logger.info(
-                                f'Sent to {self.topic}: {calibration_entry}'
-                            )
-                        except Exception as e:
-                            _logger.error(
-                                f'Could not send to {self.topic}: {e}'
-                            )
-
+                self._one_iteration(ticker)
             time.sleep(timeout)
 
     def stream_option_chain(self):
         for ticker in self.tickers:
             t = threading.Thread(
-                target=self._run_option_chains,
+                target=self.publish_option_chains,
             )
             t.daemon = True
             t.start()
@@ -273,9 +165,15 @@ class YFOptionChainFetcher(MarketStockFetcher):
 
 
 def _option_chain_example():
-    fetcher = YFOptionChainFetcher(["AAPL", "MSFT", 'GOOG',])
+    fetcher = YFOptionChainFetcher(
+        [
+            "AAPL",
+            "MSFT",
+            "GOOG",
+        ]
+    )
     fetcher.stream_option_chain()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     _option_chain_example()

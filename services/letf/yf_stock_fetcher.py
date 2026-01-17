@@ -16,24 +16,11 @@ from typing import List, Dict, Any, Optional, Literal, Union
 from kafka import KafkaProducer
 from pydantic import BaseModel
 
+from mrds.mrds_calib import MrdsModel
 
 _logger = logging.getLogger(__name__)
 
 
-# --- 1. SabrParamNames (Rust Enum) ---
-# Represented by a Python Literal type for strict value checking
-SabrParamNames = Literal["Alpha", "Beta", "Rho", "Nu"]
-
-
-# --- 2. SabrParameters (Rust Struct) ---
-class SabrParameters(BaseModel):
-    # Rust's pub(crate) struct is a Python class
-    stock: str
-    maturity: str  # Corresponds to Rust's NaiveDate (serialized as "YYYY-MM-DD")
-    param_name: SabrParamNames
-
-
-# --- 3. LETFMarketTypes (Rust Enum) ---
 # Rust enums serialize as tagged unions. Pydantic's Union (or DiscriminatedUnion in v2)
 # is the closest representation.
 class Stock(BaseModel):
@@ -46,17 +33,34 @@ class Option(BaseModel):
     Option: str
 
 
+class MarketBreak(BaseModel):
+    Break: None
+
+
+# Represented by a Python Literal type for strict value checking
+SabrParamNames = Literal["Alpha", "Beta", "Rho", "Nu"]
+
+class SabrParameters(BaseModel):
+    # Rust's pub(crate) struct is a Python class
+    stock: str
+    maturity: str  # Corresponds to Rust's NaiveDate (serialized as "YYYY-MM-DD")
+    param_name: SabrParamNames
+
 class Sabr(BaseModel):
     # Enum variant with a complex struct value: "Sabr": { ... SabrParameters ... }
     Sabr: SabrParameters
 
 
-class MarketBreak(BaseModel):
-    Break: None
 
 
 # Union of all possible variants, representing the full LETFMarketTypes enum
-LETFMarketTypes = Union[Stock, Option, Sabr, MarketBreak]
+LETFMarketTypes = Union[
+    Stock, 
+    Option, 
+    Sabr, 
+    MarketBreak, 
+    MrdsModel
+]
 
 
 class MarketValueTuple(BaseModel):
@@ -84,6 +88,10 @@ class MarketValueTuple(BaseModel):
 
 class MarketStockFetcher:
 
+    @staticmethod
+    def _encoder(v):
+        return json.dumps(v).encode("utf-8")
+
     def __init__(
             self,
             tickers: List[str],
@@ -93,7 +101,7 @@ class MarketStockFetcher:
         self.tickers = tickers
         self.producer = KafkaProducer(
             bootstrap_servers=kafka_bootstrap,
-            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            value_serializer=self._encoder,
         ) if kafka_bootstrap else None
         self.topic = topic
 

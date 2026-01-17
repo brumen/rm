@@ -1,5 +1,6 @@
 import datetime
 from logging import getLogger
+import matplotlib.pyplot as plt
 
 from rm.services.letf.sabr_calibrator import SABRCalibratorMixin, BergomiCalibrationMixin, BergomiCalibrationNN
 from rm.services.letf.yf_option_chain_fetcher import YFOptionChainFetcher
@@ -19,7 +20,7 @@ def calibrate_sabr_one(
     sf = YFStockFetcher(tickers=[ticker], kafka_bootstrap=None)
     F = sf.fetch_current_prices()[ticker]
     _logger.info(f"Using price {F}")
-    
+
     if engine_type == 'bergomi_nn':
         sabr_engine = BergomiCalibrationNN()
         # Optionally pre-train or load model here if needed
@@ -45,7 +46,7 @@ def calibrate_sabr_one(
 
     F_model, vols_model = sabr_engine.plot_vols(F_max=F_max, F_min=F_min)
     F_market_model = [
-        (x['strike'], x['volatility']) 
+        (x['strike'], x['volatility'])
         for x in options if F_max >= x['strike'] >= F_min and x['volatility']> 0.01
     ]
     if F_market_model:
@@ -67,3 +68,18 @@ def calibrate_sabr_one(
 # Note: This will trigger on-the-fly training if no model is loaded, which takes time.
 # model_nn, market_nn, bergomi_nn = calibrate_sabr_one('NVDA', datetime.date(2026, 4, 17), engine_type='bergomi_nn')
 
+def plot_all():
+
+    model_sabr, market_sabr, bergomi_sabr = calibrate_sabr_one('NVDA', datetime.date(2026, 4, 17))
+
+    # model_nn, market_nn, bergomi_nn = calibrate_sabr_one('NVDA', datetime.date(2026, 4, 17), engine_type='bergomi_nn')
+    # plt.plot(market_nn[0], market_nn[1])
+    # plt.plot(model_nn[0], model_nn[1])
+
+    plt.plot(market_sabr[0], market_sabr[1])
+    plt.plot(model_sabr[0], model_sabr[1])
+
+    plt.show()
+
+
+plot_all()
