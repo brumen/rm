@@ -214,7 +214,7 @@ class YFMrdsCalibrator(YFOptionChainFetcher):
                 skews = self._mrds_calib._c_vec,
                 betas = self._mrds_calib._beta_T,
             ), 
-            value=None,
+            value=0,  # unimportant value.
         )
 
         # sending the MRDS calibrated model to 
