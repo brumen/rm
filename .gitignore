@@ -9,3 +9,6 @@ rt_server/src/.*~
 *.xml
 .idea/*
 .aider*
+*~undo-tree~
+*target*
+*venv*

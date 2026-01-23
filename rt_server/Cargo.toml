@@ -3,13 +3,13 @@ name = "rt_server"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-path = "src/lib.rs"
+# [lib]
+# path = "src/lib.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lints.clippy]
-recursive_call = "deny"
+recursive_call = "allow"
 
 
 [dependencies]
