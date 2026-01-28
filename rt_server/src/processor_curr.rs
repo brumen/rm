@@ -4,7 +4,7 @@ use rdkafka::producer::FutureProducer;
 use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
@@ -31,7 +31,7 @@ where
     MT: MarketTypeT + std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("CurrentProcessor({self.processor_name})")
+        f.write_str(&format!("CurrentProcessor({})", self.processor_name))
     }
 }
 
@@ -132,6 +132,7 @@ where
         Ok((initial_trades, initial_curr_portf, None, vec![]))
     }
 
+    #[instrument]
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,

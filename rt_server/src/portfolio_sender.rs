@@ -16,6 +16,9 @@ use tracing::{debug, info, warn};
 //use crate::trade::{TradeReduce, TradeRep};
 use uuid::Uuid;
 
+// use lapin::options::ConnectionOptions;
+use lapin::{Connection, Result};
+
 /// sends new trades from the kafka position topic
 /// to new portfolio sender and current portfolio sender.
 /// if it receives a signal to resend existing trades, it resends them
@@ -177,6 +180,29 @@ pub fn connect_with_retries_rd(bootstrap_servers: &str, pos_topic: &str) -> Stre
         };
     }
 }
+
+// pub async fn connect_with_retries_rabbitmq(amqp_uri: &str) -> Result<Connection> {
+//     let mut current_sleep_time = 1;
+
+//     info!("Attempting to connect to RabbitMQ at {:?}", amqp_uri);
+
+//     loop {
+//         match Connection::connect(amqp_uri, ConnectionOptions::default()).await {
+//             Ok(connection) => {
+//                 debug!("Connected to RabbitMQ at {:?}", amqp_uri);
+//                 return Ok(connection);
+//             }
+//             Err(e) => {
+//                 warn!(
+//                     "Failed to connect to RabbitMQ, waiting {:?} secs: {:?}",
+//                     current_sleep_time, e
+//                 );
+//                 sleep(Duration::new(current_sleep_time, 0));
+//                 current_sleep_time = std::cmp::min(current_sleep_time + 1, 5);
+//             }
+//         };
+//     }
+// }
 
 /// connects the consumer to Kafka,
 /// keep retyring every 5 seconds.

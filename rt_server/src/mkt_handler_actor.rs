@@ -102,6 +102,7 @@ where
         )?;
 
         // wait for new message
+        debug!("Listening to mkt.");
         let new_msg = self.mkt_listener.recv().await?;
         let additional_name = Uuid::new_v4().to_string();
         let (new_item_name, new_item_value) = <(MT::MK, f64)>::try_from_ref(&new_msg)?;

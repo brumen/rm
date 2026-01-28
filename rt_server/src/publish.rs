@@ -8,6 +8,10 @@ use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
 use tracing::{debug, error, info, warn};
 
+// use lapin::options::ClientOptions; // TODO:
+use lapin::Connection;
+use std::error::Error;
+
 use crate::portfolio::PortfolioType;
 use crate::pricer::PricingMetric;
 use crate::streaming::Streaming;
@@ -107,6 +111,29 @@ pub fn connect_with_retries_producer_rd(
         };
     }
 }
+
+// pub async fn connect_with_retries_rabbitmq(uri: &str) -> Result<Connection, Box<dyn Error>> {
+//     let mut current_sleep_time = 1; // original sleep time in seconds
+
+//     loop {
+//         let connection = Connection::connect(uri, ClientOptions::default()).await;
+
+//         match connection {
+//             Ok(conn) => {
+//                 info!("Connected to RabbitMQ at {:?}", uri);
+//                 return Ok(conn);
+//             }
+//             Err(e) => {
+//                 warn!(
+//                     "Listener is not connected, waiting {:?} secs: {:?}",
+//                     current_sleep_time, e,
+//                 );
+//                 sleep(Duration::new(current_sleep_time, 0));
+//                 current_sleep_time = min(current_sleep_time + 1, 5);
+//             }
+//         };
+//     }
+// }
 
 /// connects the consumer to Kafka, retries every 5 seconds
 /// to try to establish connection.

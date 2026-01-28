@@ -72,3 +72,10 @@ The engine constructs a hierarchical processing chain:
 - `processor_*.rs`: Implementation of the specific actor logic for different stages of the pipeline.
 - `processor_msg.rs`: Defines the inter-actor messaging protocol (`ProcessorMiddleMessage`, `ProcessorBulkMessage`).
 - `market.rs` / `trade.rs`: Core domain traits and data structures.
+
+
+## Kafka connection functions 
+
+- `portfolio_sender.rs`: contains two functions, the more importat is  connect_with_retries_rd, which connects to kafka stream and reads from it. 
+- `publish.rs`: contains the function connect_with_retries_producer_rd - this creates a kafka producer which can publish to a kafka topic.
+ 

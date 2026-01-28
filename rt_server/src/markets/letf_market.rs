@@ -33,6 +33,8 @@ pub enum LETFMarketTypes {
     Stock(String),
     Option(String),       // option ticker, option value
     Sabr(SabrParameters), // Sabr parameters, sabr param value
+    // TODO: this to be removed later
+    Break,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

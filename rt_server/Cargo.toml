@@ -30,6 +30,7 @@ futures = { version = "0.3.28", features = ["futures-executor", "thread-pool"] }
 futures-channel = "0.3.28"
 glommio = "0.9.0"
 kafka = "0.9.0"
+lapin = "3.7.2"
 lazy_static = "1.5.0"
 log = "0.4.18"
 monoio = "0.2.4"
