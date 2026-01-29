@@ -6,7 +6,9 @@ import sys
 import six.moves
 import logging
 import threading
+import os
 from numpy import random
+from dotenv import load_dotenv
 
 if sys.version_info >= (3, 12, 0):
     sys.modules["kafka.vendor.six.moves"] = six.moves
@@ -18,6 +20,7 @@ from pydantic import BaseModel
 
 from mrds.mrds_calib import MrdsModel
 
+load_dotenv()
 _logger = logging.getLogger(__name__)
 
 
@@ -40,27 +43,21 @@ class MarketBreak(BaseModel):
 # Represented by a Python Literal type for strict value checking
 SabrParamNames = Literal["Alpha", "Beta", "Rho", "Nu"]
 
+
 class SabrParameters(BaseModel):
     # Rust's pub(crate) struct is a Python class
     stock: str
     maturity: str  # Corresponds to Rust's NaiveDate (serialized as "YYYY-MM-DD")
     param_name: SabrParamNames
 
+
 class Sabr(BaseModel):
     # Enum variant with a complex struct value: "Sabr": { ... SabrParameters ... }
     Sabr: SabrParameters
 
 
-
-
 # Union of all possible variants, representing the full LETFMarketTypes enum
-LETFMarketTypes = Union[
-    Stock, 
-    Option, 
-    Sabr, 
-    MarketBreak, 
-    MrdsModel
-]
+LETFMarketTypes = Union[Stock, Option, Sabr, MarketBreak, MrdsModel]
 
 
 class MarketValueTuple(BaseModel):
@@ -68,6 +65,7 @@ class MarketValueTuple(BaseModel):
     Represents the Rust tuple (LETFMarketTypes, f64).
     The f64 value is the market price, volatility, or parameter value.
     """
+
     # The first element is the Key/Type identifier
     market_key: LETFMarketTypes
     # The second element is the floating-point value
@@ -93,17 +91,38 @@ class MarketStockFetcher:
         return json.dumps(v).encode("utf-8")
 
     def __init__(
-            self,
-            tickers: List[str],
-            kafka_bootstrap: Optional[str] = "192.168.1.107:9092",
-            topic: str = "letf.mkt_raw",
+        self,
+        tickers: List[str],
+        kafka_bootstrap: Optional[str] = "192.168.1.107:9092",
+        topic: str = "letf.mkt_raw",
     ):
         self.tickers = tickers
-        self.producer = KafkaProducer(
-            bootstrap_servers=kafka_bootstrap,
-            value_serializer=self._encoder,
-        ) if kafka_bootstrap else None
+        self.producer = (
+            KafkaProducer(
+                bootstrap_servers=kafka_bootstrap,
+                value_serializer=self._encoder,
+            )
+            if kafka_bootstrap
+            else None
+        )
         self.topic = topic
+
+    @classmethod
+    def from_env(cls, tickers: List[str]):
+        kafka_host = os.getenv("HOST")  # '192.168.1.107'
+        kafka_port = os.getenv("KAFKA_PORT")  # 9092
+        kafka_mkt_raw = os.getenv("MKT_RAW_TOPIC")
+
+        _logger.info(
+            f"Starting setup service on {kafka_host}:{kafka_port}, "
+            f"mkt_rawtopic: {kafka_mkt_raw}"
+        )
+
+        return cls(
+            tickers=tickers,
+            kafka_bootstrap=f"{kafka_host}:{kafka_port}",
+            topic=kafka_mkt_raw,
+        )
 
 
 class YFStockFetcher(MarketStockFetcher):
@@ -170,8 +189,7 @@ class YFStockKafkaStreamer(YFStockFetcher):
     """
 
     def _process_message(self, msg):
-        """ processes the message got from yfinance.
-        """
+        """processes the message got from yfinance."""
 
         # this is the form of the message below.
         # {
@@ -199,8 +217,8 @@ class YFStockKafkaStreamer(YFStockFetcher):
         # }
 
         stock_message = MarketValueTuple(
-            market_key=Stock(Stock=msg['id']),
-            value=msg['price'],
+            market_key=Stock(Stock=msg["id"]),
+            value=msg["price"],
         )
         # [
         #     {"Stock", msg['id']},
@@ -218,24 +236,20 @@ class YFStockKafkaStreamer(YFStockFetcher):
     def _break_point(self):
         break_msg = MarketValueTuple(
             market_key=MarketBreak(Break=None),
-            value=0.,  # irrelevant
+            value=0.0,  # irrelevant
         )
         try:
             self.producer.send(self.topic, break_msg.to_json_array())
             _logger.info(f"Streamed to {self.topic}: {break_msg}")
         except Exception as e:
-            _logger.error(
-                f"Error streaming message to {self.topic}: {e}, {break_msg}"
-            )
+            _logger.error(f"Error streaming message to {self.topic}: {e}, {break_msg}")
 
     def stream_prices(self, interval: int = 60):
-        """Streams stock prices to Kafka, uses yfinance's streaming (live) updates.
-        """
+        """Streams stock prices to Kafka, uses yfinance's streaming (live) updates."""
 
         for ticker in self.tickers:
             t = threading.Thread(
-                target=yf.Ticker(ticker).live,
-                args=(self._process_message, )
+                target=yf.Ticker(ticker).live, args=(self._process_message,)
             )
             t.daemon = True
             t.start()
@@ -248,17 +262,14 @@ class YFStockKafkaStreamerSim(YFStockKafkaStreamer):
 
     def stream_prices(self, interval: int = 60):
 
-        ticker_val = {
-            ticker: 100
-            for ticker in self.tickers
-        }
+        ticker_val = {ticker: 100 for ticker in self.tickers}
 
         while True:
             for ticker in self.tickers:
-                ticker_val[ticker] += random.normal(loc=0., scale=1.)
+                ticker_val[ticker] += random.normal(loc=0.0, scale=1.0)
                 msg = {
-                    'id': ticker,
-                    'price': ticker_val[ticker],
+                    "id": ticker,
+                    "price": ticker_val[ticker],
                 }
                 self._process_message(msg)
                 self._break_point()  # send the break msg.
@@ -266,17 +277,19 @@ class YFStockKafkaStreamerSim(YFStockKafkaStreamer):
 
 
 def _fetcher_example():
-    fetcher = YFStockFetcher(["AAPL", "MSFT", "GOOG"])
+    fetcher = YFStockFetcher.from_env(tickers=["AAPL", "MSFT", "GOOG"])
     _logger.info("Current Prices:", fetcher.fetch_repeated())
 
 
 def _streamer_example():
-    streamer = YFStockKafkaStreamer(["AAPL", "MSFT", "GOOG"])
+    streamer = YFStockKafkaStreamer.from_env(tickers=["AAPL", "MSFT", "GOOG"])
     streamer.stream_prices(interval=1)
 
 
 def _streamer_example_sim():
-    streamer = YFStockKafkaStreamerSim(["AAPL", "MSFT", "GOOG", "NVDA"])
+    streamer = YFStockKafkaStreamerSim.from_env(
+        tickers=["AAPL", "MSFT", "GOOG", "NVDA"]
+    )
     streamer.stream_prices(interval=1)
 
 
