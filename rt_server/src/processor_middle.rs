@@ -1,7 +1,7 @@
 // middle processor, sits between 2 new processors
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
@@ -11,6 +11,7 @@ use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesL
 use crate::trade::{BaseTrade, TradeRep};
 
 // T is mnemonic for trade type, MT is mnemonic for market type
+#[derive(Debug)]
 pub(crate) struct ProcessorMiddle<T, MT: std::fmt::Debug> {
     pub(crate) processor_name: String,
     pub processor_below: ActorRef<ProcessorMiddleMessage<String>>,
@@ -23,6 +24,7 @@ impl<T, MT> ProcessorMiddle<T, MT>
 where
     MT: MarketTypeT + std::fmt::Debug,
     MT::MP: Clone,
+    T: std::fmt::Debug,
 {
     #[allow(dead_code)]
     pub(crate) fn new(
@@ -54,7 +56,7 @@ pub enum ProcessorMiddleState {
 #[async_trait]
 impl<T, MT> Actor for ProcessorMiddle<T, MT>
 where
-    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT>,
+    T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT> + std::fmt::Debug,
     MT: Send + Sync + MarketTypeT + 'static + std::fmt::Debug,
     MT::MP: Clone,
 {
@@ -96,7 +98,7 @@ where
         ))
     }
 
-    //#[instrument]
+    #[instrument]
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,

@@ -1,6 +1,6 @@
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
-use tracing::{debug, info, warn}; // instrument
+use tracing::{debug, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
@@ -117,6 +117,7 @@ where
     }
 
     // #[instrument(skip(myself, message, state),level= "debug")]
+    #[instrument]
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,
