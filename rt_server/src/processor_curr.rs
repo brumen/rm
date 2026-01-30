@@ -146,7 +146,7 @@ where
         })
     }
 
-    #[instrument]
+    #[instrument(skip(self, _myself, message, state), fields(name = %self.processor_name))]
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,

@@ -476,10 +476,11 @@ impl PmPortfolio {
     }
 
     // simple display of pm.
+    // for each PV/PV01
     pub(crate) fn simple(&self) -> String {
         let mut pm_displ = String::new();
         for (pm, pi) in self.iter() {
-            let pm_indiv = format!("{}: {:?}", pm, pi);
+            let pm_indiv = format!("{}: {:?}", pm, pi.len());
             pm_displ += &pm_indiv;
         }
 
@@ -548,11 +549,6 @@ mod portfolio_tests {
     fn portfolio_works_1() {
         // tests whether += works for 2 portfolios.
 
-        let date_1 = Date::from_calendar_date(2023, Month::January, 10).unwrap();
-        let date_2 = Date::from_calendar_date(2023, Month::February, 20).unwrap();
-        let _date_3 = date_1.clone();
-        let _date_4 = date_1.clone();
-        let _date_5 = date_2.clone();
         let mut portfolio_1 = PortfolioType::from([('1'.to_string(), 10.), ('2'.to_string(), 20.)]);
         let portfolio_2 = PortfolioType::from([('1'.to_string(), 20.)]);
         portfolio_1 += portfolio_2;

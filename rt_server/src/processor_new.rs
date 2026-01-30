@@ -116,8 +116,7 @@ where
         ))
     }
 
-    // #[instrument(skip(myself, message, state),level= "debug")]
-    #[instrument]
+    #[instrument(skip(self, myself, message, state), fields(name=%self.processor_name))]
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -126,13 +125,12 @@ where
     ) -> Result<(), ActorProcessingErr> {
         let (trade_l, trades_non_pricing, portf, pns, new_m, pricing_metrics) = state;
 
-        info!(
-            "Current State: {:?}. Portf size: {}, Nb trades: {}",
+        debug!(
+            "Current State: {:?}. Portf: {}, Nb trades: {}",
             pns,
-            portf.len(),
+            portf.simple(),
             trade_l.len()
         );
-        debug!("Portfolio = {}", portf.simple());
 
         match message {
             ProcessorMiddleMessage::NewTrade(new_trade) => {
@@ -196,7 +194,7 @@ where
                             self.processor_middle.get_name(),
                             trade_l.len(),
                             portf.simple(),
-                            new_m_real.clone(),
+                            new_m_real,
                         );
                         self.processor_middle.send_message(
                             ProcessorMiddleMessage::NewTradePortfolio((
@@ -274,9 +272,8 @@ where
                         info!(
                             "Sending to lower processor {:?}. Portf size: {}",
                             self.processor_middle.get_name(),
-                            portf.len(),
+                            portf.simple(),
                         );
-                        debug!("Sending portfolio: {}", portf.simple());
                         self.processor_middle.send_message(
                             ProcessorMiddleMessage::NewTradePortfolio((
                                 trade_l.clone(),
@@ -292,7 +289,7 @@ where
             // this is coming from mkt_handler, and market handler only produces
             //   "future" market.  Here we can potentially create a new market
             ProcessorMiddleMessage::NewMarket(new_market_name) => {
-                info!(
+                debug!(
                     "Message NewMarket: {}. <- This should be future.",
                     new_market_name
                 ); // TODO: IMPORTANT: this should be "future".
@@ -375,8 +372,8 @@ where
                         };
 
                         info!(
-                            "Sending portfolio size {} to lower processor {:?}",
-                            portf.len(),
+                            "Sending portfolio {} to lower processor {:?}",
+                            portf.simple(),
                             self.processor_middle.get_name(),
                         );
                         debug!(
