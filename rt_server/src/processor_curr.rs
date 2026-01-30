@@ -102,6 +102,15 @@ where
     }
 }
 
+/// current state of the processor
+#[derive(Debug)]
+pub(crate) struct _ProcessorCurrState {
+    trades: TradesLocal,
+    portfolio: PmPortfolio, //  2nd arg:  a map of metrics to portfolioTypes, e.g. PV: Portf1, PV01: Portf2...
+    curr_market: Option<String>,
+    pricing_results: Vec<PricingMetric>,
+}
+
 // T is the representation fo the trade
 #[async_trait]
 impl<T, MT> Actor for ProcessorCurr<T, MT>
@@ -117,7 +126,7 @@ where
                                                //  2nd arg:  a map of metrics to portfolioTypes, e.g. PV: Portf1, PV01: Portf2...
                                                //  3rd arg:  current market name
                                                //  4th arg:  vector of pricing metrics for which we are computing.
-    type State = (TradesLocal, PmPortfolio, Option<String>, Vec<PricingMetric>);
+    type State = _ProcessorCurrState;
     type Arguments = ();
 
     async fn pre_start(
@@ -129,7 +138,12 @@ where
         let initial_trades = TradesLocal::new();
         let initial_curr_portf = PmPortfolio::new();
         // no initial metrics
-        Ok((initial_trades, initial_curr_portf, None, vec![]))
+        Ok(_ProcessorCurrState {
+            trades: initial_trades,
+            portfolio: initial_curr_portf,
+            curr_market: None,
+            pricing_results: vec![],
+        })
     }
 
     #[instrument]
@@ -139,18 +153,13 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        let (trades, portf, market, curr_pricing_metrics) = state;
-        info!(
-            "State: Trades: {}, portf: {:?}, market: {:?}",
-            trades.len(),
-            portf.count(),
-            market,
-        );
+        //let (trades, portf, market, curr_pricing_metrics) = state;
+        debug!(?state, "State");
 
         match message {
             ProcessorMiddleMessage::NewTrade(trade) => {
-                info!("Message: NewTrade: {:?}", trade);
-                let Some(real_market) = market else {
+                debug!("Message: NewTrade: {:?}", trade);
+                let Some(ref real_market) = state.curr_market else {
                     // only continue if you have a market.
                     warn!("Do not have market. Ignoring the trade.");
                     return Ok(());
@@ -164,7 +173,7 @@ where
                     return Ok(());
                 };
 
-                info!("Adding new trade: {}", trade);
+                debug!("Adding new trade: {}", trade);
                 let trade_real = trade_info.value();
 
                 let Some(market_info) = self.all_markets.get(real_market) else {
@@ -176,17 +185,17 @@ where
                     "Valuing trade {} on market {:?} for {:?} and adding to portfolio.",
                     trade,
                     market_info.market_name(),
-                    curr_pricing_metrics
+                    state.pricing_results,
                 );
-                for pm in curr_pricing_metrics.clone() {
+                for pm in state.pricing_results.clone() {
                     let valued_trade_pm = trade_real.value_by_metric(pm, market_info.clone()).await;
-                    let portf_pm = portf.get_mut(&pm).unwrap();
+                    let portf_pm = state.portfolio.get_mut(&pm).unwrap();
                     *portf_pm += valued_trade_pm;
                 }
 
                 // updating the portfolio
                 //*trades += &trade; // TODO: THIS CAN BE FIXED.
-                trades.insert(trade);
+                state.trades.insert(trade);
                 // *portf += valued_trade;
                 // send information about all the trades to the trade processor
                 // let now = Local::now();
@@ -196,8 +205,8 @@ where
                 //    )
                 //);
 
-                for pm in curr_pricing_metrics.clone() {
-                    let portf_pm = portf.get_mut(&pm).unwrap();
+                for pm in state.pricing_results.clone() {
+                    let portf_pm = state.portfolio.get_mut(&pm).unwrap();
                     self._publish_result_portfolio(portf_pm.clone(), pm).await?
                 }
             }
@@ -208,7 +217,7 @@ where
                 new_market,
                 upstream_processor,
             )) => {
-                info!(
+                debug!(
                     "Message: NewTradePortfolio: Trades: {:?}, NewPortfolio: {:?}, NewMarket: {:?}",
                     new_trades.len(),
                     new_portfolio.count(),
@@ -217,20 +226,15 @@ where
                 // we got a new portfolio, possibly switch it
 
                 // let new_behind_curr = trades - new_trades;
-                let new_behind_curr = trades
+                let new_behind_curr = state
+                    .trades
                     .iter()
                     .filter(|&x| !new_trades.contains(x.as_str()))
                     .cloned()
                     .collect::<TradesLocal>();
 
-                info!(
-                    "NewPortfolio: behind curr: {:?}, portf size: {}",
-                    new_behind_curr.len(),
-                    new_portfolio.len(),
-                );
-
                 // new portfolio has more trades, send the portfolio to publisher.
-                if *portf <= new_portfolio {
+                if state.portfolio <= new_portfolio {
                     info!("NewPortfolio accepted. Publishing.");
                     for (pm, new_portf_pm) in new_portfolio.iter() {
                         self._publish_result_portfolio(new_portf_pm.clone(), *pm)
@@ -241,7 +245,7 @@ where
                     // as it's not needed anymore.
                     // IMPORTANT: this .remove call CAN DEADLOCK!!!
                     // destroys the market at the end.
-                    if let Some(old_market) = market {
+                    if let Some(ref old_market) = state.curr_market {
                         if *old_market != new_market {
                             // only destroy if the markets are different
                             info!("Got new market, destroying the market {}", old_market);
@@ -254,14 +258,17 @@ where
                     };
 
                     // update the state of current processor.
-                    *portf = new_portfolio;
-                    trades.extend(new_trades); // *trades += &new_trades;
-                    *market = Some(new_market.clone()); // markets should trickle down.
-                    info!("Switching to market {:?}", market); // market should be created.
-                } // otherwise dont do anything.
+                    state.portfolio = new_portfolio;
+                    state.trades.extend(new_trades); // *trades += &new_trades;
+                    state.curr_market = Some(new_market.clone()); // markets should trickle down.
+                    debug!("Switching to market {:?}", state.curr_market); // market should be created.
+                } else {
+                    // otherwise dont do anything.
+                    debug!("NewPortfolio not accepted. Ignoring.");
+                }
 
                 // send the behind information to the middle processor.
-                info!(
+                debug!(
                     "Notifying upstream {:?} that message was accepted/rejected",
                     upstream_processor.get_name()
                 );
@@ -274,11 +281,11 @@ where
             // we get a portfolio of different metrics
             ProcessorMiddleMessage::Metric(new_pricing_metrics) => {
                 info!("Changing metrics to {:?}", new_pricing_metrics);
-                crate::utils::change_metrics(portf, new_pricing_metrics.clone()); // fixes the portf to correspond to new_pricing_metrics
-                *curr_pricing_metrics = new_pricing_metrics;
+                crate::utils::change_metrics(&mut state.portfolio, new_pricing_metrics.clone()); // fixes the portf to correspond to new_pricing_metrics
+                state.pricing_results = new_pricing_metrics;
 
                 // sending it to for publishing
-                for (pm, portf_pm) in portf.iter() {
+                for (pm, portf_pm) in state.portfolio.iter() {
                     self._publish_result_portfolio(portf_pm.clone(), *pm)
                         .await?;
                 }
