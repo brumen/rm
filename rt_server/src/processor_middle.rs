@@ -124,7 +124,15 @@ where
         })
     }
 
-    #[instrument(skip(self, myself, message, state), fields(name = %self.processor_name, state = %state.processor_state))]
+    #[instrument(
+        skip(self, myself, message, state),
+        fields(
+            name = %self.processor_name,
+            state = %state.processor_state,
+            mkt=state.curr_market,
+            all_markets=%self.all_markets,
+        )
+    )]
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,

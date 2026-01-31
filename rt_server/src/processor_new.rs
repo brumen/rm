@@ -31,6 +31,12 @@ pub enum ProcessorNewState {
     Idle,
 }
 
+impl std::fmt::Display for ProcessorNewState {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl<T, MT> ProcessorNew<T, MT>
 where
     MT: MarketTypeT + std::fmt::Debug,
@@ -116,7 +122,7 @@ where
         ))
     }
 
-    #[instrument(skip(self, myself, message, state), fields(name=%self.processor_name))]
+    #[instrument(skip(self, myself, message, state), fields(name=%self.processor_name, state = %state.3))]
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,

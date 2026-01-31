@@ -146,7 +146,15 @@ where
         })
     }
 
-    #[instrument(skip(self, _myself, message, state), fields(name = %self.processor_name))]
+    #[instrument(
+        skip(self, _myself, message, state),
+        fields(
+            name = %self.processor_name,
+            msg = message.as_ref(),
+            mkt = state.curr_market,
+            all_markets = %self.all_markets,
+        )
+    )]
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -155,7 +163,6 @@ where
     ) -> Result<(), ActorProcessingErr> {
         //let (trades, portf, market, curr_pricing_metrics) = state;
         debug!(?state, "State");
-
         match message {
             ProcessorMiddleMessage::NewTrade(trade) => {
                 debug!("Message: NewTrade: {:?}", trade);

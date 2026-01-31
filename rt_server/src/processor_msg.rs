@@ -1,6 +1,7 @@
 /// messages for the Multiple Actor references.
 use ractor::ActorRef;
 use std::collections::HashSet;
+use strum::AsRefStr;
 
 use crate::portfolio::PmPortfolio;
 use crate::pricer::PricingMetric;
@@ -9,7 +10,7 @@ pub(crate) type TradesLocal = HashSet<String>;
 
 /// message that the new processor receives
 #[allow(dead_code)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, AsRefStr)]
 pub enum ProcessorMiddleMessage<MT> {
     NewTrade(String), // message from trade producer, trade id.
     NewMarket(MT),    // message from market handler, market_name

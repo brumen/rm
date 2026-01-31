@@ -18,11 +18,8 @@ pub(crate) struct AllMarkets<MT: fmt::Debug> {
 
 impl<MT: fmt::Debug> fmt::Display for AllMarkets<MT> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "AllMarkets: markets = {:?}, market_names = {:?}",
-            self.markets, self.market_names
-        )
+        let mn: Vec<_> = self.markets.iter().map(|kv| kv.key().to_string()).collect();
+        write!(f, "{:?}", mn)
     }
 }
 
