@@ -98,6 +98,12 @@ pub enum ProcessorBulkState {
     Idle,
 }
 
+impl std::fmt::Display for ProcessorBulkState {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 // impl<ReductionType, T, MP> RestPricerSpark<ReductionType> for ProcessorBulk<T, MP>
 // where
 //     ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
@@ -149,18 +155,23 @@ where
         Ok(ProcessorBulkState::Idle) //  (0, None)  // intialized to 0 attempts.
     }
 
-    #[instrument(name="pb_span", skip(message, state, _myself, self), fields(pb_name=self.processor_name))]
+    #[instrument(
+        name="processor_bulk_span",
+        skip(message, state, _myself, self),
+        fields(
+            pb_name=self.processor_name,
+            state=%state,
+        )
+    )]
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        info!("Processor: {}, State: {:?}", self.processor_name, state);
         match state {
             ProcessorBulkState::Calculating => {
                 info!("Currently calculating, ignoring messages for now. This might change.");
-                // TODO: This might change.
             }
 
             ProcessorBulkState::Idle => {
@@ -175,34 +186,38 @@ where
                         pricing_metrics,
                     )) => {
                         // start the long-running pricing procedure
-                        info!("Message: NewBulk");
-                        info!("State: {:?} -> Calculating", state);
+                        info!("Message: NewBulk. State: {:?} -> Calculating", state);
                         *state = ProcessorBulkState::Calculating;
                         info!(
                             "Computing {} trades for {:?}.",
                             new_trades.len(),
                             pricing_metrics,
                         );
+                        // registering the market that is sent:
+                        debug!("Making sure the market {} exists.", market);
+                        let _ = self
+                            .all_markets
+                            .insert_processor(self.processor_name.clone(), market.clone());
 
                         let Some(market_actual) = self.all_markets.get(&market) else {
                             warn!("Could not get market {}. Abandoning pricing.", market);
                             // if curr_mkt == None, we couldnt get the market, abandon the attempts
                             sending_processor.send_message(ProcessorMiddleMessage::BulkReceive(
                                 (
-                                    new_trades.clone(),
-                                    PmPortfolio::new(),
-                                    TradesLocal::new(),
-                                    market.clone(),
+                                    new_trades.clone(), // referencing trades. <- TODO: DO WE NEED THIS - SHOULD BE REMOVED.
+                                    PmPortfolio::new(), // computed portf = None, so not really useful.
+                                    TradesLocal::new(), // offending trades
+                                    market.clone(),     // referenced market
                                 ),
                             ))?;
                             return Ok(());
                         };
 
                         // we have a market
-
                         let mut non_pricing_trades = TradesLocal::new();
                         let mut used_trades = vec![];
                         for trade_name in new_trades.iter() {
+                            // TODO: WHAT PART OF THESE TRADES COULD BE CACHED???
                             let Some(trade_attempt) = self.all_trades.get(trade_name) else {
                                 warn!(
                                     "Could not get trade {} from all_trades. Continuing w/o it.",
@@ -226,16 +241,12 @@ where
                             )
                             .await;
 
-                        info!(
-                            "Sending portfolio back to actor {:?}: {:?}",
-                            sending_processor.get_name(),
-                            portfolio.count(),
-                        );
                         debug!(
                             "Sending portfolio back to actor {:?}: {:?}",
                             sending_processor.get_name(),
                             portfolio.simple(),
                         );
+
                         sending_processor.send_message(ProcessorMiddleMessage::BulkReceive((
                             new_trades,
                             portfolio,

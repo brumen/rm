@@ -130,7 +130,6 @@ where
             name = %self.processor_name,
             state = %state.processor_state,
             mkt=state.curr_market,
-            all_markets=%self.all_markets,
         )
     )]
     async fn handle(
@@ -696,14 +695,16 @@ where
                         )),
                     )?;
 
-                    info!(
-                        "Switching markets: {:?} <- {}",
-                        state.curr_market, new_market,
-                    );
+                    if state.curr_market != Some(new_market.clone()) {
+                        info!(
+                            "Switching markets: {:?} <- {}",
+                            state.curr_market, new_market,
+                        );
 
-                    state.curr_market = Some(new_market.clone());
-                    self.all_markets
-                        .insert_processor(self.processor_name.clone(), new_market.clone());
+                        state.curr_market = Some(new_market.clone());
+                        self.all_markets
+                            .insert_processor(self.processor_name.clone(), new_market.clone());
+                    } // else no market change.
                 }
                 // sending upstream that we are done.
                 // TODO: CHECK IF THIS SHOULD BE BETTER HANDLED

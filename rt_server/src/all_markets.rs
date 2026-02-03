@@ -12,8 +12,8 @@ use crate::market::MarketTypeT;
 #[derive(Debug)]
 pub(crate) struct AllMarkets<MT: fmt::Debug> {
     pub(crate) markets: DashMap<String, MT>,
-    pub(crate) market_names: DashMap<String, String>, // mapping between processor names and market names used.
-                                                      //    pub(crate) mp: Option<MT::MP>,
+    pub(crate) processor_market_map: DashMap<String, String>, // mapping between processor names and market names used.
+                                                              //    pub(crate) mp: Option<MT::MP>,
 }
 
 impl<MT: fmt::Debug> fmt::Display for AllMarkets<MT> {
@@ -28,6 +28,7 @@ where
     MT: MarketTypeT + Clone + Send + Sync + fmt::Debug, // this will be fine since MT is an Arc.
     MT::MP: Clone,
 {
+    // list the markets that are currently held - in self.markets
     pub(crate) fn list_market_names(&self) -> Vec<String> {
         self.markets
             .iter()
@@ -43,22 +44,11 @@ where
     pub(crate) fn new() -> Self {
         Self {
             markets: DashMap::<String, MT>::new(),
-            market_names: DashMap::<String, String>::new(),
+            processor_market_map: DashMap::<String, String>::new(),
         }
     }
 
-    // pub(crate) fn new2(market_1_name: String, market_1: MT) -> AllMarkets<Arc<MT>> {
-    //     let new_dm = DashMap::<String, Arc<MT>>::new();
-    //     let market_1_cast = Arc::new(market_1);
-    //     new_dm.insert(market_1_name.clone(), market_1_cast);
-    //     let new_mn = DashMap::<usize, String>::new();
-    //     new_mn.insert(0, market_1_name);
-    //     AllMarkets {
-    //         markets: new_dm,
-    //         market_names: new_mn,
-    //     }
-    // }
-
+    /// gets the market with the name market_name
     pub(crate) fn get(&self, market_name: &String) -> Option<MT> {
         let actual_market = self.markets.get(market_name)?;
         Some(actual_market.value().clone()) // .clone here is OK, since we're using it on Arc (MT = Arc<...>)
@@ -79,19 +69,31 @@ where
     ///   it removes it. special treatment of "future" market
     fn _clean_markets(&self) {
         let mut active_markets = self
-            .market_names
+            .processor_market_map
             .iter()
             .map(|proc_mn| proc_mn.clone())
             .collect::<Vec<String>>();
         active_markets.push("future".to_string()); // special market
 
-        self.markets
-            .retain(|mn, _| active_markets.iter().any(|am| am == mn));
+        self.markets.retain(|mn, _| {
+            let is_mn_present = active_markets.iter().any(|am| am == mn);
+            if !is_mn_present {
+                debug!(
+                    "MARKETS: {:?}, PROCESSORS: {:?}, DELETING: {}",
+                    self.list_market_names(),
+                    active_markets,
+                    mn
+                );
+            }
+            is_mn_present
+        });
     }
 
     // this is when the processor simply changes the market.
     pub(crate) fn insert_processor(&self, processor_name: String, market_name: String) {
-        self.market_names.insert(processor_name, market_name);
+        let _ = self
+            .processor_market_map
+            .insert(processor_name, market_name);
         // go through the market names and remove the markets
         self._clean_markets();
     }
@@ -116,34 +118,4 @@ where
 
         Some(mo.market_params().clone())
     }
-
-    // remove the market from self.markets
-    // pub(crate) fn remove(&self, market_name: &String) {
-    //     // check if there are non-zero users
-    //     let Some(market_to_remove) = self.markets.get(market_name) else {
-    //         warn!(
-    //             "Attempting to remove {:?} but market isnt present in all_markets",
-    //             market_name,
-    //         );
-    //         return;
-    //     };
-
-    //     if !market_to_remove.is_used() {
-    //         debug!(
-    //             "Removing {} from all_markets. Before deletion all_markets: {:?}",
-    //             market_name,
-    //             self.list_market_names()
-    //         );
-    //         self.markets.remove(market_name);
-    //     } else {
-    //         warn!(
-    //             "Market {} still used. Not deleting from all_markets.",
-    //             market_name
-    //         );
-    //     }
-    // }
-
-    // pub(crate) fn remove_processor(&self, processor_name: &String) {
-    //     self.market_names.remove(processor_name);
-    // }
 }

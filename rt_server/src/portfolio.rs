@@ -480,10 +480,14 @@ impl PmPortfolio {
     pub(crate) fn simple(&self) -> String {
         let mut pm_displ = String::new();
         for (pm, pi) in self.iter() {
-            let pm_indiv = format!("{}: {:?}", pm, pi.len());
+            let pm_indiv = format!("{}: {:?} ", pm, pi.len());
             pm_displ += &pm_indiv;
         }
 
+        // if empty we should display empty dict
+        if pm_displ.is_empty() {
+            pm_displ = String::from("{}");
+        }
         pm_displ
     }
 }

@@ -250,13 +250,13 @@ where
 
                     // market that we were holding should be removed from the all_markets,
                     // as it's not needed anymore.
-                    // IMPORTANT: this .remove call CAN DEADLOCK!!!
                     // destroys the market at the end.
+                    // important: this works w/o old_market != new_market, but it's better
+                    //   since we dont have potential deadlocks on self.all_markets.processor_market_map.
                     if let Some(ref old_market) = state.curr_market {
                         if *old_market != new_market {
                             // only destroy if the markets are different
                             info!("Got new market, destroying the market {}", old_market);
-                            //let _ = self.all_markets.remove(&old_market.clone());
                             let _ = self
                                 .all_markets
                                 .insert_processor(self.processor_name.clone(), new_market.clone());

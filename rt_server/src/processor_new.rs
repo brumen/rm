@@ -1,6 +1,6 @@
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
@@ -122,7 +122,10 @@ where
         ))
     }
 
-    #[instrument(skip(self, myself, message, state), fields(name=%self.processor_name, state = %state.3))]
+    #[instrument(
+        skip(self, myself, message, state),
+        fields(name=%self.processor_name, state = %state.3)
+    )]
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -148,7 +151,7 @@ where
                     ProcessorNewState::CalculatingSingle => {
                         // add the trade to the new portfolio and
                         //   attempt again.
-                        info!("Computing trade {}.", new_trade);
+                        info!("CalculatingSingle, Computing trade {}.", new_trade);
 
                         // the next 3 are conditions when we can actually compute something
                         // condition if we can get the relevant trade
@@ -177,8 +180,7 @@ where
                             let new_trade_price_pm = new_trade_info
                                 .value_by_metric(*pm, new_m_actual.clone())
                                 .await;
-                            // *portf += new_trade_price;  // portfolio update
-
+                            debug!("New trade price: {:?}", new_trade_price_pm);
                             match portf.get_mut(pm) {
                                 Some(portf_pm) => {
                                     *portf_pm += new_trade_price_pm;
@@ -295,28 +297,20 @@ where
             // this is coming from mkt_handler, and market handler only produces
             //   "future" market.  Here we can potentially create a new market
             ProcessorMiddleMessage::NewMarket(new_market_name) => {
+                if !new_market_name.contains("future") {
+                    error!("New market should be 'future'. It is {}", new_market_name);
+                }
+
                 debug!(
                     "Message NewMarket: {}. <- This should be future.",
                     new_market_name
-                ); // TODO: IMPORTANT: this should be "future".
+                );
 
                 match pns {
                     // what is the processor doing right now
                     ProcessorNewState::Idle => {
                         // update the "new" market, and idle, change the new_m to future market
                         info!("Setting future market to be: {:?}", new_market_name);
-
-                        // removing the old new_m market
-                        // match new_m {
-                        //     None => {
-                        //         info!("new_m is None. Not doing anything.");
-                        //     }
-                        //     Some(real_market) => {
-                        //         info!("Destroying new_m market {}.", real_market);
-                        //         self.all_markets.remove(real_market);
-                        //         self.all_markets.remove_processor(&self.processor_name);
-                        //     }
-                        // }
 
                         // IMPORTANT: new_market IS "future", so get this.
                         let Some(new_market_val) = self.all_markets.get(&new_market_name) else {
@@ -335,13 +329,6 @@ where
                             new_market_val_name.clone(),
                             new_market_val,
                         );
-                        // self.all_markets
-                        //     .insert(new_market_val_name.clone(), new_market_val); // insert the value under the new name
-                        // self.all_markets.insert_processor(
-                        //     self.processor_name.clone(),
-                        //     new_market_val_name.clone(),
-                        // );
-                        info!("All_markets: {:?}", self.all_markets.list_market_names());
                         *new_m = Some(new_market_val_name.clone());
 
                         info!("New State: -> CalculatingBulk");

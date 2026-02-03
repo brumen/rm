@@ -91,12 +91,21 @@ where
         market.set_name(new_name);
         let market_sent = Arc::new((*market).clone());
         // this insertion here is done efficiently.
+        debug!("Inserting future market into all_markets");
+
         self.all_markets.insert("future".to_string(), market_sent);
+
         info!(
             "Current markets: {:?}",
             self.all_markets.list_market_names()
         );
+        debug!(
+            "Current processor-market map: {:?}",
+            self.all_markets.processor_market_map,
+        );
 
+        // sending notification that future market has changed,
+        //
         self.new_processor.send_message(
             ProcessorMiddleMessage::NewMarket("future".to_string()), // notification that the future market was updated.
         )?;
@@ -110,6 +119,7 @@ where
             "Inserting into market: {:?}, {:?}",
             new_item_name, new_item_value
         );
+        // inserting new value into the "future" market.
         let _ = market.insert(new_item_name, new_item_value).await;
         market.set_name(additional_name);
         myself.send_message(market.clone())?;
