@@ -104,27 +104,6 @@ impl std::fmt::Display for ProcessorBulkState {
     }
 }
 
-// impl<ReductionType, T, MP> RestPricerSpark<ReductionType> for ProcessorBulk<T, MP>
-// where
-//     ReductionType: PartialEq + Clone + BaseTrade + Sync + Send,
-//     ProcessorBulk<T, MP>: Decoder,
-//     T: Send + Sync,
-//     MP: Send + Sync,
-// {
-
-//     fn _pricing_server_spark(&self) -> String {
-// 	self.pricing_options.pricing_server.clone()
-//     }
-
-//     fn _pricing_endpoint_spark(
-// 	&self,
-// 	_market_: dyn MarketTypeT<MP=MP>,
-// 	_metric: PricingMetric
-//     ) -> String {
-// 	"spark".to_string()
-//     }
-// }
-
 #[async_trait]
 impl<T, MT> PriceMultiple<T, MT> for ProcessorBulk<T, MT>
 where
@@ -186,15 +165,15 @@ where
                         pricing_metrics,
                     )) => {
                         // start the long-running pricing procedure
-                        info!("Message: NewBulk. State: {:?} -> Calculating", state);
+                        debug!("Message: NewBulk. State: {:?} -> Calculating", state);
                         *state = ProcessorBulkState::Calculating;
-                        info!(
-                            "Computing {} trades for {:?}.",
+                        debug!(
+                            "Computing {} trades for {:?}. Market = {}",
                             new_trades.len(),
                             pricing_metrics,
+                            market,
                         );
                         // registering the market that is sent:
-                        debug!("Making sure the market {} exists.", market);
                         let _ = self
                             .all_markets
                             .insert_processor(self.processor_name.clone(), market.clone());
@@ -210,6 +189,7 @@ where
                                     market.clone(),     // referenced market
                                 ),
                             ))?;
+                            *state = ProcessorBulkState::Idle; // back to idle.
                             return Ok(());
                         };
 
@@ -232,6 +212,7 @@ where
                         // pricing_futs are futures where the trades are getting priced.
                         //let mut pricing_futs = vec![];
                         //for used_trade in used_trades {
+                        debug!("Market info: {:?}", market_actual);
                         let portfolio = self
                             .price_multiple(
                                 new_trades.clone(), // TODO: THIS .clone is NOT THE BEST - FIX IT

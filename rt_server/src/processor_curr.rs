@@ -241,7 +241,8 @@ where
                     .collect::<TradesLocal>();
 
                 // new portfolio has more trades, send the portfolio to publisher.
-                if state.portfolio <= new_portfolio {
+                let new_portf_acc = state.portfolio <= new_portfolio;
+                if new_portf_acc {
                     info!("NewPortfolio accepted. Publishing.");
                     for (pm, new_portf_pm) in new_portfolio.iter() {
                         self._publish_result_portfolio(new_portf_pm.clone(), *pm)
@@ -275,9 +276,14 @@ where
                 }
 
                 // send the behind information to the middle processor.
+                let acc_reject = match new_portf_acc {
+                    true => "accepted",
+                    false => "rejected",
+                };
                 debug!(
-                    "Notifying upstream {:?} that message was accepted/rejected",
-                    upstream_processor.get_name()
+                    "Notifying {:?} that new portfolio was message was {}",
+                    upstream_processor.get_name(),
+                    acc_reject,
                 );
                 upstream_processor.send_message(ProcessorMiddleMessage::Behind(
                     new_market,

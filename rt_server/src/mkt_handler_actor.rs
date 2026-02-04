@@ -81,18 +81,16 @@ where
         message: Self::Msg,      // message is new things about the market
         state: &mut Self::State, // market state is the market itself.
     ) -> Result<(), ActorProcessingErr> {
-        debug!("Handling new market message.");
         let market = state; // state holds the market.
         let market_addition = message;
         let new_name = market_addition.market_name();
-        debug!("Market addition = {:?}", market_addition);
         *market += &market_addition; // adding a new market
         debug!("Market = {:?}", market);
-        market.set_name(new_name);
+        market.set_name(new_name.clone());
         let market_sent = Arc::new((*market).clone());
-        // this insertion here is done efficiently.
-        debug!("Inserting future market into all_markets");
+        debug!("Inserting future ({}) into all_markets", new_name);
 
+        // insert the maket under new_name.
         self.all_markets.insert("future".to_string(), market_sent);
 
         info!(
@@ -107,11 +105,11 @@ where
         // sending notification that future market has changed,
         //
         self.new_processor.send_message(
-            ProcessorMiddleMessage::NewMarket("future".to_string()), // notification that the future market was updated.
+            ProcessorMiddleMessage::NewMarket("future".to_string()), // notification that the future market was updated under new_name
         )?;
 
         // wait for new message
-        debug!("Listening to mkt.");
+        debug!("Listening to raw mkt data.");
         let new_msg = self.mkt_listener.recv().await?;
         let additional_name = Uuid::new_v4().to_string();
         let (new_item_name, new_item_value) = <(MT::MK, f64)>::try_from_ref(&new_msg)?;

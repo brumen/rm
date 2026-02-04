@@ -80,6 +80,7 @@ async fn run_all() {
     tracing_subscriber::fmt()
         .with_max_level(tracing_level)
         //.with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
+        //.with_span_events(tracing_subscriber::fmt::format::FmtSpan::NONE)
         .init();
 
     // let axum_process = processor_setup::axum_process(host.clone());

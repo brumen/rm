@@ -552,7 +552,7 @@ where
                 ) = ntp;
 
                 info!(
-                    "State: Idle: Switching market: from {:?} <- {}",
+                    "Switching market: from {:?} <- {}",
                     state.curr_market, new_market,
                 );
 
