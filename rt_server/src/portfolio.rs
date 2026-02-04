@@ -543,6 +543,38 @@ impl PartialOrd for PmPortfolio {
     }
 }
 
+// impl AddAssign<PmPortfolio> for PmPortfolio {
+//     fn add_assign(&mut self, other: PmPortfolio) {
+//         for (pricing_metric, pm_portfolio) in other.iter() {
+//             if self.contains_key(pricing_metric) {
+//                 // TODO: THESE CLONES ARE SUPER POOR!!!!
+//                 let curr_pm = self.get(pricing_metric).unwrap().clone();
+//                 self.insert(*pricing_metric, curr_pm.clone() + pm_portfolio.clone());
+//             } else {
+//                 self.insert(*pricing_metric, pm_portfolio.clone());
+//             }
+//         }
+//     }
+// }
+
+// TODO: CHECK THIS EFFICIENCY
+impl AddAssign<PmPortfolio> for PmPortfolio {
+    fn add_assign(&mut self, other: PmPortfolio) {
+        for (pm, comp_portf_pm) in other.iter() {
+            match self.get_mut(pm) {
+                Some(portf_pm) => {
+                    *portf_pm += comp_portf_pm;
+                }
+                None => {
+                    let mut portfolio_pm = PortfolioType::default();
+                    portfolio_pm += comp_portf_pm;
+                    self.insert(*pm, portfolio_pm);
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod portfolio_tests {
     use time::{Date, Month};

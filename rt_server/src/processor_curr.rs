@@ -147,9 +147,9 @@ where
     }
 
     #[instrument(
+        name="curr_handle",
         skip(self, _myself, message, state),
         fields(
-            name = %self.processor_name,
             msg = message.as_ref(),
             mkt = state.curr_market,
             all_markets = %self.all_markets,
@@ -165,7 +165,9 @@ where
         debug!(?state, "State");
         match message {
             ProcessorMiddleMessage::NewTrade(trade) => {
-                debug!("Message: NewTrade: {:?}", trade);
+                debug!("Message: NewTrade: {:?}. Adding.", trade);
+                state.trades.insert(trade.clone());
+
                 let Some(ref real_market) = state.curr_market else {
                     // only continue if you have a market.
                     warn!("Do not have market. Ignoring the trade.");
@@ -174,17 +176,19 @@ where
 
                 let Some(trade_info) = self.all_trades.get(&trade) else {
                     warn!(
-                        "Could not find {} among all_atrades. Ignoring and continuing.",
+                        "Could not find {} among all_atrades. Ignoring w/ computation and continuing.",
                         trade
                     );
                     return Ok(());
                 };
 
-                debug!("Adding new trade: {}", trade);
                 let trade_real = trade_info.value();
 
                 let Some(market_info) = self.all_markets.get(real_market) else {
-                    warn!("Could not find market {}. Ignoring the market", real_market);
+                    warn!(
+                        "Could not find market {}. Ignoring the new trade pricing.",
+                        real_market
+                    );
                     return Ok(());
                 };
 
@@ -200,20 +204,9 @@ where
                     *portf_pm += valued_trade_pm;
                 }
 
-                // updating the portfolio
-                //*trades += &trade; // TODO: THIS CAN BE FIXED.
-                state.trades.insert(trade);
-                // *portf += valued_trade;
-                // send information about all the trades to the trade processor
-                // let now = Local::now();
-                //self.trade_processor.send_message(
-                //    ProcessorMiddleMessage::ProcessingStat(
-                //        (self.processor_name.clone(), now.naive_local(), trades.len())
-                //    )
-                //);
-
                 for pm in state.pricing_results.clone() {
                     let portf_pm = state.portfolio.get_mut(&pm).unwrap();
+                    // publishing the portfolio to kafka.
                     self._publish_result_portfolio(portf_pm.clone(), pm).await?
                 }
             }
@@ -227,7 +220,7 @@ where
                 debug!(
                     "Message: NewTradePortfolio: Trades: {:?}, NewPortfolio: {:?}, NewMarket: {:?}",
                     new_trades.len(),
-                    new_portfolio.count(),
+                    new_portfolio.simple(),
                     new_market,
                 );
                 // we got a new portfolio, possibly switch it

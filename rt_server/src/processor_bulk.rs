@@ -135,10 +135,10 @@ where
     }
 
     #[instrument(
-        name="processor_bulk_span",
+        name="bulk_handle",
         skip(message, state, _myself, self),
         fields(
-            pb_name=self.processor_name,
+            processor=self.processor_name,
             state=%state,
         )
     )]
@@ -167,8 +167,8 @@ where
                         // start the long-running pricing procedure
                         debug!("Message: NewBulk. State: {:?} -> Calculating", state);
                         *state = ProcessorBulkState::Calculating;
-                        debug!(
-                            "Computing {} trades for {:?}. Market = {}",
+                        info!(
+                            "Computing {} trades for {:?} on market {}",
                             new_trades.len(),
                             pricing_metrics,
                             market,
@@ -234,7 +234,7 @@ where
                             non_pricing_trades,
                             market,
                         )))?;
-                        info!("State: {:?} -> Idle", state);
+                        debug!("State: {:?} -> Idle", state);
                         *state = ProcessorBulkState::Idle;
                     }
 
