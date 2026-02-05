@@ -90,7 +90,7 @@ where
         );
         state.new_market = Some(new_market_name.clone());
 
-        info!("New State: -> CalculatingBulk");
+        info!("New State: {} -> CalculatingBulk", state.processor_state);
         state.processor_state = ProcessorNewState::CalculatingBulk;
         info!(
             "Sending {} trades to bulk {:?}.",
@@ -437,7 +437,6 @@ where
             self.processor_middle.get_name(),
             state.portfolio.simple(),
         );
-        debug!("NEW M 644: {}", new_m_real);
         self.processor_middle
             .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                 state.trades.clone(),
@@ -489,7 +488,6 @@ where
                     self.processor_middle.get_name(),
                     state.portfolio.simple(),
                 );
-                debug!("NEW M 690: {}", new_m_str);
                 self.processor_middle
                     .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                         state.trades.clone(),
