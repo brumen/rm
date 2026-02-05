@@ -1,7 +1,7 @@
 // middle processor, sits between 2 new processors
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, span, warn, Level};
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
@@ -382,8 +382,9 @@ where
             ) => {
                 // we're in idle state, and have received a rejected market.
 
-                if !trades_behind.is_empty() {
-                    info!("Lower processor accepted portfolio. Starting new computations.");
+                if trades_behind.is_empty() {
+                    // lower processor accepted portfolio.
+                    info!("Lower processor accepted portfolio. Starting new bulk computations.");
 
                     let Some(ref real_market) = state.curr_market else {
                         warn!("Does not have market. Ignoring.");
@@ -398,8 +399,10 @@ where
                             state.pricing_metrics.clone(),
                         )))?;
                     state.processor_state = ProcessorMiddleState::CalculatingBulk;
-                    state.trades.extend(trades_behind); //*trade_l += &trades_behind;
+                    state.trades.extend(trades_behind);
                 } else {
+                    // lower processor rejected portfolio
+
                     // remove the market_behind.
                     let Some(ref real_market) = state.curr_market else {
                         state.curr_market = Some(market_behind.clone());
@@ -412,7 +415,6 @@ where
                         warn!("Destroying market {}", market_behind,);
                         self.all_markets
                             .insert_processor(self.processor_name.clone(), real_market.clone());
-                        // self.all_markets.remove(&market_behind);
                     }
                 }
             }
@@ -502,17 +504,6 @@ where
                     )))?;
             }
 
-            // (
-            //     ProcessorMiddleMessage::BulkReceive(_),
-            //     ProcessorMiddleState::CalculatingBulkMarketSwitch,
-            // ) => {
-            //     // ignore the message from bulk receive,
-            //     info!(
-            //         "Message: CalculatingBulkMarektSwitch: \
-            //          Ignoring message from bulk receive as market was switched.",
-            //     );
-            // }
-
             // receiving a mesage from the processor above
             // ntp = (trades, potential_portfolio, market, upstream_processor)
             (ProcessorMiddleMessage::NewTradePortfolio(ntp), ProcessorMiddleState::Idle) => {
@@ -525,8 +516,12 @@ where
                     ref upstream_processor,
                 ) = ntp;
 
+                let user_span = span!(Level::DEBUG, "ntp_span");
+
+                let _enter = user_span.enter();
+
                 info!(
-                    "Switching market: from {:?} <- {}",
+                    "Switching market: from {:?} -> {}",
                     state.curr_market, new_market,
                 );
 
@@ -539,6 +534,8 @@ where
                     "Passing portfolio to lower processor {:?}",
                     self.processor_below.get_name(),
                 );
+                drop(_enter);
+
                 self.processor_below
                     .send_message(ProcessorMiddleMessage::NewTradePortfolio(ntp.clone()))?;
 
@@ -564,61 +561,6 @@ where
                     new_market.to_string(),
                     potential_trades,
                 ));
-
-                // // we got new portfolio, but we are in the process of computing the portfolresult of computation has arrived.
-                // let (potential_trades, potential_portfolio, new_market, upstream_processor) = ntp;
-
-                // // let new_behind_curr = state
-                // //     .trades
-                // //     .iter()
-                // //     .filter(|x| !potential_trades.contains(x.as_str()))
-                // //     .cloned()
-                // //     .collect::<TradesLocal>();
-
-                // // if new_behind_curr.is_empty() {
-                // //     info!(
-                // //         "Received new portfolio, was ahead, sending portfolio to processor below {:?}",
-                // //         self.processor_below.get_name(),
-                // //     );
-
-                // //     let Some(ref real_market) = state.curr_market else {
-                // //         warn!("Does not have market. Ignoring.");
-                // //         return Ok(());
-                // //     };
-
-                //     self.processor_below.send_message(
-                //         ProcessorMiddleMessage::NewTradePortfolio((
-                //             state.trades.clone(),
-                //             state.pricing_results.clone(),
-                //             real_market.to_string(),
-                //             myself,
-                //         )),
-                //     )?;
-
-                //     info!("New portfolio, Switching market.");
-
-                //     // set the state of this processor to the state being sent.
-                //     //self._switch_markets(market, &_new_market).await?;  // changes markets
-                //     state.curr_market = Some(new_market.clone()); // market switch is simply a name change.
-                //     self.all_markets
-                //         .insert_processor(self.processor_name.clone(), new_market.clone());
-                //     state.pricing_results = potential_portfolio;
-                //     state.trades = potential_trades;
-                //     state.processor_state = ProcessorMiddleState::CalculatingBulkMarketSwitch;
-                // } else {
-                //     debug!(
-                //         "current portfolio: {:?}, new portfolio: {:?}. Ignoring the portfolio.",
-                //         state.pricing_results.simple(),
-                //         potential_trades, // TODO: THIS MIGHT BE OFF!
-                //     );
-                // }
-                // // send upstream a message that the portfolio is accepted.
-                // // TODO: CHECK IF THIS SHOULD BE BETTER HANDLED
-                // // TODO: CHeck if market.unwrap() should be handled.
-                // let _ = upstream_processor.send_message(ProcessorMiddleMessage::Behind(
-                //     new_market.to_string(),
-                //     new_behind_curr,
-                // ));
             }
 
             (
@@ -646,6 +588,7 @@ where
                 );
 
                 if new_behind_curr.is_empty() {
+                    // ntp is ahead of the current portfolio.
                     // replace the portfolio and trades
 
                     info!(
@@ -670,7 +613,7 @@ where
 
                     if state.curr_market != Some(new_market.clone()) {
                         info!(
-                            "Switching markets: {:?} <- {}",
+                            "Switching markets: {:?} -> {}",
                             state.curr_market, new_market,
                         );
 
