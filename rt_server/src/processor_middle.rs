@@ -221,52 +221,52 @@ where
             "Message: Behind: {} trades. Adding those trades to current population.",
             trades_behind.len(),
         );
-        state.trades.extend(trades_behind.clone()); // *trade_l += &trades_behind;
-        debug!("State: {} -> CalculatingBulk", state.processor_state);
+        state.trades.extend(trades_behind.clone());
 
-        // IMPROVE:
-        return Ok(());
-
-        state.processor_state = ProcessorMiddleState::CalculatingBulk;
-
-        // we dont have current market, use market_behind
-        let Some(ref real_market) = state.curr_market else {
-            warn!(
-                "Processor does not have market: Destroying the market {}",
-                market_behind,
-            );
-
-            self.all_markets
-                .insert_processor(self.processor_name.clone(), market_behind.clone());
-            state.curr_market = Some(market_behind.clone());
-            self.processor_bulk
-                .send_message(ProcessorBulkMessage::NewBulk((
-                    market_behind.to_string(),
-                    state.trades.clone(),
-                    myself,
-                    state.pricing_metrics.clone(),
-                )))?;
-
-            return Ok(());
-        };
-
-        // we have real market. TODO: CHECK IF THIS IS NECESSARY
-        self.all_markets
-            .insert_processor(self.processor_name.clone(), real_market.clone());
-        info!(
-            "Behind: Sending bulk compute to {:?} on market {}.",
-            self.processor_bulk.get_name(),
-            real_market
-        );
-        self.processor_bulk
-            .send_message(ProcessorBulkMessage::NewBulk((
-                real_market.to_string(),
-                state.trades.clone(),
-                myself,
-                state.pricing_metrics.clone(),
-            )))?;
-
+        // dont continue once we get the Behind message.
         Ok(())
+
+        // debug!("State: {} -> CalculatingBulk", state.processor_state);
+        // state.processor_state = ProcessorMiddleState::CalculatingBulk;
+
+        // // we dont have current market, use market_behind
+        // let Some(ref real_market) = state.curr_market else {
+        //     warn!(
+        //         "Processor does not have market: Destroying the market {}",
+        //         market_behind,
+        //     );
+
+        //     self.all_markets
+        //         .insert_processor(self.processor_name.clone(), market_behind.clone());
+        //     state.curr_market = Some(market_behind.clone());
+        //     self.processor_bulk
+        //         .send_message(ProcessorBulkMessage::NewBulk((
+        //             market_behind.to_string(),
+        //             state.trades.clone(),
+        //             myself,
+        //             state.pricing_metrics.clone(),
+        //         )))?;
+
+        //     return Ok(());
+        // };
+
+        // // we have real market. TODO: CHECK IF THIS IS NECESSARY
+        // self.all_markets
+        //     .insert_processor(self.processor_name.clone(), real_market.clone());
+        // info!(
+        //     "Behind: Sending bulk compute to {:?} on market {}.",
+        //     self.processor_bulk.get_name(),
+        //     real_market
+        // );
+        // self.processor_bulk
+        //     .send_message(ProcessorBulkMessage::NewBulk((
+        //         real_market.to_string(),
+        //         state.trades.clone(),
+        //         myself,
+        //         state.pricing_metrics.clone(),
+        //     )))?;
+
+        // Ok(())
     }
 
     #[instrument(skip_all)]
@@ -289,7 +289,7 @@ where
         Ok(())
     }
 
-    #[instrument(skip_all)]
+    #[instrument(skip_all, name = "_behind_idle_middle")]
     fn _behind_idle(
         &self,
         market_behind: String,
@@ -301,36 +301,36 @@ where
         state.trades.extend(trades_behind.clone());
         state.processor_state = ProcessorMiddleState::CalculatingBulk;
 
-        // IMPROVE:
-        return Ok(());
-
-        // we dont have current market, replace it w/ market_behind.
-        let Some(ref real_market) = state.curr_market else {
-            // use market behind and restart computations.
-            state.curr_market = Some(market_behind.clone());
-            self.all_markets
-                .insert_processor(self.processor_name.clone(), market_behind.clone());
-            self.processor_bulk
-                .send_message(ProcessorBulkMessage::NewBulk((
-                    market_behind.to_string(),
-                    state.trades.clone(),
-                    myself,
-                    state.pricing_metrics.clone(),
-                )))?;
-
-            return Ok(());
-        };
-
-        // we have real market, just relaunch the computations.
-        self.processor_bulk
-            .send_message(ProcessorBulkMessage::NewBulk((
-                real_market.to_string(),
-                state.trades.clone(),
-                myself,
-                state.pricing_metrics.clone(),
-            )))?;
-
+        // Dont continue once we get Behind message (causes infinite loops).
         Ok(())
+
+        // // we dont have current market, replace it w/ market_behind.
+        // let Some(ref real_market) = state.curr_market else {
+        //     // use market behind and restart computations.
+        //     state.curr_market = Some(market_behind.clone());
+        //     self.all_markets
+        //         .insert_processor(self.processor_name.clone(), market_behind.clone());
+        //     self.processor_bulk
+        //         .send_message(ProcessorBulkMessage::NewBulk((
+        //             market_behind.to_string(),
+        //             state.trades.clone(),
+        //             myself,
+        //             state.pricing_metrics.clone(),
+        //         )))?;
+
+        //     return Ok(());
+        // };
+
+        // // we have real market, just relaunch the computations.
+        // self.processor_bulk
+        //     .send_message(ProcessorBulkMessage::NewBulk((
+        //         real_market.to_string(),
+        //         state.trades.clone(),
+        //         myself,
+        //         state.pricing_metrics.clone(),
+        //     )))?;
+
+        // Ok(())
     }
 
     #[instrument(skip_all)]
@@ -358,30 +358,37 @@ where
         debug!("State: CalculatingBulk -> Idle");
         state.processor_state = ProcessorMiddleState::Idle;
 
-        // IMPROVE:
-        return Ok(());
-
-        let Some(ref real_market) = state.curr_market else {
-            warn!("Does not have market. Continuing.");
-            // TODO: THIS CAN BE BETTER HANDLED.
-            return Ok(());
-        };
-
-        debug!(
-            "Sending new trade portfolio to {:?}",
-            self.processor_below.get_name()
-        );
-        self.processor_below
-            .send_message(ProcessorMiddleMessage::NewTradePortfolio((
-                state.trades.clone(),
-                state.pricing_results.clone(),
-                real_market.to_string(),
-                myself,
-            )))?;
+        // Dont continue, causes infinite loops.
         Ok(())
+
+        // let Some(ref real_market) = state.curr_market else {
+        //     warn!("Does not have market. Continuing.");
+        //     // TODO: THIS CAN BE BETTER HANDLED.
+        //     return Ok(());
+        // };
+
+        // debug!(
+        //     "Sending new trade portfolio to {:?}",
+        //     self.processor_below.get_name()
+        // );
+        // self.processor_below
+        //     .send_message(ProcessorMiddleMessage::NewTradePortfolio((
+        //         state.trades.clone(),
+        //         state.pricing_results.clone(),
+        //         real_market.to_string(),
+        //         myself,
+        //     )))?;
+        // Ok(())
     }
 
-    #[instrument(skip_all)]
+    #[instrument(
+        name="_ntp_idle_middle",
+        skip(self, myself, state, ntp),
+        fields(
+            processor=self.processor_name,
+            market=ntp.2,
+        )
+    )]
     fn _ntp_idle(
         &self,
         ntp: (
@@ -391,14 +398,13 @@ where
             ActorRef<ProcessorMiddleMessage<String>>,
         ),
         state: &mut _ProcessorMiddleStateful,
-        _myself: ActorRef<ProcessorMiddleMessage<String>>,
+        myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
         // receiving a mesage from the processor above
         // ntp = (trades, potential_portfolio, market, upstream_processor)
         // just pass it to the processor below, dont do anything else
 
-        let (ref potential_trades, ref potential_portfolio, ref new_market, ref upstream_processor) =
-            ntp;
+        let (potential_trades, potential_portfolio, new_market, ref upstream_processor) = ntp;
 
         info!(
             "Switching market: from {:?} -> {}",
@@ -415,17 +421,26 @@ where
             self.processor_below.get_name(),
         );
 
+        // cant do the ntp.clone, insert myself
         self.processor_below
-            .send_message(ProcessorMiddleMessage::NewTradePortfolio(ntp.clone()))?;
+            .send_message(ProcessorMiddleMessage::NewTradePortfolio(
+                //ntp.clone()
+                (
+                    potential_trades.clone(),
+                    potential_portfolio.clone(),
+                    new_market.clone(),
+                    myself,
+                ),
+            ))?;
 
         // acknowledge to the sending processor that it was accepted.
-        state.trades = potential_trades.clone();
-        state.pricing_results = potential_portfolio.clone(); // TODO: CHECK HERE AND ABOVE
+        state.trades = potential_trades;
+        state.pricing_results = potential_portfolio;
 
         // TODO: CHECK IF THIS SHOULD BE HANDLED???
         // market is Some, so unwrap is justified.
         let _ = upstream_processor.send_message(
-            ProcessorMiddleMessage::Behind(new_market.to_string(), TradesLocal::new()), // portfolio is accepted, notify the upstream that we're accepting
+            ProcessorMiddleMessage::Behind(new_market, TradesLocal::new()), // portfolio is accepted, notify the upstream that we're accepting
         );
         Ok(())
     }
@@ -524,21 +539,15 @@ impl std::fmt::Display for ProcessorMiddleState {
 
 #[derive(Debug)]
 pub struct _ProcessorMiddleStateful {
-    // state of the processor middle:
-    //   1st arg: list of trades,
-    //   2nd arg: list of trades that didnt price correctly
-    //   3rd: third is the current portfolio result for each pricing metric of correctly pricing trades.
-    //   4th: is the computation state.
-    //   5th: is the market that the processor is operating on.
+    // state of the middle processor
+    trades: TradesLocal,                   //   1st arg: list of trades,
+    trades_not_pricing: TradesLocal,       //   2nd arg: list of trades that didnt price correctly
+    pricing_results: PmPortfolio, //   3rd: third is the current portfolio result for each pricing metric of correctly pricing trades.
+    processor_state: ProcessorMiddleState, //   4th: is the computation state.
+    curr_market: Option<String>,  //   5th: is the market that the processor is operating on.
     //      for remote pricing markets only market_name is fine,
     //      for local markets, the name and the market structure.
-    //   6th: list of metrics that the system is operating on.
-    trades: TradesLocal,
-    trades_not_pricing: TradesLocal,
-    pricing_results: PmPortfolio,
-    processor_state: ProcessorMiddleState,
-    curr_market: Option<String>,
-    pricing_metrics: Vec<PricingMetric>,
+    pricing_metrics: Vec<PricingMetric>, //   6th: list of metrics that the system is operating on.
 }
 
 #[async_trait]

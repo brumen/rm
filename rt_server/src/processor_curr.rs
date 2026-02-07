@@ -111,6 +111,17 @@ pub(crate) struct _ProcessorCurrState {
     pricing_results: Vec<PricingMetric>,
 }
 
+impl std::fmt::Display for _ProcessorCurrState {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "Market: {:?}, portfolio: {:?}",
+            self.curr_market,
+            self.portfolio.simple()
+        )
+    }
+}
+
 // T is the representation fo the trade
 #[async_trait]
 impl<T, MT> Actor for ProcessorCurr<T, MT>
@@ -162,10 +173,11 @@ where
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         //let (trades, portf, market, curr_pricing_metrics) = state;
-        debug!(?state, "State");
+        debug!(%state, "State:");
+        debug!(?message, "Message:");
         match message {
             ProcessorMiddleMessage::NewTrade(trade) => {
-                debug!("Message: NewTrade: {:?}. Adding.", trade);
+                debug!("Message: NewTrade: Adding trade {:?}.", trade);
                 state.trades.insert(trade.clone());
 
                 let Some(ref real_market) = state.curr_market else {
@@ -218,7 +230,7 @@ where
                 upstream_processor,
             )) => {
                 debug!(
-                    "Message: NewTradePortfolio: Trades: {:?}, NewPortfolio: {:?}, NewMarket: {:?}",
+                    "Message: NewTradePortfolio. Trades: {:?}, NewPortfolio: {:?}, NewMarket: {:?}",
                     new_trades.len(),
                     new_portfolio.simple(),
                     new_market,
@@ -249,20 +261,21 @@ where
                     //   since we dont have potential deadlocks on self.all_markets.processor_market_map.
                     if let Some(ref old_market) = state.curr_market {
                         if *old_market != new_market {
-                            // only destroy if the markets are different
-                            info!("Got new market, destroying the market {}", old_market);
                             let _ = self
                                 .all_markets
                                 .insert_processor(self.processor_name.clone(), new_market.clone());
-                            // TODO: HANDLE ERROR MESSAGES
                         }
                     };
 
                     // update the state of current processor.
                     state.portfolio = new_portfolio;
                     state.trades.extend(new_trades); // *trades += &new_trades;
-                    state.curr_market = Some(new_market.clone()); // markets should trickle down.
-                    debug!("Switching to market {:?}", state.curr_market); // market should be created.
+                    debug!(
+                        "Switching: {:?} -> {}",
+                        state.curr_market,
+                        new_market.clone()
+                    );
+                    state.curr_market = Some(new_market.clone());
                 } else {
                     // otherwise dont do anything.
                     debug!("NewPortfolio not accepted. Ignoring.");
@@ -274,7 +287,7 @@ where
                     false => "rejected",
                 };
                 debug!(
-                    "Notifying {:?} that new portfolio was message was {}",
+                    "Notifying {:?} that new portfolio message was {}.",
                     upstream_processor.get_name(),
                     acc_reject,
                 );

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::warn;
 
 use crate::market::MarketTypeT;
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
@@ -148,7 +148,6 @@ where
         match metric {
             PricingMetric::PV => {
                 let priced_trade = self.price(market).await;
-                debug!("_value_trade: PV of {:?} = {:?}", trade_name, priced_trade);
                 if let Some(price_trade) = priced_trade {
                     PricingResults::PV(PortfolioType::from([(trade_name, price_trade)]))
                 } else {
@@ -158,13 +157,11 @@ where
 
             PricingMetric::PV01 => {
                 let trade_pv01 = self.pv01(market).await;
-                debug!("_value_trade: PV01 of {:?} = {:?}", trade_name, trade_pv01);
                 PricingResults::PV01(trade_pv01)
             }
 
             PricingMetric::PnL => {
                 let pnl_trade = self.pnl(market).await;
-                debug!("_value_trade: PnL of {:?} = {:?}", trade_name, pnl_trade);
                 if let Some(pnl_trade_real) = pnl_trade {
                     PricingResults::PV(PortfolioType::from([(trade_name, pnl_trade_real)]))
                 } else {

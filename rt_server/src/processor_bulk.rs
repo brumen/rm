@@ -67,22 +67,20 @@ where
     ) -> PmPortfolio {
         let mut portfolio = PmPortfolio::new();
 
-        //for used_trade in used_trades {
         for used_trade in new_trades.iter() {
             let used_trade = all_trades.get(used_trade).unwrap();
             for pm in pricing_metrics.clone() {
-                let price_pm = used_trade.value_by_metric(pm, market_actual.clone()).await;
-                debug!("Priced trade {}: {:?}", used_trade.key(), price_pm);
+                let price_pm_agg = used_trade
+                    .value_by_metric(pm, market_actual.clone())
+                    .await
+                    .aggregate();
 
-                let price_pm_agg = price_pm.aggregate();
                 match portfolio.get_mut(&pm) {
                     Some(portfolio_pm) => {
                         *portfolio_pm += price_pm_agg;
                     }
                     None => {
-                        let mut new_pm = PortfolioType::default();
-                        new_pm += price_pm_agg;
-                        portfolio.insert(pm, new_pm);
+                        portfolio.insert(pm, price_pm_agg);
                     }
                 }
             }
@@ -121,7 +119,6 @@ where
     MT::MP: Send + Sync + Clone,
 {
     type Msg = ProcessorBulkMessage<String>;
-    // type State = (usize, Option<dyn MarketTypeT<MP=MP>>);  // The number of attempts to run the bulk on, default = 5
     type State = ProcessorBulkState;
     type Arguments = MT::MP;
 
@@ -131,7 +128,7 @@ where
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         info!("Initializing Bulk processor: {}", self.processor_name);
-        Ok(ProcessorBulkState::Idle) //  (0, None)  // intialized to 0 attempts.
+        Ok(ProcessorBulkState::Idle) //  Todo: Consider multiple attempts at recomputing.
     }
 
     #[instrument(
@@ -148,6 +145,8 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        debug!(?state, "State:");
+
         match state {
             ProcessorBulkState::Calculating => {
                 info!("Currently calculating, ignoring messages for now. This might change.");
@@ -168,7 +167,7 @@ where
                         debug!("Message: NewBulk. State: {:?} -> Calculating", state);
                         *state = ProcessorBulkState::Calculating;
                         info!(
-                            "Computing {} trades for {:?} on market {}",
+                            "Computing {} trades for pricing metric({:?}) on market {}.",
                             new_trades.len(),
                             pricing_metrics,
                             market,
@@ -212,7 +211,11 @@ where
                         // pricing_futs are futures where the trades are getting priced.
                         //let mut pricing_futs = vec![];
                         //for used_trade in used_trades {
-                        debug!("Market info: {:?}", market_actual);
+                        debug!(
+                            "Pricing trades {} on market: {:?}",
+                            new_trades.len(),
+                            market_actual
+                        );
                         let portfolio = self
                             .price_multiple(
                                 new_trades.clone(), // TODO: THIS .clone is NOT THE BEST - FIX IT
@@ -223,7 +226,7 @@ where
                             .await;
 
                         debug!(
-                            "Sending portfolio back to actor {:?}: {:?}",
+                            "Sending to actor {:?}: {:?}",
                             sending_processor.get_name(),
                             portfolio.simple(),
                         );
