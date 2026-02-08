@@ -43,6 +43,16 @@ where
         market_names
     }
 
+    pub(crate) fn list_processor_names(&self) -> Vec<String> {
+        let mut processor_names = vec![];
+        self.processor_market_map
+            .iter_sync(|processor_name: &String, _| {
+                processor_names.push(processor_name.clone()); // TODO: FIX THIS AT SOME POINT.
+                true
+            });
+        processor_names
+    }
+
     // creates a new empty all markets structure
     #[allow(dead_code)]
     pub(crate) fn new() -> Self {
@@ -71,36 +81,68 @@ where
     /// cleans the markets
     /// iterates through markets, and if it finds a name that is not in market_names,
     ///   it removes it. special treatment of "future" market
-    fn _clean_markets(&self) {
-        let mut active_markets = vec!["future".to_string()];
-        self.processor_market_map.iter_sync(|_, v| {
-            active_markets.push(v.clone());
-            true
-        });
+    // fn _clean_markets_old(&self) {
+    //     // active markets are current markets in the processor_market_map
+    //     let mut active_markets = vec!["future".to_string()];
+    //     self.processor_market_map.iter_sync(|_, v| {
+    //         active_markets.push(v.clone());
+    //         true
+    //     });
 
-        self.markets
-            .retain_sync(|mn, _| active_markets.iter().any(|am| am == mn));
-        debug!("Processor-market map: {:?}", self.processor_market_map);
-    }
+    //     self.markets
+    //         .retain_sync(|mn, _| active_markets.iter().any(|am| am == mn));
+    //     debug!("Processor-market map: {:?}", self.processor_market_map);
+    // }
+
+    // // cleans only the market related to the processor
+    // fn _clean_markets(&self, processor_name: String, new_processor_market: String) {
+    //     // is there market associated to the processor
+    //     let old_processor_market = self.markets.get_sync(&processor_name);
+
+    //     self.markets
+    //         .retain_sync(|mn, _| active_markets.iter().any(|am| am == mn));
+    //     debug!("Processor-market map: {:?}", self.processor_market_map);
+    // }
 
     // this is when the processor simply changes the market.
-    pub(crate) fn insert_processor(&self, processor_name: String, market_name: String) {
-        // let prev_processor_mkt = self.processor_market_map.get(&processor_name);
-        // self
-        //     .processor_market_map
-        //     .insert(processor_name, market_name);
+    pub(crate) fn insert_processor(&self, processor_name: String, new_processor_market: String) {
+        let old_processor_market = self
+            .processor_market_map
+            .read_sync(&processor_name, |_, v| v.clone());
 
-        // match prev_processor_mkt {
-        //     None => {},
-        //     Some(prev_used_mkt) => {
-        //         self.all_markets
-        //     }
+        if old_processor_market.is_none() {
+            // we dont have a processor_market_map set for processor_name, just insert and return
+            let _ = self
+                .processor_market_map
+                .upsert_sync(processor_name.clone(), new_processor_market.clone());
 
+            return;
+        }
+
+        // we have the old processor_market, remove if no other
+        let old_processor_market2 = old_processor_market.unwrap();
+
+        // TODO: CHECK IF contains is the right way
+        if !old_processor_market2.contains(&new_processor_market) {
+            // old_processor_market2 is there, and new_processor_market.
+            // remove old_processor market only if no other processor uses the old_processor_market
+            let mut found_other = false;
+            self.processor_market_map
+                .iter_sync(|processor_name_int, processor_market_int| {
+                    found_other = (old_processor_market2.contains(processor_market_int))
+                        && (*processor_name_int != processor_name);
+                    !found_other
+                });
+
+            if !found_other {
+                // remove the old_processor_market2 from the self.all_markets if you havent found any other instance.
+                self.markets.remove_sync(&old_processor_market2);
+            }
+        }
+        // replacing the processor market w/ the new market.
         let _ = self
             .processor_market_map
-            .upsert_sync(processor_name, market_name);
-        // go through the market names and remove the markets
-        self._clean_markets();
+            .upsert_sync(processor_name.clone(), new_processor_market.clone());
     }
 
     // this is when the processor changes to a new market market_name w/ market
@@ -207,53 +249,53 @@ mod tests {
         assert!(names.contains(&"m1".to_string()));
     }
 
-    #[test]
-    fn test_insert_processor_cleans_unused_markets_but_keeps_future() {
-        let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
+    // #[test]
+    // fn test_insert_processor_cleans_unused_markets_but_keeps_future() {
+    //     let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
 
-        // Insert multiple markets, including the special "future"
-        let future = TestMarket::new("future".to_string(), ());
-        let m1 = TestMarket::new("m1".to_string(), ());
-        let m2 = TestMarket::new("m2".to_string(), ());
-        all.insert("future".to_string(), future);
-        all.insert("m1".to_string(), m1);
-        all.insert("m2".to_string(), m2);
+    //     // Insert multiple markets, including the special "future"
+    //     let future = TestMarket::new("future".to_string(), ());
+    //     let m1 = TestMarket::new("m1".to_string(), ());
+    //     let m2 = TestMarket::new("m2".to_string(), ());
+    //     all.insert("future".to_string(), future);
+    //     all.insert("m1".to_string(), m1);
+    //     all.insert("m2".to_string(), m2);
 
-        // Point processor to m1; should clean out m2 but keep m1 and future
-        all.insert_processor("p1".to_string(), "m1".to_string());
+    //     // Point processor to m1; should clean out m2 but keep m1 and future
+    //     all.insert_processor("p1".to_string(), "m1".to_string());
 
-        let names = all.list_market_names();
-        assert!(names.contains(&"future".to_string()));
-        assert!(names.contains(&"m1".to_string()));
-        assert!(!names.contains(&"m2".to_string()));
-    }
+    //     let names = all.list_market_names();
+    //     assert!(names.contains(&"future".to_string()));
+    //     assert!(names.contains(&"m1".to_string()));
+    //     assert!(!names.contains(&"m2".to_string()));
+    // }
 
-    #[test]
-    fn test_insert_both_inserts_market_and_sets_processor_mapping() {
-        let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
+    // #[test]
+    // fn test_insert_both_inserts_market_and_sets_processor_mapping() {
+    //     let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
 
-        // Pre-insert a market that should be cleaned once processor is set
-        let old = TestMarket::new("old".to_string(), ());
-        all.insert("old".to_string(), old);
+    //     // Pre-insert a market that should be cleaned once processor is set
+    //     let old = TestMarket::new("old".to_string(), ());
+    //     all.insert("old".to_string(), old);
 
-        let m1 = TestMarket::new("m1".to_string(), ());
-        all.insert_both("p1".to_string(), "m1".to_string(), m1.clone());
+    //     let m1 = TestMarket::new("m1".to_string(), ());
+    //     all.insert_both("p1".to_string(), "m1".to_string(), m1.clone());
 
-        // Market should be retrievable
-        let got = all.get(&"m1".to_string()).unwrap();
-        assert_eq!(got.market_name(), "m1".to_string());
+    //     // Market should be retrievable
+    //     let got = all.get(&"m1".to_string()).unwrap();
+    //     assert_eq!(got.market_name(), "m1".to_string());
 
-        // Processor mapping should exist
-        let mapped = all
-            .processor_market_map
-            .read_sync(&"p1".to_string(), |_, v| v.clone());
-        assert_eq!(mapped, Some("m1".to_string()));
+    //     // Processor mapping should exist
+    //     let mapped = all
+    //         .processor_market_map
+    //         .read_sync(&"p1".to_string(), |_, v| v.clone());
+    //     assert_eq!(mapped, Some("m1".to_string()));
 
-        // Cleanup should have removed "old" (since it's not active and not "future")
-        let names = all.list_market_names();
-        assert!(names.contains(&"m1".to_string()));
-        assert!(!names.contains(&"old".to_string()));
-    }
+    //     // Cleanup should have removed "old" (since it's not active and not "future")
+    //     let names = all.list_market_names();
+    //     assert!(names.contains(&"m1".to_string()));
+    //     assert!(!names.contains(&"old".to_string()));
+    // }
 
     #[test]
     fn test_multiple_processors_keep_multiple_markets() {
@@ -262,6 +304,7 @@ mod tests {
         let m1 = TestMarket::new("m1".to_string(), ());
         let m2 = TestMarket::new("m2".to_string(), ());
         let m3 = TestMarket::new("m3".to_string(), ());
+        let m4 = TestMarket::new("m3".to_string(), ());
         all.insert("m1".to_string(), m1);
         all.insert("m2".to_string(), m2);
         all.insert("m3".to_string(), m3);
@@ -272,6 +315,11 @@ mod tests {
         let names = all.list_market_names();
         assert!(names.contains(&"m1".to_string()));
         assert!(names.contains(&"m2".to_string()));
-        assert!(!names.contains(&"m3".to_string()));
+        assert!(names.contains(&"m3".to_string()));
+        all.insert("m4".to_string(), m4);
+        all.insert_processor("p1".to_string(), "m4".to_string());
+        let names = all.list_market_names();
+        // m1 is not referenced by any other market - remove it.
+        assert!(!names.contains(&"m1".to_string()));
     }
 }
