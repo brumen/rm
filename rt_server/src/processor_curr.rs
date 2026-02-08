@@ -174,7 +174,6 @@ where
     ) -> Result<(), ActorProcessingErr> {
         //let (trades, portf, market, curr_pricing_metrics) = state;
         debug!(%state, "State:");
-        debug!(?message, "Message:");
         match message {
             ProcessorMiddleMessage::NewTrade(trade) => {
                 debug!("Message: NewTrade: Adding trade {:?}.", trade);

@@ -119,6 +119,8 @@ where
             self.processor_bulk.get_name(),
             state.trades.len()
         );
+        info!("State: Idle -> CalculatingBulk");
+        state.processor_state = ProcessorMiddleState::CalculatingBulk;
         self.processor_bulk
             .send_message(ProcessorBulkMessage::NewBulk((
                 real_market.to_string(),
@@ -126,8 +128,6 @@ where
                 myself,
                 state.pricing_metrics.clone(),
             )))?;
-        info!("State: Idle -> CalculatingBulk");
-        state.processor_state = ProcessorMiddleState::CalculatingBulk;
         Ok(())
     }
 
@@ -299,7 +299,8 @@ where
     ) -> Result<(), ActorProcessingErr> {
         // we're in idle state, and have received about previous market.
         state.trades.extend(trades_behind.clone());
-        state.processor_state = ProcessorMiddleState::CalculatingBulk;
+
+        // state.processor_state = ProcessorMiddleState::CalculatingBulk;
 
         // Dont continue once we get Behind message (causes infinite loops).
         Ok(())
@@ -404,6 +405,7 @@ where
         // ntp = (trades, potential_portfolio, market, upstream_processor)
         // just pass it to the processor below, dont do anything else
 
+        debug!("Received new trade portfolio.");
         let (potential_trades, potential_portfolio, new_market, ref upstream_processor) = ntp;
 
         info!(
@@ -484,7 +486,7 @@ where
             // ntp is ahead of the current portfolio.
             // replace the portfolio and trades
 
-            info!("Received portfolio is ahead. accepting it and passing to processor below",);
+            info!("Received portfolio accepted. Passing it to the processor below.",);
             state.pricing_results = potential_portfolio;
             state.trades.extend(potential_trades);
             // TODO: HOW ABOUT pns ???
@@ -501,16 +503,15 @@ where
                     myself,
                 )))?;
 
-            if state.curr_market != Some(new_market.clone()) {
-                info!(
-                    "Switching markets: {:?} -> {}",
-                    state.curr_market, new_market,
-                );
-
-                state.curr_market = Some(new_market.clone());
-                self.all_markets
-                    .insert_processor(self.processor_name.clone(), new_market.clone());
-            } // else no market change.
+            //if state.curr_market != Some(new_market.clone()) {
+            info!(
+                "Switching markets: {:?} -> {}",
+                state.curr_market, new_market,
+            );
+            state.curr_market = Some(new_market.clone());
+            self.all_markets
+                .insert_processor(self.processor_name.clone(), new_market.clone());
+            //} // else no market change.
         }
         // sending upstream that we are done.
         // TODO: CHECK IF THIS SHOULD BE BETTER HANDLED
@@ -708,6 +709,7 @@ where
                 ProcessorMiddleState::CalculatingBulk,
             ) => {
                 // first approximation, ignore the portfolio - reject it, and send the message to the originator.
+                debug!("Received new trade portfolio. Ignoring it.");
                 let (potential_trades, _potential_portfolio, new_market, upstream_processor) = ntp;
                 let _ = upstream_processor.send_message(ProcessorMiddleMessage::Behind(
                     new_market.to_string(),

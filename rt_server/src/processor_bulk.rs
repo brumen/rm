@@ -176,6 +176,10 @@ where
                         let _ = self
                             .all_markets
                             .insert_processor(self.processor_name.clone(), market.clone());
+                        debug!(
+                            "Bulk: Current processor-market map: {:?}",
+                            self.all_markets.processor_market_map,
+                        );
 
                         let Some(market_actual) = self.all_markets.get(&market) else {
                             warn!("Could not get market {}. Abandoning pricing.", market);

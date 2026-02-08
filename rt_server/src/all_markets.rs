@@ -29,10 +29,6 @@ impl<MT: fmt::Debug> fmt::Display for AllMarkets<MT> {
     }
 }
 
-fn m1() {
-    let a = DashMap::<String, String>::new();
-}
-
 impl<MT> AllMarkets<MT>
 where
     MT: MarketTypeT + Clone + Send + Sync + fmt::Debug, // this will be fine since MT is an Arc.
@@ -83,18 +79,9 @@ where
             true
         });
 
-        self.markets.retain_sync(|mn, _| {
-            let is_mn_present = active_markets.iter().any(|am| am == mn);
-            // if !is_mn_present {
-            //     debug!(
-            //         "MARKETS: {:?}, PROCESSORS: {:?}, DELETING: {}",
-            //         self.list_market_names(),
-            //         active_markets,
-            //         mn
-            //     );
-            // }
-            is_mn_present
-        });
+        self.markets
+            .retain_sync(|mn, _| active_markets.iter().any(|am| am == mn));
+        debug!("Processor-market map: {:?}", self.processor_market_map);
     }
 
     // this is when the processor simply changes the market.
