@@ -443,14 +443,16 @@ where
         state.trades_not_pricing.extend(offending_trades);
         debug!("Extending trades: Now {:?} trades.", state.trades.len());
 
-        if state.new_market.is_none() {
-            state.new_market = Some(bulk_market);
-        }
+        // TODO: THIS IS WRONG!!!
+        //if state.new_market.is_none() {
+        state.new_market = Some(bulk_market);
+        // }
 
         debug!(
-            "Sending to middle processor {:?}, portf size: {}",
+            "Sending to middle processor {:?}, portf size: {}, market: {:?}",
             self.processor_middle.get_name(),
             state.portfolio.simple(),
+            state.new_market.clone()
         );
         self.processor_middle
             .send_message(ProcessorMiddleMessage::NewTradePortfolio((
