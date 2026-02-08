@@ -44,7 +44,7 @@ pub struct LETFMarketType {
 }
 
 impl LETFMarketType {
-    pub(crate) fn new(market_name: String) -> Self {
+    pub fn new(market_name: String) -> Self {
         Self {
             market_name,
             market: DashMap::<LETFMarketTypes, f64>::new(),

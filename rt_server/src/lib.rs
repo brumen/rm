@@ -15,7 +15,7 @@ pub mod trade;
 pub(crate) mod all_markets;
 pub(crate) mod engine_actor;
 pub(crate) mod engine_letf;
-pub(crate) mod markets;
+pub mod markets;
 pub(crate) mod mkt_handler_actor;
 pub(crate) mod processor_bulk;
 pub(crate) mod processor_curr;
@@ -23,7 +23,7 @@ pub(crate) mod processor_middle;
 pub(crate) mod processor_msg;
 pub(crate) mod processor_new;
 pub(crate) mod trade_sender;
-pub(crate) mod trades;
+pub mod trades;
 // pub(crate) mod processor_setup;  // TODO: include this after fixing the axum crate.
 pub(crate) mod processor_setup_actor;
 pub(crate) mod utils;

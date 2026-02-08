@@ -1,7 +1,8 @@
-use rt_server::trade::{BaseTrade, LETFTrade, TradeDirection};
-
-use rt_server::market::MarketType;
+use rt_server::markets::letf_market::{LETFMarketType, LETFMarketTypes};
 use rt_server::pricer::PriceTrade;
+use rt_server::trade::{BaseTrade, TradeDirection};
+use rt_server::trades::trade_letf::LETFTrade;
+use std::sync::Arc;
 
 #[test]
 fn test_letftrade() {
@@ -28,7 +29,9 @@ fn test_pricing() {
         stock_value: Some(2.),
     };
 
-    let market = MarketType::from([("AAPL".to_string(), 30.)]);
+    let l1 = Arc::new(LETFMarketType::new("l1".to_string()));
+    l1.market
+        .insert(LETFMarketTypes::Stock("AAPL".to_string()), 30.);
 
-    let letf_price = letf.price(&market);
+    let letf_price = letf.price(l1); // TODO: This should be awaited. This is wrong.
 }
