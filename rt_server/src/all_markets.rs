@@ -68,6 +68,11 @@ where
         Some(actual_market.clone()) // .clone here is OK, since we're using it on Arc (MT = Arc<...>)
     }
 
+    pub(crate) fn get_processor(&self, processor_name: &String) -> Option<String> {
+        self.processor_market_map
+            .read_sync(processor_name, |_, v| v.clone())
+    }
+
     // inserts the market into the all structure.
     pub(crate) fn insert(&self, market_name: String, market: MT) {
         self.markets.upsert_sync(market_name.clone(), market);
@@ -114,8 +119,7 @@ where
             // we dont have a processor_market_map set for processor_name, just insert and return
             let _ = self
                 .processor_market_map
-                .upsert_sync(processor_name.clone(), new_processor_market.clone());
-
+                .upsert_sync(processor_name, new_processor_market);
             return;
         }
 
@@ -136,6 +140,7 @@ where
 
             if !found_other {
                 // remove the old_processor_market2 from the self.all_markets if you havent found any other instance.
+                debug!("Removing market: {}", old_processor_market2);
                 self.markets.remove_sync(&old_processor_market2);
             }
         }
@@ -304,22 +309,36 @@ mod tests {
         let m1 = TestMarket::new("m1".to_string(), ());
         let m2 = TestMarket::new("m2".to_string(), ());
         let m3 = TestMarket::new("m3".to_string(), ());
-        let m4 = TestMarket::new("m3".to_string(), ());
+        let m4 = TestMarket::new("m4".to_string(), ());
         all.insert("m1".to_string(), m1);
         all.insert("m2".to_string(), m2);
         all.insert("m3".to_string(), m3);
 
         all.insert_processor("p1".to_string(), "m1".to_string());
         all.insert_processor("p2".to_string(), "m2".to_string());
+        assert_eq!(
+            all.get_processor(&"p1".to_string()),
+            Some(String::from("m1"))
+        );
+        assert_eq!(
+            all.get_processor(&"p2".to_string()),
+            Some(String::from("m2"))
+        );
 
         let names = all.list_market_names();
         assert!(names.contains(&"m1".to_string()));
         assert!(names.contains(&"m2".to_string()));
         assert!(names.contains(&"m3".to_string()));
+
         all.insert("m4".to_string(), m4);
         all.insert_processor("p1".to_string(), "m4".to_string());
         let names = all.list_market_names();
         // m1 is not referenced by any other market - remove it.
         assert!(!names.contains(&"m1".to_string()));
+        assert!(names.contains(&"m4".to_string()));
+        assert_eq!(
+            all.get_processor(&"p1".to_string()),
+            Some(String::from("m4"))
+        );
     }
 }

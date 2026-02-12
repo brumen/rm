@@ -61,7 +61,12 @@ where
         }
     }
 
-    #[instrument(skip_all)]
+    #[instrument(
+        fields(
+            processor_name=self.processor_name,
+            new_m=state.new_market,
+        )
+    )]
     fn _process_new_market_idle(
         &self,
         new_market_name: String,
@@ -89,7 +94,7 @@ where
             new_market_val_name.clone(),
             new_market_val,
         );
-        state.new_market = Some(new_market_name.clone());
+        state.new_market = Some(new_market_val_name.clone());
 
         info!("New State: {} -> CalculatingBulk", state.processor_state);
         state.processor_state = ProcessorNewState::CalculatingBulk;
@@ -311,7 +316,11 @@ where
             };
             let future_market_name = future_market.market_name();
 
-            debug!("Switching markets: New_m <- {}", future_market_name.clone());
+            debug!(
+                "Switching markets: {:?} -> {}",
+                state.new_market,
+                future_market_name.clone()
+            );
             state.new_market = Some(future_market_name.clone());
             self.all_markets.insert_both(
                 self.processor_name.clone(),

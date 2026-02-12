@@ -163,7 +163,6 @@ where
         fields(
             msg = message.as_ref(),
             mkt = state.curr_market,
-            all_markets = %self.all_markets,
         )
     )]
     async fn handle(
