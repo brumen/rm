@@ -62,6 +62,7 @@ where
     }
 
     #[instrument(
+        skip_all,
         fields(
             processor_name=self.processor_name,
             new_m=state.new_market,

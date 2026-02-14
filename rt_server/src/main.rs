@@ -29,7 +29,7 @@ pub(crate) mod processor_msg;
 pub(crate) mod processor_new;
 pub(crate) mod trade_sender;
 pub(crate) mod trades;
-// pub(crate) mod processor_setup;  // TODO: include this after fixing the axum crate.
+pub(crate) mod processor_setup;
 pub(crate) mod processor_setup_actor;
 pub(crate) mod utils;
 
@@ -83,14 +83,13 @@ async fn run_all() {
         //.with_span_events(tracing_subscriber::fmt::format::FmtSpan::NONE)
         .init();
 
-    // let axum_process = processor_setup::axum_process(host.clone());
-
-    // Start the setup actor that listens to the setup kafka topic.
-
-    let mut all_handles = vec![]; // vec![axum_process];
+    let mut all_handles = vec![];
     let markets_used = vec!["curr".to_string(), "new".to_string()];
 
     let (initial_trades, all_markets) = init_letf();
+
+    let diagnostics_handle = processor_setup::diagnostics(host.clone(), all_markets.clone());
+    all_handles.push(diagnostics_handle);
 
     info!("Starting main system controller.");
     let (all_actors, mut all_actors_handles) = start2(
