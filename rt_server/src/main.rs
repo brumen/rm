@@ -27,10 +27,10 @@ pub(crate) mod processor_curr;
 pub(crate) mod processor_middle;
 pub(crate) mod processor_msg;
 pub(crate) mod processor_new;
-pub(crate) mod trade_sender;
-pub(crate) mod trades;
 pub(crate) mod processor_setup;
 pub(crate) mod processor_setup_actor;
+pub(crate) mod trade_sender;
+pub(crate) mod trades;
 pub(crate) mod utils;
 
 use crate::engine_letf::start2;
@@ -88,7 +88,11 @@ async fn run_all() {
 
     let (initial_trades, all_markets) = init_letf();
 
-    let diagnostics_handle = processor_setup::diagnostics(host.clone(), all_markets.clone());
+    let diagnostics_handle = processor_setup::diagnostics(
+        "192.168.1.107".to_string(),
+        all_markets.clone(),
+        initial_trades.clone(),
+    );
     all_handles.push(diagnostics_handle);
 
     info!("Starting main system controller.");

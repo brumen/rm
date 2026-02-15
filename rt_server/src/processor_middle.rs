@@ -349,10 +349,12 @@ where
         //    Nothing for now.
         info!("Message: BulkReceive|CalculatingBulk: Normal case. Going to CalculatingSingle.",);
 
-        for (pm, computed_portf_pm) in computed_portf.iter() {
-            let portf_pm = state.pricing_results.get_mut(pm).unwrap();
-            *portf_pm += computed_portf_pm;
-        }
+        state.pricing_results.assign(computed_portf);
+        // TODO: REMOVE THE CODE BELOW
+        // for (pm, computed_portf_pm) in computed_portf.iter() {
+        //     let portf_pm = state.pricing_results.get_mut(pm).unwrap();
+        //     *portf_pm += computed_portf_pm;
+        // }
 
         state.trades.extend(new_trade_l);
         state.trades_not_pricing.extend(offending_trades);

@@ -1,5 +1,3 @@
-// use circular_buffer::CircularBuffer;
-// use dashmap::DashMap;
 use scc::HashMap as DashMap;
 use std::fmt;
 use tracing::debug;
@@ -83,34 +81,12 @@ where
         );
     }
 
-    /// cleans the markets
-    /// iterates through markets, and if it finds a name that is not in market_names,
-    ///   it removes it. special treatment of "future" market
-    // fn _clean_markets_old(&self) {
-    //     // active markets are current markets in the processor_market_map
-    //     let mut active_markets = vec!["future".to_string()];
-    //     self.processor_market_map.iter_sync(|_, v| {
-    //         active_markets.push(v.clone());
-    //         true
-    //     });
-
-    //     self.markets
-    //         .retain_sync(|mn, _| active_markets.iter().any(|am| am == mn));
-    //     debug!("Processor-market map: {:?}", self.processor_market_map);
-    // }
-
-    // // cleans only the market related to the processor
-    // fn _clean_markets(&self, processor_name: String, new_processor_market: String) {
-    //     // is there market associated to the processor
-    //     let old_processor_market = self.markets.get_sync(&processor_name);
-
-    //     self.markets
-    //         .retain_sync(|mn, _| active_markets.iter().any(|am| am == mn));
-    //     debug!("Processor-market map: {:?}", self.processor_market_map);
-    // }
-
     // this is when the processor simply changes the market.
-    pub(crate) fn insert_processor(&self, processor_name: String, new_processor_market: String) {
+    pub(crate) fn insert_processor_old(
+        &self,
+        processor_name: String,
+        new_processor_market: String,
+    ) {
         let old_processor_market = self
             .processor_market_map
             .read_sync(&processor_name, |_, v| v.clone());
@@ -150,26 +126,52 @@ where
             .upsert_sync(processor_name.clone(), new_processor_market.clone());
     }
 
+    /// Like `insert_processor`, but additionally prunes `self.markets` so that it only contains
+    /// markets that are referenced by at least one processor in `processor_market_map`.
+    ///
+    /// This is useful if `self.markets` may contain many "stale" markets and you want the set of
+    /// stored markets to reflect only what processors are actively using.
+    pub(crate) fn insert_processor(&self, processor_name: String, new_processor_market: String) {
+        // First, update the processor -> market mapping (upsert).
+        let _ = self
+            .processor_market_map
+            .upsert_sync(processor_name, new_processor_market);
+
+        // Build the set of all markets referenced by any processor.
+        let mut referenced_markets: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        self.processor_market_map
+            .iter_sync(|_proc_name: &String, market_name: &String| {
+                referenced_markets.insert(market_name.clone());
+                true
+            });
+
+        // Remove any market in `self.markets` that is not referenced.
+        let mut to_remove: Vec<String> = Vec::new();
+        self.markets.iter_sync(|market_name: &String, _| {
+            if !referenced_markets.contains(market_name) {
+                to_remove.push(market_name.clone());
+            }
+            true
+        });
+
+        for market_name in to_remove {
+            if market_name == "future" {
+                continue; // ignoring market future, dont prune.
+            }
+            debug!(
+                "Pruning market: {}. (not referenced by any processor.)",
+                market_name,
+            );
+            self.markets.remove_sync(&market_name);
+        }
+    }
+
     // this is when the processor changes to a new market market_name w/ market
     pub(crate) fn insert_both(&self, processor_name: String, market_name: String, market: MT) {
         self.insert(market_name.clone(), market);
         self.insert_processor(processor_name, market_name);
     }
-
-    // returns the market params of some market in the collection
-    // #[allow(dead_code)]
-    // pub(crate) fn get_market_params(&self) -> Option<MT::MP> {
-    //     //
-    //     if self.markets.is_empty() {
-    //         return None;
-    //     }
-
-    //     // we have at least one market.
-    //     let market_elt = self.markets.iter().nth(0)?;
-    //     let mo = market_elt.value();
-
-    //     Some(mo.market_params().clone())
-    // }
 }
 
 #[cfg(test)]
@@ -177,7 +179,9 @@ mod tests {
     use super::AllMarkets;
     use crate::market::MarketTypeT;
     use ractor::async_trait;
-    use std::sync::Arc;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::{Arc, Barrier};
+    use std::thread;
 
     #[derive(Debug, Clone)]
     struct TestMarket {
@@ -220,9 +224,9 @@ mod tests {
 
         // we wont be testing this trait.
         fn try_from_ref(
-            market_name: String,
-            value: &rdkafka::message::BorrowedMessage,
-            mp: Self::MP,
+            _market_name: String,
+            _value: &rdkafka::message::BorrowedMessage,
+            _mp: Self::MP,
         ) -> Result<Arc<Self>, crate::market::MarketTypeError>
         where
             Self: Sized,
@@ -253,54 +257,6 @@ mod tests {
         assert_eq!(names.len(), 1);
         assert!(names.contains(&"m1".to_string()));
     }
-
-    // #[test]
-    // fn test_insert_processor_cleans_unused_markets_but_keeps_future() {
-    //     let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
-
-    //     // Insert multiple markets, including the special "future"
-    //     let future = TestMarket::new("future".to_string(), ());
-    //     let m1 = TestMarket::new("m1".to_string(), ());
-    //     let m2 = TestMarket::new("m2".to_string(), ());
-    //     all.insert("future".to_string(), future);
-    //     all.insert("m1".to_string(), m1);
-    //     all.insert("m2".to_string(), m2);
-
-    //     // Point processor to m1; should clean out m2 but keep m1 and future
-    //     all.insert_processor("p1".to_string(), "m1".to_string());
-
-    //     let names = all.list_market_names();
-    //     assert!(names.contains(&"future".to_string()));
-    //     assert!(names.contains(&"m1".to_string()));
-    //     assert!(!names.contains(&"m2".to_string()));
-    // }
-
-    // #[test]
-    // fn test_insert_both_inserts_market_and_sets_processor_mapping() {
-    //     let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
-
-    //     // Pre-insert a market that should be cleaned once processor is set
-    //     let old = TestMarket::new("old".to_string(), ());
-    //     all.insert("old".to_string(), old);
-
-    //     let m1 = TestMarket::new("m1".to_string(), ());
-    //     all.insert_both("p1".to_string(), "m1".to_string(), m1.clone());
-
-    //     // Market should be retrievable
-    //     let got = all.get(&"m1".to_string()).unwrap();
-    //     assert_eq!(got.market_name(), "m1".to_string());
-
-    //     // Processor mapping should exist
-    //     let mapped = all
-    //         .processor_market_map
-    //         .read_sync(&"p1".to_string(), |_, v| v.clone());
-    //     assert_eq!(mapped, Some("m1".to_string()));
-
-    //     // Cleanup should have removed "old" (since it's not active and not "future")
-    //     let names = all.list_market_names();
-    //     assert!(names.contains(&"m1".to_string()));
-    //     assert!(!names.contains(&"old".to_string()));
-    // }
 
     #[test]
     fn test_multiple_processors_keep_multiple_markets() {
@@ -341,4 +297,187 @@ mod tests {
             Some(String::from("m4"))
         );
     }
+
+    #[test]
+    fn test_insert_processor_concurrent_same_processor() {
+        let all: Arc<AllMarkets<Arc<TestMarket>>> = Arc::new(AllMarkets::new());
+
+        // Pre-insert a set of markets that threads will switch between.
+        let market_names: Vec<String> = (0..16).map(|i| format!("m{i}")).collect();
+        for mn in &market_names {
+            all.insert(mn.clone(), TestMarket::new(mn.clone(), ()));
+        }
+
+        // Initialize mapping so insert_processor goes through the "old market" path too.
+        all.insert_processor("p1".to_string(), market_names[0].clone());
+
+        let n_threads = 32usize;
+        let start = Arc::new(Barrier::new(n_threads));
+        let mut handles = Vec::with_capacity(n_threads);
+
+        for t in 0..n_threads {
+            let all_c = all.clone();
+            let start_c = start.clone();
+            let mn = market_names[t % market_names.len()].clone();
+            handles.push(thread::spawn(move || {
+                start_c.wait();
+                // Each thread tries to set p1 to a (possibly different) market.
+                all_c.insert_processor("p1".to_string(), mn);
+            }));
+        }
+
+        for h in handles {
+            h.join().expect("thread panicked");
+        }
+
+        // Invariant: p1 must map to one of the known markets.
+        let final_market = all
+            .get_processor(&"p1".to_string())
+            .expect("p1 mapping missing after concurrent updates");
+        assert!(
+            market_names.contains(&final_market),
+            "final market {final_market} not in expected set"
+        );
+
+        // Invariant: markets map should not contain unknown names.
+        let remaining = all.list_market_names();
+        for mn in &remaining {
+            assert!(
+                market_names.contains(mn),
+                "unexpected market name in markets map: {mn}"
+            );
+        }
+
+        // Sanity: should never exceed the number of distinct markets we inserted.
+        assert!(
+            remaining.len() <= market_names.len(),
+            "markets map grew unexpectedly: remaining={} inserted={}",
+            remaining.len(),
+            market_names.len()
+        );
+    }
+
+    #[test]
+    fn test_insert_processor_concurrent_many_processors_shared_market_pool() {
+        let all: Arc<AllMarkets<Arc<TestMarket>>> = Arc::new(AllMarkets::new());
+
+        // Small pool of markets to maximize contention.
+        let market_pool: Vec<String> = (0..8).map(|i| format!("m{i}")).collect();
+        for mn in &market_pool {
+            all.insert(mn.clone(), TestMarket::new(mn.clone(), ()));
+        }
+
+        let processors: Vec<String> = (0..32).map(|i| format!("p{i}")).collect();
+
+        // Seed initial mappings so we exercise both branches (old mapping exists).
+        for (i, p) in processors.iter().enumerate() {
+            all.insert_processor(p.clone(), market_pool[i % market_pool.len()].clone());
+        }
+
+        let n_threads = 64usize;
+        let start = Arc::new(Barrier::new(n_threads));
+        let mut handles = Vec::with_capacity(n_threads);
+
+        for t in 0..n_threads {
+            let all_c = all.clone();
+            let start_c = start.clone();
+            let processors_c = processors.clone();
+            let market_pool_c = market_pool.clone();
+
+            handles.push(thread::spawn(move || {
+                start_c.wait();
+
+                // Each thread performs multiple updates to increase interleavings.
+                for k in 0..200usize {
+                    let p = &processors_c[(t + k) % processors_c.len()];
+                    let m = &market_pool_c[(t * 7 + k) % market_pool_c.len()];
+                    all_c.insert_processor(p.clone(), m.clone());
+                }
+            }));
+        }
+
+        for h in handles {
+            h.join().expect("thread panicked");
+        }
+
+        // Invariant: every processor maps to a market in the pool.
+        for p in &processors {
+            let mapped = all
+                .get_processor(p)
+                .unwrap_or_else(|| panic!("missing mapping for processor {p}"));
+            assert!(
+                market_pool.contains(&mapped),
+                "processor {p} mapped to unexpected market {mapped}"
+            );
+        }
+
+        // Invariant: every market remaining in all.markets is referenced by at least one processor.
+        // (insert_processor attempts to remove markets that are no longer referenced)
+        let remaining_markets: HashSet<String> = all.list_market_names().into_iter().collect();
+
+        let mut referenced: HashSet<String> = HashSet::new();
+        for p in &processors {
+            if let Some(m) = all.get_processor(p) {
+                referenced.insert(m);
+            }
+        }
+
+        for m in &remaining_markets {
+            assert!(
+                referenced.contains(m),
+                "market {m} remains in markets map but is not referenced by any processor"
+            );
+        }
+
+        // Optional sanity: processor_market_map should have exactly processors.len() keys.
+        // We can only approximate via list_processor_names() since the underlying map is concurrent.
+        let proc_names = all.list_processor_names();
+        let proc_set: HashSet<String> = proc_names.into_iter().collect();
+        let expected: HashSet<String> = processors.iter().cloned().collect();
+        assert_eq!(
+            proc_set, expected,
+            "processor_market_map keys mismatch after concurrent updates"
+        );
+
+        // Additional sanity: remaining markets should be subset of pool.
+        let pool_set: HashSet<String> = market_pool.into_iter().collect();
+        assert!(
+            remaining_markets.is_subset(&pool_set),
+            "remaining markets contain values outside the pool: remaining={:?} pool={:?}",
+            remaining_markets,
+            pool_set
+        );
+
+        // Keep this around to avoid unused import warnings if you tweak assertions later.
+        let _ = HashMap::<String, String>::new();
+    }
+
+    // #[test]
+    // fn test_insert_processor_two_processors_only_two_markets_present() {
+    //     let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
+
+    //     // "Initially 10 markets" (as names available in the system), but we only insert the two
+    //     // markets that are actually used into all.markets. insert_processor does not prune
+    //     // pre-inserted markets.
+    //     let market_names: Vec<String> = (0..10).map(|i| format!("m{i}")).collect();
+
+    //     // Insert only the two markets that will be referenced by processors.
+    //     for mn in market_names {
+    //         all.insert(mn.clone(), TestMarket::new(mn.clone(), ()));
+    //     }
+    //     // let m0 = market_names[0].clone();
+    //     // let m1 = market_names[1].clone();
+    //     // all.insert(m0.clone(), TestMarket::new(m0.clone(), ()));
+    //     // all.insert(m1.clone(), TestMarket::new(m1.clone(), ()));
+
+    //     // Insert two processors pointing at those two markets.
+    //     all.insert_processor("p0".to_string(), m0.clone());
+    //     all.insert_processor("p1".to_string(), m1.clone());
+
+    //     // We should observe only 2 markets in all_markets.markets.
+    //     let names = all.list_market_names();
+    //     assert_eq!(names.len(), 2, "expected exactly 2 markets, got {names:?}");
+    //     assert!(names.contains(&m0));
+    //     assert!(names.contains(&m1));
+    // }
 }

@@ -490,6 +490,22 @@ impl PmPortfolio {
         }
         pm_displ
     }
+
+    pub(crate) fn assign(&mut self, other: PmPortfolio) {
+        for (pm, comp_portf_pm) in other.iter() {
+            match self.get_mut(pm) {
+                Some(portf_pm) => {
+                    *portf_pm = comp_portf_pm.clone();
+                }
+                None => {
+                    // TODO: CHECK HERE - PROBABLY COULD BE REMOVED default()
+                    let mut portfolio_pm = PortfolioType::default();
+                    portfolio_pm += comp_portf_pm;
+                    self.insert(*pm, portfolio_pm);
+                }
+            }
+        }
+    }
 }
 
 // TODO:

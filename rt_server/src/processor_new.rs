@@ -173,10 +173,10 @@ where
         // we send the computed portfolio & trades to the current processor
         //   hoping that we are ahead.
         info!(
-            "Sending to {:?}: trade# = {}, portf # = {}, new_m = {:?}.",
+            "Sending to {:?}: trade# = {}, portf # = {:?}, new_m = {:?}.",
             self.processor_middle.get_name(),
             state.trades.len(),
-            state.portfolio.simple(),
+            state.portfolio,
             new_m_real,
         );
         self.processor_middle
@@ -446,7 +446,8 @@ where
             "Assigning computed portfolio to current portfolio: {:?}",
             computed_portf.simple()
         );
-        state.portfolio += computed_portf;
+        // state.portfolio += computed_portf;
+        state.portfolio.assign(computed_portf);
         debug!("Current portfolio: {}", state.portfolio.simple());
 
         state.trades.extend(new_trade_l);
@@ -459,9 +460,9 @@ where
         // }
 
         debug!(
-            "Sending to middle processor {:?}, portf size: {}, market: {:?}",
+            "Sending to middle processor {:?}, portf size: {:?}, market: {:?}",
             self.processor_middle.get_name(),
-            state.portfolio.simple(),
+            state.portfolio,
             state.new_market.clone()
         );
         self.processor_middle
@@ -503,7 +504,8 @@ where
                 // merging.
                 // _bulk and new_m are the same, merge the trades.
 
-                state.portfolio += computed_portf;
+                //state.portfolio += computed_portf;
+                state.portfolio.assign(computed_portf);
                 state.trades.extend(new_trade_l);
                 debug!(
                     "After merging: Portf: {:?}, trades: {:?}",
@@ -512,9 +514,9 @@ where
                 );
 
                 info!(
-                    "Sending to processor {:?} portfolio: {}",
+                    "Sending to processor {:?} portfolio: {:?}",
                     self.processor_middle.get_name(),
-                    state.portfolio.simple(),
+                    state.portfolio,
                 );
                 self.processor_middle
                     .send_message(ProcessorMiddleMessage::NewTradePortfolio((

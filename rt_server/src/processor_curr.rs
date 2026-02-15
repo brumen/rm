@@ -248,6 +248,7 @@ where
                 if new_portf_acc {
                     info!("NewPortfolio accepted. Publishing.");
                     for (pm, new_portf_pm) in new_portfolio.iter() {
+                        debug!("CURR PORTFOLIO: {:?}", new_portf_pm);
                         self._publish_result_portfolio(new_portf_pm.clone(), *pm)
                             .await?;
                     }
