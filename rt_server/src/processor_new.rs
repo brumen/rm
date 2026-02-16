@@ -483,18 +483,12 @@ where
 #[derive(Debug)]
 pub(crate) struct _ProcessorNewStateful {
     // the state of the processor is:
-    //   1st arg: hashset of trades,
-    //   second is the list of trades that didnt price correctly -- check if this should also be TradesLocal???? TODO:
-    //   third is the current portfolio result of correctly pricing trades.
-    //   fourth is the computation state.
-    //   fifth is the "new" market where we are pricing now. 'future' market exists anyway.
-    //   6th: list of pricing metrics we are considering.
-    trades: TradesLocal,
-    trades_not_pricing: Vec<String>,
-    portfolio: PmPortfolio,
-    processor_state: ProcessorNewState,
-    new_market: Option<String>,
-    pricing_metrics: Vec<PricingMetric>,
+    trades: TradesLocal,                 // hashset of trades,
+    trades_not_pricing: Vec<String>, //   the list of trades that didnt price correctly -- check if this should also be TradesLocal???? TODO:
+    portfolio: PmPortfolio,          // current portfolio result of correctly pricing trade.
+    processor_state: ProcessorNewState, // computation state
+    new_market: Option<String>, // "new" market where we are pricing now. 'future' market exists anyway.
+    pricing_metrics: Vec<PricingMetric>, // list of pricing metrics we are considering.
 }
 
 impl std::fmt::Display for _ProcessorNewStateful {

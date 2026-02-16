@@ -105,10 +105,10 @@ where
 /// current state of the processor
 #[derive(Debug)]
 pub(crate) struct _ProcessorCurrState {
-    trades: TradesLocal,
+    trades: TradesLocal,                 // current trades
     portfolio: PmPortfolio, //  2nd arg:  a map of metrics to portfolioTypes, e.g. PV: Portf1, PV01: Portf2...
-    curr_market: Option<String>,
-    pricing_results: Vec<PricingMetric>,
+    curr_market: Option<String>, // current market name
+    pricing_results: Vec<PricingMetric>, // vector of pricing metrics.
 }
 
 impl std::fmt::Display for _ProcessorCurrState {
@@ -131,12 +131,7 @@ where
     MT: MarketTypeT + Send + Sync + 'static + std::fmt::Debug,
     MT::MP: Clone,
 {
-    type Msg = ProcessorMiddleMessage<String>; // dyn MarketTypeT<MP=MP>>;
-                                               // state is a tuple of
-                                               //  1st arg:  current trades,
-                                               //  2nd arg:  a map of metrics to portfolioTypes, e.g. PV: Portf1, PV01: Portf2...
-                                               //  3rd arg:  current market name
-                                               //  4th arg:  vector of pricing metrics for which we are computing.
+    type Msg = ProcessorMiddleMessage<String>;
     type State = _ProcessorCurrState;
     type Arguments = ();
 
@@ -171,7 +166,6 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        //let (trades, portf, market, curr_pricing_metrics) = state;
         debug!(%state, "State:");
         match message {
             ProcessorMiddleMessage::NewTrade(trade) => {
