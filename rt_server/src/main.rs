@@ -1,10 +1,10 @@
 // Starts the controller.
 use dotenv::dotenv;
 use futures::future::join_all;
-use rdkafka::config::ClientConfig;
-use rdkafka::producer::FutureProducer;
+use local_ip_address::local_ip;
 use std::sync::Arc;
-use tracing::{info, Level};
+use tracing::{error, info, Level};
+use tracing_subscriber::{layer::SubscriberExt, reload, util::SubscriberInitExt, EnvFilter};
 
 pub mod market;
 pub mod portfolio;
@@ -38,8 +38,6 @@ use crate::engine_letf::start2;
 use crate::markets::letf_market::LETFMarketType;
 use crate::pricer::PricingMetric;
 use crate::processor_setup_actor::start_setup_actor;
-use crate::processor_setup_actor::SetupRequest;
-// use crate::spot_fetcher::{SpotFetcherActor, SpotFetcherMessage};
 use crate::trade::TradeRep;
 use trades::trade_letf::TradeTypes;
 
@@ -61,8 +59,8 @@ async fn run_all() {
     let results_topic =
         std::env::var("RESULTS_TOPIC").expect("Could not find RESULTS_TOPIC in .env"); //"air_options.ao.results"
     let setup_topic = std::env::var("SETUP_TOPIC").expect("Could not find SETUP_TOPIC in .env");
-    let market_port = std::env::var("MARKET_PORT").expect("Could not find MARKET_PORT in .env");
-    let pricing_port = std::env::var("PRICING_PORT").expect("Could not find PRICING_PORT in .env");
+    let _market_port = std::env::var("MARKET_PORT").expect("Could not find MARKET_PORT in .env");
+    let _pricing_port = std::env::var("PRICING_PORT").expect("Could not find PRICING_PORT in .env");
     let debug_level = std::env::var("DEBUG_LEVEL").expect("Could not find DEBUG in .env");
     info!(".env data loaded.");
     let kafka_params = engine_actor::KafkaParams {
@@ -77,10 +75,14 @@ async fn run_all() {
         "debug" => Level::DEBUG,
         _ => Level::INFO,
     };
-    tracing_subscriber::fmt()
-        .with_max_level(tracing_level)
-        //.with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
-        //.with_span_events(tracing_subscriber::fmt::format::FmtSpan::NONE)
+
+    // Reloadable log filter layer
+    let initial_filter = EnvFilter::from_default_env().add_directive(tracing_level.into());
+    let (reload_layer, reload_handle) = reload::Layer::new(initial_filter);
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(reload_layer)
         .init();
 
     let mut all_handles = vec![];
@@ -88,10 +90,16 @@ async fn run_all() {
 
     let (initial_trades, all_markets) = init_letf();
 
+    let Ok(local_ip_address) = local_ip() else {
+        error!("Error getting local IP addres.");
+        return;
+    };
+
     let diagnostics_handle = processor_setup::diagnostics(
-        "192.168.1.107".to_string(),
+        local_ip_address.to_string(),
         all_markets.clone(),
         initial_trades.clone(),
+        reload_handle,
     );
     all_handles.push(diagnostics_handle);
 
@@ -110,22 +118,9 @@ async fn run_all() {
     // this creates the setup actor.
     let setup_actor_handle = start_setup_actor(host.clone(), setup_topic.clone(), all_actors).await;
 
-    // Initialize Kafka producer for spot fetcher
-    let producer: FutureProducer = ClientConfig::new()
-        .set("bootstrap.servers", &host)
-        .create()
-        .expect("Failed to create Kafka producer");
-
-    // Start SpotFetcherActor
-    // let spot_fetcher = SpotFetcherActor::new(producer, "letf.mkt".to_string());
-    // let (spot_ref, spot_handle) = Actor::spawn::<SpotFetcherActor>(None, spot_fetcher, ())
-    //     .await
-    //     .expect("Failed to start SpotFetcherActor");
-
     info!("All relevant actors initialized.");
     all_handles.append(&mut all_actors_handles);
     all_handles.push(setup_actor_handle);
-    // all_handles.push(spot_handle);
     join_all(all_handles).await;
 }
 

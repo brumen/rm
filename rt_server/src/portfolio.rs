@@ -508,26 +508,12 @@ impl PmPortfolio {
     }
 }
 
-// TODO:
-//   this determines when a PmPortfolio is accepted.
+//  Used for determining when there is an ordering between two portfolios.
+//     and when one portfolio is accepted.
 impl PartialOrd for PmPortfolio {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         let self_less_other = self.keys().all(|key| other.contains_key(key));
         let other_less_self = other.keys().all(|key| self.contains_key(key));
-
-        // TODO: THIS IS REALLY ASSOCIATED w/ EQUAL
-        // if self_less_other && other_less_self {
-        //     let mut pm_orders = Vec::<bool>::new();
-
-        //     for pm in self.keys() {
-        //         let portf_comp = self.get(pm) <= other.get(pm);
-        //         pm_orders.push(portf_comp);
-        //     }
-
-        //     if pm_orders.iter().all(|pm_ord| *pm_ord) {
-        //         return Some(std::cmp::Ordering::Less); // TODO: could also be ==
-        //     }
-        // }
 
         if self_less_other {
             let mut pm_orders = Vec::<bool>::new();
@@ -593,8 +579,6 @@ impl AddAssign<PmPortfolio> for PmPortfolio {
 
 #[cfg(test)]
 mod portfolio_tests {
-    use time::{Date, Month};
-
     use crate::portfolio::PortfolioType;
 
     #[test]

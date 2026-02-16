@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::task::{self, JoinHandle};
 use tracing::info;
+use tracing_subscriber::{fmt::Layer, layer::Layered, reload, EnvFilter, Registry};
 
 use crate::all_markets;
 use crate::markets::letf_market::LETFMarketType;
@@ -18,12 +19,14 @@ use crate::trades::trade_letf::TradeTypes;
 type PortfolioState = Arc<Mutex<portfolio::PortfolioType>>;
 type MarketsState = Arc<all_markets::AllMarkets<Arc<LETFMarketType>>>;
 type Trades = Arc<TradeRep<TradeTypes>>;
+type ReloadHandle = reload::Handle<EnvFilter, Layered<Layer<Registry>, Registry>>;
 
 #[derive(Clone)]
 struct DiagnosticsState {
     portfolio: PortfolioState,
     all_markets: MarketsState,
     all_trades: Trades,
+    reload_handle: ReloadHandle,
 }
 
 #[derive(serde::Deserialize)]
@@ -32,15 +35,22 @@ struct PriceQuery {
     trade_id: String,
 }
 
+#[derive(serde::Deserialize)]
+struct LogLevelQuery {
+    level: String,
+}
+
 pub(crate) fn diagnostics(
     host: String,
     all_markets: MarketsState,
     initial_trades: Trades,
+    reload_handle: ReloadHandle,
 ) -> JoinHandle<()> {
     let state = DiagnosticsState {
         portfolio: Arc::new(Mutex::new(portfolio::PortfolioType::default())),
         all_markets,
         all_trades: initial_trades,
+        reload_handle,
     };
 
     let axum_process = task::spawn(async move {
@@ -50,6 +60,7 @@ pub(crate) fn diagnostics(
             .route("/market_map", get(market_map_handler))
             .route("/trades", get(trades_handler))
             .route("/price", get(price_handler))
+            .route("/loglevel", get(loglevel_handler))
             .with_state(state);
 
         let addr = format!("{host}:3000");
@@ -126,5 +137,31 @@ async fn price_handler(
             "OK: trade_id='{}' market='{}' price={}",
             trade_id, market_name, px
         ),
+    }
+}
+
+// /loglevel?level=debug
+async fn loglevel_handler(
+    State(state): State<DiagnosticsState>,
+    Query(params): Query<LogLevelQuery>,
+) -> String {
+    let level = params.level.to_lowercase();
+
+    let directive = match level.as_str() {
+        "trace" => "trace",
+        "debug" => "debug",
+        "info" => "info",
+        "warn" => "warn",
+        "error" => "error",
+        _ => {
+            return "ERROR: invalid level. Use one of: trace, debug, info, warn, error".to_string();
+        }
+    };
+
+    let new_filter = EnvFilter::from_default_env().add_directive(directive.parse().unwrap());
+
+    match state.reload_handle.reload(new_filter) {
+        Ok(()) => format!("OK: log level set to {}", directive),
+        Err(e) => format!("ERROR: failed to reload log filter: {}", e),
     }
 }
