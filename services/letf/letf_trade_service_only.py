@@ -37,14 +37,19 @@ letf_trade_producer = LETFTradeProducer(
         KAFKA_PORT,
         POSITIONS_TOPIC,
     ),
-    trade_nb_start=int(sys.argv[1]),
+    trade_nb_start=trade_nb_start,
 )
+
+try:
+    frequency_of_trades = sys.argv[2]
+except Exception as e:
+    _logger.info(f"Frequency: 1 ({e})")
+    frequency_of_trades = 1
 
 
 # 1st arg: trade st. nb.
 # 2nd arg. freq of trades.
 if __name__ == "__main__":
-    frequency_of_trades = sys.argv[2]
     trade_thread = letf_trade_producer.create_thread(
         sleep_between_publish=frequency_of_trades
     )
