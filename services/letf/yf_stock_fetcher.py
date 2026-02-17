@@ -286,12 +286,18 @@ def _streamer_example():
     streamer.stream_prices(interval=1)
 
 
-def _streamer_example_sim():
+def _streamer_example_sim(frequency_of_trades=1):
     streamer = YFStockKafkaStreamerSim.from_env(
         tickers=["AAPL", "MSFT", "GOOG", "NVDA"]
     )
-    streamer.stream_prices(interval=1)
+    streamer.stream_prices(interval=frequency_of_trades)
 
 
 if __name__ == "__main__":
-    _streamer_example_sim()
+    try:
+        frequency_of_trades = int(sys.argv[1])
+    except Exception as e:
+        frequency_of_trades = 1
+        _logger.info(f"Using frequency of market data 1 ({e}).")
+
+    _streamer_example_sim(frequency_of_trades)
