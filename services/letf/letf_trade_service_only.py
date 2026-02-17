@@ -41,7 +41,7 @@ letf_trade_producer = LETFTradeProducer(
 )
 
 try:
-    frequency_of_trades = sys.argv[2]
+    frequency_of_trades = int(sys.argv[2])
 except Exception as e:
     _logger.info(f"Frequency: 1 ({e})")
     frequency_of_trades = 1
