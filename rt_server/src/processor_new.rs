@@ -1,12 +1,15 @@
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn}; // for tracking states.
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 use crate::portfolio::{PmPortfolio, PortfolioType};
 use crate::pricer::{PriceTrade, PricingMetric};
-use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesLocal};
+use crate::processor_msg::{
+    PNStateDistr, ProcessorBulkMessage, ProcessorMiddleMessage, ProcessorMiddleMessageStates,
+    TradesLocal,
+};
 use crate::trade::{BaseTrade, TradeRep};
 
 #[derive(Debug)]
@@ -20,6 +23,7 @@ where
     pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>, // bulk processor reference to the bulk actor corresponding to this processor_new
     pub all_markets: Arc<AllMarkets<Arc<MT>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
+    pub(crate) state_distr: Arc<PNStateDistr>,
 }
 
 #[allow(dead_code)]
@@ -51,6 +55,7 @@ where
         processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
         all_trades: Arc<TradeRep<T>>,
+        state_distr: Arc<PNStateDistr>,
     ) -> Self {
         Self {
             processor_name: processor_name.clone(),
@@ -58,6 +63,7 @@ where
             processor_bulk,
             all_markets,
             all_trades,
+            state_distr: state_distr.clone(),
         }
     }
 
@@ -519,6 +525,7 @@ where
         _args: Self::Arguments, // market parameters are passed here
     ) -> Result<Self::State, ActorProcessingErr> {
         info!("Starting ProcessorNew.");
+
         Ok(_ProcessorNewStateful {
             trades: TradesLocal::new(),
             trades_not_pricing: vec![],
@@ -550,6 +557,9 @@ where
         match message {
             ProcessorMiddleMessage::NewTrade(new_trade) => {
                 info!("Message: NewTrade({:?})", new_trade);
+                // incremenet the state_distr variable.
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::NewTrade);
 
                 match state.processor_state {
                     // what is the processor doing right now.
@@ -570,6 +580,8 @@ where
             // this is coming from mkt_handler, and market handler only produces
             //   "future" market.  Here we can potentially create a new market
             ProcessorMiddleMessage::NewMarket(new_market_name) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::NewMarket);
                 debug!(
                     "Message NewMarket: {} <- this should be 'future'",
                     new_market_name
@@ -597,6 +609,9 @@ where
             //
             ProcessorMiddleMessage::Behind(market_behind, trades_behind) => {
                 // we are behind trades behind the below processor
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::Behind);
+
                 info!(
                     "Message: Behind. Market: {:?}, trades_beind: {:?}",
                     market_behind,
@@ -637,6 +652,9 @@ where
                 offending_trades,
                 _bulk_market,
             )) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::BulkReceive);
+
                 info!(
                     "Message: BulkReceive: Portfolio: {:?}",
                     computed_portf.simple()
@@ -665,6 +683,9 @@ where
             }
 
             ProcessorMiddleMessage::Metric(new_pricing_metrics) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::Metric);
+
                 info!("Changing metrics to {:?}", new_pricing_metrics);
                 crate::utils::change_metrics(&mut state.portfolio, new_pricing_metrics.clone()); // fixes the portf to correspond to new_pricing_metrics
                 state.pricing_metrics = new_pricing_metrics;

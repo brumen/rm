@@ -506,6 +506,17 @@ impl PmPortfolio {
             }
         }
     }
+
+    pub(crate) fn assign_metric(&mut self, metric: &PricingMetric, portfolio: PortfolioType) {
+        match self.get_mut(metric) {
+            Some(portfolio_pm) => {
+                *portfolio_pm += portfolio;
+            }
+            None => {
+                self.insert(*metric, portfolio);
+            }
+        }
+    }
 }
 
 //  Used for determining when there is an ordering between two portfolios.

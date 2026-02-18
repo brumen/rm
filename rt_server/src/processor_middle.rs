@@ -7,7 +7,10 @@ use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 use crate::portfolio::PmPortfolio; // , PortfolioType
 use crate::pricer::{PriceTrade, PricingMetric};
-use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesLocal};
+use crate::processor_msg::{
+    PNStateDistr, ProcessorBulkMessage, ProcessorMiddleMessage, ProcessorMiddleMessageStates,
+    TradesLocal,
+};
 use crate::trade::{BaseTrade, TradeRep};
 
 // T is mnemonic for trade type, MT is mnemonic for market type
@@ -18,6 +21,7 @@ pub(crate) struct ProcessorMiddle<T, MT: std::fmt::Debug> {
     pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
     pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
+    pub(crate) state_distr: Arc<PNStateDistr>,
 }
 
 impl<T, MT> ProcessorMiddle<T, MT>
@@ -35,6 +39,7 @@ where
         processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
         all_trades: Arc<TradeRep<T>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
+        state_distr: Arc<PNStateDistr>,
     ) -> Self {
         Self {
             processor_name,
@@ -42,6 +47,7 @@ where
             processor_bulk,
             all_trades,
             all_markets,
+            state_distr: state_distr.clone(),
         }
     }
 
@@ -607,11 +613,16 @@ where
                 ProcessorMiddleMessage::NewTrade(new_trade),
                 ProcessorMiddleState::CalculatingSingle,
             ) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::NewTrade);
                 self._new_trade_calculating_single(new_trade, state, myself)
                     .await?
             }
 
             (ProcessorMiddleMessage::NewTrade(new_trade), ProcessorMiddleState::Idle) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::NewTrade);
+
                 self._new_trade_idle(new_trade, state, myself)?
             }
 
@@ -619,11 +630,17 @@ where
                 ProcessorMiddleMessage::NewTrade(new_trade),
                 ProcessorMiddleState::CalculatingBulk,
             ) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::NewTrade);
+
                 self._new_trade_calculating_bulk(new_trade, state, myself)
                     .await?
             }
 
             (ProcessorMiddleMessage::NewMarket(_new_market), _) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::NewMarket);
+
                 error!("Received NewMarket. THIS SHOULDNT HAPPEN! Ignoring and continuing.");
             }
 
@@ -631,22 +648,40 @@ where
             (
                 ProcessorMiddleMessage::Behind(market_behind, trades_behind),
                 ProcessorMiddleState::CalculatingSingle,
-            ) => self._behind_calculating_single(market_behind, trades_behind, state, myself)?,
+            ) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::Behind);
+
+                self._behind_calculating_single(market_behind, trades_behind, state, myself)?
+            }
 
             (
                 ProcessorMiddleMessage::Behind(market_behind, trades_behind),
                 ProcessorMiddleState::CalculatingBulk,
-            ) => self._behind_calculating_bulk(market_behind, trades_behind, state, myself)?,
+            ) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::Behind);
+
+                self._behind_calculating_bulk(market_behind, trades_behind, state, myself)?
+            }
 
             (
                 ProcessorMiddleMessage::Behind(market_behind, trades_behind),
                 ProcessorMiddleState::Idle,
-            ) => self._behind_idle(market_behind, trades_behind, state, myself)?,
+            ) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::Behind);
+
+                self._behind_idle(market_behind, trades_behind, state, myself)?
+            }
 
             // bcp = (new_trade_l, computed_portf, offending_trades, _bulk_market)
             (ProcessorMiddleMessage::BulkReceive(_), ProcessorMiddleState::Idle) => {
                 // Important: This Souldnt happen.
                 // TODO: CHECK WHY THIS IS THE CASE???
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::BulkReceive);
+
                 warn!("Message: BulkReceive: Ignoring bulk receive. Should not happen.",);
             }
 
@@ -658,14 +693,19 @@ where
                     _bulk_market,
                 )),
                 ProcessorMiddleState::CalculatingBulk,
-            ) => self._bulk_receive_calculating_bulk(
-                new_trade_l,
-                computed_portf,
-                offending_trades,
-                _bulk_market,
-                state,
-                myself,
-            )?,
+            ) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::BulkReceive);
+
+                self._bulk_receive_calculating_bulk(
+                    new_trade_l,
+                    computed_portf,
+                    offending_trades,
+                    _bulk_market,
+                    state,
+                    myself,
+                )?
+            }
 
             (
                 ProcessorMiddleMessage::BulkReceive((
@@ -676,6 +716,9 @@ where
                 )),
                 ProcessorMiddleState::CalculatingSingle,
             ) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::BulkReceive);
+
                 // result of computation has arrived.
                 //  add it to the computation
                 // TODO: WHAT TO DO W/ OFFENDING TRADES???
@@ -702,14 +745,19 @@ where
             }
 
             (ProcessorMiddleMessage::NewTradePortfolio(ntp), ProcessorMiddleState::Idle) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::NewTradePortfolio);
+
                 self._ntp_idle(ntp, state, myself)?
             }
 
-            // TODO: CHECK HERE IF ...MarketSwitch should be handled separately.
             (
                 ProcessorMiddleMessage::NewTradePortfolio(ntp),
                 ProcessorMiddleState::CalculatingBulk,
             ) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::NewTradePortfolio);
+
                 // first approximation, ignore the portfolio - reject it, and send the message to the originator.
                 debug!("Received new trade portfolio. Ignoring it.");
                 let (potential_trades, _potential_portfolio, new_market, upstream_processor) = ntp;
@@ -722,16 +770,30 @@ where
             (
                 ProcessorMiddleMessage::NewTradePortfolio(ntp),
                 ProcessorMiddleState::CalculatingSingle,
-            ) => self._ntp_calculating_single(ntp, state, myself)?,
+            ) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::NewTradePortfolio);
+
+                self._ntp_calculating_single(ntp, state, myself)?
+            }
 
             (ProcessorMiddleMessage::BulkBusy, _) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::BulkBusy);
+
                 info!("Message: BulkBusy. Ignore for now.");
             }
 
-            (ProcessorMiddleMessage::ProcessingStat(_), _) => {} // processing stat is not for this processor
+            (ProcessorMiddleMessage::ProcessingStat(_), _) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::ProcessingStat);
+            } // processing stat is not for this processor
 
             // we get new metrics from the metric dispatch
             (ProcessorMiddleMessage::Metric(new_pricing_metrics), _) => {
+                self.state_distr
+                    .incr_one(ProcessorMiddleMessageStates::Metric);
+
                 info!("Changing metrics to {:?}", new_pricing_metrics);
                 crate::utils::change_metrics(
                     &mut state.pricing_results,

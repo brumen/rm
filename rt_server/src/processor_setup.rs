@@ -1,8 +1,9 @@
 use axum::{
     extract::{Query, State},
     routing::get,
-    Router,
+    Json, Router,
 };
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::task::{self, JoinHandle};
@@ -13,6 +14,8 @@ use crate::all_markets;
 use crate::markets::letf_market::LETFMarketType;
 use crate::portfolio;
 use crate::pricer::PriceTrade;
+use crate::processor_msg::PNStateDistr;
+use crate::processor_msg::ProcessorMiddleMessageStates;
 use crate::trade::TradeRep;
 use crate::trades::trade_letf::TradeTypes;
 
@@ -27,6 +30,7 @@ struct DiagnosticsState {
     all_markets: MarketsState,
     all_trades: Trades,
     reload_handle: ReloadHandle,
+    state_distr_new: Arc<PNStateDistr>,
 }
 
 #[derive(serde::Deserialize)]
@@ -45,12 +49,14 @@ pub(crate) fn diagnostics(
     all_markets: MarketsState,
     initial_trades: Trades,
     reload_handle: ReloadHandle,
+    state_distr_new: Arc<PNStateDistr>,
 ) -> JoinHandle<()> {
     let state = DiagnosticsState {
         portfolio: Arc::new(Mutex::new(portfolio::PortfolioType::default())),
         all_markets,
         all_trades: initial_trades,
         reload_handle,
+        state_distr_new,
     };
 
     let axum_process = task::spawn(async move {
@@ -61,6 +67,7 @@ pub(crate) fn diagnostics(
             .route("/trades", get(trades_handler))
             .route("/price", get(price_handler))
             .route("/loglevel", get(loglevel_handler))
+            .route("/state_distr_new", get(state_distr_new_handler))
             .with_state(state);
 
         let addr = format!("{host}:3000");
@@ -164,4 +171,16 @@ async fn loglevel_handler(
         Ok(()) => format!("OK: log level set to {}", directive),
         Err(e) => format!("ERROR: failed to reload log filter: {}", e),
     }
+}
+
+async fn state_distr_new_handler(
+    State(state): State<DiagnosticsState>,
+) -> Json<HashMap<ProcessorMiddleMessageStates, u64>> {
+    let mut snapshot: HashMap<ProcessorMiddleMessageStates, u64> = HashMap::new();
+
+    for entry in state.state_distr_new.iter() {
+        snapshot.insert(*entry.key(), *entry.value());
+    }
+
+    Json(snapshot)
 }

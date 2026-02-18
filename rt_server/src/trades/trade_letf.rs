@@ -2,6 +2,7 @@ use ractor::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
+use tokio::time::{sleep, Duration};
 use tracing::{debug, error, warn};
 
 use crate::market::MarketTypeT;
@@ -59,6 +60,7 @@ impl PriceTrade<LETFMarketType> for LETFTrade {
             .get(&LETFMarketTypes::Stock(self.stock.clone())) // TODO: CHECK IF WE DONT NEED TO CLONE HERE!!!
             .await?;
 
+        sleep(Duration::from_millis(100)).await;
         self.stock_value
             .map(|initial_stock| self.beta * self.amount * (stock_v_real / initial_stock - 1.))
     }

@@ -1,7 +1,9 @@
+use dashmap::DashMap;
 /// messages for the Multiple Actor references.
 use ractor::ActorRef;
 use std::collections::HashSet;
-use strum::AsRefStr;
+use strum::{AsRefStr, EnumDiscriminants};
+use tracing::warn;
 
 use crate::portfolio::PmPortfolio;
 use crate::pricer::PricingMetric;
@@ -9,6 +11,9 @@ use crate::pricer::PricingMetric;
 pub(crate) type TradesLocal = HashSet<String>;
 
 /// message that the new processor receives
+#[derive(EnumDiscriminants)]
+#[strum_discriminants(name(ProcessorMiddleMessageStates))] // Renames the generated enum
+#[strum_discriminants(derive(std::hash::Hash))] // Adds hash trait to ProcessorMiddleMessageStates
 #[allow(dead_code)]
 #[derive(Clone, Debug, AsRefStr)]
 pub enum ProcessorMiddleMessage<MT> {
@@ -75,4 +80,59 @@ pub enum ProcessorBulkMessage<MT> {
         ),
     ),
     Abandon, // TODO: WHAT TO DO W/ THIS???
+}
+
+// Accounting for the distribution of messages of types
+//   ProcessorMiddleMessage
+
+#[derive(Debug)]
+pub(crate) struct PNStateDistr(DashMap<ProcessorMiddleMessageStates, u64>);
+
+impl std::ops::Deref for PNStateDistr {
+    type Target = DashMap<ProcessorMiddleMessageStates, u64>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl PNStateDistr {
+    pub(crate) fn new() -> Self {
+        PNStateDistr::from([
+            (ProcessorMiddleMessageStates::NewTrade, 0),
+            (ProcessorMiddleMessageStates::NewMarket, 0),
+            (ProcessorMiddleMessageStates::Behind, 0),
+            (ProcessorMiddleMessageStates::BulkReceive, 0),
+            (ProcessorMiddleMessageStates::BulkBusy, 0),
+            (ProcessorMiddleMessageStates::NewTradePortfolio, 0),
+            (ProcessorMiddleMessageStates::ProcessingStat, 0),
+            (ProcessorMiddleMessageStates::Metric, 0),
+        ])
+    }
+}
+
+impl PNStateDistr {
+    // increment one of the states by 1. used for accounting.
+    pub(crate) fn incr_one(&self, ps: ProcessorMiddleMessageStates) {
+        let state_curr = self.get(&ps);
+        match state_curr {
+            None => {
+                warn!("Could not increment {:?}", ps);
+            }
+            Some(state_val) => {
+                let sv = state_val.value();
+                self.insert(ps, *sv + 1);
+            }
+        }
+    }
+}
+
+impl<const N: usize> From<[(ProcessorMiddleMessageStates, u64); N]> for PNStateDistr {
+    fn from(arr: [(ProcessorMiddleMessageStates, u64); N]) -> Self {
+        let dm = DashMap::new();
+        for (pmm, pmm_freq) in arr.iter() {
+            dm.insert(*pmm, *pmm_freq);
+        }
+        Self(dm)
+    }
 }

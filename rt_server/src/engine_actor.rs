@@ -10,7 +10,7 @@ use crate::pricer::PriceTrade;
 use crate::processor_bulk::ProcessorBulk;
 use crate::processor_curr::ProcessorCurr;
 use crate::processor_middle::ProcessorMiddle;
-use crate::processor_msg::ProcessorMiddleMessage;
+use crate::processor_msg::{PNStateDistr, ProcessorMiddleMessage};
 use crate::publish::connect_with_retries_producer_rd;
 use crate::trade::{BaseTrade, TradeRep};
 
@@ -69,7 +69,7 @@ pub(crate) async fn create_middle_actor<T, MT>(
     initial_trades: Arc<TradeRep<T>>,
     processor_below: ActorRef<ProcessorMiddleMessage<String>>,
     mp: MT::MP,
-) -> (ProcessorMiddle<T, MT>, JoinHandle<()>)
+) -> (ProcessorMiddle<T, MT>, JoinHandle<()>, Arc<PNStateDistr>)
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT> + std::fmt::Debug,
     MT::MP: 'static + Send + Sync + Clone,
@@ -92,15 +92,17 @@ where
     .await
     .expect("Could not create bulk middle processor");
 
+    let state_distr = Arc::new(PNStateDistr::new());
     let proc_middle = ProcessorMiddle::new(
         processor_name,
         processor_below,
         bulk_actor,
         initial_trades.clone(),
         all_markets.clone(),
+        state_distr.clone(),
     );
 
-    (proc_middle, bulk_actor_future)
+    (proc_middle, bulk_actor_future, state_distr)
 }
 
 /// creates a chain of middle processors and connects
@@ -120,6 +122,7 @@ pub(crate) async fn create_middle_procs_chain<T, MT>(
     Vec<ActorRef<ProcessorMiddleMessage<String>>>, // middle processors
     Vec<JoinHandle<()>>,                           // middle processor joint handles.
     Vec<JoinHandle<()>>,                           // bulk processor handles.
+    Vec<Arc<PNStateDistr>>,
 )
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT> + std::fmt::Debug,
@@ -129,12 +132,13 @@ where
     let mut bulk_actors_futures: Vec<JoinHandle<()>> = vec![];
     let mut processor_actors_futures: Vec<JoinHandle<()>> = vec![];
     let mut processor_actors: Vec<ActorRef<ProcessorMiddleMessage<String>>> = vec![];
+    let mut state_distr_vec: Vec<Arc<PNStateDistr>> = vec![];
 
     let mut last_middle: ActorRef<ProcessorMiddleMessage<String>> = processor_curr.clone();
 
     for market_nb in 0..nb_middle {
         let market_name = format!("middle_{}", market_nb);
-        let (processor_middle, bulk_actor_future) = create_middle_actor(
+        let (processor_middle, bulk_actor_future, middle_state_distr) = create_middle_actor(
             market_name.clone(),
             all_markets.clone(),
             initial_trades.clone(),
@@ -144,6 +148,7 @@ where
         .await;
 
         bulk_actors_futures.push(bulk_actor_future);
+        state_distr_vec.push(middle_state_distr);
 
         let (proc_actor, proc_actor_future) = Actor::spawn(Some(market_name), processor_middle, ())
             .await
@@ -158,5 +163,6 @@ where
         processor_actors,
         processor_actors_futures,
         bulk_actors_futures,
+        state_distr_vec,
     )
 }

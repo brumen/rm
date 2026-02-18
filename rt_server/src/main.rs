@@ -95,25 +95,26 @@ async fn run_all() {
         return;
     };
 
-    let diagnostics_handle = processor_setup::diagnostics(
-        local_ip_address.to_string(),
-        all_markets.clone(),
-        initial_trades.clone(),
-        reload_handle,
-    );
-    all_handles.push(diagnostics_handle);
-
     info!("Starting main system controller.");
-    let (all_actors, mut all_actors_handles) = start2(
+    let (all_actors, mut all_actors_handles, state_distr_new) = start2(
         kafka_params,
         metric,
-        all_markets,
+        all_markets.clone(),
         markets_used,
-        initial_trades,
+        initial_trades.clone(),
         (),
         3,
     )
     .await;
+
+    let diagnostics_handle = processor_setup::diagnostics(
+        local_ip_address.to_string(),
+        all_markets,
+        initial_trades,
+        reload_handle,
+        state_distr_new.clone(),
+    );
+    all_handles.push(diagnostics_handle);
 
     // this creates the setup actor.
     let setup_actor_handle = start_setup_actor(host.clone(), setup_topic.clone(), all_actors).await;

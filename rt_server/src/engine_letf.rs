@@ -14,7 +14,7 @@ use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PriceTrade;
 use crate::pricer::PricingMetric;
 use crate::processor_bulk::ProcessorBulk;
-use crate::processor_msg::ProcessorMiddleMessage;
+use crate::processor_msg::{PNStateDistr, ProcessorMiddleMessage};
 use crate::processor_new::ProcessorNew;
 use crate::ref_deref::TryFromRef2;
 use crate::trade::{BaseTrade, TradeRep};
@@ -34,6 +34,7 @@ pub(crate) async fn start2<T, MT>(
 ) -> (
     Vec<ActorRef<ProcessorMiddleMessage<String>>>,
     Vec<JoinHandle<()>>,
+    Arc<PNStateDistr>, // state distribution of the new processor
 )
 where
     T: BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MT> + TryFromRef2 + std::fmt::Debug,
@@ -62,16 +63,20 @@ where
 
     actors_middle_msg.push(_processor_curr_a.clone());
 
-    // middle actors
-    let (mut processor_actors, mut processor_actor_futures, mut bulk_actor_futures) =
-        create_middle_procs_chain(
-            nb_middle,
-            _processor_curr_a.clone(),
-            all_markets.clone(),
-            initial_trades.clone(),
-            mp.clone(),
-        )
-        .await;
+    // middle actors (including state distribution for
+    let (
+        mut processor_actors,
+        mut processor_actor_futures,
+        mut bulk_actor_futures,
+        middle_state_distr_vec,
+    ) = create_middle_procs_chain(
+        nb_middle,
+        _processor_curr_a.clone(),
+        all_markets.clone(),
+        initial_trades.clone(),
+        mp.clone(),
+    )
+    .await;
 
     let last_middle = processor_actors.last().unwrap().clone(); // last middle processor
 
@@ -92,12 +97,15 @@ where
     .await
     .expect("Could not start processor_new_bulk");
 
+    // state distribution of the processor new
+    let state_distr_new = Arc::new(PNStateDistr::new());
     let processor_new = ProcessorNew::new(
         "processor_new".to_string(),
         last_middle.clone(),
         processor_new_bulk_actor.clone(),
         all_markets.clone(),
         initial_trades.clone(),
+        state_distr_new.clone(),
     );
 
     let (_processor_new_a, processor_new_handle) =
@@ -149,5 +157,5 @@ where
     all_futures.append(&mut processor_actor_futures); // middle processors
     all_futures.append(&mut bulk_actor_futures); // middle bulk processors.
 
-    (actors_middle_msg, all_futures)
+    (actors_middle_msg, all_futures, state_distr_new)
 }

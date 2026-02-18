@@ -1,3 +1,4 @@
+use futures::future::join_all;
 /// Processor which gets a bulk of work, and finishes it.
 ///
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
@@ -57,8 +58,8 @@ where
     MT::MP: Clone,
     T: PriceTrade<MT> + 'static,
 {
-    // TODO: THIS CAN GET OPTIMIZED
-    async fn price_multiple(
+    // process trades sequentially.
+    async fn price_multiple_seq(
         &self,
         new_trades: HashSet<String>,
         pricing_metrics: Vec<PricingMetric>,
@@ -69,21 +70,50 @@ where
 
         for used_trade in new_trades.iter() {
             let used_trade = all_trades.get(used_trade).unwrap();
-            for pm in pricing_metrics.clone() {
+            for pm in &pricing_metrics {
                 let price_pm_agg = used_trade
-                    .value_by_metric(pm, market_actual.clone())
+                    .value_by_metric(*pm, market_actual.clone())
                     .await
                     .aggregate();
 
-                match portfolio.get_mut(&pm) {
-                    Some(portfolio_pm) => {
-                        *portfolio_pm += price_pm_agg;
-                    }
-                    None => {
-                        portfolio.insert(pm, price_pm_agg);
-                    }
-                }
+                portfolio.assign_metric(pm, price_pm_agg);
             }
+        }
+
+        portfolio
+    }
+
+    // processes trades in an async manner
+    async fn price_multiple(
+        &self,
+        new_trades: HashSet<String>,
+        pricing_metrics: Vec<PricingMetric>,
+        market_actual: Arc<MT>,
+        all_trades: Arc<TradeRep<T>>,
+    ) -> PmPortfolio {
+        let mut portfolio = PmPortfolio::new();
+
+        // gather the reference to trades.
+        let mut curr_trades = vec![];
+        for used_trade in new_trades.iter() {
+            let used_trade = all_trades.get(used_trade).unwrap();
+            curr_trades.push(used_trade);
+        }
+
+        // for each pricing metric, gather the futures for that metric.
+        for pm in &pricing_metrics {
+            let trade_futures = curr_trades
+                .iter()
+                .map(|t| t.value_by_metric(*pm, market_actual.clone()));
+
+            // aggreate the results
+            let trade_results = join_all(trade_futures)
+                .await
+                .iter()
+                .map(|pr| pr.aggregate())
+                .reduce(|a, b| a + b)
+                .unwrap_or_default();
+            portfolio.assign_metric(pm, trade_results);
         }
 
         portfolio
