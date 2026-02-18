@@ -14,6 +14,7 @@ pub(crate) type TradesLocal = HashSet<String>;
 #[derive(EnumDiscriminants)]
 #[strum_discriminants(name(ProcessorMiddleMessageStates))] // Renames the generated enum
 #[strum_discriminants(derive(std::hash::Hash))] // Adds hash trait to ProcessorMiddleMessageStates
+#[strum_discriminants(derive(strum::Display))] // Adds display trait to ProcessorMiddleMessageStates
 #[allow(dead_code)]
 #[derive(Clone, Debug, AsRefStr)]
 pub enum ProcessorMiddleMessage<MT> {

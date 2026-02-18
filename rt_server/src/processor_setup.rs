@@ -175,11 +175,12 @@ async fn loglevel_handler(
 
 async fn state_distr_new_handler(
     State(state): State<DiagnosticsState>,
-) -> Json<HashMap<ProcessorMiddleMessageStates, u64>> {
-    let mut snapshot: HashMap<ProcessorMiddleMessageStates, u64> = HashMap::new();
+) -> Json<HashMap<String, u64>> {
+    let mut snapshot: HashMap<String, u64> = HashMap::new();
 
     for entry in state.state_distr_new.iter() {
-        snapshot.insert(*entry.key(), *entry.value());
+        let ek = *entry.key();
+        snapshot.insert(ek.to_string(), *entry.value());
     }
 
     Json(snapshot)
