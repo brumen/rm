@@ -79,12 +79,6 @@ where
             headers: None,
         };
 
-        // set up the portfolio in self
-        //{
-        //    let mut p = self.portf.lock().unwrap();
-        //    *p = portf.clone();
-        //}
-
         // first i32 = partition
         // second i64 = offset
         // error is the Kafka error
@@ -102,6 +96,9 @@ where
     }
 }
 
+// cutoff when we dont add a trade, to the portfolio, but just add it to the new trade count.
+const NEWTRADES_SINCE_NEWMARKET_CUTOFF: u64 = 100;
+
 /// current state of the processor
 #[derive(Debug)]
 pub(crate) struct _ProcessorCurrState {
@@ -109,15 +106,17 @@ pub(crate) struct _ProcessorCurrState {
     portfolio: PmPortfolio, //  2nd arg:  a map of metrics to portfolioTypes, e.g. PV: Portf1, PV01: Portf2...
     curr_market: Option<String>, // current market name
     pricing_results: Vec<PricingMetric>, // vector of pricing metrics.
+    newtrades_since_last_newmarket: u64, // how many new trades were processed since last newmarket
 }
 
 impl std::fmt::Display for _ProcessorCurrState {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "Market: {:?}, portfolio: {:?}",
+            "Market: {:?}, portfolio: {:?}, NewTrades since last NewMarket: {}",
             self.curr_market,
-            self.portfolio.simple()
+            self.portfolio.simple(),
+            self.newtrades_since_last_newmarket,
         )
     }
 }
@@ -149,6 +148,7 @@ where
             portfolio: initial_curr_portf,
             curr_market: None,
             pricing_results: vec![],
+            newtrades_since_last_newmarket: 0,
         })
     }
 
@@ -170,7 +170,16 @@ where
         match message {
             ProcessorMiddleMessage::NewTrade(trade) => {
                 debug!("Message: NewTrade: Adding trade {:?}.", trade);
+                state.newtrades_since_last_newmarket += 1;
                 state.trades.insert(trade.clone());
+                if state.newtrades_since_last_newmarket > NEWTRADES_SINCE_NEWMARKET_CUTOFF {
+                    // we try to let the newportfolio branch in
+                    warn!(
+                        "Processed at least {} new trades. Throttling to let a market in.",
+                        state.newtrades_since_last_newmarket,
+                    );
+                    return Ok(());
+                }
 
                 let Some(ref real_market) = state.curr_market else {
                     // only continue if you have a market.
@@ -227,6 +236,7 @@ where
                     new_portfolio.simple(),
                     new_market,
                 );
+
                 // we got a new portfolio, possibly switch it
 
                 // let new_behind_curr = trades - new_trades;
@@ -240,9 +250,12 @@ where
                 // new portfolio has more trades, send the portfolio to publisher.
                 let new_portf_acc = state.portfolio <= new_portfolio;
                 if new_portf_acc {
-                    info!("NewPortfolio accepted. Publishing.");
+                    info!(
+                        "NewPortfolio accepted ({:?}). Publishing.",
+                        new_portfolio.simple()
+                    );
+                    state.newtrades_since_last_newmarket = 0; // reset the newtrades count.
                     for (pm, new_portf_pm) in new_portfolio.iter() {
-                        debug!("CURR PORTFOLIO: {:?}", new_portf_pm);
                         self._publish_result_portfolio(new_portf_pm.clone(), *pm)
                             .await?;
                     }
