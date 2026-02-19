@@ -409,7 +409,7 @@ where
         debug!(
             "Sending to middle processor {:?}, portf size: {:?}, market: {:?}",
             self.processor_middle.get_name(),
-            state.portfolio,
+            state.portfolio.simple(),
             state.new_market.clone()
         );
         self.processor_middle

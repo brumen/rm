@@ -157,5 +157,11 @@ where
     all_futures.append(&mut processor_actor_futures); // middle processors
     all_futures.append(&mut bulk_actor_futures); // middle bulk processors.
 
-    (actors_middle_msg, all_futures, state_distr_new)
+    // (actors_middle_msg, all_futures, state_distr_new)
+    let state_distr_presented = middle_state_distr_vec.last().unwrap();
+    (
+        actors_middle_msg,
+        all_futures,
+        state_distr_presented.clone(),
+    )
 }

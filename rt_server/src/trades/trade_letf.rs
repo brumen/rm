@@ -326,9 +326,8 @@ impl PriceTrade<LETFMarketType> for TradeTypes {
                     None => None,
                     Some(initial_value) => {
                         let mut letf_new = letf_trade.clone();
-                        letf_new.stock_value = Some(initial_value); // TODO: HERE
+                        letf_new.stock_value = Some(initial_value); // TODO: CHECK HERE
                         let pv = letf_new.price(market).await;
-                        debug!("Trade: {:?}: price: {:?}", letf_new.trade_id, pv);
                         pv
                     }
                 }

@@ -24,6 +24,10 @@ pub(crate) struct ProcessorMiddle<T, MT: std::fmt::Debug> {
     pub(crate) state_distr: Arc<PNStateDistr>,
 }
 
+// ProcessorMiddle is either in one of the three states:
+//   CalculatingSingle - calculating trades one by one
+//   CalculatingBulk - calculating trades in bulk
+//   Idle - not doing anything.
 impl<T, MT> ProcessorMiddle<T, MT>
 where
     MT: Send + Sync + MarketTypeT + 'static + std::fmt::Debug,
@@ -51,6 +55,7 @@ where
         }
     }
 
+    // in state calculating single, getting a new trade.
     #[instrument(skip_all)]
     async fn _new_trade_calculating_single(
         &self,
@@ -80,8 +85,16 @@ where
 
         for pm in &state.pricing_metrics {
             let new_trade_price_pm = real_trade.value_by_metric(*pm, market_info.clone()).await;
+
+            // TODO: THIS SHOULD BE SOMETHING LIKE THE LINE BELOW:
+            // state.pricing_results.assign_metric(pm, new_trade_price_pm);
+            let Some(portf_pm) = state.pricing_results.get_mut(pm) else {
+                warn!("Could not get pricing results for {:?}", pm);
+                continue;
+            };
+
             // what if pm is not in pricing_results.
-            let portf_pm = state.pricing_results.get_mut(pm).unwrap(); // only portfolio for that metric.
+            //let portf_pm = state.pricing_results.get_mut(pm).unwrap(); // only portfolio for that metric.
             *portf_pm += new_trade_price_pm; // portfolio update
         }
 
@@ -295,6 +308,7 @@ where
         Ok(())
     }
 
+    // processor in idle state, and receives the Behind message.
     #[instrument(skip_all, name = "_behind_idle_middle")]
     fn _behind_idle(
         &self,
@@ -340,56 +354,56 @@ where
         // Ok(())
     }
 
+    // receive the bulk calculation while calculating bulk.
+    //   actions:
+    //     1. accept the computed_portfolio
+    //     2. replace the trades we are having.
+    //     3. change the market the the one received from bulk.
+    //     4. change the state -> Idle.
     #[instrument(skip_all)]
     fn _bulk_receive_calculating_bulk(
         &self,
         new_trade_l: TradesLocal,
         computed_portf: PmPortfolio,
         offending_trades: TradesLocal,
-        _bulk_market: String,
+        bulk_market: String,
         state: &mut _ProcessorMiddleStateful,
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
         // result of computation has arrived.
-        // TODO: FINISH THIS HERE - what to do w/ offending trades???
-        //    Nothing for now.
+        // TODO: what to do w/ offending trades??? Right now we dont do anything.
         info!("Message: BulkReceive|CalculatingBulk: Normal case. Going to CalculatingSingle.",);
 
         state.pricing_results.assign(computed_portf);
-        // TODO: REMOVE THE CODE BELOW
-        // for (pm, computed_portf_pm) in computed_portf.iter() {
-        //     let portf_pm = state.pricing_results.get_mut(pm).unwrap();
-        //     *portf_pm += computed_portf_pm;
-        // }
-
         state.trades.extend(new_trade_l);
         state.trades_not_pricing.extend(offending_trades);
         debug!("State: CalculatingBulk -> Idle");
+        state.curr_market = Some(bulk_market.clone());
         state.processor_state = ProcessorMiddleState::Idle;
 
         // Dont continue, causes infinite loops.
-        Ok(())
-
-        // let Some(ref real_market) = state.curr_market else {
-        //     warn!("Does not have market. Continuing.");
-        //     // TODO: THIS CAN BE BETTER HANDLED.
-        //     return Ok(());
-        // };
-
-        // debug!(
-        //     "Sending new trade portfolio to {:?}",
-        //     self.processor_below.get_name()
-        // );
-        // self.processor_below
-        //     .send_message(ProcessorMiddleMessage::NewTradePortfolio((
-        //         state.trades.clone(),
-        //         state.pricing_results.clone(),
-        //         real_market.to_string(),
-        //         myself,
-        //     )))?;
         // Ok(())
+
+        debug!(
+            "Sending new trade portfolio to {:?}",
+            self.processor_below.get_name()
+        );
+        self.processor_below
+            .send_message(ProcessorMiddleMessage::NewTradePortfolio((
+                state.trades.clone(),
+                state.pricing_results.clone(),
+                bulk_market,
+                myself,
+            )))?;
+        Ok(())
     }
 
+    // get NewTradePortfolio when idle.
+    //   actions taken:
+    //     1. change the market to the one received w/ new trade portfolio.
+    //     2. send processor below the portfolio.
+    //     3. change trades to the received trades, change pricing results to the received results.
+    //     4. send message to the above processor that the portfolio was accepted.
     #[instrument(
         name="_ntp_idle_middle",
         skip(self, myself, state, ntp),
@@ -455,6 +469,10 @@ where
         Ok(())
     }
 
+    // receive a new trade portfolio when calculating single trades.
+    //  actions performed:
+    //     1. if the new_trade_portfolio is ahead in terms of trades, replace it, and replace market.
+    //     2. if it's behind, inform the upstream processor of the trades, and ignore it.
     #[instrument(skip_all)]
     fn _ntp_calculating_single(
         &self,
@@ -483,50 +501,62 @@ where
             .cloned()
             .collect::<TradesLocal>();
         debug!(
-            "NewPortfolio: My trades: {}, Potential trades: {}, New trades: {}, New portf: {}",
+            "NewPortfolio: Current trades: {}, Potential trades: {}, New trades: {}, New portf: {}",
             state.trades.len(),
             potential_trades.len(),
             new_behind_curr.len(),
             potential_portfolio.len(),
         );
 
-        if new_behind_curr.is_empty() {
-            // ntp is ahead of the current portfolio.
-            // replace the portfolio and trades
-
-            info!("Received portfolio accepted. Passing it to the processor below.",);
-            state.pricing_results = potential_portfolio;
-            state.trades.extend(potential_trades);
-            // TODO: HOW ABOUT pns ???
-            let Some(ref real_market) = state.curr_market else {
-                warn!("Does not have market. Ignoring.");
-                return Ok(());
-            };
-
-            self.processor_below
-                .send_message(ProcessorMiddleMessage::NewTradePortfolio((
-                    state.trades.clone(),
-                    state.pricing_results.clone(),
-                    real_market.to_string(),
-                    myself,
-                )))?;
-
-            //if state.curr_market != Some(new_market.clone()) {
-            info!(
-                "Switching markets: {:?} -> {}",
-                state.curr_market, new_market,
+        // if not empty send message to the Behind processor upstream
+        if !new_behind_curr.is_empty() {
+            debug!(
+                "Received portfolio rejected. Informing upstream processor {:?}",
+                upstream_processor.get_name(),
             );
-            state.curr_market = Some(new_market.clone());
-            self.all_markets
-                .insert_processor(self.processor_name.clone(), new_market.clone());
-            //} // else no market change.
+            let _ = upstream_processor.send_message(
+                ProcessorMiddleMessage::Behind(new_market.to_string(), new_behind_curr), // TODO: CHECK IF THIS IS REALLY NEW_MARKET??
+            );
+            return Ok(());
         }
-        // sending upstream that we are done.
-        // TODO: CHECK IF THIS SHOULD BE BETTER HANDLED
-        // TODO: CHECK IF market.unwrap() should be handled.
-        let _ = upstream_processor.send_message(
-            ProcessorMiddleMessage::Behind(new_market.to_string(), new_behind_curr), // TODO: CHECK IF THIS IS REALLY NEW_MARKET??
+
+        // accepting the proposed portfolio. swithing markets to the market passed.
+        // check if we have a current market
+        debug!(
+            "Received portfolio accepted. Passing it to the processor below and switching markets.",
         );
+
+        debug!(
+            "Switching markets: {:?} -> {}",
+            state.curr_market, new_market,
+        );
+        state.curr_market = Some(new_market.clone());
+        self.all_markets
+            .insert_processor(self.processor_name.clone(), new_market.clone());
+
+        // new_behind_curr is empty, replace the portfolio w/ the received one.
+        // ntp is ahead of the current portfolio.
+        // replace the portfolio and trades
+        state.pricing_results = potential_portfolio;
+        state.trades.extend(potential_trades);
+
+        debug!(
+            "Sending the portfolio to {:?}",
+            self.processor_below.get_name()
+        );
+        self.processor_below
+            .send_message(ProcessorMiddleMessage::NewTradePortfolio((
+                state.trades.clone(),
+                state.pricing_results.clone(),
+                new_market.clone(),
+                myself,
+            )))?;
+
+        // sending upstream that we are done.
+        let _ = upstream_processor.send_message(ProcessorMiddleMessage::Behind(
+            new_market.to_string(),
+            new_behind_curr,
+        ));
         Ok(())
     }
 }
