@@ -557,6 +557,7 @@ pub struct _ProcessorMiddleStateful {
     //      for remote pricing markets only market_name is fine,
     //      for local markets, the name and the market structure.
     pricing_metrics: Vec<PricingMetric>, //   6th: list of metrics that the system is operating on.
+    state_distr: Arc<PNStateDistr>,
 }
 
 #[async_trait]
@@ -585,6 +586,7 @@ where
             processor_state: ProcessorMiddleState::Idle,
             curr_market: None,       // original market, none
             pricing_metrics: vec![], // no metrics at first
+            state_distr: self.state_distr.clone(),
         })
     }
 
@@ -613,14 +615,16 @@ where
                 ProcessorMiddleMessage::NewTrade(new_trade),
                 ProcessorMiddleState::CalculatingSingle,
             ) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::NewTrade);
                 self._new_trade_calculating_single(new_trade, state, myself)
                     .await?
             }
 
             (ProcessorMiddleMessage::NewTrade(new_trade), ProcessorMiddleState::Idle) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::NewTrade);
 
                 self._new_trade_idle(new_trade, state, myself)?
@@ -630,7 +634,8 @@ where
                 ProcessorMiddleMessage::NewTrade(new_trade),
                 ProcessorMiddleState::CalculatingBulk,
             ) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::NewTrade);
 
                 self._new_trade_calculating_bulk(new_trade, state, myself)
@@ -638,7 +643,8 @@ where
             }
 
             (ProcessorMiddleMessage::NewMarket(_new_market), _) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::NewMarket);
 
                 error!("Received NewMarket. THIS SHOULDNT HAPPEN! Ignoring and continuing.");
@@ -649,7 +655,8 @@ where
                 ProcessorMiddleMessage::Behind(market_behind, trades_behind),
                 ProcessorMiddleState::CalculatingSingle,
             ) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::Behind);
 
                 self._behind_calculating_single(market_behind, trades_behind, state, myself)?
@@ -659,7 +666,8 @@ where
                 ProcessorMiddleMessage::Behind(market_behind, trades_behind),
                 ProcessorMiddleState::CalculatingBulk,
             ) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::Behind);
 
                 self._behind_calculating_bulk(market_behind, trades_behind, state, myself)?
@@ -669,7 +677,8 @@ where
                 ProcessorMiddleMessage::Behind(market_behind, trades_behind),
                 ProcessorMiddleState::Idle,
             ) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::Behind);
 
                 self._behind_idle(market_behind, trades_behind, state, myself)?
@@ -679,7 +688,8 @@ where
             (ProcessorMiddleMessage::BulkReceive(_), ProcessorMiddleState::Idle) => {
                 // Important: This Souldnt happen.
                 // TODO: CHECK WHY THIS IS THE CASE???
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::BulkReceive);
 
                 warn!("Message: BulkReceive: Ignoring bulk receive. Should not happen.",);
@@ -694,7 +704,8 @@ where
                 )),
                 ProcessorMiddleState::CalculatingBulk,
             ) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::BulkReceive);
 
                 self._bulk_receive_calculating_bulk(
@@ -716,7 +727,8 @@ where
                 )),
                 ProcessorMiddleState::CalculatingSingle,
             ) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::BulkReceive);
 
                 // result of computation has arrived.
@@ -745,7 +757,8 @@ where
             }
 
             (ProcessorMiddleMessage::NewTradePortfolio(ntp), ProcessorMiddleState::Idle) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::NewTradePortfolio);
 
                 self._ntp_idle(ntp, state, myself)?
@@ -755,7 +768,8 @@ where
                 ProcessorMiddleMessage::NewTradePortfolio(ntp),
                 ProcessorMiddleState::CalculatingBulk,
             ) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::NewTradePortfolio);
 
                 // first approximation, ignore the portfolio - reject it, and send the message to the originator.
@@ -771,27 +785,31 @@ where
                 ProcessorMiddleMessage::NewTradePortfolio(ntp),
                 ProcessorMiddleState::CalculatingSingle,
             ) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::NewTradePortfolio);
 
                 self._ntp_calculating_single(ntp, state, myself)?
             }
 
             (ProcessorMiddleMessage::BulkBusy, _) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::BulkBusy);
 
                 info!("Message: BulkBusy. Ignore for now.");
             }
 
             (ProcessorMiddleMessage::ProcessingStat(_), _) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::ProcessingStat);
             } // processing stat is not for this processor
 
             // we get new metrics from the metric dispatch
             (ProcessorMiddleMessage::Metric(new_pricing_metrics), _) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::Metric);
 
                 info!("Changing metrics to {:?}", new_pricing_metrics);

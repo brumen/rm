@@ -173,6 +173,7 @@ async fn loglevel_handler(
     }
 }
 
+// displays the state distribution
 async fn state_distr_new_handler(
     State(state): State<DiagnosticsState>,
 ) -> Json<HashMap<String, u64>> {

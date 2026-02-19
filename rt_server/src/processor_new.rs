@@ -1,5 +1,6 @@
+use evmap::handles::WriteHandle;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::{debug, error, info, instrument, warn}; // for tracking states.
 
 use crate::all_markets::AllMarkets;
@@ -23,7 +24,7 @@ where
     pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>, // bulk processor reference to the bulk actor corresponding to this processor_new
     pub all_markets: Arc<AllMarkets<Arc<MT>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
-    pub(crate) state_distr: Arc<PNStateDistr>,
+    pub(crate) state_distr: Arc<PNStateDistr>, // evmap for state distributions.
 }
 
 #[allow(dead_code)]
@@ -63,7 +64,7 @@ where
             processor_bulk,
             all_markets,
             all_trades,
-            state_distr: state_distr.clone(),
+            state_distr,
         }
     }
 
@@ -495,6 +496,7 @@ pub(crate) struct _ProcessorNewStateful {
     processor_state: ProcessorNewState, // computation state
     new_market: Option<String>, // "new" market where we are pricing now. 'future' market exists anyway.
     pricing_metrics: Vec<PricingMetric>, // list of pricing metrics we are considering.
+    state_distr: Arc<PNStateDistr>,
 }
 
 impl std::fmt::Display for _ProcessorNewStateful {
@@ -533,6 +535,7 @@ where
             processor_state: ProcessorNewState::Idle,
             new_market: None,
             pricing_metrics: vec![],
+            state_distr: self.state_distr.clone(),
         })
     }
 
@@ -558,7 +561,8 @@ where
             ProcessorMiddleMessage::NewTrade(new_trade) => {
                 info!("Message: NewTrade({:?})", new_trade);
                 // incremenet the state_distr variable.
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::NewTrade);
 
                 match state.processor_state {
@@ -580,7 +584,8 @@ where
             // this is coming from mkt_handler, and market handler only produces
             //   "future" market.  Here we can potentially create a new market
             ProcessorMiddleMessage::NewMarket(new_market_name) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::NewMarket);
                 debug!(
                     "Message NewMarket: {} <- this should be 'future'",
@@ -609,7 +614,8 @@ where
             //
             ProcessorMiddleMessage::Behind(market_behind, trades_behind) => {
                 // we are behind trades behind the below processor
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::Behind);
 
                 info!(
@@ -652,7 +658,8 @@ where
                 offending_trades,
                 _bulk_market,
             )) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::BulkReceive);
 
                 info!(
@@ -683,7 +690,8 @@ where
             }
 
             ProcessorMiddleMessage::Metric(new_pricing_metrics) => {
-                self.state_distr
+                state
+                    .state_distr
                     .incr_one(ProcessorMiddleMessageStates::Metric);
 
                 info!("Changing metrics to {:?}", new_pricing_metrics);

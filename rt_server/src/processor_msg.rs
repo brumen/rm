@@ -2,11 +2,14 @@ use dashmap::DashMap;
 /// messages for the Multiple Actor references.
 use ractor::ActorRef;
 use std::collections::HashSet;
-use strum::{AsRefStr, EnumDiscriminants};
-use tracing::warn;
+use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
+use strum::{AsRefStr, EnumDiscriminants, IntoStaticStr};
+use tracing::{info, warn};
 
 use crate::portfolio::PmPortfolio;
 use crate::pricer::PricingMetric;
+use crate::ref_deref_trait;
 
 pub(crate) type TradesLocal = HashSet<String>;
 
@@ -15,6 +18,7 @@ pub(crate) type TradesLocal = HashSet<String>;
 #[strum_discriminants(name(ProcessorMiddleMessageStates))] // Renames the generated enum
 #[strum_discriminants(derive(std::hash::Hash))] // Adds hash trait to ProcessorMiddleMessageStates
 #[strum_discriminants(derive(strum::Display))] // Adds display trait to ProcessorMiddleMessageStates
+#[strum_discriminants(derive(IntoStaticStr))]
 #[allow(dead_code)]
 #[derive(Clone, Debug, AsRefStr)]
 pub enum ProcessorMiddleMessage<MT> {
@@ -89,13 +93,7 @@ pub enum ProcessorBulkMessage<MT> {
 #[derive(Debug)]
 pub(crate) struct PNStateDistr(DashMap<ProcessorMiddleMessageStates, u64>);
 
-impl std::ops::Deref for PNStateDistr {
-    type Target = DashMap<ProcessorMiddleMessageStates, u64>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+ref_deref_trait!(PNStateDistr, DashMap<ProcessorMiddleMessageStates, u64>);
 
 impl PNStateDistr {
     pub(crate) fn new() -> Self {
@@ -115,16 +113,7 @@ impl PNStateDistr {
 impl PNStateDistr {
     // increment one of the states by 1. used for accounting.
     pub(crate) fn incr_one(&self, ps: ProcessorMiddleMessageStates) {
-        let state_curr = self.get(&ps);
-        match state_curr {
-            None => {
-                warn!("Could not increment {:?}", ps);
-            }
-            Some(state_val) => {
-                let sv = state_val.value();
-                self.insert(ps, *sv + 1);
-            }
-        }
+        self.entry(ps).and_modify(|count| *count += 1).or_insert(1);
     }
 }
 
