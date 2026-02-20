@@ -97,7 +97,7 @@ where
 }
 
 // cutoff when we dont add a trade, to the portfolio, but just add it to the new trade count.
-const NEWTRADES_SINCE_NEWMARKET_CUTOFF: u64 = 100;
+const NEWTRADES_SINCE_NEWMARKET_CUTOFF: u64 = 10;
 
 /// current state of the processor
 #[derive(Debug)]
@@ -237,7 +237,10 @@ where
                     new_market,
                 );
 
-                // we got a new portfolio, possibly switch it
+                if state.pricing_results.is_empty() {
+                    warn!("No pricing metrics. Not replacing portfolios.");
+                    return Ok(());
+                }
 
                 // let new_behind_curr = trades - new_trades;
                 let new_behind_curr = state
@@ -245,6 +248,15 @@ where
                     .iter()
                     .filter(|&x| !new_trades.contains(x.as_str()))
                     .cloned()
+                    .collect::<TradesLocal>();
+
+                // new behind current but only considering trades from
+                //    a portfolio
+                let new_behind_curr_portfolio = state
+                    .portfolio
+                    .get_trades()
+                    .into_iter()
+                    .filter(|x| !new_trades.contains(x.as_str()))
                     .collect::<TradesLocal>();
 
                 // new portfolio has more trades, send the portfolio to publisher.
@@ -299,7 +311,9 @@ where
                 );
                 upstream_processor.send_message(ProcessorMiddleMessage::Behind(
                     new_market,
-                    new_behind_curr.clone(),
+                    // TODO: WHICH ONE HERE???
+                    // new_behind_curr.clone(),
+                    new_behind_curr_portfolio,
                 ))?;
             }
 

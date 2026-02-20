@@ -4,14 +4,17 @@ use std::cmp::PartialOrd;
 use std::default::Default;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Deref, DerefMut, Mul, MulAssign, Neg};
-use std::{collections::HashMap, ops::SubAssign};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::SubAssign,
+};
 
 use crate::pricer::PricingMetric;
 use crate::ref_deref_trait;
 use crate::trade::{BaseTrade, TradeDirection};
 
 pub type PortfolioInner = HashMap<String, f64>;
-
+type TradesLocal = HashSet<String>;
 /// PortfolioType is of form (trade_id, trade_pv)
 #[derive(Debug, PartialEq, Serialize, Clone, Default)]
 pub struct PortfolioType(pub PortfolioInner);
@@ -517,6 +520,16 @@ impl PmPortfolio {
             }
         }
     }
+
+    // returns the list of trades from one of the PM - they should
+    //    all be the same.
+    pub(crate) fn get_trades(&self) -> TradesLocal {
+        if let Some((_, pricing_results)) = self.iter().next() {
+            pricing_results.keys().cloned().collect::<TradesLocal>()
+        } else {
+            TradesLocal::new()
+        }
+    }
 }
 
 //  Used for determining when there is an ordering between two portfolios.
@@ -590,17 +603,218 @@ impl AddAssign<PmPortfolio> for PmPortfolio {
 
 #[cfg(test)]
 mod portfolio_tests {
-    use crate::portfolio::PortfolioType;
+    use crate::portfolio::{PmPortfolio, PortfolioType};
+    use crate::pricer::PricingMetric;
+    use std::cmp::Ordering;
 
     #[test]
     fn portfolio_works_1() {
         // tests whether += works for 2 portfolios.
 
-        let mut portfolio_1 = PortfolioType::from([('1'.to_string(), 10.), ('2'.to_string(), 20.)]);
-        let portfolio_2 = PortfolioType::from([('1'.to_string(), 20.)]);
+        let mut portfolio_1 = PortfolioType::from([("1".to_string(), 10.), ("2".to_string(), 20.)]);
+        let portfolio_2 = PortfolioType::from([("1".to_string(), 20.)]);
         portfolio_1 += portfolio_2;
-        let portfolio_res = PortfolioType::from([('1'.to_string(), 30.), ('2'.to_string(), 20.)]);
+        let portfolio_res = PortfolioType::from([("1".to_string(), 30.), ("2".to_string(), 20.)]);
 
         assert_eq!(portfolio_1, portfolio_res);
+    }
+
+    #[test]
+    fn partial_cmp_equal_when_same_keys() {
+        // values do not matter; ordering is based on key containment.
+        let p1 = PortfolioType::from([("1".to_string(), 10.), ("2".to_string(), 20.)]);
+        let p2 = PortfolioType::from([("1".to_string(), -999.), ("2".to_string(), 0.)]);
+
+        assert_eq!(p1.partial_cmp(&p2), Some(Ordering::Equal));
+        assert_eq!(p2.partial_cmp(&p1), Some(Ordering::Equal));
+    }
+
+    #[test]
+    fn partial_cmp_less_when_subset_of_keys() {
+        let smaller = PortfolioType::from([("1".to_string(), 10.)]);
+        let bigger = PortfolioType::from([("1".to_string(), 10.), ("2".to_string(), 20.)]);
+
+        assert_eq!(smaller.partial_cmp(&bigger), Some(Ordering::Less));
+        assert_eq!(bigger.partial_cmp(&smaller), Some(Ordering::Greater));
+    }
+
+    #[test]
+    fn partial_cmp_none_when_incomparable_key_sets() {
+        let p1 = PortfolioType::from([("1".to_string(), 10.)]);
+        let p2 = PortfolioType::from([("2".to_string(), 20.)]);
+
+        assert_eq!(p1.partial_cmp(&p2), None);
+        assert_eq!(p2.partial_cmp(&p1), None);
+    }
+
+    #[test]
+    fn partial_cmp_less_for_empty_vs_nonempty() {
+        let empty = PortfolioType::default();
+        let nonempty = PortfolioType::from([("1".to_string(), 10.)]);
+
+        assert_eq!(empty.partial_cmp(&nonempty), Some(Ordering::Less));
+        assert_eq!(nonempty.partial_cmp(&empty), Some(Ordering::Greater));
+    }
+
+    #[test]
+    fn partial_cmp_equal_for_both_empty() {
+        let p1 = PortfolioType::default();
+        let p2 = PortfolioType::default();
+
+        assert_eq!(p1.partial_cmp(&p2), Some(Ordering::Equal));
+        assert_eq!(p2.partial_cmp(&p1), Some(Ordering::Equal));
+    }
+
+    #[test]
+    fn pmportfolio_assign_metric_inserts_when_missing() {
+        let mut pmp = PmPortfolio::new();
+        let pv = PortfolioType::from([("t1".to_string(), 1.0)]);
+
+        pmp.assign_metric(&PricingMetric::PV, pv.clone());
+
+        assert_eq!(pmp.get(&PricingMetric::PV), Some(&pv));
+    }
+
+    #[test]
+    fn pmportfolio_assign_metric_adds_when_existing() {
+        let mut pmp = PmPortfolio::new();
+        pmp.assign_metric(
+            &PricingMetric::PV,
+            PortfolioType::from([("t1".to_string(), 1.0)]),
+        );
+
+        pmp.assign_metric(
+            &PricingMetric::PV,
+            PortfolioType::from([("t1".to_string(), 2.0), ("t2".to_string(), 10.0)]),
+        );
+
+        let expected = PortfolioType::from([("t1".to_string(), 3.0), ("t2".to_string(), 10.0)]);
+        assert_eq!(pmp.get(&PricingMetric::PV), Some(&expected));
+    }
+
+    #[test]
+    fn pmportfolio_add_assign_merges_metrics_and_adds_values() {
+        let mut a = PmPortfolio::new();
+        a.assign_metric(
+            &PricingMetric::PV,
+            PortfolioType::from([("t1".to_string(), 1.0)]),
+        );
+
+        let mut b = PmPortfolio::new();
+        b.assign_metric(
+            &PricingMetric::PV,
+            PortfolioType::from([("t1".to_string(), 2.0), ("t2".to_string(), 10.0)]),
+        );
+        b.assign_metric(
+            &PricingMetric::PnL,
+            PortfolioType::from([("t1".to_string(), -1.0)]),
+        );
+
+        a += b;
+
+        let expected_pv = PortfolioType::from([("t1".to_string(), 3.0), ("t2".to_string(), 10.0)]);
+        let expected_pnl = PortfolioType::from([("t1".to_string(), -1.0)]);
+        assert_eq!(a.get(&PricingMetric::PV), Some(&expected_pv));
+        assert_eq!(a.get(&PricingMetric::PnL), Some(&expected_pnl));
+    }
+
+    #[test]
+    fn pmportfolio_partial_cmp_less_when_metric_keys_subset_and_each_portfolio_ordered() {
+        // a has subset of metrics vs b; and within common metrics, a's portfolios are subsets of b's.
+        let mut a = PmPortfolio::new();
+        a.assign_metric(
+            &PricingMetric::PV,
+            PortfolioType::from([("t1".to_string(), 1.0)]),
+        );
+
+        let mut b = PmPortfolio::new();
+        b.assign_metric(
+            &PricingMetric::PV,
+            PortfolioType::from([("t1".to_string(), 999.0), ("t2".to_string(), 2.0)]),
+        );
+        b.assign_metric(
+            &PricingMetric::PnL,
+            PortfolioType::from([("t1".to_string(), 0.0)]),
+        );
+
+        assert_eq!(a.partial_cmp(&b), Some(Ordering::Less));
+        assert_eq!(b.partial_cmp(&a), Some(Ordering::Greater));
+    }
+
+    #[test]
+    fn pmportfolio_partial_cmp_none_when_common_metric_portfolios_incomparable() {
+        // both share PV, but their PV portfolios are incomparable (different keys).
+        let mut a = PmPortfolio::new();
+        a.assign_metric(
+            &PricingMetric::PV,
+            PortfolioType::from([("t1".to_string(), 1.0)]),
+        );
+
+        let mut b = PmPortfolio::new();
+        b.assign_metric(
+            &PricingMetric::PV,
+            PortfolioType::from([("t2".to_string(), 2.0)]),
+        );
+
+        assert_eq!(a.partial_cmp(&b), None);
+        assert_eq!(b.partial_cmp(&a), None);
+    }
+
+    #[test]
+    fn pmportfolio_count_reports_trade_counts_per_metric() {
+        let mut pmp = PmPortfolio::new();
+        pmp.assign_metric(
+            &PricingMetric::PV,
+            PortfolioType::from([("t1".to_string(), 1.0), ("t2".to_string(), 2.0)]),
+        );
+        pmp.assign_metric(
+            &PricingMetric::PnL,
+            PortfolioType::from([("t1".to_string(), -1.0)]),
+        );
+
+        let counts = pmp.count();
+        assert_eq!(counts.get(&PricingMetric::PV), Some(&2usize));
+        assert_eq!(counts.get(&PricingMetric::PnL), Some(&1usize));
+    }
+
+    #[test]
+    fn pmportfolio_simple_empty_is_braces() {
+        let pmp = PmPortfolio::new();
+        assert_eq!(pmp.simple(), "{}".to_string());
+    }
+
+    #[test]
+    fn pmportfolio_simple_includes_metric_names() {
+        let mut pmp = PmPortfolio::new();
+        pmp.assign_metric(
+            &PricingMetric::PV,
+            PortfolioType::from([("t1".to_string(), 1.0)]),
+        );
+
+        let s = pmp.simple();
+        // Formatting uses Display for PricingMetric; just ensure it includes the metric label and count.
+        assert!(s.contains("PV"));
+        assert!(s.contains("1"));
+    }
+
+    #[test]
+    fn pmportfolio_assign_overwrites_existing_metric_portfolio() {
+        let mut a = PmPortfolio::new();
+        a.assign_metric(
+            &PricingMetric::PV,
+            PortfolioType::from([("t1".to_string(), 1.0)]),
+        );
+
+        let mut b = PmPortfolio::new();
+        b.assign_metric(
+            &PricingMetric::PV,
+            PortfolioType::from([("t2".to_string(), 2.0)]),
+        );
+
+        a.assign(b);
+
+        // assign() replaces existing PV with b's PV.
+        let expected = PortfolioType::from([("t2".to_string(), 2.0)]);
+        assert_eq!(a.get(&PricingMetric::PV), Some(&expected));
     }
 }

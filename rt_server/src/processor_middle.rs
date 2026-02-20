@@ -13,6 +13,9 @@ use crate::processor_msg::{
 };
 use crate::trade::{BaseTrade, TradeRep};
 
+// how many trades since last NewTradePortfolio was received.
+const TRADES_SINCE_NTP_LIMIT: u64 = 10;
+
 // T is mnemonic for trade type, MT is mnemonic for market type
 #[derive(Debug)]
 pub(crate) struct ProcessorMiddle<T, MT: std::fmt::Debug> {
@@ -81,6 +84,17 @@ where
             return Ok(());
         };
 
+        state.trades_since_ntp += 1;
+
+        if state.trades_since_ntp > TRADES_SINCE_NTP_LIMIT {
+            // throttle this branch, do not evaluate trade
+            warn!(
+                "Throttling this new_trade calculation. #trades since new portfolio: {}",
+                state.trades_since_ntp
+            );
+            return Ok(());
+        }
+
         let real_trade = trade_info.value();
 
         for pm in &state.pricing_metrics {
@@ -126,6 +140,15 @@ where
         // start the new portfolio construction.
         info!("Message: NewTrade. Starting bulk computation.",);
         state.trades.insert(new_trade);
+        state.trades_since_ntp += 1;
+
+        if state.trades_since_ntp > TRADES_SINCE_NTP_LIMIT {
+            warn!(
+                "Throttling this new_trade calculation. #trades since new portfolio: {}",
+                state.trades_since_ntp
+            );
+            return Ok(());
+        }
 
         let Some(ref real_market) = state.curr_market else {
             warn!("Does not have real market. Ignoring the trade and continuing.");
@@ -158,11 +181,21 @@ where
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
         info!("Message: NewTrade",);
+        state.trades.insert(new_trade.clone());
+        state.trades_since_ntp += 1;
 
         let Some(ref real_market) = state.curr_market else {
             warn!("Does not have market. Ignoring and continuing.");
             return Ok(());
         };
+
+        if state.trades_since_ntp > TRADES_SINCE_NTP_LIMIT {
+            warn!(
+                "Throttling this new_trade calculation. #trades since new portfolio: {}",
+                state.trades_since_ntp
+            );
+            return Ok(());
+        }
 
         info!("Updating trades and portfolio computing");
         if let Some(ref real_trade) = self.all_trades.get(&new_trade) {
@@ -312,10 +345,10 @@ where
     #[instrument(skip_all, name = "_behind_idle_middle")]
     fn _behind_idle(
         &self,
-        market_behind: String,
+        _market_behind: String,
         trades_behind: TradesLocal,
         state: &mut _ProcessorMiddleStateful,
-        myself: ActorRef<ProcessorMiddleMessage<String>>,
+        _myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
         // we're in idle state, and have received about previous market.
         state.trades.extend(trades_behind.clone());
@@ -460,6 +493,7 @@ where
         // acknowledge to the sending processor that it was accepted.
         state.trades = potential_trades;
         state.pricing_results = potential_portfolio;
+        state.trades_since_ntp = 0;
 
         // TODO: CHECK IF THIS SHOULD BE HANDLED???
         // market is Some, so unwrap is justified.
@@ -531,6 +565,7 @@ where
             state.curr_market, new_market,
         );
         state.curr_market = Some(new_market.clone());
+        state.trades_since_ntp = 0; // reset the trades_since_ntp
         self.all_markets
             .insert_processor(self.processor_name.clone(), new_market.clone());
 
@@ -561,6 +596,7 @@ where
     }
 }
 
+// state of the middle processor.
 #[derive(Debug, Clone)]
 pub enum ProcessorMiddleState {
     CalculatingSingle, // when bulk has finished and we're only calculating single trades.
@@ -569,6 +605,14 @@ pub enum ProcessorMiddleState {
     // switched in the meantime, so the old calculating is not valid anymore
     Idle,
 }
+
+// processor middle can receive the following messages (not all are relevant)
+//   (from processor_msg.rs)
+//    NewTrade
+//    Behind(market, trades_behind)
+//    BulkReceive(trades, portfolio_result, trades_not_pricing, market)
+//    NewTradePortfolio
+//    Metric
 
 impl std::fmt::Display for ProcessorMiddleState {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -587,7 +631,8 @@ pub struct _ProcessorMiddleStateful {
     //      for remote pricing markets only market_name is fine,
     //      for local markets, the name and the market structure.
     pricing_metrics: Vec<PricingMetric>, //   6th: list of metrics that the system is operating on.
-    state_distr: Arc<PNStateDistr>,
+    state_distr: Arc<PNStateDistr>,      // map of state -> number of times visiting that state.
+    trades_since_ntp: u64, // how many trades have we processed in NewTrade since the last NewTradePortfolio
 }
 
 #[async_trait]
@@ -617,6 +662,7 @@ where
             curr_market: None,       // original market, none
             pricing_metrics: vec![], // no metrics at first
             state_distr: self.state_distr.clone(),
+            trades_since_ntp: 0,
         })
     }
 
@@ -639,6 +685,7 @@ where
         let pns_old = state.processor_state.clone(); // (*pns).clone(); // otherwise we cant match
 
         info!(?pns_old, "State");
+        debug!("SINCE_NTP: {}", state.trades_since_ntp);
 
         match (message, pns_old) {
             (

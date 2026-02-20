@@ -4,11 +4,11 @@
 
 use chrono::NaiveDateTime;
 use circular_buffer::CircularBuffer;
-use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
+use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use rdkafka::consumer::StreamConsumer;
 use serde::Deserialize;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, error, info};
 
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::ref_deref::TryFromRef2;
@@ -135,7 +135,7 @@ where
     T: Send + Sync + Clone + BaseTrade + for<'a> Deserialize<'a> + TryFromRef2 + 'static,
 {
     type Msg = ProcessorMiddleMessage<String>;
-    type State = (); // TradeRep<T>;  // list of existing trades.
+    type State = ();
     type Arguments = ();
 
     async fn pre_start(
@@ -178,6 +178,7 @@ where
         // compute the ewma of all the processors and distribute accordingly.
         // let processor_mavg = self._compute_all
         let trade_id = trade_m.get_trade().unwrap(); // TODO: MAKE SURE HERE
+        debug!("Sending trade: {:?}", trade_id);
         for processor in &self.processors[..] {
             processor.send_message(
                 ProcessorMiddleMessage::NewTrade(trade_id.clone()), // trade_id is a string.
@@ -197,4 +198,35 @@ where
 
         Ok(())
     }
+
+    // what to do when you encounter a failure event.
+    //   try to restart the actor.
+    // async fn handle_supervisor_evt(
+    //     &self,
+    //     myself: ActorRef<Self::Msg>,
+    //     event: SupervisionEvent,
+    //     _state: &mut Self::State,
+    // ) -> Result<(), ActorProcessingErr> {
+    //     match event {
+    //         SupervisionEvent::ActorFailed(child_cell, error) => {
+    //             error!(
+    //                 "Child {} failed: {}. Restarting...",
+    //                 child_cell.get_id(),
+    //                 error
+    //             );
+
+    //             // RESTART LOGIC: Spawn a new instance to replace the failed one
+    //             // We pass `_myself.get_cell()` as the supervisor
+    //             let (new_child, _) = Actor::spawn_linked(
+    //                 myself.get_name(), // Optional Name
+    //                 self,              // The Actor struct
+    //                 (),                // Arguments
+    //                 myself.get_cell(), // The Supervisor (this actor)
+    //             )
+    //             .await?;
+    //         }
+    //         _ => {} // Handle other events like ActorStarted or ActorStopped
+    //     }
+    //     Ok(())
+    // }
 }
