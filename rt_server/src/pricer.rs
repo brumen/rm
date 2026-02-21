@@ -206,48 +206,50 @@ where
 {
     async fn initial_pv(&self) -> Option<f64> {
         let mut portf_val = 0.;
-        for indiv_trade in self.iter() {
-            let (_trade_name, trade_v) = indiv_trade.pair();
+        self.iter_async(|_, v| {
+            async {
+                match v.clone().initial_pv().await {
+                    Some(tv) => portf_val += tv,
+                    None => {
+                        warn!("Could not initial_pv of {:?}", v.id());
+                    }
+                };
+            };
+            true
+        })
+        .await;
 
-            let tv = trade_v.initial_pv().await; // tv = trade value
-            match tv {
-                None => {
-                    warn!("Could not initial_pv of {:?}", trade_v.id());
-                }
-                Some(tv_real) => {
-                    portf_val += tv_real;
-                }
-            }
-        }
         Some(portf_val)
     }
 
     async fn price(&self, market: Arc<MT>) -> Option<f64> {
         let mut portf_val = 0.;
-        for indiv_trade in self.iter() {
-            let (_trade_name, trade_v) = indiv_trade.pair();
+        self.iter_async(|_, v| {
+            async {
+                match v.clone().price(market.clone()).await {
+                    Some(tv) => portf_val += tv,
+                    None => {
+                        warn!("Could not initial_pv of {:?}", v.id());
+                    }
+                };
+            };
+            true
+        })
+        .await;
 
-            let tv = trade_v.price(market.clone()).await; // only clonging the Arc
-            match tv {
-                None => {
-                    warn!("Could not price of {:?}", trade_v.id());
-                }
-                Some(tv_real) => {
-                    portf_val += tv_real;
-                }
-            }
-        }
         Some(portf_val)
     }
 
     async fn pv01(&self, market: Arc<MT>) -> PV01Results {
         let mut portf_val = PV01Results::new();
-        for indiv_trade in self.iter() {
-            let (_trade_name, trade_v) = indiv_trade.pair();
 
-            let tv = trade_v.pv01(market.clone()).await;
-            portf_val += &tv;
-        }
+        self.iter_async(|_, v| {
+            async {
+                portf_val += &v.pv01(market.clone()).await;
+            };
+            true
+        });
+
         portf_val
     }
 }

@@ -70,7 +70,8 @@ where
 
         let trade_info = self
             .all_trades
-            .get(&new_trade)
+            .read_async(&new_trade, |_, v| v.clone())
+            .await
             .ok_or("Message: NewTrade: Trade not found")?;
         info!("Message: NewTrade {}", trade_info.id());
 
@@ -95,10 +96,8 @@ where
             return Ok(());
         }
 
-        let real_trade = trade_info.value();
-
         for pm in &state.pricing_metrics {
-            let new_trade_price_pm = real_trade.value_by_metric(*pm, market_info.clone()).await;
+            let new_trade_price_pm = trade_info.value_by_metric(*pm, market_info.clone()).await;
 
             // TODO: THIS SHOULD BE SOMETHING LIKE THE LINE BELOW:
             // state.pricing_results.assign_metric(pm, new_trade_price_pm);
@@ -198,7 +197,11 @@ where
         }
 
         info!("Updating trades and portfolio computing");
-        if let Some(ref real_trade) = self.all_trades.get(&new_trade) {
+        if let Some(ref real_trade) = self
+            .all_trades
+            .read_async(&new_trade, |_, v| v.clone())
+            .await
+        {
             if let Some(real_market) = self.all_markets.get(real_market) {
                 for pm in &state.pricing_metrics {
                     let new_trade_price =
@@ -244,7 +247,7 @@ where
     #[instrument(skip_all)]
     fn _behind_calculating_single(
         &self,
-        market_behind: String,
+        _market_behind: String,
         trades_behind: TradesLocal,
         state: &mut _ProcessorMiddleStateful,
         myself: ActorRef<ProcessorMiddleMessage<String>>,

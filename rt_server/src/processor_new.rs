@@ -138,7 +138,8 @@ where
 
         // the next 3 are conditions when we can actually compute something
         // condition if we can get the relevant trade
-        let Some(new_trade_info) = self.all_trades.get(&new_trade) else {
+        // TODO: Check if .clone is needed in the closure???
+        let Some(new_trade_info) = self.all_trades.read_sync(&new_trade, |_, v| v.clone()) else {
             // we dont have a trade info - ignore and continue.
             warn!(
                 "No trade info could be obtained for {}. Investigate. Continuing w/o processing.",

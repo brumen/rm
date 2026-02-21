@@ -187,15 +187,15 @@ where
                     return Ok(());
                 };
 
-                let Some(trade_info) = self.all_trades.get(&trade) else {
+                // TODO: can v. be without clone
+                let Some(trade_info) = self.all_trades.read_async(&trade, |_, v| v.clone()).await
+                else {
                     warn!(
                         "Could not find {} among all_atrades. Ignoring w/ computation and continuing.",
                         trade
                     );
                     return Ok(());
                 };
-
-                let trade_real = trade_info.value();
 
                 let Some(market_info) = self.all_markets.get(real_market) else {
                     warn!(
@@ -212,7 +212,7 @@ where
                     state.pricing_results,
                 );
                 for pm in state.pricing_results.clone() {
-                    let valued_trade_pm = trade_real.value_by_metric(pm, market_info.clone()).await;
+                    let valued_trade_pm = trade_info.value_by_metric(pm, market_info.clone()).await;
                     let portf_pm = state.portfolio.get_mut(&pm).unwrap();
                     *portf_pm += valued_trade_pm;
                 }

@@ -159,7 +159,7 @@ where
         let trade_1_id = trade_1.id();
 
         info!("First trade: {:?}", trade_1_id);
-        self.trade_list.insert(trade_1_id.clone(), trade_1); // add trade to the trade list.
+        self.trade_list.upsert_sync(trade_1_id.clone(), trade_1); // add trade to the trade list.
 
         myself.send_message(ProcessorMiddleMessage::NewTrade(trade_1_id))?; // first message
 
@@ -188,7 +188,10 @@ where
         let new_msg = self.position_listener.recv().await?;
         let new_trade = T::try_from_ref(&new_msg)?;
         let new_trade_id = new_trade.id();
-        self.trade_list.insert(new_trade_id.clone(), new_trade);
+        // TODO: check if async is possible.
+        self.trade_list
+            .upsert_async(new_trade_id.clone(), new_trade)
+            .await;
 
         myself.send_message(
             ProcessorMiddleMessage::NewTrade(new_trade_id), // new trade has id.

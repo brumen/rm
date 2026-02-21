@@ -121,7 +121,7 @@ async fn price_handler(
         Some(m) => m,
     };
 
-    let trade_entry = state.all_trades.get(&trade_id);
+    let trade_entry = state.all_trades.read_sync(&trade_id, |_, v| v.clone());
     let trade_entry = match trade_entry {
         None => {
             return format!(
@@ -133,9 +133,7 @@ async fn price_handler(
         Some(t) => t,
     };
 
-    let trade = trade_entry.value();
-
-    match trade.price(market).await {
+    match trade_entry.price(market).await {
         None => format!(
             "ERROR: price returned None for trade_id='{}' market='{}'",
             trade_id, market_name

@@ -56,9 +56,8 @@ trait PriceMultiple<T, MT>
 where
     MT: MarketTypeT + 'static,
     MT::MP: Clone,
-    T: PriceTrade<MT> + 'static,
+    T: PriceTrade<MT> + 'static + Clone,
 {
-    // process trades sequentially.
     async fn price_multiple_seq(
         &self,
         new_trades: HashSet<String>,
@@ -68,56 +67,69 @@ where
     ) -> PmPortfolio {
         let mut portfolio = PmPortfolio::new();
 
-        for used_trade in new_trades.iter() {
-            let used_trade = all_trades.get(used_trade).unwrap();
-            for pm in &pricing_metrics {
-                let price_pm_agg = used_trade
-                    .value_by_metric(*pm, market_actual.clone())
-                    .await
-                    .aggregate();
+        let pm_values = pricing_metrics.clone();
+        let ma = market_actual.clone();
+        for used_trade in new_trades.into_iter() {
+            let td = all_trades
+                .read_async(&used_trade, |_, v| v.clone())
+                .await
+                .unwrap();
 
-                portfolio.assign_metric(pm, price_pm_agg);
+            for pm in pm_values.clone() {
+                let price_pm_agg = td.value_by_metric(pm, ma.clone()).await.aggregate();
+                portfolio.assign_metric(&pm, price_pm_agg);
             }
+            // for pm in &pricing_metrics {
+            //     let price_pm_agg = used_trade
+            //         .value_by_metric(*pm, market_actual.clone())
+            //         .await
+            //         .aggregate();
+
+            //portfolio.assign_metric(pm, price_pm_agg);
+            // }
         }
 
         portfolio
     }
 
     // processes trades in an async manner
-    async fn price_multiple(
-        &self,
-        new_trades: HashSet<String>,
-        pricing_metrics: Vec<PricingMetric>,
-        market_actual: Arc<MT>,
-        all_trades: Arc<TradeRep<T>>,
-    ) -> PmPortfolio {
-        let mut portfolio = PmPortfolio::new();
+    // async fn price_multiple_old2(
+    //     &self,
+    //     new_trades: HashSet<String>,
+    //     pricing_metrics: Vec<PricingMetric>,
+    //     market_actual: Arc<MT>,
+    //     all_trades: Arc<TradeRep<T>>,
+    // ) -> PmPortfolio {
+    //     let mut portfolio = PmPortfolio::new();
 
-        // gather the reference to trades.
-        let mut curr_trades = vec![];
-        for used_trade in new_trades.iter() {
-            let used_trade = all_trades.get(used_trade).unwrap();
-            curr_trades.push(used_trade);
-        }
+    //     // gather the reference to trades.
+    //     let mut curr_trades = vec![];
+    //     for used_trade in new_trades.iter() {
+    //         let used_trade = all_trades
+    //             .read_async(used_trade, |_, v| v.clone())
+    //             .await
+    //             .unwrap();
+    //         curr_trades.push(used_trade);
+    //     }
 
-        // for each pricing metric, gather the futures for that metric.
-        for pm in &pricing_metrics {
-            let trade_futures = curr_trades
-                .iter()
-                .map(|t| t.value_by_metric(*pm, market_actual.clone()));
+    //     // for each pricing metric, gather the futures for that metric.
+    //     for pm in &pricing_metrics {
+    //         let trade_futures = curr_trades
+    //             .iter()
+    //             .map(|t| t.value_by_metric(*pm, market_actual.clone()));
 
-            // aggreate the results
-            let trade_results = join_all(trade_futures)
-                .await
-                .iter()
-                .map(|pr| pr.aggregate())
-                .reduce(|a, b| a + b)
-                .unwrap_or_default();
-            portfolio.assign_metric(pm, trade_results);
-        }
+    //         // aggreate the results
+    //         let trade_results = join_all(trade_futures)
+    //             .await
+    //             .iter()
+    //             .map(|pr| pr.aggregate())
+    //             .reduce(|a, b| a + b)
+    //             .unwrap_or_default();
+    //         portfolio.assign_metric(pm, trade_results);
+    //     }
 
-        portfolio
-    }
+    //     portfolio
+    // }
 }
 
 #[derive(Debug)]
@@ -137,7 +149,7 @@ impl<T, MT> PriceMultiple<T, MT> for ProcessorBulk<T, MT>
 where
     MT: MarketTypeT + 'static + std::fmt::Debug,
     MT::MP: Clone,
-    T: PriceTrade<MT> + 'static + std::fmt::Debug,
+    T: PriceTrade<MT> + 'static + std::fmt::Debug + Sync + Send + Clone,
 {
 }
 
@@ -231,7 +243,9 @@ where
                         let mut used_trades = vec![];
                         for trade_name in new_trades.iter() {
                             // TODO: WHAT PART OF THESE TRADES COULD BE CACHED???
-                            let Some(trade_attempt) = self.all_trades.get(trade_name) else {
+                            let Some(trade_attempt) =
+                                self.all_trades.read_sync(trade_name, |_, v| v.clone())
+                            else {
                                 warn!(
                                     "Could not get trade {} from all_trades. Continuing w/o it.",
                                     trade_name
@@ -251,7 +265,7 @@ where
                             market
                         );
                         let portfolio = self
-                            .price_multiple(
+                            .price_multiple_seq(
                                 new_trades.clone(), // TODO: THIS .clone is NOT THE BEST - FIX IT
                                 pricing_metrics,
                                 market_actual.clone(),
