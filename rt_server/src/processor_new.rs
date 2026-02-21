@@ -165,18 +165,10 @@ where
         for pm in &state.pricing_metrics {
             let new_trade_price_pm = new_trade_info
                 .value_by_metric(*pm, new_m_actual.clone())
-                .await;
+                .await
+                .aggregate();
             debug!("New trade price: {:?}", new_trade_price_pm);
-            match state.portfolio.get_mut(pm) {
-                Some(portf_pm) => {
-                    *portf_pm += new_trade_price_pm;
-                }
-                None => {
-                    let mut portfolio_pm = PortfolioType::default();
-                    portfolio_pm += new_trade_price_pm;
-                    state.portfolio.insert(*pm, portfolio_pm);
-                }
-            }
+            state.portfolio.assign_metric(pm, new_trade_price_pm);
         }
 
         // we send the computed portfolio & trades to the current processor
