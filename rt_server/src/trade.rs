@@ -1,5 +1,6 @@
 use core::cmp::Eq;
-use dashmap::DashMap;
+// use dashmap::DashMap;
+use scc::HashMap as DashMap;
 use serde::{Deserialize, Serialize};
 use std::default::Default;
 use std::ops::{AddAssign, Deref, DerefMut, Sub, SubAssign};
@@ -30,7 +31,7 @@ pub enum TradeError {
 
 /// Internal representations of trades.
 /// String is the trade id, TR is the trade representation.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct TradeRep<TR>(pub DashMap<String, TR>);
 
 impl<TR> PartialEq for TradeRep<TR> {
@@ -106,7 +107,7 @@ impl<TR: Clone + BaseTrade> AddAssign<(String, TR)> for TradeRep<TR> {
     // adds the elements of the other TradeRep to this traderep
     // uses cloning.
     fn add_assign(&mut self, other: (String, TR)) {
-        self.insert(other.0, other.1);
+        self.insert_sync(other.0, other.1);
     }
 }
 
@@ -115,7 +116,7 @@ impl<TR: Clone + BaseTrade> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
     // uses cloning.
     fn add_assign(&mut self, other: &TradeRep<TR>) {
         for other_entry in other.iter() {
-            self.insert(other_entry.key().clone(), other_entry.value().clone());
+            self.insert_sync(other_entry.key().clone(), other_entry.value().clone());
         }
     }
 }
@@ -139,7 +140,7 @@ impl<TR: Clone + BaseTrade> Sub<&TradeRep<TR>> for TradeRep<TR> {
             let trade_id = entry.key();
             let trade_rr = entry.value();
             if !other.contains(trade_id) {
-                res_traderep.insert(trade_id.clone(), trade_rr.clone()); // TODO: CHECK IF CLONE IS GOOD!!!
+                res_traderep.upsert_sync(trade_id.clone(), trade_rr.clone()); // TODO: CHECK IF CLONE IS GOOD!!!
             }
         }
         res_traderep
@@ -148,7 +149,7 @@ impl<TR: Clone + BaseTrade> Sub<&TradeRep<TR>> for TradeRep<TR> {
 
 impl<TR: Clone + BaseTrade> AddAssign<&TR> for TradeRep<TR> {
     fn add_assign(&mut self, other: &TR) {
-        self.insert(other.id().clone(), other.clone());
+        self.upsert_sync(other.id().clone(), other.clone());
     }
 }
 
@@ -157,7 +158,7 @@ impl<const N: usize, TR: BaseTrade> From<[TR; N]> for TradeRep<TR> {
         let hm = DashMap::with_capacity(N);
         for tr in arr {
             let trade_id = tr.id();
-            hm.insert(trade_id, tr);
+            hm.upsert_sync(trade_id, tr);
         }
 
         Self(hm)

@@ -248,7 +248,7 @@ where
                         debug!(
                             "Pricing trades {} on market: {:?}",
                             new_trades.len(),
-                            market_actual
+                            market
                         );
                         let portfolio = self
                             .price_multiple(
