@@ -1,7 +1,5 @@
 use core::cmp::Eq;
-// use dashmap::DashMap;
 use scc::HashMap as DashMap;
-use serde::{Deserialize, Serialize};
 use std::default::Default;
 use std::ops::{AddAssign, Deref, DerefMut, Sub, SubAssign};
 use thiserror::Error;
@@ -31,7 +29,7 @@ pub enum TradeError {
 
 /// Internal representations of trades.
 /// String is the trade id, TR is the trade representation.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct TradeRep<TR>(pub DashMap<String, TR>);
 
 impl<TR> PartialEq for TradeRep<TR> {
