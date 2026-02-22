@@ -67,26 +67,19 @@ where
     ) -> PmPortfolio {
         let mut portfolio = PmPortfolio::new();
 
-        let pm_values = pricing_metrics.clone();
-        let ma = market_actual.clone();
         for used_trade in new_trades.into_iter() {
             let td = all_trades
                 .read_async(&used_trade, |_, v| v.clone())
                 .await
                 .unwrap();
 
-            for pm in pm_values.clone() {
-                let price_pm_agg = td.value_by_metric(pm, ma.clone()).await.aggregate();
-                portfolio.assign_metric(&pm, price_pm_agg);
+            for pm in &pricing_metrics {
+                let price_pm_agg = td
+                    .value_by_metric(*pm, market_actual.clone())
+                    .await
+                    .aggregate();
+                portfolio.assign_metric(pm, price_pm_agg);
             }
-            // for pm in &pricing_metrics {
-            //     let price_pm_agg = used_trade
-            //         .value_by_metric(*pm, market_actual.clone())
-            //         .await
-            //         .aggregate();
-
-            //portfolio.assign_metric(pm, price_pm_agg);
-            // }
         }
 
         portfolio

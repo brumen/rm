@@ -90,6 +90,17 @@ impl<TR> TradeRep<TR> {
     pub fn contains(&self, trade_id: &String) -> bool {
         self.read_sync(trade_id, |_, _| ()).is_some()
     }
+
+    // pub async fn realized_trades(&self) -> Vec<TR> {
+    //     let mut trades_owned = vec![];
+    //     self.iter_async(|_, v| {
+    //         trades_owned.push(v.clone()); // TODO: This here is BAD!!
+    //         true
+    //     })
+    //     .await;
+
+    //     trades_owned
+    // }
 }
 
 impl<TR: Clone + BaseTrade> AddAssign<(String, TR)> for TradeRep<TR> {
