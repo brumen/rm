@@ -41,7 +41,15 @@ struct PriceQuery {
 
 #[derive(serde::Deserialize)]
 struct LogLevelQuery {
+    /// Example: level=debug
     level: String,
+    /// Optional target/module filter, e.g.:
+    ///   target=rt_server::processor_bulk
+    /// If omitted, applies globally.
+    target: Option<String>,
+    /// Optional span events (tracing-subscriber fmt layer), e.g.:
+    ///   span_events=none|new|enter|exit|close|active|full
+    span_events: Option<String>,
 }
 
 pub(crate) fn diagnostics(
@@ -150,23 +158,59 @@ async fn loglevel_handler(
     State(state): State<DiagnosticsState>,
     Query(params): Query<LogLevelQuery>,
 ) -> String {
+    // Supported:
+    //   /loglevel?level=debug
+    //   /loglevel?level=debug&target=rt_server::processor_bulk
+    //   /loglevel?level=debug&span_events=full
+    //
+    // Note: `span_events` can't be applied via the EnvFilter reload handle.
+    // We acknowledge it here for forward compatibility and to avoid confusion.
+    info!("Reconfiguring logs.");
     let level = params.level.to_lowercase();
 
     let directive = match level.as_str() {
-        "trace" => "trace",
-        "debug" => "debug",
-        "info" => "info",
-        "warn" => "warn",
-        "error" => "error",
+        "trace" | "debug" | "info" | "warn" | "error" => level.as_str(),
         _ => {
             return "ERROR: invalid level. Use one of: trace, debug, info, warn, error".to_string();
         }
     };
 
-    let new_filter = EnvFilter::from_default_env().add_directive(directive.parse().unwrap());
+    let directive_str = match params.target.as_deref() {
+        Some(target) if !target.trim().is_empty() => format!("{}={}", target.trim(), directive),
+        _ => directive.to_string(),
+    };
 
-    match state.reload_handle.reload(new_filter) {
-        Ok(()) => format!("OK: log level set to {}", directive),
+    let directive_parsed = match directive_str.parse() {
+        Ok(d) => d,
+        Err(e) => {
+            return format!(
+                "ERROR: invalid directive '{}': {}. Examples: level=debug or level=debug&target=rt_server::processor_bulk",
+                directive_str, e
+            );
+        }
+    };
+
+    let new_filter = EnvFilter::from_default_env().add_directive(directive_parsed);
+
+    let reload_res = state.reload_handle.reload(new_filter);
+
+    let span_events_note = match params.span_events.as_deref() {
+        None => None,
+        Some(se) if se.trim().is_empty() => None,
+        Some(se) => Some(format!(
+            "NOTE: span_events='{}' requested but not applied (not supported by current reload handle).",
+            se.trim()
+        )),
+    };
+
+    match reload_res {
+        Ok(()) => {
+            if let Some(note) = span_events_note {
+                format!("OK: log directive set to '{}'. {}", directive_str, note)
+            } else {
+                format!("OK: log directive set to '{}'", directive_str)
+            }
+        }
         Err(e) => format!("ERROR: failed to reload log filter: {}", e),
     }
 }
