@@ -205,6 +205,7 @@ where
 {
     async fn initial_pv(&self) -> Option<f64> {
         let mut portf_val = 0.;
+        // TODO: This below is repeated 3 times. Factor out. depends on TR: Clone
         let mut trades_owned = vec![];
         self.iter_async(|_, v| {
             trades_owned.push(v.clone()); // TODO: This here is BAD!!

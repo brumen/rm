@@ -153,10 +153,10 @@ where
     }
 
     #[instrument(
-        name="curr_handle",
         skip(self, _myself, message, state),
         fields(
-            msg = message.as_ref(),
+            processor="processor_curr",
+            // msg = message.as_ref(),
             mkt = state.curr_market,
         )
     )]
@@ -231,8 +231,8 @@ where
                 upstream_processor,
             )) => {
                 debug!(
-                    "Message: NewTradePortfolio. Trades: {:?}, NewPortfolio: {:?}, NewMarket: {:?}",
-                    new_trades.len(),
+                    "Message: NewTradePortfolio. CurrPortfolio: {:?}, NewPortfolio: {:?}, NewMarket: {:?}",
+                    state.portfolio.simple(),
                     new_portfolio.simple(),
                     new_market,
                 );
@@ -243,12 +243,12 @@ where
                 }
 
                 // let new_behind_curr = trades - new_trades;
-                let new_behind_curr = state
-                    .trades
-                    .iter()
-                    .filter(|&x| !new_trades.contains(x.as_str()))
-                    .cloned()
-                    .collect::<TradesLocal>();
+                // let new_behind_curr = state
+                //     .trades
+                //     .iter()
+                //     .filter(|&x| !new_trades.contains(x.as_str()))
+                //     .cloned()
+                //     .collect::<TradesLocal>();
 
                 // new behind current but only considering trades from
                 //    a portfolio

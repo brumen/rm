@@ -70,13 +70,13 @@ where
 
     // we receive new market when we're idle.
     // use this market and start a new bulk computation.
-    #[instrument(
-        skip_all,
-        fields(
-            processor_name=self.processor_name,
-            new_m=state.new_market,
-        )
-    )]
+    // #[instrument(
+    //     skip_all,
+    //     fields(
+    //         processor_name=self.processor_name,
+    //         new_m=state.new_market,
+    //     )
+    // )]
     fn _process_new_market_idle(
         &self,
         new_market_name: String,
@@ -84,6 +84,7 @@ where
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
         // update the "new" market, and idle, change the new_m to future market
+        debug!("Received new market");
         let Some(new_market_val) = self.all_markets.get(&new_market_name) else {
             warn!(
                 "Could not get market {} from all_markets. Ignoring the market and continuing.",
@@ -92,7 +93,7 @@ where
             return Ok(());
         };
 
-        debug!("Market: {:?}", new_market_val);
+        debug!("New market: {:?}", new_market_val);
         let new_market_val_name = new_market_val.market_name();
         debug!(
             "Inserting market {} into all_markets.",
@@ -106,6 +107,12 @@ where
         );
         state.new_market = Some(new_market_val_name.clone());
 
+        if state.pricing_metrics.is_empty() {
+            debug!("No metrics to compute. Ignoring.");
+            return Ok(());
+        }
+
+        // we have metrics. Compute them on the calculating bulk.
         info!("New State: {} -> CalculatingBulk", state.processor_state);
         state.processor_state = ProcessorNewState::CalculatingBulk;
         info!(
@@ -126,7 +133,7 @@ where
     }
 
     // message = new trade, state = calculating single
-    #[instrument(skip_all)]
+    // #[instrument(skip_all)]
     async fn _new_trade_calculating_single(
         &self,
         new_trade: String,
@@ -135,6 +142,12 @@ where
     ) -> Result<(), ActorProcessingErr> {
         info!("CalculatingSingle, Computing trade {}.", new_trade);
         state.trades.insert(new_trade.clone()); // we add the trade to the list.
+
+        if state.pricing_metrics.is_empty() {
+            // there's nothing to do, return.
+            debug!("No pricing metrics. Ignoring.");
+            return Ok(());
+        }
 
         // the next 3 are conditions when we can actually compute something
         // condition if we can get the relevant trade
@@ -193,7 +206,7 @@ where
     }
 
     // message = new trade, state = idle.
-    #[instrument(skip_all)]
+    // #[instrument(skip_all)]
     fn _new_trade_idle(
         &self,
         new_trade: String,
@@ -201,7 +214,14 @@ where
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
         // start the new portfolio construction.
+        debug!("New trade message.");
         state.trades.insert(new_trade);
+
+        if state.pricing_metrics.is_empty() {
+            debug!("No pricing metrics. Ignoring.");
+            return Ok(());
+        }
+
         match &state.new_market {
             None => {
                 warn!("Does not have new_m. Continuing w/o processing trades.");
@@ -229,7 +249,7 @@ where
 
     // we are in calculating bulk state, new trade comes in.
     //   we only add the trade to the list of trades. nothing else.
-    #[instrument(skip_all)]
+    // #[instrument(skip_all)]
     async fn _new_trade_calculating_bulk(
         &self,
         new_trade: String,
@@ -247,7 +267,7 @@ where
     }
 
     // we receive the Behind message, we are in calculating single mode.
-    #[instrument(skip_all)]
+    // #[instrument(skip_all)]
     fn _behind_calculating_single(
         &self,
         market_behind: String,
@@ -255,6 +275,7 @@ where
         state: &mut _ProcessorNewStateful,
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
+        debug!("Received Behind message.");
         // TODO: HERE PERHAPS CONSIDER DEPENDING ON HOW MANY
         // TRADES ARE BEHIND,
         //    < 10 -> continue in single mode
@@ -344,7 +365,7 @@ where
         Ok(())
     }
 
-    #[instrument(skip_all, name = "_behind_idle_new")]
+    // #[instrument(skip_all, name = "_behind_idle_new")]
     fn _behind_idle(
         &self,
         market_behind: String,
@@ -352,6 +373,7 @@ where
         state: &mut _ProcessorNewStateful,
         _myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
+        debug!("Received Behind message. Not doing anything.");
         if trades_behind.is_empty() {
             // nothing to do.
             return Ok(());
@@ -368,7 +390,7 @@ where
         Ok(())
     }
 
-    #[instrument(skip_all)]
+    // #[instrument(skip_all)]
     fn _bulkreceive_calculatingbulk_idle(
         &self,
         new_trade_l: TradesLocal,
@@ -417,12 +439,12 @@ where
         Ok(())
     }
 
-    #[instrument(skip_all)]
+    // #[instrument(skip_all)]
     fn _bulkreceive_calculatingsingle(
         &self,
         new_trade_l: TradesLocal,
         computed_portf: PmPortfolio,
-        offending_trades: TradesLocal,
+        _offending_trades: TradesLocal,
         _bulk_market: String,
         state: &mut _ProcessorNewStateful,
         myself: ActorRef<ProcessorMiddleMessage<String>>,
@@ -532,14 +554,14 @@ where
         })
     }
 
-    // #[instrument(
-    //     name="processor_new_handle",
-    //     skip(self, myself, message, state),
-    //     fields(
-    //         state = %state.processor_state,
-    //         new_m = state.new_market,
-    //     )
-    // )]
+    #[instrument(
+        skip(self, myself, message, state),
+        fields(
+            processor = "processor_new",
+            state = %state.processor_state,
+            new_m = state.new_market,
+        )
+    )]
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -547,9 +569,6 @@ where
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         //let (trade_l, trades_non_pricing, portf, pns, new_m, pricing_metrics) = state;
-
-        debug!(%state, "State:");
-
         match message {
             ProcessorMiddleMessage::NewTrade(new_trade) => {
                 info!("Message: NewTrade({:?})", new_trade);
@@ -591,13 +610,14 @@ where
                     }
 
                     ProcessorNewState::CalculatingSingle => {
-                        // TODO: MAYBE THIS IS FINE.
+                        debug!("Got new market while calculating single. Ignoring.");
                         return Ok(());
                     }
 
                     ProcessorNewState::CalculatingBulk => {
                         // ignore if new market comes in, no
                         //   action taken.
+                        debug!("Got new market while calculating bulk. Ignoring.");
                         return Ok(());
                     }
                 }

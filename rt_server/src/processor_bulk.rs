@@ -8,7 +8,7 @@ use tracing::{debug, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
-use crate::portfolio::{PmPortfolio, PortfolioType};
+use crate::portfolio::PmPortfolio;
 use crate::pricer::{PriceTrade, PricingMetric};
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesLocal};
 use crate::trade::{BaseTrade, TradeRep};
@@ -166,21 +166,21 @@ where
         Ok(ProcessorBulkState::Idle) //  Todo: Consider multiple attempts at recomputing.
     }
 
-    #[instrument(
-        name="bulk_handle",
-        skip(message, state, _myself, self),
-        fields(
-            processor=self.processor_name,
-            state=%state,
-        )
-    )]
+    // #[instrument(
+    //     name="bulk_handle",
+    //     skip(message, state, _myself, self),
+    //     fields(
+    //         processor=self.processor_name,
+    //         state=%state,
+    //     )
+    // )]
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        debug!(?state, "State:");
+        debug!(?state, "Computing bulk. State:");
 
         match state {
             ProcessorBulkState::Calculating => {
