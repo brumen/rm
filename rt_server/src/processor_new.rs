@@ -1,12 +1,12 @@
-use evmap::handles::WriteHandle;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn}; // for tracking states.
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
-use crate::portfolio::{PmPortfolio, PortfolioType};
+use crate::portfolio::PmPortfolio;
 use crate::pricer::{PriceTrade, PricingMetric};
+use crate::processor_bulk::PriceMultiple;
 use crate::processor_msg::{
     PNStateDistr, ProcessorBulkMessage, ProcessorMiddleMessage, ProcessorMiddleMessageStates,
     TradesLocal,
@@ -30,9 +30,8 @@ where
 #[allow(dead_code)]
 #[derive(Debug)]
 pub enum ProcessorNewState {
-    CalculatingSingle, // when bulk has finished and we're only calculating single trades.
-    CalculatingBulk,   // when we're still calculating bulk
-    Idle,
+    CalculatingSingle, // when new trades arrived, but no new market.
+    CalculatingBulk,   // when new market arrived and we're recomputing.
 }
 
 impl std::fmt::Display for ProcessorNewState {
@@ -44,10 +43,8 @@ impl std::fmt::Display for ProcessorNewState {
 impl<T, MT> ProcessorNew<T, MT>
 where
     MT: MarketTypeT + Send + Sync + 'static + std::fmt::Debug,
-    // MT: MarketTypeT + std::fmt::Debug,
     MT::MP: Clone,
     T: Send + Sync + Clone + 'static + BaseTrade + PriceTrade<MT> + std::fmt::Debug,
-    // T: std::fmt::Debug,
 {
     #[allow(dead_code)]
     pub(crate) fn new(
@@ -68,16 +65,7 @@ where
         }
     }
 
-    // we receive new market when we're idle.
-    // use this market and start a new bulk computation.
-    // #[instrument(
-    //     skip_all,
-    //     fields(
-    //         processor_name=self.processor_name,
-    //         new_m=state.new_market,
-    //     )
-    // )]
-    fn _process_new_market_idle(
+    async fn _process_new_market_idle(
         &self,
         new_market_name: String,
         state: &mut _ProcessorNewStateful,
@@ -103,7 +91,7 @@ where
         self.all_markets.insert_both(
             self.processor_name.clone(),
             new_market_val_name.clone(),
-            new_market_val,
+            new_market_val.clone(),
         );
         state.new_market = Some(new_market_val_name.clone());
 
@@ -128,6 +116,16 @@ where
                 myself,
                 state.pricing_metrics.clone(),
             )))?;
+
+        // self.processor_middle
+        //     .send_message(ProcessorMiddleMessage::NewTradePortfolio((
+        //         state.trades.clone(),
+        //         state.portfolio.clone(),
+        //         new_market_val_name.to_string(),
+        //         myself,
+        //     )))?;
+
+        // state.processor_state = ProcessorNewState::CalculatingSingle;
 
         Ok(())
     }
@@ -191,7 +189,7 @@ where
             "Sending to {:?}: trade# = {}, portf # = {:?}, new_m = {:?}.",
             self.processor_middle.get_name(),
             state.trades.len(),
-            state.portfolio,
+            state.portfolio.simple(),
             new_m_real,
         );
         self.processor_middle
@@ -206,8 +204,7 @@ where
     }
 
     // message = new trade, state = idle.
-    // #[instrument(skip_all)]
-    fn _new_trade_idle(
+    async fn _new_trade_idle(
         &self,
         new_trade: String,
         state: &mut _ProcessorNewStateful,
@@ -233,15 +230,41 @@ where
                     state.trades.len(),
                     self.processor_bulk.get_name(),
                 );
+
+                let Some(new_m_actual) = self.all_markets.get(new_m_real) else {
+                    warn!("No market. Ignoring.");
+                    return Ok(());
+                };
                 info!("New State: -> CalculatingBulk.");
                 state.processor_state = ProcessorNewState::CalculatingBulk;
-                self.processor_bulk
-                    .send_message(ProcessorBulkMessage::NewBulk((
-                        new_m_real.to_string(),
+                // self.processor_bulk
+                //     .send_message(ProcessorBulkMessage::NewBulk((
+                //         new_m_real.to_string(),
+                //         state.trades.clone(),
+                //         myself,
+                //         state.pricing_metrics.clone(),
+                //     )))?;
+
+                // let bulk_portfolio = self
+                //     .price_multiple_seq(
+                //         state.trades.clone(),
+                //         state.pricing_metrics.clone(),
+                //         new_m_actual,
+                //         self.all_trades.clone(),
+                //     )
+                //     .await;
+                let bulk_portfolio = PmPortfolio::new();
+                debug!("Finished calculation. Going -> Idle: {:?}", bulk_portfolio);
+                state.portfolio = bulk_portfolio;
+                self.processor_middle
+                    .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                         state.trades.clone(),
+                        state.portfolio.clone(),
+                        new_m_real.to_string(),
                         myself,
-                        state.pricing_metrics.clone(),
                     )))?;
+
+                state.processor_state = ProcessorNewState::CalculatingSingle;
             }
         }
         Ok(())
@@ -268,7 +291,7 @@ where
 
     // we receive the Behind message, we are in calculating single mode.
     // #[instrument(skip_all)]
-    fn _behind_calculating_single(
+    async fn _behind_calculating_single(
         &self,
         market_behind: String,
         trades_behind: TradesLocal,
@@ -312,14 +335,14 @@ where
             info!(
                 "State: {:?} -> {:?}",
                 state.processor_state,
-                ProcessorNewState::Idle
+                ProcessorNewState::CalculatingSingle
             ); // from pns -> Idle
-            state.processor_state = ProcessorNewState::Idle;
+            state.processor_state = ProcessorNewState::CalculatingSingle;
         } else {
-            // we are still behind the current processor. We destroy market_behind, and continue
+            // we are still behind the lower processor.
+            // We destroy market_behind, and continue
             //   computing on new_m.
             // TODO: HERE COMES IN HEURISTICS, WHETHER TO SWITCH TO THE FUTURE MARKET.
-            info!("Lower processor rejected portfolio.");
 
             // destroying the market_behind
             match &state.new_market {
@@ -354,13 +377,41 @@ where
                 trades_behind.len(),
             );
 
-            self.processor_bulk
-                .send_message(ProcessorBulkMessage::NewBulk((
+            // self.processor_bulk
+            //     .send_message(ProcessorBulkMessage::NewBulk((
+            //         new_m_real.to_string(),
+            //         trades_behind,
+            //         myself,
+            //         state.pricing_metrics.clone(),
+            //     )))?;
+            let Some(new_m_actual) = self.all_markets.get(new_m_real) else {
+                warn!("Doesnt have market. Ignoring.");
+                return Ok(());
+            };
+            // let bulk_portfolio = self
+            //     .price_multiple_seq(
+            //         state.trades.clone(),
+            //         state.pricing_metrics.clone(),
+            //         new_m_actual,
+            //         self.all_trades.clone(),
+            //     )
+            //     .await;
+            let bulk_portfolio = PmPortfolio::new();
+            debug!(
+                "Finished calcualation. Going -> CalculatingSingle: {:?}",
+                bulk_portfolio
+            );
+
+            state.portfolio = bulk_portfolio;
+            self.processor_middle
+                .send_message(ProcessorMiddleMessage::NewTradePortfolio((
+                    state.trades.clone(),
+                    state.portfolio.clone(),
                     new_m_real.to_string(),
-                    trades_behind,
                     myself,
-                    state.pricing_metrics.clone(),
                 )))?;
+
+            state.processor_state = ProcessorNewState::CalculatingSingle; // TODO: CHECK THIS.
         }
         Ok(())
     }
@@ -401,9 +452,7 @@ where
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
         // result of computation has arrived.
-
         // check if the markets match
-
         debug!(
             "Assigning computed portfolio to current portfolio: {:?}",
             computed_portf.simple()
@@ -435,7 +484,7 @@ where
                 myself,
             )))?;
         info!("New State: {} -> Idle", state.processor_state);
-        state.processor_state = ProcessorNewState::Idle;
+        state.processor_state = ProcessorNewState::CalculatingSingle;
         Ok(())
     }
 
@@ -502,6 +551,15 @@ where
     }
 }
 
+#[async_trait]
+impl<T, MT> PriceMultiple<T, MT> for ProcessorNew<T, MT>
+where
+    MT: MarketTypeT + 'static + std::fmt::Debug,
+    MT::MP: Clone,
+    T: PriceTrade<MT> + 'static + std::fmt::Debug + Sync + Send + Clone,
+{
+}
+
 #[derive(Debug)]
 pub(crate) struct _ProcessorNewStateful {
     // the state of the processor is:
@@ -547,7 +605,7 @@ where
             trades: TradesLocal::new(),
             trades_not_pricing: vec![],
             portfolio: PmPortfolio::new(),
-            processor_state: ProcessorNewState::Idle,
+            processor_state: ProcessorNewState::CalculatingSingle,
             new_market: None,
             pricing_metrics: vec![],
             state_distr: self.state_distr.clone(),
@@ -584,8 +642,9 @@ where
                             .await?
                     }
 
-                    ProcessorNewState::Idle => self._new_trade_idle(new_trade, state, myself)?,
-
+                    // ProcessorNewState::Idle => {
+                    //     self._new_trade_idle(new_trade, state, myself).await?
+                    // }
                     ProcessorNewState::CalculatingBulk => {
                         self._new_trade_calculating_bulk(new_trade, state, myself)
                             .await?
@@ -605,13 +664,82 @@ where
                 );
 
                 match state.processor_state {
-                    ProcessorNewState::Idle => {
-                        self._process_new_market_idle(new_market_name, state, myself)?
-                    }
-
+                    // ProcessorNewState::Idle => {
+                    //     self._process_new_market_idle(new_market_name, state, myself)
+                    //         .await?
+                    // }
                     ProcessorNewState::CalculatingSingle => {
-                        debug!("Got new market while calculating single. Ignoring.");
-                        return Ok(());
+                        // TODO: SWITCH MARKETS AND START RECOMPUTING.
+
+                        debug!("Switching markets and starting the bulk computation.");
+                        state.portfolio = PmPortfolio::new();
+
+                        // this shouldnt fail, but we have a failsafe
+                        let Some(future_market) = self.all_markets.get(&"future".to_string())
+                        else {
+                            warn!(
+                                "Could not find 'future' market. This is weird. Continuing w/o it."
+                            );
+                            return Ok(());
+                        };
+                        let future_market_name = future_market.market_name();
+
+                        debug!(
+                            "Switching markets: {:?} -> {}",
+                            state.new_market,
+                            future_market_name.clone()
+                        );
+                        state.new_market = Some(future_market_name.clone());
+                        self.all_markets.insert_both(
+                            self.processor_name.clone(),
+                            future_market_name.clone(),
+                            future_market,
+                        );
+
+                        debug!("Going to CalculatingBulk.");
+                        // let Some(new_market_actual) = self.all_markets.get(&future_market_name)
+                        // else {
+                        //     warn!("Couldnt find market. Ignoring");
+                        //     return Ok(());
+                        // };
+                        state.processor_state = ProcessorNewState::CalculatingBulk;
+                        self.processor_bulk
+                            .send_message(ProcessorBulkMessage::NewBulk((
+                                future_market_name.to_string(),
+                                state.trades.clone(),
+                                myself,
+                                state.pricing_metrics.clone(),
+                            )))?;
+
+                        // start bulk computation.
+                        // let bulk_portfolio = self
+                        //     .price_multiple_seq(
+                        //         state.trades.clone(),
+                        //         state.pricing_metrics.clone(),
+                        //         new_market_actual,
+                        //         self.all_trades.clone(),
+                        //     )
+                        //     .await;
+                        // let bulk_portfolio = PmPortfolio::new();
+
+                        // debug!("Computed portf: {:?}", bulk_portfolio.simple());
+                        // debug!(
+                        //     "Sending to processor: {:?}",
+                        //     self.processor_middle.get_name()
+                        // );
+                        // state.portfolio = bulk_portfolio;
+                        // self.processor_middle.send_message(
+                        //     ProcessorMiddleMessage::NewTradePortfolio((
+                        //         state.trades.clone(),
+                        //         state.portfolio.clone(),
+                        //         future_market_name.to_string(),
+                        //         myself,
+                        //     )),
+                        // )?;
+                        // debug!("Finished calcualation. Going -> CalculatingSingle",);
+
+                        // state.processor_state = ProcessorNewState::CalculatingSingle;
+                        // TODO: CHECK THIS.
                     }
 
                     ProcessorNewState::CalculatingBulk => {
@@ -625,44 +753,41 @@ where
 
             // this only comes from ProcessorMiddle,
             //
-            ProcessorMiddleMessage::Behind(market_behind, trades_behind) => {
-                // we are behind trades behind the below processor
-                state
-                    .state_distr
-                    .incr_one(ProcessorMiddleMessageStates::Behind);
+            // TODO:
+            ProcessorMiddleMessage::Behind(market_behind, trades_behind) => {}
+            // we are behind trades behind the below processor
+            //     state
+            //         .state_distr
+            //         .incr_one(ProcessorMiddleMessageStates::Behind);
 
-                info!(
-                    "Message: Behind. Market: {:?}, trades_beind: {:?}",
-                    market_behind,
-                    trades_behind.len()
-                );
-                match state.processor_state {
-                    // what is the processor doing right now
-                    ProcessorNewState::CalculatingSingle => self._behind_calculating_single(
-                        market_behind,
-                        trades_behind,
-                        state,
-                        myself,
-                    )?,
+            //     info!(
+            //         "Message: Behind. Market: {:?}, trades_beind: {:?}",
+            //         market_behind,
+            //         trades_behind.len()
+            //     );
+            //     match state.processor_state {
+            //         // what is the processor doing right now
+            //         ProcessorNewState::CalculatingSingle => {
+            //             self._behind_calculating_single(market_behind, trades_behind, state, myself)
+            //                 .await?
+            //         }
 
-                    // we are calculating bulk, and we received info
-                    //   from processor below.
-                    ProcessorNewState::CalculatingBulk => {
-                        // add the trades to portfolio, nothing else.
-                        if !trades_behind.is_empty() {
-                            info!(
-                                "Adding non-computed trades {} to trade list. Not doing anything.",
-                                trades_behind.len()
-                            );
-                            state.trades.extend(trades_behind);
-                        }
-                    }
-
-                    ProcessorNewState::Idle => {
-                        self._behind_idle(market_behind, trades_behind, state, myself)?
-                    }
-                }
-            }
+            //         // we are calculating bulk, and we received info
+            //         //   from processor below.
+            //         ProcessorNewState::CalculatingBulk => {
+            //             // add the trades to portfolio, nothing else.
+            //             if !trades_behind.is_empty() {
+            //                 info!(
+            //                     "Adding non-computed trades {} to trade list. Not doing anything.",
+            //                     trades_behind.len()
+            //                 );
+            //                 state.trades.extend(trades_behind);
+            //             }
+            //         } // ProcessorNewState::Idle => {
+            //           //     self._behind_idle(market_behind, trades_behind, state, myself)?
+            //           // }
+            //     }
+            // }
 
             // _bulk market is not needed, as it is the same as either new_m.
             ProcessorMiddleMessage::BulkReceive((
@@ -680,26 +805,26 @@ where
                     computed_portf.simple()
                 );
 
-                match state.processor_state {
-                    ProcessorNewState::CalculatingBulk | ProcessorNewState::Idle => self
-                        ._bulkreceive_calculatingbulk_idle(
-                            new_trade_l,
-                            computed_portf,
-                            offending_trades,
-                            _bulk_market,
-                            state,
-                            myself,
-                        )?,
+                //match state.processor_state {
+                //    ProcessorNewState::CalculatingBulk =>
+                self._bulkreceive_calculatingbulk_idle(
+                    new_trade_l,
+                    computed_portf,
+                    offending_trades,
+                    _bulk_market,
+                    state,
+                    myself,
+                )?
 
-                    ProcessorNewState::CalculatingSingle => self._bulkreceive_calculatingsingle(
-                        new_trade_l,
-                        computed_portf,
-                        offending_trades,
-                        _bulk_market,
-                        state,
-                        myself,
-                    )?,
-                }
+                //     ProcessorNewState::CalculatingSingle => self._bulkreceive_calculatingsingle(
+                //         new_trade_l,
+                //         computed_portf,
+                //         offending_trades,
+                //         _bulk_market,
+                //         state,
+                //         myself,
+                //     )?,
+                // }
             }
 
             ProcessorMiddleMessage::Metric(new_pricing_metrics) => {

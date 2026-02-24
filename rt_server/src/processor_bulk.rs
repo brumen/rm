@@ -1,6 +1,6 @@
-use futures::future::join_all;
-/// Processor which gets a bulk of work, and finishes it.
+/// Processor bulk gets a batch of trades to compute, and computes it.
 ///
+use futures::future::join_all;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ where
 {
     pub processor_name: String, // name of the bulk processor, usually curr_bulk, new_bulk, middle_1_bulk
     pub(crate) all_trades: Arc<TradeRep<T>>, // all_trades is a reference to the structure that contains all trades.
-    pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>, // dyn MarketTypeT<MP=MP> + Send + Sync>>>,
+    pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>,
 }
 
 impl<T, MT> ProcessorBulk<T, MT>
@@ -45,25 +45,24 @@ where
             all_markets,
         }
     }
-
-    // you can override the
 }
 
 /// prices multiple trades - default configuration is to price them sequentially
 /// TODO: THIS SHOULD BE CHANGED - THIS TRAIT SHOULD GO TO MT: MarketTypeT
 #[async_trait]
-trait PriceMultiple<T, MT>
+pub(crate) trait PriceMultiple<T, MT>
 where
     MT: MarketTypeT + 'static,
     MT::MP: Clone,
     T: PriceTrade<MT> + 'static + Clone,
 {
-    async fn price_multiple_seq(
+    // this prices the trades in sequence.
+    async fn price_multiple(
         &self,
-        new_trades: HashSet<String>,
-        pricing_metrics: Vec<PricingMetric>,
-        market_actual: Arc<MT>,
-        all_trades: Arc<TradeRep<T>>,
+        new_trades: HashSet<String>,         // trades to price
+        pricing_metrics: Vec<PricingMetric>, // metrics to price on
+        market_actual: Arc<MT>,              // actual market to price them on.
+        all_trades: Arc<TradeRep<T>>, // collection of all trades from which new_trades are picked.
     ) -> PmPortfolio {
         let mut portfolio = PmPortfolio::new();
 
@@ -85,55 +84,44 @@ where
         portfolio
     }
 
-    // processes trades in an async manner
-    // async fn price_multiple_old2(
-    //     &self,
-    //     new_trades: HashSet<String>,
-    //     pricing_metrics: Vec<PricingMetric>,
-    //     market_actual: Arc<MT>,
-    //     all_trades: Arc<TradeRep<T>>,
-    // ) -> PmPortfolio {
-    //     let mut portfolio = PmPortfolio::new();
+    // processes trades in a parallel fashion, parameters the same as above.
+    // TODO: Clones the trades, which could possibly be removed.
+    async fn price_multiple_seq(
+        &self,
+        new_trades: HashSet<String>,
+        pricing_metrics: Vec<PricingMetric>,
+        market_actual: Arc<MT>,
+        all_trades: Arc<TradeRep<T>>,
+    ) -> PmPortfolio {
+        let mut portfolio = PmPortfolio::new();
 
-    //     // gather the reference to trades.
-    //     let mut curr_trades = vec![];
-    //     for used_trade in new_trades.iter() {
-    //         let used_trade = all_trades
-    //             .read_async(used_trade, |_, v| v.clone())
-    //             .await
-    //             .unwrap();
-    //         curr_trades.push(used_trade);
-    //     }
+        // gather the reference to trades.
+        let mut curr_trades = vec![];
+        for used_trade in new_trades.iter() {
+            let used_trade = all_trades
+                .read_async(used_trade, |_, v| v.clone())
+                .await
+                .unwrap();
+            curr_trades.push(used_trade);
+        }
 
-    //     // for each pricing metric, gather the futures for that metric.
-    //     for pm in &pricing_metrics {
-    //         let trade_futures = curr_trades
-    //             .iter()
-    //             .map(|t| t.value_by_metric(*pm, market_actual.clone()));
+        // for each pricing metric, gather the futures for that metric.
+        for pm in &pricing_metrics {
+            let trade_futures = curr_trades
+                .iter()
+                .map(|t| t.value_by_metric(*pm, market_actual.clone()));
 
-    //         // aggreate the results
-    //         let trade_results = join_all(trade_futures)
-    //             .await
-    //             .iter()
-    //             .map(|pr| pr.aggregate())
-    //             .reduce(|a, b| a + b)
-    //             .unwrap_or_default();
-    //         portfolio.assign_metric(pm, trade_results);
-    //     }
+            // aggreate the results
+            let trade_results = join_all(trade_futures)
+                .await
+                .iter()
+                .map(|pr| pr.aggregate())
+                .reduce(|a, b| a + b)
+                .unwrap_or_default();
+            portfolio.assign_metric(pm, trade_results);
+        }
 
-    //     portfolio
-    // }
-}
-
-#[derive(Debug)]
-pub enum ProcessorBulkState {
-    Calculating, // TODO: maybe include what market we are computing this on.
-    Idle,
-}
-
-impl std::fmt::Display for ProcessorBulkState {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        portfolio
     }
 }
 
@@ -154,7 +142,7 @@ where
     MT::MP: Send + Sync + Clone,
 {
     type Msg = ProcessorBulkMessage<String>;
-    type State = ProcessorBulkState;
+    type State = ();
     type Arguments = MT::MP;
 
     async fn pre_start(
@@ -163,129 +151,115 @@ where
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         info!("Initializing Bulk processor: {}", self.processor_name);
-        Ok(ProcessorBulkState::Idle) //  Todo: Consider multiple attempts at recomputing.
+        Ok(()) // ProcessorBulkState::Idle) //  Todo: Consider multiple attempts at recomputing.
     }
 
-    // #[instrument(
-    //     name="bulk_handle",
-    //     skip(message, state, _myself, self),
-    //     fields(
-    //         processor=self.processor_name,
-    //         state=%state,
-    //     )
-    // )]
+    #[instrument(
+        skip(message, state, _myself, self),
+        fields(
+            processor=self.processor_name,
+        )
+    )]
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        debug!(?state, "Computing bulk. State:");
+        debug!("Computing bulk.");
 
-        match state {
-            ProcessorBulkState::Calculating => {
-                info!("Currently calculating, ignoring messages for now. This might change.");
+        match message {
+            // market is where the trades are priced.
+            // new_trades are trades that should be priced.
+            // sending_processor ... processor where the result should be sent.
+            ProcessorBulkMessage::NewBulk((
+                market,
+                new_trades,
+                sending_processor,
+                pricing_metrics,
+            )) => {
+                // start the long-running pricing procedure
+                debug!("Message: NewBulk. State: {:?} -> Calculating", state);
+                // *state = ProcessorBulkState::Calculating;
+                info!(
+                    "Computing {} trades for pricing metric({:?}) on market {}.",
+                    new_trades.len(),
+                    pricing_metrics,
+                    market,
+                );
+
+                // registering the market that is sent:
+                let _ = self
+                    .all_markets
+                    .insert_processor(self.processor_name.clone(), market.clone());
+                debug!(
+                    "Bulk: Current processor-market map: {:?}",
+                    self.all_markets.processor_market_map,
+                );
+
+                let Some(market_actual) = self.all_markets.get(&market) else {
+                    warn!("Could not get market {}. Abandoning pricing.", market);
+                    // if curr_mkt == None, we couldnt get the market, abandon the attempts
+                    sending_processor.send_message(ProcessorMiddleMessage::BulkReceive((
+                        new_trades.clone(), // referencing trades. <- TODO: DO WE NEED THIS - SHOULD BE REMOVED.
+                        PmPortfolio::new(), // computed portf = None, so not really useful.
+                        TradesLocal::new(), // offending trades
+                        market.clone(),     // referenced market
+                    )))?;
+                    //*state = ProcessorBulkState::Idle; // back to idle.
+                    return Ok(());
+                };
+
+                // we have a market
+                let mut non_pricing_trades = TradesLocal::new();
+                let mut used_trades = vec![];
+                for trade_name in new_trades.iter() {
+                    // TODO: WHAT PART OF THESE TRADES COULD BE CACHED???
+                    let Some(trade_attempt) =
+                        self.all_trades.read_sync(trade_name, |_, v| v.clone())
+                    else {
+                        warn!(
+                            "Could not get trade {} from all_trades. Continuing w/o it.",
+                            trade_name
+                        );
+                        non_pricing_trades.insert(trade_name.to_string());
+                        continue;
+                    };
+                    used_trades.push(trade_attempt);
+                }
+
+                debug!(
+                    "Pricing trades {} on market: {:?}",
+                    new_trades.len(),
+                    market
+                );
+                let portfolio = self
+                    .price_multiple_seq(
+                        new_trades.clone(), // TODO: THIS .clone is NOT THE BEST - FIX IT
+                        pricing_metrics,
+                        market_actual.clone(),
+                        self.all_trades.clone(),
+                    )
+                    .await;
+
+                debug!(
+                    "Sending to actor {:?}: {:?}",
+                    sending_processor.get_name(),
+                    portfolio.simple(),
+                );
+
+                sending_processor.send_message(ProcessorMiddleMessage::BulkReceive((
+                    new_trades,
+                    portfolio,
+                    non_pricing_trades,
+                    market,
+                )))?;
+                debug!("State: {:?} -> Idle", state);
             }
 
-            ProcessorBulkState::Idle => {
-                match message {
-                    // market is where the trades are priced.
-                    // new_trades are trades that should be priced.
-                    // sending_processor ... processor where the result should be sent.
-                    ProcessorBulkMessage::NewBulk((
-                        market,
-                        new_trades,
-                        sending_processor,
-                        pricing_metrics,
-                    )) => {
-                        // start the long-running pricing procedure
-                        debug!("Message: NewBulk. State: {:?} -> Calculating", state);
-                        *state = ProcessorBulkState::Calculating;
-                        info!(
-                            "Computing {} trades for pricing metric({:?}) on market {}.",
-                            new_trades.len(),
-                            pricing_metrics,
-                            market,
-                        );
-                        // registering the market that is sent:
-                        let _ = self
-                            .all_markets
-                            .insert_processor(self.processor_name.clone(), market.clone());
-                        debug!(
-                            "Bulk: Current processor-market map: {:?}",
-                            self.all_markets.processor_market_map,
-                        );
-
-                        let Some(market_actual) = self.all_markets.get(&market) else {
-                            warn!("Could not get market {}. Abandoning pricing.", market);
-                            // if curr_mkt == None, we couldnt get the market, abandon the attempts
-                            sending_processor.send_message(ProcessorMiddleMessage::BulkReceive(
-                                (
-                                    new_trades.clone(), // referencing trades. <- TODO: DO WE NEED THIS - SHOULD BE REMOVED.
-                                    PmPortfolio::new(), // computed portf = None, so not really useful.
-                                    TradesLocal::new(), // offending trades
-                                    market.clone(),     // referenced market
-                                ),
-                            ))?;
-                            *state = ProcessorBulkState::Idle; // back to idle.
-                            return Ok(());
-                        };
-
-                        // we have a market
-                        let mut non_pricing_trades = TradesLocal::new();
-                        let mut used_trades = vec![];
-                        for trade_name in new_trades.iter() {
-                            // TODO: WHAT PART OF THESE TRADES COULD BE CACHED???
-                            let Some(trade_attempt) =
-                                self.all_trades.read_sync(trade_name, |_, v| v.clone())
-                            else {
-                                warn!(
-                                    "Could not get trade {} from all_trades. Continuing w/o it.",
-                                    trade_name
-                                );
-                                non_pricing_trades.insert(trade_name.to_string());
-                                continue;
-                            };
-                            used_trades.push(trade_attempt);
-                        }
-
-                        // pricing_futs are futures where the trades are getting priced.
-                        //let mut pricing_futs = vec![];
-                        //for used_trade in used_trades {
-                        debug!(
-                            "Pricing trades {} on market: {:?}",
-                            new_trades.len(),
-                            market
-                        );
-                        let portfolio = self
-                            .price_multiple_seq(
-                                new_trades.clone(), // TODO: THIS .clone is NOT THE BEST - FIX IT
-                                pricing_metrics,
-                                market_actual.clone(),
-                                self.all_trades.clone(),
-                            )
-                            .await;
-
-                        debug!(
-                            "Sending to actor {:?}: {:?}",
-                            sending_processor.get_name(),
-                            portfolio.simple(),
-                        );
-
-                        sending_processor.send_message(ProcessorMiddleMessage::BulkReceive((
-                            new_trades,
-                            portfolio,
-                            non_pricing_trades,
-                            market,
-                        )))?;
-                        debug!("State: {:?} -> Idle", state);
-                        *state = ProcessorBulkState::Idle;
-                    }
-
-                    ProcessorBulkMessage::Abandon => {
-                        // stop the computation and go into idle.
-                    }
-                }
+            ProcessorBulkMessage::Abandon => {
+                // stop the computation and go into idle.
+                todo!()
             }
         }
         Ok(())

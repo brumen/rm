@@ -10,12 +10,14 @@ use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 use crate::portfolio::{PmPortfolio, PortfolioType};
 use crate::pricer::{PriceTrade, PricingMetric};
+use crate::processor_bulk::PriceMultiple;
 use crate::processor_msg::{ProcessorMiddleMessage, TradesLocal};
 use crate::trade::{BaseTrade, TradeRep};
 
 pub(crate) struct ProcessorCurr<T, MT>
 where
     MT: MarketTypeT + std::fmt::Debug,
+    T: std::fmt::Debug,
 {
     pub processor_name: String,
     pub results_topic: String,
@@ -29,10 +31,20 @@ where
 impl<T, MT> std::fmt::Debug for ProcessorCurr<T, MT>
 where
     MT: MarketTypeT + std::fmt::Debug,
+    T: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&format!("CurrentProcessor({})", self.processor_name))
     }
+}
+
+#[async_trait]
+impl<T, MT> PriceMultiple<T, MT> for ProcessorCurr<T, MT>
+where
+    MT: MarketTypeT + 'static + std::fmt::Debug,
+    MT::MP: Clone,
+    T: PriceTrade<MT> + 'static + std::fmt::Debug + Sync + Send + Clone,
+{
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -57,7 +69,7 @@ pub(crate) trait PublishPortfolio {
 #[async_trait]
 impl<T, MT> PublishPortfolio for ProcessorCurr<T, MT>
 where
-    T: Send + Sync,
+    T: Send + Sync + std::fmt::Debug,
     MT: Send + Sync + MarketTypeT + std::fmt::Debug,
 {
     async fn _publish_result_portfolio(
@@ -98,6 +110,7 @@ where
 
 // cutoff when we dont add a trade, to the portfolio, but just add it to the new trade count.
 const NEWTRADES_SINCE_NEWMARKET_CUTOFF: u64 = 10;
+const NTP_ALLOW_BEHIND: u64 = 10; // number of trades that the NTP is allowed behind,
 
 /// current state of the processor
 #[derive(Debug)]
@@ -125,7 +138,7 @@ impl std::fmt::Display for _ProcessorCurrState {
 #[async_trait]
 impl<T, MT> Actor for ProcessorCurr<T, MT>
 where
-    T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static,
+    T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static + std::fmt::Debug,
     ProcessorCurr<T, MT>: PublishPortfolio,
     MT: MarketTypeT + Send + Sync + 'static + std::fmt::Debug,
     MT::MP: Clone,
@@ -172,14 +185,6 @@ where
                 debug!("Message: NewTrade: Adding trade {:?}.", trade);
                 state.newtrades_since_last_newmarket += 1;
                 state.trades.insert(trade.clone());
-                if state.newtrades_since_last_newmarket > NEWTRADES_SINCE_NEWMARKET_CUTOFF {
-                    // we try to let the newportfolio branch in
-                    warn!(
-                        "Processed at least {} new trades. Throttling to let a market in.",
-                        state.newtrades_since_last_newmarket,
-                    );
-                    return Ok(());
-                }
 
                 let Some(ref real_market) = state.curr_market else {
                     // only continue if you have a market.
@@ -225,16 +230,16 @@ where
             }
 
             ProcessorMiddleMessage::NewTradePortfolio((
-                new_trades,
-                new_portfolio,
-                new_market,
-                upstream_processor,
+                ntp_trades,
+                ntp_portfolio,
+                ntp_market,
+                ntp_upstream_processor,
             )) => {
                 debug!(
                     "Message: NewTradePortfolio. CurrPortfolio: {:?}, NewPortfolio: {:?}, NewMarket: {:?}",
                     state.portfolio.simple(),
-                    new_portfolio.simple(),
-                    new_market,
+                    ntp_portfolio.simple(),
+                    ntp_market,
                 );
 
                 if state.pricing_results.is_empty() {
@@ -242,32 +247,45 @@ where
                     return Ok(());
                 }
 
-                // let new_behind_curr = trades - new_trades;
-                // let new_behind_curr = state
-                //     .trades
-                //     .iter()
-                //     .filter(|&x| !new_trades.contains(x.as_str()))
-                //     .cloned()
-                //     .collect::<TradesLocal>();
-
                 // new behind current but only considering trades from
                 //    a portfolio
-                let new_behind_curr_portfolio = state
+                let ntp_behind_curr_portfolio = state
                     .portfolio
                     .get_trades()
                     .into_iter()
-                    .filter(|x| !new_trades.contains(x.as_str()))
+                    .filter(|x| !ntp_trades.contains(x.as_str()))
                     .collect::<TradesLocal>();
 
                 // new portfolio has more trades, send the portfolio to publisher.
-                let new_portf_acc = state.portfolio <= new_portfolio;
-                if new_portf_acc {
+                // let new_portf_acc = state.portfolio <= ntp_portfolio;
+                // amount of trades that the ntp_portfolio is behind state.portfolio.
+                let ntp_portf_behind = state.portfolio.len() - ntp_portfolio.len(); //  < NTP_ALLOW_BEHIND;
+                let ntp_portf_acc = (ntp_portf_behind as u64) < NTP_ALLOW_BEHIND;
+
+                // compute those additional trades
+                if ntp_portf_behind > 0 {
+                    let Some(ntp_market_actual) = self.all_markets.get(&ntp_market) else {
+                        warn!("Could not get NTP market {:?}", ntp_market);
+                        return Ok(());
+                    };
+                    let additional_portf = self
+                        .price_multiple_seq(
+                            state.trades.clone(),
+                            state.pricing_results.clone(),
+                            ntp_market_actual,
+                            self.all_trades.clone(),
+                        )
+                        .await;
+                    state.portfolio += additional_portf;
+                } // otherwise we dont need to compute them.
+
+                if ntp_portf_acc {
                     info!(
-                        "NewPortfolio accepted ({:?}). Publishing.",
-                        new_portfolio.simple()
+                        "NTP portfolio accepted ({:?}). Publishing.",
+                        ntp_portfolio.simple()
                     );
                     state.newtrades_since_last_newmarket = 0; // reset the newtrades count.
-                    for (pm, new_portf_pm) in new_portfolio.iter() {
+                    for (pm, new_portf_pm) in ntp_portfolio.iter() {
                         self._publish_result_portfolio(new_portf_pm.clone(), *pm)
                             .await?;
                     }
@@ -278,42 +296,42 @@ where
                     // important: this works w/o old_market != new_market, but it's better
                     //   since we dont have potential deadlocks on self.all_markets.processor_market_map.
                     if let Some(ref old_market) = state.curr_market {
-                        if *old_market != new_market {
+                        if *old_market != ntp_market {
                             let _ = self
                                 .all_markets
-                                .insert_processor(self.processor_name.clone(), new_market.clone());
+                                .insert_processor(self.processor_name.clone(), ntp_market.clone());
                         }
                     };
 
                     // update the state of current processor.
-                    state.portfolio = new_portfolio;
-                    state.trades.extend(new_trades); // *trades += &new_trades;
+                    state.portfolio = ntp_portfolio;
+                    state.trades.extend(ntp_trades); // *trades += &new_trades;
                     debug!(
                         "Switching: {:?} -> {}",
                         state.curr_market,
-                        new_market.clone()
+                        ntp_market.clone()
                     );
-                    state.curr_market = Some(new_market.clone());
+                    state.curr_market = Some(ntp_market.clone());
                 } else {
                     // otherwise dont do anything.
                     debug!("NewPortfolio not accepted. Ignoring.");
                 }
 
                 // send the behind information to the middle processor.
-                let acc_reject = match new_portf_acc {
+                let acc_reject = match ntp_portf_acc {
                     true => "accepted",
                     false => "rejected",
                 };
                 debug!(
                     "Notifying {:?} that new portfolio message was {}.",
-                    upstream_processor.get_name(),
+                    ntp_upstream_processor.get_name(),
                     acc_reject,
                 );
-                upstream_processor.send_message(ProcessorMiddleMessage::Behind(
-                    new_market,
+                ntp_upstream_processor.send_message(ProcessorMiddleMessage::Behind(
+                    ntp_market,
                     // TODO: WHICH ONE HERE???
                     // new_behind_curr.clone(),
-                    new_behind_curr_portfolio,
+                    ntp_behind_curr_portfolio,
                 ))?;
             }
 

@@ -180,6 +180,7 @@ where
         let trade_id = trade_m.get_trade().unwrap(); // TODO: MAKE SURE HERE
         debug!("Sending trade: {:?}", trade_id);
         for processor in &self.processors[..] {
+            debug!("Sending trade to {:?}", processor.get_name());
             processor.send_message(
                 ProcessorMiddleMessage::NewTrade(trade_id.clone()), // trade_id is a string.
             )?;
