@@ -103,7 +103,7 @@ async fn run_all() {
         markets_used,
         initial_trades.clone(),
         (),
-        1,
+        3,
     )
     .await;
 
