@@ -103,6 +103,9 @@ class ResultPublisherKafka(ResultPublisherBase):
             self._prev_value = self._current_value
             self._current_value = loads(msg.value)
 
+            if self.metric not in self._current_value:
+                continue
+
             self.curr_value = self._process_result(
                 self._current_value,
                 self._prev_value,
@@ -339,6 +342,13 @@ class ResultPublisherRester(ResultPublisherBase):
 
 class ResultPublisherLETF(ResultPublisherKafka):
 
+    @staticmethod
+    def _sorting_fct(x):
+        try:
+            return int(x)
+        except Exception:
+            return x
+
     def _process_result(
         self,
         current_result: Optional[Dict[str, float]],
@@ -356,7 +366,10 @@ class ResultPublisherLETF(ResultPublisherKafka):
             if current_result is None
             else np.array(
                 list(
-                    sorted(current_result[self.metric].items(), key=lambda x: int(x[0]))
+                    sorted(
+                        current_result[self.metric].items(),
+                        key=lambda x: self._sorting_fct(x[0]),
+                    )
                 )
             )
         )

@@ -376,15 +376,6 @@ where
             )))?;
 
         Ok(())
-        // self.processor_bulk
-        //     .send_message(ProcessorBulkMessage::NewBulk((
-        //         real_market.to_string(),
-        //         state.trades.clone(),
-        //         myself,
-        //         state.pricing_metrics.clone(),
-        //     )))?;
-
-        // Ok(())
     }
 
     // // #[instrument(skip_all)]
