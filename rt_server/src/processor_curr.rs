@@ -248,8 +248,8 @@ where
                 // new behind current but only considering trades from
                 //    a portfolio
                 let ntp_behind_curr_portfolio = state
-                    .portfolio
-                    .get_trades()
+                    .trades
+                    .clone()
                     .into_iter()
                     .filter(|x| !ntp_trades.contains(x.as_str()))
                     .collect::<TradesLocal>();
@@ -257,18 +257,18 @@ where
                 // new portfolio has more trades, send the portfolio to publisher.
                 // let new_portf_acc = state.portfolio <= ntp_portfolio;
                 // amount of trades that the ntp_portfolio is behind state.portfolio.
-                let ntp_portf_behind = state.portfolio.len() - ntp_portfolio.len(); //  < NTP_ALLOW_BEHIND;
+                let ntp_portf_behind = ntp_behind_curr_portfolio.len(); // state.portfolio.len() - ntp_portfolio.len(); //  < NTP_ALLOW_BEHIND;
                 let ntp_portf_acc = (ntp_portf_behind as u64) < NTP_ALLOW_BEHIND;
 
                 // compute those additional trades
-                if ntp_portf_behind > 0 {
+                if (ntp_portf_behind > 0) & ntp_portf_acc {
                     let Some(ntp_market_actual) = self.all_markets.get(&ntp_market) else {
                         warn!("Could not get NTP market {:?}", ntp_market);
                         return Ok(());
                     };
                     let additional_portf = self
                         .price_multiple_seq(
-                            state.trades.clone(),
+                            ntp_behind_curr_portfolio.clone(), // state.trades.clone(),
                             state.pricing_results.clone(),
                             ntp_market_actual,
                             self.all_trades.clone(),

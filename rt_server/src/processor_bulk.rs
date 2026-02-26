@@ -4,7 +4,7 @@ use futures::future::join_all;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
@@ -98,11 +98,14 @@ where
         // gather the reference to trades.
         let mut curr_trades = vec![];
         for used_trade in new_trades.iter() {
-            let used_trade = all_trades
-                .read_async(used_trade, |_, v| v.clone())
-                .await
-                .unwrap();
-            curr_trades.push(used_trade);
+            match all_trades.read_async(used_trade, |_, v| v.clone()).await {
+                None => {
+                    error!("Couldnt get trade {:?}", used_trade);
+                }
+                Some(used_trade_real) => {
+                    curr_trades.push(used_trade_real);
+                }
+            }
         }
 
         // for each pricing metric, gather the futures for that metric.
@@ -151,7 +154,7 @@ where
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         info!("Initializing Bulk processor: {}", self.processor_name);
-        Ok(()) // ProcessorBulkState::Idle) //  Todo: Consider multiple attempts at recomputing.
+        Ok(())
     }
 
     #[instrument(
@@ -254,7 +257,6 @@ where
                     non_pricing_trades,
                     market,
                 )))?;
-                debug!("State: {:?} -> Idle", state);
             }
 
             ProcessorBulkMessage::Abandon => {
