@@ -108,9 +108,7 @@ where
     }
 }
 
-// cutoff when we dont add a trade, to the portfolio, but just add it to the new trade count.
-const NEWTRADES_SINCE_NEWMARKET_CUTOFF: u64 = 10;
-const NTP_ALLOW_BEHIND: u64 = 10; // number of trades that the NTP is allowed behind,
+const NTP_ALLOW_BEHIND: u64 = 10; // number of trades that the NTP is allowed behind, before we reject it.
 
 /// current state of the processor
 #[derive(Debug)]
@@ -312,9 +310,6 @@ where
                         ntp_market.clone()
                     );
                     state.curr_market = Some(ntp_market.clone());
-                } else {
-                    // otherwise dont do anything.
-                    debug!("NewPortfolio not accepted. Ignoring.");
                 }
 
                 // send the behind information to the middle processor.
@@ -329,8 +324,6 @@ where
                 );
                 ntp_upstream_processor.send_message(ProcessorMiddleMessage::Behind(
                     ntp_market,
-                    // TODO: WHICH ONE HERE???
-                    // new_behind_curr.clone(),
                     ntp_behind_curr_portfolio,
                 ))?;
             }

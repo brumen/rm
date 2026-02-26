@@ -1,3 +1,4 @@
+use futures::future::join_all;
 use ractor::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -130,6 +131,7 @@ where
     async fn initial_pv(&self) -> Option<f64>
     where
         Self: Send;
+    async fn needs_recompute(&self, market_old: Arc<MT>, market_new: Arc<MT>) -> bool; // whether the trade needs recompute on the new market
     async fn price(&self, market: Arc<MT>) -> Option<f64>;
     async fn pv01(&self, market: Arc<MT>) -> PV01Results;
     async fn pnl(&self, market: Arc<MT>) -> Option<f64> {
@@ -203,6 +205,22 @@ where
     TR: PriceTrade<MT> + Send + Sync + Clone,
     MT: MarketTypeT + Send + Sync + 'static,
 {
+    async fn needs_recompute(&self, market_old: Arc<MT>, market_new: Arc<MT>) -> bool {
+        let mut trades_owned = vec![];
+        self.iter_async(|_, v| {
+            trades_owned.push(v.clone()); // TODO: This here is BAD!!
+            true
+        })
+        .await;
+
+        // iterate through the vector and check if they need recompute
+        let tof = trades_owned
+            .iter()
+            .map(|trade| trade.needs_recompute(market_old.clone(), market_new.clone()));
+
+        join_all(tof).await.iter().all(|x| *x)
+    }
+
     async fn initial_pv(&self) -> Option<f64> {
         let mut portf_val = 0.;
         // TODO: This below is repeated 3 times. Factor out. depends on TR: Clone

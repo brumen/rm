@@ -51,6 +51,21 @@ impl std::cmp::PartialEq for LETFTrade {
 
 #[async_trait]
 impl PriceTrade<LETFMarketType> for LETFTrade {
+    async fn needs_recompute(
+        &self,
+        market_old: Arc<LETFMarketType>,
+        market_new: Arc<LETFMarketType>,
+    ) -> bool {
+        let stock_v_real_old = market_old
+            .get(&LETFMarketTypes::Stock(self.stock.clone())) // TODO: CHECK IF WE DONT NEED TO CLONE HERE!!!
+            .await;
+        let stock_v_real_new = market_new
+            .get(&LETFMarketTypes::Stock(self.stock.clone()))
+            .await;
+
+        stock_v_real_new != stock_v_real_old
+    }
+
     async fn initial_pv(&self) -> Option<f64> {
         Some(0.)
     }
@@ -60,7 +75,6 @@ impl PriceTrade<LETFMarketType> for LETFTrade {
             .get(&LETFMarketTypes::Stock(self.stock.clone())) // TODO: CHECK IF WE DONT NEED TO CLONE HERE!!!
             .await?;
 
-        sleep(Duration::from_millis(100)).await;
         self.stock_value
             .map(|initial_stock| self.beta * self.amount * (stock_v_real / initial_stock - 1.))
     }
@@ -146,6 +160,21 @@ pub struct Future {
 
 #[async_trait]
 impl PriceTrade<LETFMarketType> for Future {
+    async fn needs_recompute(
+        &self,
+        market_old: Arc<LETFMarketType>,
+        market_new: Arc<LETFMarketType>,
+    ) -> bool {
+        let stock_v_real_old = market_old
+            .get(&LETFMarketTypes::Stock(self.stock.clone())) // TODO: CHECK IF WE DONT NEED TO CLONE HERE!!!
+            .await;
+        let stock_v_real_new = market_new
+            .get(&LETFMarketTypes::Stock(self.stock.clone()))
+            .await;
+
+        stock_v_real_new != stock_v_real_old
+    }
+
     async fn initial_pv(&self) -> Option<f64> {
         self.initial_val
     }
@@ -194,6 +223,14 @@ pub struct Cash {
 
 #[async_trait]
 impl PriceTrade<LETFMarketType> for Cash {
+    async fn needs_recompute(
+        &self,
+        market_old: Arc<LETFMarketType>,
+        market_new: Arc<LETFMarketType>,
+    ) -> bool {
+        false
+    }
+
     async fn initial_pv(&self) -> Option<f64> {
         Some(self.amount)
     }
@@ -311,6 +348,30 @@ impl TryFromRef2 for TradeTypes {}
 
 #[async_trait]
 impl PriceTrade<LETFMarketType> for TradeTypes {
+    async fn needs_recompute(
+        &self,
+        market_old: Arc<LETFMarketType>,
+        market_new: Arc<LETFMarketType>,
+    ) -> bool {
+        match self {
+            TradeTypes::LETF(letf_trade) => {
+                letf_trade
+                    .needs_recompute(market_old.clone(), market_new.clone())
+                    .await
+            }
+            TradeTypes::Future(letf_fut) => {
+                letf_fut
+                    .needs_recompute(market_old.clone(), market_new.clone())
+                    .await
+            }
+            TradeTypes::Cash(letf_cash) => {
+                letf_cash
+                    .needs_recompute(market_old.clone(), market_new.clone())
+                    .await
+            }
+        }
+    }
+
     async fn initial_pv(&self) -> Option<f64> {
         match self {
             TradeTypes::LETF(letf_trade) => letf_trade.initial_pv().await,
