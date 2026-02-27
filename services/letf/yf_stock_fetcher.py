@@ -250,7 +250,7 @@ class YFStockKafkaStreamer(YFStockFetcher):
         )
 
         perp_message = MarketValueTuple(
-            marrket_key=Perp(Perp=stock_name),
+            market_key=Perp(Perp=stock_name),
             value=stock_value + perp_random_value,
         )
 
@@ -303,7 +303,7 @@ class YFStockKafkaStreamerSim(YFStockKafkaStreamer):
                     "id": ticker,
                     "price": ticker_val[ticker],
                 }
-                self._process_message(msg)
+                self._process_message_perp(msg)
                 self._break_point()  # send the break msg.
             time.sleep(interval)
 
