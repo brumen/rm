@@ -31,6 +31,7 @@ pub struct SabrParameters {
 #[derive(PartialEq, Serialize, Deserialize, Hash, Eq, Debug, Clone)]
 pub enum LETFMarketTypes {
     Stock(String),
+    Perp(String),         // perpetual swap on a stock underlyer.
     Option(String),       // option ticker, option value
     Sabr(SabrParameters), // Sabr parameters, sabr param value
     // TODO: this to be removed later
