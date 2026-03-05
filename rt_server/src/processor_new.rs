@@ -167,54 +167,20 @@ where
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
         debug!("Received Behind message.");
+
+        if trades_behind.is_empty() {
+            debug!("Lower processor accepted. Not behind. Ignoring.");
+            return Ok(());
+        }
+
+        // lower processor is ahead. Add trades, and compute the difference.
+        state.trades.extend(trades_behind.clone());
+
         // TODO: HERE PERHAPS CONSIDER DEPENDING ON HOW MANY
         // TRADES ARE BEHIND,
         //    < 10 -> continue in single mode
         //    > 10 -> continue in bulk mode.
-
-        // the processor middle has accepted the market_behind
-        // make new_m <- future.
-        if trades_behind.is_empty() {
-            // new processor is ahead, reset the
-            //    new processor to the new default state.
-            debug!("Lower processor accepted portfolio. Resetting portfolio: portf = empty");
-            state.portfolio = PmPortfolio::new();
-
-            // this shouldnt fail, but we have a failsafe
-            let Some(future_market) = self.all_markets.get(&"future".to_string()) else {
-                warn!("Could not find 'future' market. This is weird. Continuing w/o it.");
-                return Ok(());
-            };
-            let future_market_name = future_market.market_name();
-
-            debug!(
-                "Switching markets: {:?} -> {}",
-                state.new_market,
-                future_market_name.clone()
-            );
-            state.new_market = Some(future_market_name.clone());
-            self.all_markets.insert_both(
-                self.processor_name.clone(),
-                future_market_name.clone(),
-                future_market,
-            );
-
-            // TODO: THIS SHOULDNT BE Idle, but go to Bulk processing immediately.
-            info!(
-                "State: {:?} -> {:?}",
-                state.processor_state,
-                ProcessorNewState::CalculatingSingle
-            ); // from pns -> Idle
-            state.processor_state = ProcessorNewState::CalculatingSingle;
-            return Ok(());
-        }
-
         // trades_behind != empty
-        // we are still behind the lower processor.
-        // We destroy market_behind, and continue
-        //   computing on new_m.
-        // TODO: HERE COMES IN HEURISTICS, WHETHER TO SWITCH TO THE FUTURE MARKET.
-        // destroying the market_behind
         match &state.new_market {
             None => {
                 info!("New_m is None, doing: New_m <- {}", market_behind.clone());
@@ -241,7 +207,7 @@ where
 
         let bulk_portfolio = self
             .price_multiple_seq(
-                state.trades.clone(),
+                trades_behind,
                 state.pricing_metrics.clone(),
                 new_m_actual,
                 self.all_trades.clone(),
@@ -522,36 +488,6 @@ where
                                 myself,
                                 state.pricing_metrics.clone(),
                             )))?;
-
-                        // start bulk computation.
-                        // let bulk_portfolio = self
-                        //     .price_multiple_seq(
-                        //         state.trades.clone(),
-                        //         state.pricing_metrics.clone(),
-                        //         new_market_actual,
-                        //         self.all_trades.clone(),
-                        //     )
-                        //     .await;
-                        // let bulk_portfolio = PmPortfolio::new();
-
-                        // debug!("Computed portf: {:?}", bulk_portfolio.simple());
-                        // debug!(
-                        //     "Sending to processor: {:?}",
-                        //     self.processor_middle.get_name()
-                        // );
-                        // state.portfolio = bulk_portfolio;
-                        // self.processor_middle.send_message(
-                        //     ProcessorMiddleMessage::NewTradePortfolio((
-                        //         state.trades.clone(),
-                        //         state.portfolio.clone(),
-                        //         future_market_name.to_string(),
-                        //         myself,
-                        //     )),
-                        // )?;
-                        // debug!("Finished calcualation. Going -> CalculatingSingle",);
-
-                        // state.processor_state = ProcessorNewState::CalculatingSingle;
-                        // TODO: CHECK THIS.
                     }
 
                     ProcessorNewState::CalculatingBulk => {
@@ -566,40 +502,40 @@ where
             // this only comes from ProcessorMiddle,
             //
             // TODO:
-            ProcessorMiddleMessage::Behind(market_behind, trades_behind) => {}
-            // we are behind trades behind the below processor
-            //     state
-            //         .state_distr
-            //         .incr_one(ProcessorMiddleMessageStates::Behind);
+            ProcessorMiddleMessage::Behind(market_behind, trades_behind) => {
+                // we are behind trades behind the below processor
+                state
+                    .state_distr
+                    .incr_one(ProcessorMiddleMessageStates::Behind);
 
-            //     info!(
-            //         "Message: Behind. Market: {:?}, trades_beind: {:?}",
-            //         market_behind,
-            //         trades_behind.len()
-            //     );
-            //     match state.processor_state {
-            //         // what is the processor doing right now
-            //         ProcessorNewState::CalculatingSingle => {
-            //             self._behind_calculating_single(market_behind, trades_behind, state, myself)
-            //                 .await?
-            //         }
+                info!(
+                    "Message: Behind. Market: {:?}, trades_beind: {:?}",
+                    market_behind,
+                    trades_behind.len()
+                );
+                //     match state.processor_state {
+                //         // what is the processor doing right now
+                //         ProcessorNewState::CalculatingSingle => {
+                //             self._behind_calculating_single(market_behind, trades_behind, state, myself)
+                //                 .await?
+                //         }
 
-            //         // we are calculating bulk, and we received info
-            //         //   from processor below.
-            //         ProcessorNewState::CalculatingBulk => {
-            //             // add the trades to portfolio, nothing else.
-            //             if !trades_behind.is_empty() {
-            //                 info!(
-            //                     "Adding non-computed trades {} to trade list. Not doing anything.",
-            //                     trades_behind.len()
-            //                 );
-            //                 state.trades.extend(trades_behind);
-            //             }
-            //         } // ProcessorNewState::Idle => {
-            //           //     self._behind_idle(market_behind, trades_behind, state, myself)?
-            //           // }
-            //     }
-            // }
+                //         // we are calculating bulk, and we received info
+                //         //   from processor below.
+                //         ProcessorNewState::CalculatingBulk => {
+                //             // add the trades to portfolio, nothing else.
+                //             if !trades_behind.is_empty() {
+                //                 info!(
+                //                     "Adding non-computed trades {} to trade list. Not doing anything.",
+                //                     trades_behind.len()
+                //                 );
+                //                 state.trades.extend(trades_behind);
+                //             }
+                //         } // ProcessorNewState::Idle => {
+                //           //     self._behind_idle(market_behind, trades_behind, state, myself)?
+                //           // }
+                //     }
+            }
 
             // _bulk market is not needed, as it is the same as either new_m.
             ProcessorMiddleMessage::BulkReceive((

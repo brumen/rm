@@ -68,41 +68,24 @@ pub(crate) async fn create_middle_actor<T, MT>(
     all_markets: Arc<AllMarkets<Arc<MT>>>,
     initial_trades: Arc<TradeRep<T>>,
     processor_below: ActorRef<ProcessorMiddleMessage<String>>,
-    mp: MT::MP,
-) -> (ProcessorMiddle<T, MT>, JoinHandle<()>, Arc<PNStateDistr>)
+    _mp: MT::MP,
+) -> (ProcessorMiddle<T, MT>, Arc<PNStateDistr>)
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT> + std::fmt::Debug,
     MT::MP: 'static + Send + Sync + Clone,
     MT: MarketTypeT + 'static + std::fmt::Debug,
 {
-    let middle_bulk_name = format!("{}_bulk", processor_name);
-
-    // TODO: NEXT STAGE IS TO CONSTRUCT BULK INSIDE PROCESSOR MIDDLE
-    let bulk_middle = ProcessorBulk::new(
-        middle_bulk_name.clone(),
-        initial_trades.clone(),
-        all_markets.clone(),
-    );
-
-    let (bulk_actor, bulk_actor_future) = Actor::spawn(
-        Some(format!("{}_bulk", middle_bulk_name)),
-        bulk_middle,
-        mp.clone(),
-    )
-    .await
-    .expect("Could not create bulk middle processor");
-
     let state_distr = Arc::new(PNStateDistr::new());
     let proc_middle = ProcessorMiddle::new(
         processor_name,
         processor_below,
-        bulk_actor,
+        // bulk_actor,
         initial_trades.clone(),
         all_markets.clone(),
         state_distr.clone(),
     );
 
-    (proc_middle, bulk_actor_future, state_distr)
+    (proc_middle, state_distr)
 }
 
 /// creates a chain of middle processors and connects
@@ -121,7 +104,6 @@ pub(crate) async fn create_middle_procs_chain<T, MT>(
 ) -> (
     Vec<ActorRef<ProcessorMiddleMessage<String>>>, // middle processors
     Vec<JoinHandle<()>>,                           // middle processor joint handles.
-    Vec<JoinHandle<()>>,                           // bulk processor handles.
     Vec<Arc<PNStateDistr>>,
 )
 where
@@ -129,7 +111,6 @@ where
     MT::MP: 'static + Send + Sync + Clone,
     MT: MarketTypeT + Send + Sync + Clone + 'static + std::fmt::Debug,
 {
-    let mut bulk_actors_futures: Vec<JoinHandle<()>> = vec![];
     let mut processor_actors_futures: Vec<JoinHandle<()>> = vec![];
     let mut processor_actors: Vec<ActorRef<ProcessorMiddleMessage<String>>> = vec![];
     let mut state_distr_vec: Vec<Arc<PNStateDistr>> = vec![];
@@ -138,7 +119,7 @@ where
 
     for market_nb in 0..nb_middle {
         let market_name = format!("middle_{}", market_nb);
-        let (processor_middle, bulk_actor_future, middle_state_distr) = create_middle_actor(
+        let (processor_middle, middle_state_distr) = create_middle_actor(
             market_name.clone(),
             all_markets.clone(),
             initial_trades.clone(),
@@ -147,7 +128,6 @@ where
         )
         .await;
 
-        bulk_actors_futures.push(bulk_actor_future);
         state_distr_vec.push(middle_state_distr);
 
         let (proc_actor, proc_actor_future) = Actor::spawn(Some(market_name), processor_middle, ())
@@ -159,10 +139,5 @@ where
         last_middle = proc_actor;
     }
 
-    (
-        processor_actors,
-        processor_actors_futures,
-        bulk_actors_futures,
-        state_distr_vec,
-    )
+    (processor_actors, processor_actors_futures, state_distr_vec)
 }

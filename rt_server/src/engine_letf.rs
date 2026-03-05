@@ -64,19 +64,15 @@ where
     actors_middle_msg.push(_processor_curr_a.clone());
 
     // middle actors (including state distribution for
-    let (
-        mut processor_actors,
-        mut processor_actor_futures,
-        mut bulk_actor_futures,
-        middle_state_distr_vec,
-    ) = create_middle_procs_chain(
-        nb_middle,
-        _processor_curr_a.clone(),
-        all_markets.clone(),
-        initial_trades.clone(),
-        mp.clone(),
-    )
-    .await;
+    let (mut processor_actors, mut processor_actor_futures, middle_state_distr_vec) =
+        create_middle_procs_chain(
+            nb_middle,
+            _processor_curr_a.clone(),
+            all_markets.clone(),
+            initial_trades.clone(),
+            mp.clone(),
+        )
+        .await;
 
     let last_middle = processor_actors.last().unwrap().clone(); // last middle processor
 
@@ -155,7 +151,6 @@ where
     ];
 
     all_futures.append(&mut processor_actor_futures); // middle processors
-    all_futures.append(&mut bulk_actor_futures); // middle bulk processors.
 
     // (actors_middle_msg, all_futures, state_distr_new)
     let state_distr_presented = middle_state_distr_vec.last().unwrap();
