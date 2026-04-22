@@ -3,9 +3,7 @@ use dashmap::DashMap;
 use ractor::ActorRef;
 use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
 use strum::{AsRefStr, EnumDiscriminants, IntoStaticStr};
-use tracing::{info, warn};
 
 use crate::portfolio::PmPortfolio;
 use crate::pricer::PricingMetric;
