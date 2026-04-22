@@ -67,13 +67,15 @@ where
         let mut portfolio = PmPortfolio::new();
 
         for used_trade in new_trades.into_iter() {
-            let td = all_trades
-                .read_async(&used_trade, |_, v| v.clone())
-                .await
-                .unwrap();
+            let Some(attempted_used) = all_trades.read_async(&used_trade, |_, v| v.clone()).await
+            else {
+                error!("Could not price {:?}. Ignoring that trade.", used_trade);
+                // TODO: In the future, handle this better by reporting on the unpriced trades.
+                continue;
+            };
 
             for pm in &pricing_metrics {
-                let price_pm_agg = td
+                let price_pm_agg = attempted_used
                     .value_by_metric(*pm, market_actual.clone())
                     .await
                     .aggregate();

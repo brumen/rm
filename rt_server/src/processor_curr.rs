@@ -268,7 +268,7 @@ where
                     };
                     let additional_portf = self
                         .price_multiple_seq(
-                            ntp_behind_curr_portfolio.clone(), // state.trades.clone(),
+                            ntp_behind_curr_portfolio.clone(),
                             state.pricing_results.clone(),
                             ntp_market_actual,
                             self.all_trades.clone(),

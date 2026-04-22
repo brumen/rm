@@ -81,51 +81,6 @@ where
         );
     }
 
-    // this is when the processor simply changes the market.
-    pub(crate) fn insert_processor_old(
-        &self,
-        processor_name: String,
-        new_processor_market: String,
-    ) {
-        let old_processor_market = self
-            .processor_market_map
-            .read_sync(&processor_name, |_, v| v.clone());
-
-        if old_processor_market.is_none() {
-            // we dont have a processor_market_map set for processor_name, just insert and return
-            let _ = self
-                .processor_market_map
-                .upsert_sync(processor_name, new_processor_market);
-            return;
-        }
-
-        // we have the old processor_market, remove if no other
-        let old_processor_market2 = old_processor_market.unwrap();
-
-        // TODO: CHECK IF contains is the right way
-        if !old_processor_market2.contains(&new_processor_market) {
-            // old_processor_market2 is there, and new_processor_market.
-            // remove old_processor market only if no other processor uses the old_processor_market
-            let mut found_other = false;
-            self.processor_market_map
-                .iter_sync(|processor_name_int, processor_market_int| {
-                    found_other = (old_processor_market2.contains(processor_market_int))
-                        && (*processor_name_int != processor_name);
-                    !found_other
-                });
-
-            if !found_other {
-                // remove the old_processor_market2 from the self.all_markets if you havent found any other instance.
-                debug!("Removing market: {}", old_processor_market2);
-                self.markets.remove_sync(&old_processor_market2);
-            }
-        }
-        // replacing the processor market w/ the new market.
-        let _ = self
-            .processor_market_map
-            .upsert_sync(processor_name.clone(), new_processor_market.clone());
-    }
-
     /// Like `insert_processor`, but additionally prunes `self.markets` so that it only contains
     /// markets that are referenced by at least one processor in `processor_market_map`.
     ///
@@ -451,33 +406,5 @@ mod tests {
         // Keep this around to avoid unused import warnings if you tweak assertions later.
         let _ = HashMap::<String, String>::new();
     }
-
-    // #[test]
-    // fn test_insert_processor_two_processors_only_two_markets_present() {
-    //     let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
-
-    //     // "Initially 10 markets" (as names available in the system), but we only insert the two
-    //     // markets that are actually used into all.markets. insert_processor does not prune
-    //     // pre-inserted markets.
-    //     let market_names: Vec<String> = (0..10).map(|i| format!("m{i}")).collect();
-
-    //     // Insert only the two markets that will be referenced by processors.
-    //     for mn in market_names {
-    //         all.insert(mn.clone(), TestMarket::new(mn.clone(), ()));
-    //     }
-    //     // let m0 = market_names[0].clone();
-    //     // let m1 = market_names[1].clone();
-    //     // all.insert(m0.clone(), TestMarket::new(m0.clone(), ()));
-    //     // all.insert(m1.clone(), TestMarket::new(m1.clone(), ()));
-
-    //     // Insert two processors pointing at those two markets.
-    //     all.insert_processor("p0".to_string(), m0.clone());
-    //     all.insert_processor("p1".to_string(), m1.clone());
-
-    //     // We should observe only 2 markets in all_markets.markets.
-    //     let names = all.list_market_names();
-    //     assert_eq!(names.len(), 2, "expected exactly 2 markets, got {names:?}");
-    //     assert!(names.contains(&m0));
-    //     assert!(names.contains(&m1));
-    // }
 }
+ 
