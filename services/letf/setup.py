@@ -9,7 +9,7 @@ from typing import List, Tuple
 
 logging.basicConfig(level=logging.INFO)
 
-from rm.base_producer import BaseProducer
+from rm.services.base_producer import BaseProducer
 
 _logger = getLogger(__name__)
 
@@ -25,7 +25,7 @@ class SetupProducer(BaseProducer):
     def __init__(
         self,
         server_port_topic: Tuple[str, str, str] = (
-            "localhost",
+            "192.168.1.50",
             9092,
             "letf.setup",
         ),

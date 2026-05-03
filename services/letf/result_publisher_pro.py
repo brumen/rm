@@ -54,7 +54,7 @@ logging.basicConfig(level=logging.INFO)
 
 DEFAULT_TOPIC = "letf.risk"
 DEFAULT_BROKER_PORT = 9092
-DEFAULT_HOST = "192.168.1.50"
+DEFAULT_HOST = "127.0.0.1"
 
 
 @dataclass(frozen=True)
@@ -122,7 +122,9 @@ class KafkaConsumerWorker:
     Background consumer thread that pushes parsed messages into a queue.
     """
 
-    def __init__(self, cfg: KafkaConfig, metric: str, out_queue: "queue.Queue[ResultRow]"):
+    def __init__(
+        self, cfg: KafkaConfig, metric: str, out_queue: "queue.Queue[ResultRow]"
+    ):
         self._cfg = cfg
         self._metric = metric
         self._q = out_queue
@@ -146,7 +148,9 @@ class KafkaConsumerWorker:
         if self._thread and self._thread.is_alive():
             return
         self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run, name="KafkaConsumerWorker", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, name="KafkaConsumerWorker", daemon=True
+        )
         self._thread.start()
 
     def stop(self) -> None:
@@ -164,7 +168,9 @@ class KafkaConsumerWorker:
         self._paused.clear()
 
     def is_running(self) -> bool:
-        return bool(self._thread and self._thread.is_alive() and not self._stop_event.is_set())
+        return bool(
+            self._thread and self._thread.is_alive() and not self._stop_event.is_set()
+        )
 
     def _run(self) -> None:
         try:
@@ -177,7 +183,10 @@ class KafkaConsumerWorker:
                     key="system",
                     metric="error",
                     value=None,
-                    raw={"error": "Missing dependency: confluent-kafka", "detail": str(e)},
+                    raw={
+                        "error": "Missing dependency: confluent-kafka",
+                        "detail": str(e),
+                    },
                 )
             )
             return
@@ -234,15 +243,23 @@ class KafkaConsumerWorker:
             key = (
                 str(payload_d.get("trade_id"))
                 if "trade_id" in payload_d
-                else str(payload_d.get("id"))
-                if "id" in payload_d
-                else str(payload_d.get("ticker"))
-                if "ticker" in payload_d
-                else str(payload_d.get("symbol"))
-                if "symbol" in payload_d
-                else str(msg.key().decode("utf-8", errors="replace"))
-                if msg.key()
-                else "unknown"
+                else (
+                    str(payload_d.get("id"))
+                    if "id" in payload_d
+                    else (
+                        str(payload_d.get("ticker"))
+                        if "ticker" in payload_d
+                        else (
+                            str(payload_d.get("symbol"))
+                            if "symbol" in payload_d
+                            else (
+                                str(msg.key().decode("utf-8", errors="replace"))
+                                if msg.key()
+                                else "unknown"
+                            )
+                        )
+                    )
+                )
             )
 
             # Try common metric/value shapes.
@@ -414,7 +431,11 @@ class ResultApp(App):
                         ("VAR", "VAR"),
                         ("CUSTOM", "CUSTOM"),
                     ],
-                    value=self._metric if self._metric in {"PV", "PV01", "DV01", "VAR"} else "CUSTOM",
+                    value=(
+                        self._metric
+                        if self._metric in {"PV", "PV01", "DV01", "VAR"}
+                        else "CUSTOM"
+                    ),
                     id="metric_sel",
                 )
                 yield Label("Custom metric:")
@@ -422,7 +443,9 @@ class ResultApp(App):
 
             with Horizontal(classes="row controls"):
                 yield Label("Filter:")
-                yield Input(placeholder="Type to filter by key or JSON…", id="filter_in")
+                yield Input(
+                    placeholder="Type to filter by key or JSON…", id="filter_in"
+                )
                 yield Label("Status:")
                 yield StatusPill(id="status_pill")
 
@@ -432,7 +455,10 @@ class ResultApp(App):
                 yield Button("Pause", id="pause_btn", variant="warning")
                 yield Button("Clear", id="clear_btn")
                 yield Button("Export JSON", id="export_btn", variant="primary")
-                yield Label("Hotkeys: s=start, t=stop, p=pause, e=export, /=filter, q=quit", classes="hint")
+                yield Label(
+                    "Hotkeys: s=start, t=stop, p=pause, e=export, /=filter, q=quit",
+                    classes="hint",
+                )
 
         with TabbedContent():
             with TabPane("Results"):
@@ -531,14 +557,20 @@ class ResultApp(App):
         if event.input.id == "filter_in":
             self._refresh_table()
 
-    def on_result_app_export_requested(self, message: "ResultApp.ExportRequested") -> None:
+    def on_result_app_export_requested(
+        self, message: "ResultApp.ExportRequested"
+    ) -> None:
         data = [r.raw for r in self._filtered_rows()]
         try:
             with open(message.path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, default=str)
-            self._log_event({"event": "export", "path": message.path, "count": len(data)})
+            self._log_event(
+                {"event": "export", "path": message.path, "count": len(data)}
+            )
         except Exception as e:
-            self._log_event({"event": "export_failed", "path": message.path, "error": str(e)})
+            self._log_event(
+                {"event": "export_failed", "path": message.path, "error": str(e)}
+            )
             self._set_status("error")
 
     def _apply_config_from_inputs(self) -> None:
@@ -550,11 +582,15 @@ class ResultApp(App):
         metric = custom_metric if metric_choice == "CUSTOM" else str(metric_choice)
 
         # Re-create worker if config changed significantly.
-        cfg = KafkaConfig(host=host, port=self._cfg.port, topic=topic, group_id=self._cfg.group_id)
+        cfg = KafkaConfig(
+            host=host, port=self._cfg.port, topic=topic, group_id=self._cfg.group_id
+        )
         if cfg != self._cfg:
             self._worker.stop()
             self._cfg = cfg
-            self._worker = KafkaConsumerWorker(cfg=self._cfg, metric=metric, out_queue=self._q)
+            self._worker = KafkaConsumerWorker(
+                cfg=self._cfg, metric=metric, out_queue=self._q
+            )
         else:
             self._worker.metric = metric
 
@@ -571,7 +607,9 @@ class ResultApp(App):
             drained += 1
             if row.key == "system" and row.metric in {"status", "error"}:
                 if row.metric == "status":
-                    self._set_status("connected" if self.status == "disconnected" else self.status)
+                    self._set_status(
+                        "connected" if self.status == "disconnected" else self.status
+                    )
                 elif row.metric == "error":
                     self._set_status("error")
                 self._log_event(row.raw)
@@ -617,7 +655,12 @@ class ResultApp(App):
 
     def _log_event(self, obj: Any) -> None:
         logw = self.query_one("#event_log", Log)
-        logw.write(json.dumps({"ts": _utc_now().isoformat(), **_flatten_candidate_fields(obj)}, default=str))
+        logw.write(
+            json.dumps(
+                {"ts": _utc_now().isoformat(), **_flatten_candidate_fields(obj)},
+                default=str,
+            )
+        )
 
     def _clear(self) -> None:
         self._rows.clear()

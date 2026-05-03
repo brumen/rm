@@ -13,18 +13,15 @@ use crate::trade::{BaseTrade, TradeDirection};
 /// A simple perpetual swap trade priced off an underlying spot (from `LETFMarketType`),
 /// with optional initial spot set at trade creation time.
 ///
-/// Pricing convention (similar spirit to `LETFTrade`):
-/// PV = amount * (S / S0 - 1)
-///
 /// - `amount` is in USD notional (positive = long, negative = short)
-/// - `initial_spot` is the reference spot at inception (S0)
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PerpTrade {
     pub trade_id: String,
     pub underlying: String,
     pub amount: f64,
-    pub initial_spot: Option<f64>,
 }
+
+const INTEREST_RATE: f64 = 0.0001;
 
 impl fmt::Display for PerpTrade {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -73,22 +70,33 @@ impl PriceTrade<LETFMarketType> for PerpTrade {
         Some(0.0)
     }
 
+    // computes the mark price of the perp swap.
     async fn price(&self, market: Arc<LETFMarketType>) -> Option<f64> {
-        let spot = market
+        let underlying_price = market
             .get(&LETFMarketTypes::Stock(self.underlying.clone()))
             .await?;
+        let perp_price = market
+            .get(&LETFMarketTypes::Perp(self.underlying.clone()))
+            .await?;
 
-        let s0 = self.initial_spot?;
+        let numerator = (underlying_price - perp_price).abs();
+        let pi = numerator / underlying_price;
+        let interest = INTEREST_RATE - pi;
 
-        Some(self.amount * (spot / s0 - 1.0))
+        let funding_basis = interest * 1.; // 1 is funding interval hours. TO BE CORRECTED LATER.
+        let mark_price = underlying_price * (1. + funding_basis);
+
+        Some(mark_price)
     }
 
     async fn pv01(&self, market: Arc<LETFMarketType>) -> PV01Results {
+        // TODO: somewhat suboptimal, but leave it for now - spot is called 2x.
         let spot = market
             .get(&LETFMarketTypes::Stock(self.underlying.clone()))
             .await;
+        let mark_price = self.price(market.clone()).await;
 
-        match (spot, self.initial_spot) {
+        match (spot, mark_price) {
             (None, _) => {
                 warn!(
                     "pv01: PerpTrade: could not obtain underlying {:?} from the market.",
@@ -97,16 +105,14 @@ impl PriceTrade<LETFMarketType> for PerpTrade {
                 PV01Results::new()
             }
             (_, None) => {
-                warn!("pv01: PerpTrade: missing initial spot (initial_spot)");
+                warn!("pv01: PerpTrade: missing perp price");
                 PV01Results::new()
             }
-            (Some(_spot), Some(s0)) => {
-                // PV = amount * (S/S0 - 1)
-                // dPV/dS = amount * (1/S0)
+            (Some(real_spot), Some(real_mark)) => {
                 let mut pv01_result = PV01Results::new();
                 let _ = pv01_result.insert(
                     self.trade_id.clone(),
-                    PortfolioType::from([(self.underlying.clone(), self.amount / s0)]),
+                    PortfolioType::from([(self.underlying.clone(), real_mark / real_spot)]),
                 );
                 debug!("_pv01: Perp trade: {:?}", pv01_result);
                 pv01_result

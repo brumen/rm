@@ -87,6 +87,32 @@ impl<T: MarketTypeT> MarketTypeT for Arc<T> {
     }
 }
 
+// TODO: TO BE IMPLEMENTED AS SOON AS WE HAVE .market exposed on the trait.
+// impl<T: MarketTypeT> PartialEq for T {
+//     fn eq(&self, other: &Self) -> bool {
+//         if self.market_name != other.market_name {
+//             return false;
+//         }
+
+//         // TODO: HERE HAS TO CHANGE
+//         for self_entry in self.market.iter() {
+//             let self_key = self_entry.key();
+//             if !other.market.contains_key(self_key) {
+//                 return false;
+//             }
+//         }
+
+//         for other_entry in other.market.iter() {
+//             let other_key = other_entry.key();
+//             if !self.market.contains_key(other_key) {
+//                 return false;
+//             }
+//         }
+
+//         true
+//     }
+// }
+
 #[derive(Error, Debug)]
 pub enum MarketTypeError {
     #[error("General Market Error")]

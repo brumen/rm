@@ -133,6 +133,7 @@ where
         Self: Send;
     async fn needs_recompute(&self, market_old: Arc<MT>, market_new: Arc<MT>) -> bool; // whether the trade needs recompute on the new market
     async fn price(&self, market: Arc<MT>) -> Option<f64>;
+    // TODO: pv01 has to be changed to return Option<PV01Results>
     async fn pv01(&self, market: Arc<MT>) -> PV01Results;
     async fn pnl(&self, market: Arc<MT>) -> Option<f64> {
         let initial_pv_val = self.initial_pv().await?;

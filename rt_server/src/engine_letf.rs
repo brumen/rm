@@ -74,7 +74,9 @@ where
         )
         .await;
 
-    let last_middle = processor_actors.last().unwrap().clone(); // last middle processor
+    // takes the last middle processor, if there are no
+    //   middle processors, takes the current one.
+    let last_middle = processor_actors.last().unwrap_or(&_processor_curr_a);
 
     actors_middle_msg.extend(processor_actors.clone());
 
@@ -153,10 +155,12 @@ where
     all_futures.append(&mut processor_actor_futures); // middle processors
 
     // (actors_middle_msg, all_futures, state_distr_new)
-    let state_distr_presented = middle_state_distr_vec.last().unwrap();
+    // TODO: CHECK HERE IF state_distr_new is correct, but it's currently
+    //   not used anyways.
+    // let state_distr_presented = middle_state_distr_vec.last().unwrap();
     (
         actors_middle_msg,
         all_futures,
-        state_distr_presented.clone(),
+        state_distr_new, // state_distr_presented.clone(),
     )
 }

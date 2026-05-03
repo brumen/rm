@@ -4,7 +4,7 @@ use rdkafka::producer::FutureProducer;
 use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
 use std::sync::Arc;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
@@ -216,14 +216,27 @@ where
                 );
                 for pm in state.pricing_results.clone() {
                     let valued_trade_pm = trade_info.value_by_metric(pm, market_info.clone()).await;
-                    let portf_pm = state.portfolio.get_mut(&pm).unwrap();
-                    *portf_pm += valued_trade_pm;
+                    if let Some(portf_pm) = state.portfolio.get_mut(&pm) {
+                        *portf_pm += valued_trade_pm;
+                    } else {
+                        // for now just print warning.
+                        error!(
+                            "Could not find pricing metric {:?} in the state portfolio",
+                            pm
+                        );
+                    }
                 }
 
                 for pm in state.pricing_results.clone() {
-                    let portf_pm = state.portfolio.get_mut(&pm).unwrap();
-                    // publishing the portfolio to kafka.
-                    self._publish_result_portfolio(portf_pm.clone(), pm).await?
+                    if let Some(portf_pm) = state.portfolio.get_mut(&pm) {
+                        // publishing the portfolio to kafka.
+                        self._publish_result_portfolio(portf_pm.clone(), pm).await?
+                    } else {
+                        error!(
+                            "Could not find pricing metric {:?} in state portfolio. Investigate.",
+                            pm
+                        )
+                    }
                 }
             }
 

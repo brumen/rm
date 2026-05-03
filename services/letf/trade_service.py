@@ -7,7 +7,7 @@ import numpy as np
 from typing import Tuple, List
 from time import sleep
 
-from rm.base_producer import BaseProducer
+from rm.services.base_producer import BaseProducer
 
 
 class LETFTradeProducer(BaseProducer):

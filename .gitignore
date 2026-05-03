@@ -12,3 +12,4 @@ rt_server/src/.*~
 *~undo-tree~
 *target*
 *venv*
+.env

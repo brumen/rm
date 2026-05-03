@@ -1,5 +1,5 @@
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
-use rdkafka::consumer::StreamConsumer;
+use rdkafka::consumer::{Consumer, StreamConsumer};
 use std::ops::AddAssign;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -62,6 +62,12 @@ where
         myself: ActorRef<Self::Msg>,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        //
+        info!(
+            "Consumer subscribed to {:?}",
+            self.mkt_listener.subscription()?
+        );
+
         info!("Waiting on first message. Enable debug to display messages.");
         let new_mkt_msg = self.mkt_listener.recv().await?;
         let (item_name, item_val) = <(MT::MK, f64)>::try_from_ref(&new_mkt_msg)?;
