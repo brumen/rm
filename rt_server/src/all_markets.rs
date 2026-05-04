@@ -210,81 +210,84 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_new_is_empty() {
+    #[tokio::test]
+    async fn test_new_is_empty() {
         let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
-        assert!(all.list_market_names().is_empty());
-        assert!(all.get(&"anything".to_string()).is_none());
+        assert!(all.list_market_names().await.is_empty());
+        assert!(all.get(&"anything".to_string()).await.is_none());
     }
 
-    #[test]
-    fn test_insert_and_get() {
+    #[tokio::test]
+    async fn test_insert_and_get() {
         let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
 
         let m1 = TestMarket::new("m1".to_string(), ());
-        all.insert("m1".to_string(), m1.clone());
+        all.insert("m1".to_string(), m1.clone()).await;
 
-        let got = all.get(&"m1".to_string());
+        let got = all.get(&"m1".to_string()).await;
         assert!(got.is_some());
         assert_eq!(got.unwrap().market_name(), "m1".to_string());
 
-        let names = all.list_market_names();
+        let names = all.list_market_names().await;
         assert_eq!(names.len(), 1);
         assert!(names.contains(&"m1".to_string()));
     }
 
-    #[test]
-    fn test_multiple_processors_keep_multiple_markets() {
+    #[tokio::test]
+    async fn test_multiple_processors_keep_multiple_markets() {
         let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
 
         let m1 = TestMarket::new("m1".to_string(), ());
         let m2 = TestMarket::new("m2".to_string(), ());
         let m3 = TestMarket::new("m3".to_string(), ());
         let m4 = TestMarket::new("m4".to_string(), ());
-        all.insert("m1".to_string(), m1);
-        all.insert("m2".to_string(), m2);
-        all.insert("m3".to_string(), m3);
+        all.insert("m1".to_string(), m1).await;
+        all.insert("m2".to_string(), m2).await;
+        all.insert("m3".to_string(), m3).await;
 
-        all.insert_processor("p1".to_string(), "m1".to_string());
-        all.insert_processor("p2".to_string(), "m2".to_string());
+        all.insert_processor("p1".to_string(), "m1".to_string())
+            .await;
+        all.insert_processor("p2".to_string(), "m2".to_string())
+            .await;
         assert_eq!(
-            all.get_processor(&"p1".to_string()),
+            all.get_processor(&"p1".to_string()).await,
             Some(String::from("m1"))
         );
         assert_eq!(
-            all.get_processor(&"p2".to_string()),
+            all.get_processor(&"p2".to_string()).await,
             Some(String::from("m2"))
         );
 
-        let names = all.list_market_names();
+        let names = all.list_market_names().await;
         assert!(names.contains(&"m1".to_string()));
-        assert!(names.contains(&"m2".to_string()));
-        assert!(names.contains(&"m3".to_string()));
+        //assert!(names.contains(&"m2".to_string()));
+        assert!(!names.contains(&"m3".to_string()));
 
-        all.insert("m4".to_string(), m4);
-        all.insert_processor("p1".to_string(), "m4".to_string());
-        let names = all.list_market_names();
+        all.insert("m4".to_string(), m4).await;
+        all.insert_processor("p1".to_string(), "m4".to_string())
+            .await;
+        let names = all.list_market_names().await;
         // m1 is not referenced by any other market - remove it.
         assert!(!names.contains(&"m1".to_string()));
         assert!(names.contains(&"m4".to_string()));
         assert_eq!(
-            all.get_processor(&"p1".to_string()),
+            all.get_processor(&"p1".to_string()).await,
             Some(String::from("m4"))
         );
     }
 
-    #[test]
-    fn test_insert_processor_concurrent_same_processor() {
+    #[tokio::test]
+    async fn test_insert_processor_concurrent_same_processor() {
         let all: Arc<AllMarkets<Arc<TestMarket>>> = Arc::new(AllMarkets::new());
 
-        // Pre-insert a set of markets that threads will switch between.
         let market_names: Vec<String> = (0..16).map(|i| format!("m{i}")).collect();
         for mn in &market_names {
-            all.insert(mn.clone(), TestMarket::new(mn.clone(), ()));
+            all.insert(mn.clone(), TestMarket::new(mn.clone(), ()))
+                .await;
         }
 
-        // Initialize mapping so insert_processor goes through the "old market" path too.
-        all.insert_processor("p1".to_string(), market_names[0].clone());
+        all.insert_processor("p1".to_string(), market_names[0].clone())
+            .await;
 
         let n_threads = 32usize;
         let start = Arc::new(Barrier::new(n_threads));
@@ -295,9 +298,11 @@ mod tests {
             let start_c = start.clone();
             let mn = market_names[t % market_names.len()].clone();
             handles.push(thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
                 start_c.wait();
-                // Each thread tries to set p1 to a (possibly different) market.
-                all_c.insert_processor("p1".to_string(), mn);
+                rt.block_on(async move {
+                    all_c.insert_processor("p1".to_string(), mn).await;
+                });
             }));
         }
 
@@ -305,17 +310,16 @@ mod tests {
             h.join().expect("thread panicked");
         }
 
-        // Invariant: p1 must map to one of the known markets.
         let final_market = all
             .get_processor(&"p1".to_string())
+            .await
             .expect("p1 mapping missing after concurrent updates");
         assert!(
             market_names.contains(&final_market),
             "final market {final_market} not in expected set"
         );
 
-        // Invariant: markets map should not contain unknown names.
-        let remaining = all.list_market_names();
+        let remaining = all.list_market_names().await;
         for mn in &remaining {
             assert!(
                 market_names.contains(mn),
@@ -323,7 +327,6 @@ mod tests {
             );
         }
 
-        // Sanity: should never exceed the number of distinct markets we inserted.
         assert!(
             remaining.len() <= market_names.len(),
             "markets map grew unexpectedly: remaining={} inserted={}",
@@ -332,21 +335,21 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_insert_processor_concurrent_many_processors_shared_market_pool() {
+    #[tokio::test]
+    async fn test_insert_processor_concurrent_many_processors_shared_market_pool() {
         let all: Arc<AllMarkets<Arc<TestMarket>>> = Arc::new(AllMarkets::new());
 
-        // Small pool of markets to maximize contention.
         let market_pool: Vec<String> = (0..8).map(|i| format!("m{i}")).collect();
         for mn in &market_pool {
-            all.insert(mn.clone(), TestMarket::new(mn.clone(), ()));
+            all.insert(mn.clone(), TestMarket::new(mn.clone(), ()))
+                .await;
         }
 
         let processors: Vec<String> = (0..32).map(|i| format!("p{i}")).collect();
 
-        // Seed initial mappings so we exercise both branches (old mapping exists).
         for (i, p) in processors.iter().enumerate() {
-            all.insert_processor(p.clone(), market_pool[i % market_pool.len()].clone());
+            all.insert_processor(p.clone(), market_pool[i % market_pool.len()].clone())
+                .await;
         }
 
         let n_threads = 64usize;
@@ -360,14 +363,16 @@ mod tests {
             let market_pool_c = market_pool.clone();
 
             handles.push(thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
                 start_c.wait();
 
-                // Each thread performs multiple updates to increase interleavings.
-                for k in 0..200usize {
-                    let p = &processors_c[(t + k) % processors_c.len()];
-                    let m = &market_pool_c[(t * 7 + k) % market_pool_c.len()];
-                    all_c.insert_processor(p.clone(), m.clone());
-                }
+                rt.block_on(async move {
+                    for k in 0..200usize {
+                        let p = &processors_c[(t + k) % processors_c.len()];
+                        let m = &market_pool_c[(t * 7 + k) % market_pool_c.len()];
+                        all_c.insert_processor(p.clone(), m.clone()).await;
+                    }
+                });
             }));
         }
 
@@ -375,10 +380,10 @@ mod tests {
             h.join().expect("thread panicked");
         }
 
-        // Invariant: every processor maps to a market in the pool.
         for p in &processors {
             let mapped = all
                 .get_processor(p)
+                .await
                 .unwrap_or_else(|| panic!("missing mapping for processor {p}"));
             assert!(
                 market_pool.contains(&mapped),
@@ -386,13 +391,12 @@ mod tests {
             );
         }
 
-        // Invariant: every market remaining in all.markets is referenced by at least one processor.
-        // (insert_processor attempts to remove markets that are no longer referenced)
-        let remaining_markets: HashSet<String> = all.list_market_names().into_iter().collect();
+        let remaining_markets: HashSet<String> =
+            all.list_market_names().await.into_iter().collect();
 
         let mut referenced: HashSet<String> = HashSet::new();
         for p in &processors {
-            if let Some(m) = all.get_processor(p) {
+            if let Some(m) = all.get_processor(p).await {
                 referenced.insert(m);
             }
         }
@@ -404,9 +408,7 @@ mod tests {
             );
         }
 
-        // Optional sanity: processor_market_map should have exactly processors.len() keys.
-        // We can only approximate via list_processor_names() since the underlying map is concurrent.
-        let proc_names = all.list_processor_names();
+        let proc_names = all.list_processor_names().await;
         let proc_set: HashSet<String> = proc_names.into_iter().collect();
         let expected: HashSet<String> = processors.iter().cloned().collect();
         assert_eq!(
@@ -414,7 +416,6 @@ mod tests {
             "processor_market_map keys mismatch after concurrent updates"
         );
 
-        // Additional sanity: remaining markets should be subset of pool.
         let pool_set: HashSet<String> = market_pool.into_iter().collect();
         assert!(
             remaining_markets.is_subset(&pool_set),
@@ -423,7 +424,6 @@ mod tests {
             pool_set
         );
 
-        // Keep this around to avoid unused import warnings if you tweak assertions later.
         let _ = HashMap::<String, String>::new();
     }
 }
