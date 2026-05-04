@@ -199,7 +199,7 @@ where
                     self.all_markets.processor_market_map,
                 );
 
-                let Some(market_actual) = self.all_markets.get(&market) else {
+                let Some(market_actual) = self.all_markets.get(&market).await else {
                     warn!("Could not get market {}. Abandoning pricing.", market);
                     // if curr_mkt == None, we couldnt get the market, abandon the attempts
                     sending_processor.send_message(ProcessorMiddleMessage::BulkReceive((

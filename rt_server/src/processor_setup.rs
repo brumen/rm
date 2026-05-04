@@ -104,12 +104,12 @@ async fn portfolio_handler(State(state): State<DiagnosticsState>) -> String {
 }
 
 async fn market_handler(State(state): State<DiagnosticsState>) -> String {
-    let market_names = state.all_markets.list_market_names();
+    let market_names = state.all_markets.list_market_names().await;
     format!("Markets: {:?}", market_names)
 }
 
 async fn market_map_handler(State(state): State<DiagnosticsState>) -> String {
-    let market_map_names = state.all_markets.list_processor_names();
+    let market_map_names = state.all_markets.list_processor_names().await;
     format!("Market map: {:?}", market_map_names)
 }
 
@@ -126,12 +126,12 @@ async fn price_handler(
     let market_name = params.market;
     let trade_id = params.trade_id;
 
-    let market = match state.all_markets.get(&market_name) {
+    let market = match state.all_markets.get(&market_name).await {
         None => {
             return format!(
                 "ERROR: market '{}' not found. Available markets: {:?}",
                 market_name,
-                state.all_markets.list_market_names()
+                state.all_markets.list_market_names().await
             );
         }
         Some(m) => m,

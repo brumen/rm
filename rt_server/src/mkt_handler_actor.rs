@@ -49,10 +49,12 @@ where
         let fut_mkt = MT::new(fut_mkt_tag.to_string(), mp.clone());
 
         info!("Adding initial _future_ market to all_markets.");
-        self.all_markets.insert(
-            "future".to_string(), // market is inserted at "future" entry
-            fut_mkt.clone(),
-        );
+        self.all_markets
+            .insert(
+                "future".to_string(), // market is inserted at "future" entry
+                fut_mkt.clone(),
+            )
+            .await;
 
         Ok((*fut_mkt).clone()) // state after initialization is empty market.
     }
@@ -97,11 +99,13 @@ where
         debug!("Inserting future ({}) into all_markets", new_name);
 
         // insert the maket under new_name.
-        self.all_markets.insert("future".to_string(), market_sent);
+        self.all_markets
+            .insert("future".to_string(), market_sent)
+            .await;
 
         info!(
             "Current markets: {:?}",
-            self.all_markets.list_market_names()
+            self.all_markets.list_market_names().await
         );
         debug!(
             "Current processor-market map: {:?}",

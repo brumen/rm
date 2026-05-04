@@ -82,7 +82,7 @@ where
             return Ok(());
         };
 
-        let Some(market_info) = self.all_markets.get(real_market) else {
+        let Some(market_info) = self.all_markets.get(real_market).await else {
             warn!("Could not get market {}. Weird - Continuing.", real_market);
             return Ok(());
         };
@@ -166,7 +166,8 @@ where
             );
 
             self.all_markets
-                .insert_processor(self.processor_name.clone(), market_behind.clone());
+                .insert_processor(self.processor_name.clone(), market_behind.clone())
+                .await;
             state.curr_market = Some(market_behind.clone());
             // self.processor_bulk
             //     .send_message(ProcessorBulkMessage::NewBulk((
@@ -175,7 +176,7 @@ where
             //         myself,
             //         state.pricing_metrics.clone(),
             //     )))?;
-            let Some(market_actual) = self.all_markets.get(&market_behind) else {
+            let Some(market_actual) = self.all_markets.get(&market_behind).await else {
                 warn!("Could not get market {:?}", market_behind);
                 return Ok(());
             };
@@ -192,7 +193,7 @@ where
             return Ok(());
         };
 
-        let Some(real_market_actual) = self.all_markets.get(real_market) else {
+        let Some(real_market_actual) = self.all_markets.get(real_market).await else {
             error!("WEIRD WEIRD - Investigate. Shouldnt happen");
             return Ok(());
         };
@@ -283,7 +284,8 @@ where
         state.curr_market = Some(new_market.clone());
         state.trades_since_ntp = 0; // reset the trades_since_ntp
         self.all_markets
-            .insert_processor(self.processor_name.clone(), new_market.clone());
+            .insert_processor(self.processor_name.clone(), new_market.clone())
+            .await;
 
         // new_behind_curr is empty, replace the portfolio w/ the received one.
         // ntp is ahead of the current portfolio.
@@ -294,7 +296,7 @@ where
         // compute the potential added trades.
         if !new_behind_curr.is_empty() {
             // compute the new_behind_curr and then send it lower.
-            let Some(new_market_actual) = self.all_markets.get(&new_market) else {
+            let Some(new_market_actual) = self.all_markets.get(&new_market).await else {
                 return Ok(());
             };
 

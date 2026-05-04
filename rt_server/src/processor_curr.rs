@@ -200,7 +200,7 @@ where
                     return Ok(());
                 };
 
-                let Some(market_info) = self.all_markets.get(real_market) else {
+                let Some(market_info) = self.all_markets.get(real_market).await else {
                     warn!(
                         "Could not find market {}. Ignoring the new trade pricing.",
                         real_market
@@ -275,7 +275,7 @@ where
 
                 // compute those additional trades
                 if (ntp_portf_behind > 0) & ntp_portf_acc {
-                    let Some(ntp_market_actual) = self.all_markets.get(&ntp_market) else {
+                    let Some(ntp_market_actual) = self.all_markets.get(&ntp_market).await else {
                         warn!("Could not get NTP market {:?}", ntp_market);
                         return Ok(());
                     };

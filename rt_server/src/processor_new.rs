@@ -99,7 +99,7 @@ where
             return Ok(());
         };
         // condition if we can find new_m in the all_markets.
-        let Some(new_m_actual) = self.all_markets.get(new_m_real) else {
+        let Some(new_m_actual) = self.all_markets.get(new_m_real).await else {
             warn!(
                 "Market {} not in all_markets. Continuing w/o processing.",
                 new_m_real
@@ -186,11 +186,13 @@ where
                 info!("New_m is None, doing: New_m <- {}", market_behind.clone());
                 state.new_market = Some(market_behind.clone());
                 self.all_markets
-                    .insert_processor(self.processor_name.clone(), market_behind);
+                    .insert_processor(self.processor_name.clone(), market_behind)
+                    .await;
             }
             Some(ref real_market) => {
                 self.all_markets
-                    .insert_processor(self.processor_name.clone(), real_market.to_string());
+                    .insert_processor(self.processor_name.clone(), real_market.to_string())
+                    .await;
             }
         }
 
@@ -200,7 +202,7 @@ where
             return Ok(());
         };
 
-        let Some(new_m_actual) = self.all_markets.get(new_m_real) else {
+        let Some(new_m_actual) = self.all_markets.get(new_m_real).await else {
             warn!("Doesnt have market. Ignoring.");
             return Ok(());
         };
@@ -453,7 +455,7 @@ where
                         state.portfolio = PmPortfolio::new();
 
                         // this shouldnt fail, but we have a failsafe
-                        let Some(future_market) = self.all_markets.get(&"future".to_string())
+                        let Some(future_market) = self.all_markets.get(&"future".to_string()).await
                         else {
                             warn!(
                                 "Could not find 'future' market. This is weird. Continuing w/o it."
@@ -468,11 +470,13 @@ where
                             future_market_name.clone()
                         );
                         state.new_market = Some(future_market_name.clone());
-                        self.all_markets.insert_both(
-                            self.processor_name.clone(),
-                            future_market_name.clone(),
-                            future_market,
-                        );
+                        self.all_markets
+                            .insert_both(
+                                self.processor_name.clone(),
+                                future_market_name.clone(),
+                                future_market,
+                            )
+                            .await;
 
                         debug!("Going to CalculatingBulk.");
                         // let Some(new_market_actual) = self.all_markets.get(&future_market_name)

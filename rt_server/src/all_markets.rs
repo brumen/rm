@@ -32,22 +32,25 @@ where
     MT::MP: Clone,
 {
     // list the markets that are currently held - in self.markets
-    pub(crate) fn list_market_names(&self) -> Vec<String> {
+    pub(crate) async fn list_market_names(&self) -> Vec<String> {
         let mut market_names = vec![];
-        self.markets.iter_sync(|market_name: &String, _| {
-            market_names.push(market_name.clone()); // TODO: FIX THIS AT SOME POINT.
-            true
-        });
+        self.markets
+            .iter_async(|market_name: &String, _| {
+                market_names.push(market_name.clone()); // TODO: FIX THIS AT SOME POINT.
+                true
+            })
+            .await;
         market_names
     }
 
-    pub(crate) fn list_processor_names(&self) -> Vec<String> {
+    pub(crate) async fn list_processor_names(&self) -> Vec<String> {
         let mut processor_names = vec![];
         self.processor_market_map
-            .iter_sync(|processor_name: &String, _| {
+            .iter_async(|processor_name: &String, _| {
                 processor_names.push(processor_name.clone()); // TODO: FIX THIS AT SOME POINT.
                 true
-            });
+            })
+            .await;
         processor_names
     }
 
@@ -61,23 +64,27 @@ where
     }
 
     /// gets the market with the name market_name
-    pub(crate) fn get(&self, market_name: &String) -> Option<MT> {
-        let actual_market = self.markets.read_sync(market_name, |_, v| v.clone())?;
+    pub(crate) async fn get(&self, market_name: &String) -> Option<MT> {
+        let actual_market = self
+            .markets
+            .read_async(market_name, |_, v| v.clone())
+            .await?;
         Some(actual_market.clone()) // .clone here is OK, since we're using it on Arc (MT = Arc<...>)
     }
 
-    pub(crate) fn get_processor(&self, processor_name: &String) -> Option<String> {
+    pub(crate) async fn get_processor(&self, processor_name: &String) -> Option<String> {
         self.processor_market_map
-            .read_sync(processor_name, |_, v| v.clone())
+            .read_async(processor_name, |_, v| v.clone())
+            .await
     }
 
     // inserts the market into the all structure.
-    pub(crate) fn insert(&self, market_name: String, market: MT) {
-        self.markets.upsert_sync(market_name.clone(), market);
+    pub(crate) async fn insert(&self, market_name: String, market: MT) {
+        self.markets.upsert_async(market_name.clone(), market).await;
         debug!(
             "Inserting {} into all_market. All_markets: {:?}",
             market_name,
-            self.list_market_names(),
+            self.list_market_names().await,
         );
     }
 
@@ -86,29 +93,37 @@ where
     ///
     /// This is useful if `self.markets` may contain many "stale" markets and you want the set of
     /// stored markets to reflect only what processors are actively using.
-    pub(crate) fn insert_processor(&self, processor_name: String, new_processor_market: String) {
+    pub(crate) async fn insert_processor(
+        &self,
+        processor_name: String,
+        new_processor_market: String,
+    ) {
         // First, update the processor -> market mapping (upsert).
         let _ = self
             .processor_market_map
-            .upsert_sync(processor_name, new_processor_market);
+            .upsert_async(processor_name, new_processor_market)
+            .await;
 
         // Build the set of all markets referenced by any processor.
         let mut referenced_markets: std::collections::HashSet<String> =
             std::collections::HashSet::new();
         self.processor_market_map
-            .iter_sync(|_proc_name: &String, market_name: &String| {
+            .iter_async(|_proc_name: &String, market_name: &String| {
                 referenced_markets.insert(market_name.clone());
                 true
-            });
+            })
+            .await;
 
         // Remove any market in `self.markets` that is not referenced.
         let mut to_remove: Vec<String> = Vec::new();
-        self.markets.iter_sync(|market_name: &String, _| {
-            if !referenced_markets.contains(market_name) {
-                to_remove.push(market_name.clone());
-            }
-            true
-        });
+        self.markets
+            .iter_async(|market_name: &String, _| {
+                if !referenced_markets.contains(market_name) {
+                    to_remove.push(market_name.clone());
+                }
+                true
+            })
+            .await;
 
         for market_name in to_remove {
             if market_name == "future" {
@@ -118,14 +133,19 @@ where
                 "Pruning market: {}. (not referenced by any processor.)",
                 market_name,
             );
-            self.markets.remove_sync(&market_name);
+            self.markets.remove_async(&market_name).await;
         }
     }
 
     // this is when the processor changes to a new market market_name w/ market
-    pub(crate) fn insert_both(&self, processor_name: String, market_name: String, market: MT) {
-        self.insert(market_name.clone(), market);
-        self.insert_processor(processor_name, market_name);
+    pub(crate) async fn insert_both(
+        &self,
+        processor_name: String,
+        market_name: String,
+        market: MT,
+    ) {
+        self.insert(market_name.clone(), market).await;
+        self.insert_processor(processor_name, market_name).await;
     }
 }
 
