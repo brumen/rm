@@ -57,7 +57,7 @@ where
     T: PriceTrade<MT> + 'static + Clone,
 {
     // this prices the trades in sequence.
-    async fn price_multiple(
+    async fn price_multiple_seq(
         &self,
         new_trades: HashSet<String>,         // trades to price
         pricing_metrics: Vec<PricingMetric>, // metrics to price on
@@ -88,7 +88,7 @@ where
 
     // processes trades in a parallel fashion, parameters the same as above.
     // TODO: Clones the trades, which could possibly be removed.
-    async fn price_multiple_seq(
+    async fn price_multiple_parallel(
         &self,
         new_trades: HashSet<String>,
         pricing_metrics: Vec<PricingMetric>,
@@ -97,18 +97,15 @@ where
     ) -> PmPortfolio {
         let mut portfolio = PmPortfolio::new();
 
-        // gather the reference to trades.
         let mut curr_trades = vec![];
-        for used_trade in new_trades.iter() {
-            match all_trades.read_async(used_trade, |_, v| v.clone()).await {
-                None => {
-                    error!("Couldnt get trade {:?}", used_trade);
-                }
-                Some(used_trade_real) => {
-                    curr_trades.push(used_trade_real);
-                }
+        let _ = all_trades.iter_async(|trade_name, trade_val| {
+            if new_trades.contains(trade_name) {
+                curr_trades.push(trade_val.clone());
+            } else {
+                error!("Couldnt get trade {:?}", trade_name);
             }
-        }
+            true
+        });
 
         // for each pricing metric, gather the futures for that metric.
         for pm in &pricing_metrics {

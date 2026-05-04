@@ -206,7 +206,7 @@ where
         };
 
         let bulk_portfolio = self
-            .price_multiple_seq(
+            .price_multiple_parallel(
                 trades_behind,
                 state.pricing_metrics.clone(),
                 new_m_actual,

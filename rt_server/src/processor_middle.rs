@@ -180,7 +180,7 @@ where
                 return Ok(());
             };
             let bulk_portfolio = self
-                .price_multiple_seq(
+                .price_multiple_parallel(
                     state.trades.clone(),
                     state.pricing_metrics.clone(),
                     market_actual,
@@ -199,7 +199,7 @@ where
 
         // add the additional trades to the portfolio.
         let additional_portfolio = self
-            .price_multiple_seq(
+            .price_multiple_parallel(
                 trades_behind,
                 state.pricing_metrics.clone(),
                 real_market_actual,
@@ -299,7 +299,7 @@ where
             };
 
             let added_portfolio = self
-                .price_multiple_seq(
+                .price_multiple_parallel(
                     new_behind_curr,
                     state.pricing_metrics.clone(),
                     new_market_actual,
