@@ -25,7 +25,7 @@ class SetupProducer(BaseProducer):
     def __init__(
         self,
         server_port_topic: Tuple[str, str, str] = (
-            "192.168.1.50",
+            "127.0.0.1",  # "192.168.1.50",
             9092,
             "letf.setup",
         ),
@@ -58,5 +58,6 @@ class SetupProducer(BaseProducer):
 
 
 if __name__ == "__main__":
-    setup_producer = SetupProducer.from_env()
+    # setup_producer = SetupProducer.from_env()
+    setup_producer = SetupProducer()
     setup_producer.send_metrics(["PV"])

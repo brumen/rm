@@ -75,7 +75,7 @@ where
             .read_async(&new_trade, |_, v| v.clone())
             .await
             .ok_or("Message: NewTrade: Trade not found")?;
-        info!("Message: NewTrade {}", trade_info.id());
+        debug!("Message: NewTrade {}", trade_info.id());
 
         let Some(ref real_market) = state.curr_market else {
             warn!("Processor does not have market. Ignoring.");
@@ -105,7 +105,7 @@ where
 
         // we send the computed portfolio & trades to the processor below
         //   hoping that we are ahead.
-        info!(
+        debug!(
             "Sending portfolio {:?} to processor {:?}.",
             state.pricing_results.simple(),
             self.processor_below.get_name(),
@@ -139,14 +139,14 @@ where
         if trades_behind.is_empty() {
             // this processor below is ahead, reset the
             //    processor to the new Idle state.
-            info!("Processor below accepted portfolio.");
+            debug!("Processor below accepted portfolio.");
             return Ok(());
         }
 
         // we are still behind the below processor.
         //   we add the trades to the trade list, and
         //   send it to the bulk processor.
-        info!(
+        debug!(
             "Message: Behind: {} trades. Adding those trades to current population.",
             trades_behind.len(),
         );
@@ -510,7 +510,7 @@ where
                     .state_distr
                     .incr_one(ProcessorMiddleMessageStates::BulkBusy);
 
-                info!("Message: BulkBusy. Ignore for now.");
+                warn!("Message: BulkBusy. Ignore for now.");
             }
 
             (ProcessorMiddleMessage::ProcessingStat(_), _) => {

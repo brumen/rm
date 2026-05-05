@@ -73,7 +73,7 @@ where
         state: &mut _ProcessorNewStateful,
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
-        info!("CalculatingSingle, Computing trade {}.", new_trade);
+        debug!("CalculatingSingle, Computing trade {}.", new_trade);
         state.trades.insert(new_trade.clone()); // we add the trade to the list.
 
         if state.pricing_metrics.is_empty() {
@@ -120,7 +120,7 @@ where
 
         // we send the computed portfolio & trades to the current processor
         //   hoping that we are ahead.
-        info!(
+        debug!(
             "Sending to {:?}: trade# = {}, portf # = {:?}, new_m = {:?}.",
             self.processor_middle.get_name(),
             state.trades.len(),
@@ -148,7 +148,7 @@ where
         _myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
         // TODO: To improve in the future. remember that a trade was added here.
-        info!(
+        debug!(
             "Adding trade {}, not doing anything more.",
             new_trade.clone()
         );
@@ -183,7 +183,7 @@ where
         // trades_behind != empty
         match &state.new_market {
             None => {
-                info!("New_m is None, doing: New_m <- {}", market_behind.clone());
+                debug!("New_m is None, doing: New_m <- {}", market_behind.clone());
                 state.new_market = Some(market_behind.clone());
                 self.all_markets
                     .insert_processor(self.processor_name.clone(), market_behind)
@@ -270,7 +270,7 @@ where
                 state.new_market.clone().unwrap(),
                 myself,
             )))?;
-        info!("New State: {} -> Idle", state.processor_state);
+        debug!("New State: {} -> Idle", state.processor_state);
         state.processor_state = ProcessorNewState::CalculatingSingle;
         Ok(())
     }
@@ -298,7 +298,7 @@ where
 
         match state.new_market {
             Some(ref new_m_str) if new_m_str == &_bulk_market => {
-                info!("Markets match. Will merge computation results.");
+                debug!("Markets match. Will merge computation results.");
                 // merging.
                 // _bulk and new_m are the same, merge the trades.
 
@@ -311,7 +311,7 @@ where
                     state.trades.len(),
                 );
 
-                info!(
+                debug!(
                     "Sending to processor {:?} portfolio: {:?}",
                     self.processor_middle.get_name(),
                     state.portfolio,
@@ -416,7 +416,7 @@ where
         //let (trade_l, trades_non_pricing, portf, pns, new_m, pricing_metrics) = state;
         match message {
             ProcessorMiddleMessage::NewTrade(new_trade) => {
-                info!("Message: NewTrade({:?})", new_trade);
+                debug!("Message: NewTrade({:?})", new_trade);
                 // incremenet the state_distr variable.
                 state
                     .state_distr
@@ -512,7 +512,7 @@ where
                     .state_distr
                     .incr_one(ProcessorMiddleMessageStates::Behind);
 
-                info!(
+                debug!(
                     "Message: Behind. Market: {:?}, trades_beind: {:?}",
                     market_behind,
                     trades_behind.len()
@@ -552,7 +552,7 @@ where
                     .state_distr
                     .incr_one(ProcessorMiddleMessageStates::BulkReceive);
 
-                info!(
+                debug!(
                     "Message: BulkReceive: Portfolio: {:?}",
                     computed_portf.simple()
                 );

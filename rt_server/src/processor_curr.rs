@@ -96,7 +96,7 @@ where
         // error is the Kafka error
         // OwnedMessage - copy of the original message.
         // Result<(i32, i64), (KafkaError, OwnedMessage)>;
-        info!("Publishing portfolio: size {}", portf.len());
+        debug!("Publishing portfolio: size {}", portf.len());
         match self
             .result_publisher
             .send(portf_record, Timeout::Never)
@@ -291,7 +291,7 @@ where
                 } // otherwise we dont need to compute them.
 
                 if ntp_portf_acc {
-                    info!(
+                    debug!(
                         "NTP portfolio accepted ({:?}). Publishing.",
                         ntp_portfolio.simple()
                     );
@@ -310,7 +310,8 @@ where
                         if *old_market != ntp_market {
                             let _ = self
                                 .all_markets
-                                .insert_processor(self.processor_name.clone(), ntp_market.clone());
+                                .insert_processor(self.processor_name.clone(), ntp_market.clone())
+                                .await;
                         }
                     };
 
