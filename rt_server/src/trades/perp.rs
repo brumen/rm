@@ -56,14 +56,17 @@ impl PriceTrade<LETFMarketType> for PerpTrade {
         market_old: Arc<LETFMarketType>,
         market_new: Arc<LETFMarketType>,
     ) -> bool {
-        let s_old = market_old
-            .get(&LETFMarketTypes::Stock(self.underlying.clone()))
-            .await;
-        let s_new = market_new
-            .get(&LETFMarketTypes::Stock(self.underlying.clone()))
-            .await;
+        let stock = self.underlying.clone();
+        let stock_letf = LETFMarketTypes::Stock(stock.clone());
 
-        s_new != s_old
+        let s_old = market_old.get(&stock_letf).await;
+        let s_new = market_new.get(&stock_letf).await;
+
+        let perp_letf = LETFMarketTypes::Perp(stock.clone());
+        let perp_old = market_old.get(&perp_letf).await;
+        let perp_new = market_new.get(&perp_letf).await;
+
+        (s_new != s_old) || (perp_old != perp_new)
     }
 
     async fn initial_pv(&self) -> Option<f64> {
@@ -84,7 +87,7 @@ impl PriceTrade<LETFMarketType> for PerpTrade {
         let interest = INTEREST_RATE - pi;
 
         let funding_basis = interest * 1.; // 1 is funding interval hours. TO BE CORRECTED LATER.
-        let mark_price = underlying_price * (1. + funding_basis);
+        let mark_price = underlying_price * (1. + funding_basis) * self.amount;
 
         Some(mark_price)
     }
@@ -112,145 +115,14 @@ impl PriceTrade<LETFMarketType> for PerpTrade {
                 let mut pv01_result = PV01Results::new();
                 let _ = pv01_result.insert(
                     self.trade_id.clone(),
-                    PortfolioType::from([(self.underlying.clone(), real_mark / real_spot)]),
+                    PortfolioType::from([(
+                        self.underlying.clone(),
+                        real_mark / real_spot * self.amount,
+                    )]),
                 );
                 debug!("_pv01: Perp trade: {:?}", pv01_result);
                 pv01_result
             }
         }
-    }
-}
-
-/// Hedge instruments for a `PerpTrade`.
-///
-/// For now we mirror the LETF hedge approach:
-/// - A `PerpHedge::Future` to neutralize delta on the underlying.
-/// - A `PerpHedge::Cash` to offset notional.
-///
-/// This keeps the rest of the engine consistent with existing hedging flows.
-#[derive(Debug, Serialize, Deserialize)]
-pub enum PerpHedge {
-    Future(PerpFuture),
-    Cash(PerpCash),
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PerpFuture {
-    pub trade_id: String,
-    pub underlying: String,
-    pub amount: f64,
-    pub initial_val: Option<f64>,
-}
-
-impl fmt::Display for PerpFuture {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.trade_id)
-    }
-}
-
-impl BaseTrade for PerpFuture {
-    fn id(&self) -> String {
-        self.trade_id.clone()
-    }
-
-    fn direction(&self) -> TradeDirection {
-        TradeDirection::Create
-    }
-}
-
-impl PartialEq for PerpFuture {
-    fn eq(&self, other: &Self) -> bool {
-        self.trade_id == other.trade_id
-    }
-}
-
-#[async_trait]
-impl PriceTrade<LETFMarketType> for PerpFuture {
-    async fn needs_recompute(
-        &self,
-        market_old: Arc<LETFMarketType>,
-        market_new: Arc<LETFMarketType>,
-    ) -> bool {
-        let s_old = market_old
-            .get(&LETFMarketTypes::Stock(self.underlying.clone()))
-            .await;
-        let s_new = market_new
-            .get(&LETFMarketTypes::Stock(self.underlying.clone()))
-            .await;
-
-        s_new != s_old
-    }
-
-    async fn initial_pv(&self) -> Option<f64> {
-        self.initial_val
-    }
-
-    async fn price(&self, market: Arc<LETFMarketType>) -> Option<f64> {
-        let spot = market
-            .get(&LETFMarketTypes::Stock(self.underlying.clone()))
-            .await?;
-
-        Some(spot * self.amount)
-    }
-
-    async fn pv01(&self, _market: Arc<LETFMarketType>) -> PV01Results {
-        let mut pv01_results = PV01Results::new();
-        let _ = pv01_results.insert(
-            self.trade_id.clone(),
-            PortfolioType::from([(self.underlying.clone(), self.amount)]),
-        );
-        debug!("_pv01: pv01 PerpFuture: {:?}", pv01_results);
-        pv01_results
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PerpCash {
-    pub trade_id: String,
-    pub amount: f64,
-}
-
-impl fmt::Display for PerpCash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.trade_id)
-    }
-}
-
-impl BaseTrade for PerpCash {
-    fn id(&self) -> String {
-        self.trade_id.clone()
-    }
-
-    fn direction(&self) -> TradeDirection {
-        TradeDirection::Create
-    }
-}
-
-impl PartialEq for PerpCash {
-    fn eq(&self, other: &Self) -> bool {
-        self.trade_id == other.trade_id
-    }
-}
-
-#[async_trait]
-impl PriceTrade<LETFMarketType> for PerpCash {
-    async fn needs_recompute(
-        &self,
-        _market_old: Arc<LETFMarketType>,
-        _market_new: Arc<LETFMarketType>,
-    ) -> bool {
-        false
-    }
-
-    async fn initial_pv(&self) -> Option<f64> {
-        Some(self.amount)
-    }
-
-    async fn price(&self, _market: Arc<LETFMarketType>) -> Option<f64> {
-        Some(self.amount)
-    }
-
-    async fn pv01(&self, _market: Arc<LETFMarketType>) -> PV01Results {
-        PV01Results::new()
     }
 }
