@@ -379,7 +379,8 @@ def fetch_recent_hl_trades(
 
 def __main__():
     stream_hl_trades_to_kafka(
-        bootstrap_servers="192.168.1.50:9092", coins=["ETH", "BTC"]
+        bootstrap_servers="192.168.1.50:9092",
+        coins=["ETH", "BTC", "SEI", "MORPHO", "AAVE", "SOL", "HYPE"],
     )
 
 

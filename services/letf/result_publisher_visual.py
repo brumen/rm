@@ -121,6 +121,7 @@ def _extract_metric_map(payload: Any, metric: str) -> Dict[str, float]:
         if fv is None:
             continue
         out[str(k)] = fv
+    logger.info(f"METRIC: {metric}, VALUE = {out}")
     return out
 
 
@@ -188,7 +189,9 @@ class KafkaPVWorker:
         if self._thread and self._thread.is_alive():
             return
         self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run, name="KafkaPVWorker", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, name="KafkaPVWorker", daemon=True
+        )
         self._thread.start()
 
     def stop(self) -> None:
@@ -206,7 +209,9 @@ class KafkaPVWorker:
         self._paused.clear()
 
     def is_running(self) -> bool:
-        return bool(self._thread and self._thread.is_alive() and not self._stop_event.is_set())
+        return bool(
+            self._thread and self._thread.is_alive() and not self._stop_event.is_set()
+        )
 
     def _run(self) -> None:
         try:
@@ -270,7 +275,16 @@ try:
     from textual.binding import Binding
     from textual.containers import Container, Horizontal, Vertical
     from textual.reactive import reactive
-    from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Select, Static
+    from textual.widgets import (
+        Button,
+        DataTable,
+        Footer,
+        Header,
+        Input,
+        Label,
+        Select,
+        Static,
+    )
 except Exception:
     App = object  # type: ignore[misc,assignment]
 
@@ -360,7 +374,10 @@ class PVVisualApp(App):
                 yield Button("Stop", id="stop_btn", variant="error")
                 yield Button("Pause", id="pause_btn", variant="warning")
                 yield Button("Clear", id="clear_btn")
-                yield Label("Hotkeys: s=start, t=stop, p=pause, /=filter, q=quit", classes="hint")
+                yield Label(
+                    "Hotkeys: s=start, t=stop, p=pause, /=filter, q=quit",
+                    classes="hint",
+                )
 
         yield DataTable(id="pv_table", zebra_stripes=True)
         yield Footer()
@@ -430,11 +447,15 @@ class PVVisualApp(App):
         topic = self.query_one("#topic_in", Input).value.strip() or DEFAULT_TOPIC
         metric = self.query_one("#metric_in", Input).value.strip() or "PV"
 
-        cfg = KafkaConfig(host=host, port=self._cfg.port, topic=topic, group_id=self._cfg.group_id)
+        cfg = KafkaConfig(
+            host=host, port=self._cfg.port, topic=topic, group_id=self._cfg.group_id
+        )
         if cfg != self._cfg:
             self._worker.stop()
             self._cfg = cfg
-            self._worker = KafkaPVWorker(cfg=self._cfg, metric=metric, out_queue=self._q)
+            self._worker = KafkaPVWorker(
+                cfg=self._cfg, metric=metric, out_queue=self._q
+            )
         else:
             self._worker.metric = metric
 

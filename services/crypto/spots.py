@@ -334,7 +334,20 @@ def stream_spot_prices_to_kafka(
 
 def __main__():
     stream_spot_prices_to_kafka(
-        bootstrap_servers="192.168.1.50:9092", product_ids=["ETH-USD", "BTC-USD"]
+        bootstrap_servers="192.168.1.50:9092",
+        product_ids=[
+            "ETH-USD",
+            "BTC-USD",
+            "SEI-USD",
+            "MORPHO-USD",
+            "AAVE-USD",
+            "SOL-USD",
+            "HYPE-USD",
+        ],
+        # [
+        #    "ETH-USD",
+        #    "BTC-USD",
+        # ],
     )
 
 
