@@ -53,8 +53,14 @@ import six.moves
 sys.modules["kafka.vendor.six.moves"] = six.moves
 sys.path.append("/home/brumen/work/")
 
+LOG_PATH = "/tmp/visual"
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    filename=LOG_PATH,
+    filemode="a",
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 DEFAULT_TOPIC = "letf.risk"
 DEFAULT_BROKER_PORT = 9092
@@ -121,7 +127,6 @@ def _extract_metric_map(payload: Any, metric: str) -> Dict[str, float]:
         if fv is None:
             continue
         out[str(k)] = fv
-    logger.info(f"METRIC: {metric}, VALUE = {out}")
     return out
 
 
@@ -447,10 +452,13 @@ class PVVisualApp(App):
         topic = self.query_one("#topic_in", Input).value.strip() or DEFAULT_TOPIC
         metric = self.query_one("#metric_in", Input).value.strip() or "PV"
 
+        old_metric = self._metric
+        metric_changed = metric != old_metric
+
         cfg = KafkaConfig(
             host=host, port=self._cfg.port, topic=topic, group_id=self._cfg.group_id
         )
-        if cfg != self._cfg:
+        if cfg != self._cfg or metric_changed:
             self._worker.stop()
             self._cfg = cfg
             self._worker = KafkaPVWorker(
@@ -459,8 +467,9 @@ class PVVisualApp(App):
         else:
             self._worker.metric = metric
 
-        if metric != self._metric:
+        if metric_changed:
             self._metric = metric
+            self._clear()
             table = self.query_one("#pv_table", DataTable)
             table.clear(columns=True)
             table.add_columns("Trade ID", self._metric, "Last Update (UTC)", "Trend")
@@ -472,6 +481,9 @@ class PVVisualApp(App):
                 upd = self._q.get_nowait()
             except queue.Empty:
                 break
+
+            if upd.metric != self._metric:
+                continue
 
             changed += 1
             self._last[upd.trade_id] = upd
