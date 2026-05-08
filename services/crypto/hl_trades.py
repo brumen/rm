@@ -52,6 +52,7 @@ class HLTrade:
     side: str  # "B" / "S" (best-effort)
     ts_ms: int
     trade_id: Optional[str] = None
+    leverage: Optional[float] = None
 
 
 def _require_kafka() -> None:
@@ -92,6 +93,10 @@ class HyperliquidTradesHTTP:
         except ValueError as e:
             raise HyperliquidError(f"Non-JSON response from {url}: {r.text}") from e
 
+    @staticmethod
+    def _leverage(coin: str):
+        return HyperliquidTradesHTTP._leverage(coin)
+
     def recent_trades(self, coin: str, limit: int = 200) -> List[HLTrade]:
         """
         Fetch recent trades for a coin.
@@ -129,6 +134,7 @@ class HyperliquidTradesHTTP:
                             if (t.get("tid") or t.get("hash") or t.get("id"))
                             else None
                         ),
+                        leverage=self._leverage(coin),  # defined by coin
                     )
                 )
             except (TypeError, ValueError):
@@ -233,6 +239,7 @@ class HyperliquidTradesWS:
         while True:
             try:
                 self._run_once(coins_l=coins_l, on_trade=on_trade, on_raw=on_raw)
+                time.sleep(0.3)
                 # If _run_once returns, connection closed cleanly.
                 if not run_forever:
                     return
@@ -243,6 +250,14 @@ class HyperliquidTradesWS:
                     raise
             time.sleep(backoff_s)
             backoff_s = min(backoff_s * 2.0, 30.0)
+
+    @staticmethod
+    def _leverage(coin: str):
+        if coin == "BTC":
+            return 40.0
+        if coin == "ETH":
+            return 20.0
+        return 10.0
 
     def _run_once(
         self,
@@ -314,6 +329,7 @@ class HyperliquidTradesWS:
                                 if (t.get("tid") or t.get("hash") or t.get("id"))
                                 else None
                             ),
+                            leverage=self._leverage(coin),  # defined by coin
                         )
                     except (TypeError, ValueError):
                         continue

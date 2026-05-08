@@ -97,6 +97,7 @@ where
     ) -> PmPortfolio {
         let mut portfolio = PmPortfolio::new();
 
+        // copies all trade information to curr_trades
         let mut curr_trades = vec![];
         let _ = all_trades.iter_async(|trade_name, trade_val| {
             if new_trades.contains(trade_name) {

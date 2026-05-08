@@ -136,9 +136,9 @@ where
         // TRADES ARE BEHIND,
         //    < 10 -> continue in single mode
         //    > 10 -> continue in bulk mode.
+
         if trades_behind.is_empty() {
-            // this processor below is ahead, reset the
-            //    processor to the new Idle state.
+            // we are not behind, processor below accepted portfolio.
             debug!("Processor below accepted portfolio.");
             return Ok(());
         }
@@ -152,14 +152,13 @@ where
         );
         state.trades.extend(trades_behind.clone());
 
-        // dont continue once we get the Behind message.
-        // Ok(())
+        // we dont have current market, use market_behind
+        let curr_mkt = match &state.curr_market {
+            None => None,
+            Some(curr_mkt_str) => self.all_markets.get(curr_mkt_str).await,
+        };
 
-        // debug!("State: {} -> CalculatingBulk", state.processor_state);
-        // state.processor_state = ProcessorMiddleState::CalculatingBulk;
-
-        // // we dont have current market, use market_behind
-        let Some(ref real_market) = state.curr_market else {
+        if curr_mkt.is_none() {
             warn!(
                 "Processor does not have market: Destroying the market {}",
                 market_behind,
@@ -193,17 +192,14 @@ where
             return Ok(());
         };
 
-        let Some(real_market_actual) = self.all_markets.get(real_market).await else {
-            error!("WEIRD WEIRD - Investigate. Shouldnt happen");
-            return Ok(());
-        };
-
         // add the additional trades to the portfolio.
+        let curr_mkt_actual = curr_mkt.unwrap(); // this is fine since curr_mkt is handled above.
+        let curr_mkt_actual_name = curr_mkt_actual.market_name().clone();
         let additional_portfolio = self
             .price_multiple_parallel(
                 trades_behind,
                 state.pricing_metrics.clone(),
-                real_market_actual,
+                curr_mkt_actual, // this works since .is_none is handled above.
                 self.all_trades.clone(),
             )
             .await;
@@ -212,7 +208,7 @@ where
             .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                 state.trades.clone(),
                 state.pricing_results.clone(),
-                real_market.to_string(),
+                curr_mkt_actual_name,
                 myself,
             )))?;
 

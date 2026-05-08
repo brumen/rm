@@ -14,6 +14,7 @@ use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PriceTrade;
 use crate::pricer::PricingMetric;
 use crate::processor_bulk::ProcessorBulk;
+use crate::processor_curr::RTOperatingMode;
 use crate::processor_msg::{PNStateDistr, ProcessorMiddleMessage};
 use crate::processor_new::ProcessorNew;
 use crate::ref_deref::TryFromRef2;
@@ -31,6 +32,7 @@ pub(crate) async fn start2<T, MT>(
     initial_trades: Arc<TradeRep<T>>,
     mp: MT::MP,
     nb_middle: usize,
+    operating_mode: RTOperatingMode,
 ) -> (
     Vec<ActorRef<ProcessorMiddleMessage<String>>>,
     Vec<JoinHandle<()>>,
@@ -53,6 +55,7 @@ where
         markets_used[0].clone(),
         initial_trades.clone(),
         mp.clone(),
+        operating_mode,
     )
     .await;
 

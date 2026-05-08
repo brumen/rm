@@ -158,3 +158,10 @@ impl<const N: usize, TR: BaseTrade> From<[TR; N]> for TradeRep<TR> {
         Self(hm)
     }
 }
+
+// BT mnemonic for BaseTrade
+// this wraps the base trade with
+struct PriceTradeExtension<BT> {
+    base_trade: BT,
+    prev_pv: Option<f64>,
+}

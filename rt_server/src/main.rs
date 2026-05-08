@@ -37,6 +37,7 @@ use crate::engine_letf::start2;
 // use crate::markets::ao_market;
 use crate::markets::letf_market::LETFMarketType;
 use crate::pricer::PricingMetric;
+use crate::processor_curr::RTOperatingMode;
 use crate::processor_setup_actor::start_setup_actor;
 use crate::trade::TradeRep;
 use trades::trade_letf::TradeTypes;
@@ -62,7 +63,7 @@ async fn run_all() {
     let _market_port = std::env::var("MARKET_PORT").expect("Could not find MARKET_PORT in .env");
     let _pricing_port = std::env::var("PRICING_PORT").expect("Could not find PRICING_PORT in .env");
     let debug_level = std::env::var("DEBUG_LEVEL").expect("Could not find DEBUG in .env");
-    info!(".env data loaded.");
+    let operating_mode = RTOperatingMode::SingleBuffer;
     let kafka_params = engine_actor::KafkaParams {
         kafka_server,
         pos_topic,
@@ -104,6 +105,7 @@ async fn run_all() {
         initial_trades.clone(),
         (),
         1,
+        operating_mode,
     )
     .await;
 

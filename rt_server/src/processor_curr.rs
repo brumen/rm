@@ -14,6 +14,12 @@ use crate::processor_bulk::PriceMultiple;
 use crate::processor_msg::{ProcessorMiddleMessage, TradesLocal};
 use crate::trade::{BaseTrade, TradeRep};
 
+#[derive(PartialEq)]
+pub enum RTOperatingMode {
+    DoubleBuffer, // usual double or triple buffering
+    SingleBuffer, // single buffering.
+}
+
 pub(crate) struct ProcessorCurr<T, MT>
 where
     MT: MarketTypeT + std::fmt::Debug,
@@ -24,8 +30,9 @@ where
     pub result_publisher: FutureProducer,
     pub all_markets: Arc<AllMarkets<Arc<MT>>>, // all_markets is DashMap
     pub all_trades: Arc<TradeRep<T>>,          // all_trades is DashMap
-                                               // trade_processor where we can send the info when the trades are processed
-                                               // pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
+    // trade_processor where we can send the info when the trades are processed
+    // pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
+    pub operating_mode: RTOperatingMode,
 }
 
 impl<T, MT> std::fmt::Debug for ProcessorCurr<T, MT>
@@ -180,6 +187,10 @@ where
         debug!(%state, "State:");
         match message {
             ProcessorMiddleMessage::NewTrade(trade) => {
+                if self.operating_mode == RTOperatingMode::SingleBuffer {
+                    return Ok(());
+                }
+
                 debug!("Message: NewTrade: Adding trade {:?}.", trade);
                 state.newtrades_since_last_newmarket += 1;
                 state.trades.insert(trade.clone());

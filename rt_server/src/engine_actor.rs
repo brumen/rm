@@ -8,7 +8,7 @@ use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 use crate::pricer::PriceTrade;
 use crate::processor_bulk::ProcessorBulk;
-use crate::processor_curr::ProcessorCurr;
+use crate::processor_curr::{ProcessorCurr, RTOperatingMode};
 use crate::processor_middle::ProcessorMiddle;
 use crate::processor_msg::{PNStateDistr, ProcessorMiddleMessage};
 use crate::publish::connect_with_retries_producer_rd;
@@ -30,6 +30,7 @@ pub(crate) async fn create_curr_actor<T, MT>(
     curr_mkt_name: String,
     initial_trades: Arc<TradeRep<T>>,
     mp: MT::MP,
+    operating_mode: RTOperatingMode,
 ) -> (ProcessorCurr<T, MT>, JoinHandle<()>)
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT> + std::fmt::Debug,
@@ -56,6 +57,7 @@ where
         result_publisher,
         all_markets: all_markets.clone(),
         all_trades: initial_trades,
+        operating_mode,
     };
 
     (processor_curr, processor_new_bulk_h)

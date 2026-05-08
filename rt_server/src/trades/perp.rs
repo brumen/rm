@@ -2,6 +2,7 @@ use ractor::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
+use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
 
 use crate::market::MarketTypeT;
@@ -88,6 +89,8 @@ impl PriceTrade<LETFMarketType> for PerpTrade {
 
         let funding_basis = interest * 1.; // 1 is funding interval hours. TO BE CORRECTED LATER.
         let mark_price = underlying_price * (1. + funding_basis) * self.amount;
+
+        //        sleep(Duration::from_secs(2)).await; // artificial sleeping.
 
         Some(mark_price)
     }
