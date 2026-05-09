@@ -67,7 +67,8 @@ where
         let mut portfolio = PmPortfolio::new();
 
         for used_trade in new_trades.into_iter() {
-            let Some(attempted_used) = all_trades.read_async(&used_trade, |_, v| v.clone()).await
+            let Some(mut attempted_used) =
+                all_trades.read_async(&used_trade, |_, v| v.clone()).await
             else {
                 error!("Could not price {:?}. Ignoring that trade.", used_trade);
                 // TODO: In the future, handle this better by reporting on the unpriced trades.
@@ -111,7 +112,7 @@ where
         // for each pricing metric, gather the futures for that metric.
         for pm in &pricing_metrics {
             let trade_futures = curr_trades
-                .iter()
+                .iter_mut()
                 .map(|t| t.value_by_metric(*pm, market_actual.clone()));
 
             // aggreate the results

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
 
+use crate::extend_trade;
 use crate::market::MarketTypeT;
 use crate::markets::letf_market::{LETFMarketType, LETFMarketTypes};
 use crate::portfolio::{PV01Results, PortfolioType};
@@ -21,6 +22,9 @@ pub struct PerpTrade {
     pub underlying: String,
     pub amount: f64,
 }
+
+// generate the extended trade
+extend_trade!(PerpTradeExtend, PerpTrade);
 
 const INTEREST_RATE: f64 = 0.0001;
 

@@ -202,7 +202,8 @@ where
                 };
 
                 // TODO: can v. be without clone
-                let Some(trade_info) = self.all_trades.read_async(&trade, |_, v| v.clone()).await
+                let Some(mut trade_info) =
+                    self.all_trades.read_async(&trade, |_, v| v.clone()).await
                 else {
                     warn!(
                         "Could not find {} among all_atrades. Ignoring w/ computation and continuing.",

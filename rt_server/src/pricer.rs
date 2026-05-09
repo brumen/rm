@@ -135,17 +135,22 @@ where
     async fn price(&self, market: Arc<MT>) -> Option<f64>;
     // TODO: pv01 has to be changed to return Option<PV01Results>
     async fn pv01(&self, market: Arc<MT>) -> PV01Results;
-    async fn pnl(&self, market: Arc<MT>) -> Option<f64> {
+    async fn pnl(&mut self, market: Arc<MT>) -> Option<f64> {
         let initial_pv_val = self.initial_pv().await?;
-
-        self.price(market)
-            .await
-            .map(|curr_price| curr_price - initial_pv_val)
+        let curr_price = self.price(market).await?;
+        self.update_prev_pv(Some(curr_price));
+        let pnl = curr_price - initial_pv_val;
+        Some(pnl)
+        // let pnl = self
+        //     .price(market)
+        //     .await
+        //     .map(|curr_price| curr_price - initial_pv_val);
     }
+    async fn update_prev_pv(&mut self, new_market_val: Option<f64>) {}
 
     /// values the trade for a specific metric.
     #[allow(dead_code)]
-    async fn value_by_metric(&self, metric: PricingMetric, market: Arc<MT>) -> PricingResults {
+    async fn value_by_metric(&mut self, metric: PricingMetric, market: Arc<MT>) -> PricingResults {
         let trade_name = self.id();
 
         match metric {

@@ -27,6 +27,84 @@ pub enum TradeError {
     NoPayload,
 }
 
+/// Macro to create a new wrapper struct around an existing type, adding
+/// a `prev_pv: Option<f64>` field.
+///
+/// Example:
+/// add_prev_pv_field!(PricedTrade, MyTrade);
+///
+/// Expands to a struct roughly like:
+/// pub struct PricedTrade {
+///     pub trade: MyTrade,
+///     pub prev_pv: Option<f64>,
+/// }
+#[macro_export]
+macro_rules! extend_trade {
+    ($new_struct:ident, $base_type:ty) => {
+        #[derive(Clone, Debug, PartialEq)]
+        pub struct $new_struct {
+            pub trade: $base_type,
+            pub prev_pv: Option<f64>, // for computing pnl
+        }
+
+        impl $new_struct {
+            pub fn new(trade: $base_type, prev_pv: Option<f64>) -> Self {
+                Self { trade, prev_pv }
+            }
+        }
+
+        // inherit all the other implementations
+        impl BaseTrade for $new_struct {
+            fn id(&self) -> String {
+                self.trade.id()
+            }
+            fn direction(&self) -> TradeDirection {
+                self.trade.direction()
+            }
+        }
+
+        #[async_trait]
+        impl PriceTrade<LETFMarketType> for $new_struct {
+            async fn needs_recompute(
+                &self,
+                market_old: Arc<LETFMarketType>,
+                market_new: Arc<LETFMarketType>,
+            ) -> bool {
+                self.trade.needs_recompute(market_old, market_new).await
+            }
+
+            async fn initial_pv(&self) -> Option<f64> {
+                self.prev_pv
+            }
+
+            async fn price(&self, market: Arc<LETFMarketType>) -> Option<f64> {
+                self.trade.price(market).await
+            }
+            async fn pv01(&self, market: Arc<LETFMarketType>) -> PV01Results {
+                self.trade.pv01(market).await
+            }
+
+            async fn update_prev_pv(&mut self, new_market_val: Option<f64>) {
+                self.prev_pv = new_market_val;
+            }
+        }
+    };
+}
+
+#[allow(dead_code)]
+pub trait TradeReduce {
+    type TradeType: BaseTrade + Send;
+    type ReductionType: Send + Sync + Clone + BaseTrade;
+
+    fn reduce(&self, trade: &Self::TradeType) -> Self::ReductionType;
+}
+
+impl<TR> Default for TradeRep<TR> {
+    fn default() -> Self {
+        Self(DashMap::<String, TR>::new())
+    }
+}
+
 /// Internal representations of trades.
 /// String is the trade id, TR is the trade representation.
 #[derive(Debug, Clone)]
@@ -52,20 +130,6 @@ impl<TR> Deref for TradeRep<TR> {
 impl<TR> DerefMut for TradeRep<TR> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
-    }
-}
-
-#[allow(dead_code)]
-pub trait TradeReduce {
-    type TradeType: BaseTrade + Send;
-    type ReductionType: Send + Sync + Clone + BaseTrade;
-
-    fn reduce(&self, trade: &Self::TradeType) -> Self::ReductionType;
-}
-
-impl<TR> Default for TradeRep<TR> {
-    fn default() -> Self {
-        Self(DashMap::<String, TR>::new())
     }
 }
 
@@ -157,11 +221,4 @@ impl<const N: usize, TR: BaseTrade> From<[TR; N]> for TradeRep<TR> {
 
         Self(hm)
     }
-}
-
-// BT mnemonic for BaseTrade
-// this wraps the base trade with
-struct PriceTradeExtension<BT> {
-    base_trade: BT,
-    prev_pv: Option<f64>,
 }

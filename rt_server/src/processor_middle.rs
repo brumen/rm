@@ -70,7 +70,7 @@ where
             return Ok(());
         }
 
-        let trade_info = self
+        let mut trade_info = self
             .all_trades
             .read_async(&new_trade, |_, v| v.clone())
             .await
