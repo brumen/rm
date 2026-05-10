@@ -16,6 +16,7 @@ pub mod ref_deref;
 pub mod streaming;
 pub mod trade;
 // pub mod trader;
+mod postprocs;
 
 pub(crate) mod all_markets;
 pub(crate) mod engine_actor;
@@ -34,6 +35,7 @@ pub(crate) mod trades;
 pub(crate) mod utils;
 
 use crate::engine_letf::start2;
+use crate::postprocs::nav;
 // use crate::markets::ao_market;
 use crate::markets::letf_market::LETFMarketType;
 use crate::pricer::PricingMetric;
@@ -117,6 +119,10 @@ async fn run_all() {
         state_distr_new.clone(),
     );
     all_handles.push(diagnostics_handle);
+
+    // postprocessing handles
+    let total_nav = nav::NavProcessor::new(&kafka_server, &results_topic, "")
+        .expect("Could not start NAV processor");
 
     // this creates the setup actor.
     let setup_actor_handle = start_setup_actor(host.clone(), setup_topic.clone(), all_actors).await;
