@@ -103,7 +103,7 @@ where
             .insert("future".to_string(), market_sent)
             .await;
 
-        info!(
+        debug!(
             "Current markets: {:?}",
             self.all_markets.list_market_names().await
         );

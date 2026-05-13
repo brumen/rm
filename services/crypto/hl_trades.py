@@ -239,7 +239,7 @@ class HyperliquidTradesWS:
         while True:
             try:
                 self._run_once(coins_l=coins_l, on_trade=on_trade, on_raw=on_raw)
-                time.sleep(0.3)
+                time.sleep(2.0)
                 # If _run_once returns, connection closed cleanly.
                 if not run_forever:
                     return

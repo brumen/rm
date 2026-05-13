@@ -94,7 +94,7 @@ impl PriceTrade<LETFMarketType> for PerpTrade {
         let funding_basis = interest * 1.; // 1 is funding interval hours. TO BE CORRECTED LATER.
         let mark_price = underlying_price * (1. + funding_basis) * self.amount;
 
-        //        sleep(Duration::from_secs(2)).await; // artificial sleeping.
+        // sleep(Duration::from_secs(1)).await; // artificial sleeping.
 
         Some(mark_price)
     }
@@ -109,13 +109,18 @@ impl PriceTrade<LETFMarketType> for PerpTrade {
         match (spot, mark_price) {
             (None, _) => {
                 warn!(
-                    "pv01: PerpTrade: could not obtain underlying {:?} from the market.",
-                    self.underlying
+                    "pv01: PerpTrade: could not obtain underlying {:?} from the market {:?}. Market has assets: {:?}",
+                    self.underlying, market.market_name(), market.stock_names(),
                 );
                 PV01Results::new()
             }
             (_, None) => {
-                warn!("pv01: PerpTrade: missing perp price");
+                warn!(
+                    "pv01: PerpTrade: missing perp price for {:?} from {:?}. Market has assets: {:?}",
+                    self.underlying,
+                    market.market_name(),
+                    market.stock_names()
+                );
                 PV01Results::new()
             }
             (Some(real_spot), Some(real_mark)) => {

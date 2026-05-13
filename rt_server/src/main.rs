@@ -65,12 +65,12 @@ async fn run_all() {
     let _market_port = std::env::var("MARKET_PORT").expect("Could not find MARKET_PORT in .env");
     let _pricing_port = std::env::var("PRICING_PORT").expect("Could not find PRICING_PORT in .env");
     let debug_level = std::env::var("DEBUG_LEVEL").expect("Could not find DEBUG in .env");
-    let operating_mode = RTOperatingMode::SingleBuffer;
+    let operating_mode = RTOperatingMode::DoubleBuffer;
     let kafka_params = engine_actor::KafkaParams {
-        kafka_server,
+        kafka_server: kafka_server.clone(),
         pos_topic,
         mkt_topic,
-        results_topic,
+        results_topic: results_topic.clone(),
     };
 
     let tracing_level = match debug_level.as_str() {
@@ -121,8 +121,11 @@ async fn run_all() {
     all_handles.push(diagnostics_handle);
 
     // postprocessing handles
-    let total_nav = nav::NavProcessor::new(&kafka_server, &results_topic, "")
+    let mut total_nav_processor = nav::NavProcessor::new(&kafka_server, &results_topic, "")
         .expect("Could not start NAV processor");
+    // let total_nav = tokio::spawn(async move {
+    //     total_nav_processor.run_ignore().await;
+    // });
 
     // this creates the setup actor.
     let setup_actor_handle = start_setup_actor(host.clone(), setup_topic.clone(), all_actors).await;
@@ -130,6 +133,7 @@ async fn run_all() {
     info!("All relevant actors initialized.");
     all_handles.append(&mut all_actors_handles);
     all_handles.push(setup_actor_handle);
+    // all_handles.push(total_nav);
     join_all(all_handles).await;
 }
 

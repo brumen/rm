@@ -326,7 +326,7 @@ def stream_spot_prices_to_kafka(
 
                     if limit_updates is not None and sent >= limit_updates:
                         return
-
+            time.sleep(1.2)
             time.sleep(interval_s)
     finally:
         publisher.close(timeout_s=timeout_s)

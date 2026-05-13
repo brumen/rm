@@ -407,6 +407,8 @@ def stream_hl_mid_prices_to_kafka(
 
             if limit_updates is not None and n >= limit_updates:
                 break
+        time.sleep(1.5)
+
     finally:
         publisher.close(timeout_s=timeout_s)
 

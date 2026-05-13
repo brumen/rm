@@ -214,8 +214,8 @@ where
 
                 let Some(market_info) = self.all_markets.get(real_market).await else {
                     warn!(
-                        "Could not find market {}. Ignoring the new trade pricing.",
-                        real_market
+                        "Could not find market {}. All markets: {:?}. Ignoring the new trade pricing.",
+                        real_market, self.all_markets,
                     );
                     return Ok(());
                 };
@@ -228,6 +228,7 @@ where
                 );
                 for pm in state.pricing_results.clone() {
                     let valued_trade_pm = trade_info.value_by_metric(pm, market_info.clone()).await;
+                    debug!("Priced trade {:?}: {:?}", trade, valued_trade_pm);
                     if let Some(portf_pm) = state.portfolio.get_mut(&pm) {
                         *portf_pm += valued_trade_pm;
                     } else {

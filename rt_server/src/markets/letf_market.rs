@@ -141,6 +141,16 @@ impl MarketTypeT for LETFMarketType {
         Some(*(self.market.get(stock)?))
     }
 
+    // TODO: this should be implemented better.
+    fn stock_names(&self) -> Vec<Self::MK> {
+        let mut all_stocks = vec![];
+        let _ = self
+            .market
+            .iter()
+            .map(|kv| all_stocks.push(kv.key().clone()));
+        all_stocks
+    }
+
     async fn insert(&self, key: Self::MK, value: f64) {
         self.market.insert(key, value);
     }

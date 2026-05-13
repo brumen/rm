@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use anyhow;
 use rdkafka::consumer::stream_consumer::StreamConsumer;
 use rdkafka::message::Message;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::publish::connect_with_retries_producer_rd;
@@ -46,6 +47,17 @@ impl NavProcessor {
         })
     }
 
+    pub async fn run_ignore(&mut self) {
+        match self.run().await {
+            Ok(_) => {
+                info!("All good");
+            }
+            Err(e) => {
+                error!("Got error: {:?}", e);
+            }
+        }
+    }
+
     pub async fn run(&mut self) -> anyhow::Result<()> {
         info!("Starting NAV processor on topic {}", self.topic);
 
@@ -78,13 +90,13 @@ impl NavProcessor {
 
             let payload = serde_json::to_string(&nav_msg)?;
 
-            let record: FutureRecord<'_, str, str> = FutureRecord::to(&self.topic)
+            let record = FutureRecord::to(&self.topic)
                 .key(&nav_msg.id)
                 .payload(&payload);
 
             match self.producer.send(record, Timeout::Never).await {
                 Ok(_) => {
-                    info!("Published NAV update: {}", payload);
+                    debug!("Published NAV update: {}", payload);
                 }
                 Err((e, _)) => {
                     error!("Failed to publish NAV update: {:?}", e);

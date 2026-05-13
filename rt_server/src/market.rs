@@ -19,6 +19,7 @@ where
         Self: Sized;
     fn market_name(&self) -> String;
     async fn get(&self, stock: &Self::MK) -> Option<f64>; // getting stock values.
+    fn stock_names(&self) -> Vec<Self::MK>; // returns all stocks for the current market.
     async fn insert(&self, key: Self::MK, value: f64); // Important: insert is _NOT_ mutable self
     fn is_empty(&self) -> bool;
     fn try_from_ref(
@@ -57,6 +58,9 @@ impl<T: MarketTypeT> MarketTypeT for Arc<T> {
 
     async fn get(&self, stock: &Self::MK) -> Option<f64> {
         (**self).get(stock).await
+    }
+    fn stock_names(&self) -> Vec<Self::MK> {
+        (**self).stock_names()
     }
 
     async fn insert(&self, key: Self::MK, value: f64) {

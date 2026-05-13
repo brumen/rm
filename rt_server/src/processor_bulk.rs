@@ -1,6 +1,5 @@
 /// Processor bulk gets a batch of trades to compute, and computes it.
 ///
-use futures::future::join_all;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -8,7 +7,7 @@ use tracing::{debug, error, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
-use crate::portfolio::PmPortfolio;
+use crate::portfolio::{PmPortfolio, PortfolioType};
 use crate::pricer::{PriceTrade, PricingMetric};
 use crate::processor_msg::{ProcessorBulkMessage, ProcessorMiddleMessage, TradesLocal};
 use crate::trade::{BaseTrade, TradeRep};
@@ -95,34 +94,50 @@ where
         pricing_metrics: Vec<PricingMetric>,
         market_actual: Arc<MT>,
         all_trades: Arc<TradeRep<T>>,
-    ) -> PmPortfolio {
+    ) -> PmPortfolio
+    where
+        T: Send + Sync,
+        MT: Send + Sync,
+    {
         let mut portfolio = PmPortfolio::new();
 
         // copies all trade information to curr_trades
         let mut curr_trades = vec![];
-        let _ = all_trades.iter_async(|trade_name, trade_val| {
-            if new_trades.contains(trade_name) {
-                curr_trades.push(trade_val.clone());
-            } else {
-                error!("Couldnt get trade {:?}", trade_name);
-            }
-            true
-        });
+        all_trades
+            .iter_async(|trade_name, trade_val| {
+                if new_trades.contains(trade_name) {
+                    curr_trades.push(trade_val.clone());
+                }
+                true
+            })
+            .await;
 
-        // for each pricing metric, gather the futures for that metric.
+        // for every pricing metric launch a number of spawned tasks.
         for pm in &pricing_metrics {
-            let trade_futures = curr_trades
-                .iter_mut()
-                .map(|t| t.value_by_metric(*pm, market_actual.clone()));
+            let mut task_handles = vec![];
 
-            // aggreate the results
-            let trade_results = join_all(trade_futures)
-                .await
-                .iter()
-                .map(|pr| pr.aggregate())
-                .reduce(|a, b| a + b)
-                .unwrap_or_default();
-            portfolio.assign_metric(pm, trade_results);
+            for mut trade in curr_trades.clone() {
+                let market_actual = market_actual.clone();
+                let pm = *pm;
+
+                // launches the task for each future.
+                let handle = ractor::concurrency::spawn(async move {
+                    trade.value_by_metric(pm, market_actual).await.aggregate()
+                });
+
+                task_handles.push(handle);
+            }
+
+            let mut portf_for_pm = PortfolioType::default();
+            for handle in task_handles {
+                match handle.await {
+                    Ok(trade_result) => {
+                        portf_for_pm += trade_result;
+                    }
+                    Err(join_err) => error!("Failed spawned pricing task: {:?}", join_err),
+                }
+            }
+            portfolio.assign_metric(pm, portf_for_pm);
         }
 
         portfolio
