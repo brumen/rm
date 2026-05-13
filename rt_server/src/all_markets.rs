@@ -197,6 +197,10 @@ mod tests {
             self.params
         }
 
+        fn stock_names(&self) -> Vec<Self::MK> {
+            vec![]
+        }
+
         // we wont be testing this trait.
         fn try_from_ref(
             _market_name: String,

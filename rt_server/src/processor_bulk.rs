@@ -63,8 +63,13 @@ where
         market_actual: Arc<MT>,              // actual market to price them on.
         all_trades: Arc<TradeRep<T>>, // collection of all trades from which new_trades are picked.
     ) -> PmPortfolio {
-        self._price_multiple_parallel(new_trades, pricing_metrics, market_actual, all_trades)
-            .await
+        self._price_multiple_parallel_single_thread(
+            new_trades,
+            pricing_metrics,
+            market_actual,
+            all_trades,
+        )
+        .await
     }
 
     // this prices the trades in sequence.
@@ -156,7 +161,7 @@ where
 
         // copies all trade information to curr_trades
         let mut curr_trades = vec![];
-        all_trades
+        let _ = all_trades
             .iter_async(|trade_name, trade_val| {
                 if new_trades.contains(trade_name) {
                     curr_trades.push(trade_val.clone());
@@ -263,7 +268,8 @@ where
                 // registering the market that is sent:
                 let _ = self
                     .all_markets
-                    .insert_processor(self.processor_name.clone(), market.clone());
+                    .insert_processor(self.processor_name.clone(), market.clone())
+                    .await;
                 debug!(
                     "Bulk: Current processor-market map: {:?}",
                     self.all_markets.processor_market_map,
