@@ -180,7 +180,7 @@ where
                 return Ok(());
             };
             let bulk_portfolio = self
-                .price_multiple_parallel(
+                .price_multiple(
                     state.trades.clone(),
                     state.pricing_metrics.clone(),
                     market_actual,
@@ -196,7 +196,7 @@ where
         let curr_mkt_actual = curr_mkt.unwrap(); // this is fine since curr_mkt is handled above.
         let curr_mkt_actual_name = curr_mkt_actual.market_name().clone();
         let additional_portfolio = self
-            .price_multiple_parallel(
+            .price_multiple(
                 trades_behind,
                 state.pricing_metrics.clone(),
                 curr_mkt_actual, // this works since .is_none is handled above.
@@ -297,7 +297,7 @@ where
             };
 
             let added_portfolio = self
-                .price_multiple_parallel(
+                .price_multiple(
                     new_behind_curr,
                     state.pricing_metrics.clone(),
                     new_market_actual,

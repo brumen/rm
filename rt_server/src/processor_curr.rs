@@ -293,7 +293,7 @@ where
                         return Ok(());
                     };
                     let additional_portf = self
-                        .price_multiple_parallel(
+                        .price_multiple(
                             ntp_behind_curr_portfolio.clone(),
                             state.pricing_results.clone(),
                             ntp_market_actual,

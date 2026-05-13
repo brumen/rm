@@ -55,8 +55,19 @@ where
     MT::MP: Clone,
     T: PriceTrade<MT> + 'static + Clone,
 {
+    async fn price_multiple(
+        &self,
+        new_trades: HashSet<String>,         // trades to price
+        pricing_metrics: Vec<PricingMetric>, // metrics to price on
+        market_actual: Arc<MT>,              // actual market to price them on.
+        all_trades: Arc<TradeRep<T>>, // collection of all trades from which new_trades are picked.
+    ) -> PmPortfolio {
+        self._price_multiple_parallel(new_trades, pricing_metrics, market_actual, all_trades)
+            .await
+    }
+
     // this prices the trades in sequence.
-    async fn price_multiple_seq(
+    async fn _price_multiple_seq(
         &self,
         new_trades: HashSet<String>,         // trades to price
         pricing_metrics: Vec<PricingMetric>, // metrics to price on
@@ -88,7 +99,7 @@ where
 
     // processes trades in a parallel fashion, parameters the same as above.
     // TODO: Clones the trades, which could possibly be removed.
-    async fn price_multiple_parallel(
+    async fn _price_multiple_parallel(
         &self,
         new_trades: HashSet<String>,
         pricing_metrics: Vec<PricingMetric>,
