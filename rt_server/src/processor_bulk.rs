@@ -1,5 +1,6 @@
 /// Processor bulk gets a batch of trades to compute, and computes it.
 ///
+use futures::future::join_all;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -94,6 +95,47 @@ where
             }
         }
 
+        portfolio
+    }
+
+    // tries to construct a number of trade futures, but computes them on
+    //   a single thread instead of spawning them.
+    async fn _price_multiple_parallel_single_thread(
+        &self,
+        new_trades: HashSet<String>,
+        pricing_metrics: Vec<PricingMetric>,
+        market_actual: Arc<MT>,
+        all_trades: Arc<TradeRep<T>>,
+    ) -> PmPortfolio {
+        let mut portfolio = PmPortfolio::new();
+
+        // copies all trade information to curr_trades
+        let mut curr_trades = vec![];
+        let _ = all_trades
+            .iter_async(|trade_name, trade_val| {
+                if new_trades.contains(trade_name) {
+                    curr_trades.push(trade_val.clone());
+                } else {
+                    error!("Couldnt get trade {:?}", trade_name);
+                }
+                true
+            })
+            .await;
+
+        for pm in &pricing_metrics {
+            let trade_futures = curr_trades
+                .iter_mut()
+                .map(|t| t.value_by_metric(*pm, market_actual.clone()));
+
+            // aggreate the results
+            let trade_results = join_all(trade_futures)
+                .await
+                .iter()
+                .map(|pr| pr.aggregate())
+                .reduce(|a, b| a + b)
+                .unwrap_or_default();
+            portfolio.assign_metric(pm, trade_results);
+        }
         portfolio
     }
 
@@ -264,7 +306,7 @@ where
                     market
                 );
                 let portfolio = self
-                    .price_multiple_seq(
+                    .price_multiple(
                         new_trades.clone(), // TODO: THIS .clone is NOT THE BEST - FIX IT
                         pricing_metrics,
                         market_actual.clone(),
