@@ -61,82 +61,74 @@ where
 
     async fn post_start(
         &self,
-        myself: ActorRef<Self::Msg>,
+        _myself: ActorRef<Self::Msg>,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        //
         info!(
             "Consumer subscribed to {:?}",
             self.mkt_listener.subscription()?
         );
-
-        info!("Waiting on first message. Enable debug to display messages.");
-        let new_mkt_msg = self.mkt_listener.recv().await?;
-        let (item_name, item_val) = <(MT::MK, f64)>::try_from_ref(&new_mkt_msg)?;
+        info!("Waiting on market messages. Enable debug to display messages.");
 
         let market = state;
-        let _ = market.insert(item_name, item_val).await;
-        let new_market_name = Uuid::new_v4().to_string();
-        market.set_name(new_market_name);
-        myself.send_message(market.clone())?;
 
-        Ok(())
+        loop {
+            debug!("Listening to raw mkt data.");
+            let Ok(new_msg) = self.mkt_listener.recv().await else {
+                // ignore the loop - something went wrong.
+                error!("Listening to the market topic failed.! Ignoring.");
+                continue;
+            };
+            let Ok((new_item_name, new_item_value)) = <(MT::MK, f64)>::try_from_ref(&new_msg)
+            else {
+                error!("Could not decode the market message.! ignoring.");
+                continue;
+            };
+
+            debug!(
+                "Inserting into market: {:?}, {:?}",
+                new_item_name, new_item_value
+            );
+
+            let _ = market.insert(new_item_name, new_item_value).await;
+
+            let new_name = Uuid::new_v4().to_string();
+            market.set_name(new_name.clone());
+
+            let market_sent = Arc::new((*market).clone());
+            debug!("Inserting future ({}) into all_markets", new_name);
+
+            self.all_markets
+                .insert("future".to_string(), market_sent)
+                .await;
+
+            debug!(
+                "Current markets: {:?}",
+                self.all_markets.list_market_names().await
+            );
+            debug!(
+                "Current processor-market map: {:?}",
+                self.all_markets.processor_market_map,
+            );
+
+            if let Err(e) = self
+                .new_processor
+                .send_message(ProcessorMiddleMessage::NewMarket("future".to_string()))
+            {
+                error!(
+                    "Could not send NewMarket message to new_processor! Continuing w/o sending: {:?}",
+                    e
+                );
+            };
+        }
     }
 
     async fn handle(
         &self,
-        myself: ActorRef<Self::Msg>,
-        message: Self::Msg,      // message is new things about the market
-        state: &mut Self::State, // market state is the market itself.
+        _myself: ActorRef<Self::Msg>,
+        _message: Self::Msg,
+        _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        let market = state; // state holds the market.
-        let market_addition = message;
-        let new_name = market_addition.market_name();
-        *market += &market_addition; // adding a new market
-        debug!("Market = {:?}", market);
-        market.set_name(new_name.clone());
-        let market_sent = Arc::new((*market).clone());
-        debug!("Inserting future ({}) into all_markets", new_name);
-
-        // insert the maket under new_name.
-        self.all_markets
-            .insert("future".to_string(), market_sent)
-            .await;
-
-        debug!(
-            "Current markets: {:?}",
-            self.all_markets.list_market_names().await
-        );
-        debug!(
-            "Current processor-market map: {:?}",
-            self.all_markets.processor_market_map,
-        );
-
-        // sending notification that future market has changed,
-        // if failure, ignore it and continue.
-        if let Err(e) = self.new_processor.send_message(
-            ProcessorMiddleMessage::NewMarket("future".to_string()), // notification that the future market was updated under new_name
-        ) {
-            error!(
-                "Could not send NewMarket message to new_processor! Continuing w/o sending: {:?}",
-                e
-            );
-        };
-
-        // wait for new message
-        debug!("Listening to raw mkt data.");
-        let new_msg = self.mkt_listener.recv().await?;
-        let additional_name = Uuid::new_v4().to_string();
-        let (new_item_name, new_item_value) = <(MT::MK, f64)>::try_from_ref(&new_msg)?;
-        debug!(
-            "Inserting into market: {:?}, {:?}",
-            new_item_name, new_item_value
-        );
-        // inserting new value into the "future" market.
-        let _ = market.insert(new_item_name, new_item_value).await;
-        market.set_name(additional_name);
-        myself.send_message(market.clone())?;
-
         Ok(())
     }
 }
