@@ -2,7 +2,7 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use std::ops::AddAssign;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use crate::all_markets::AllMarkets;
@@ -113,10 +113,15 @@ where
         );
 
         // sending notification that future market has changed,
-        //
-        self.new_processor.send_message(
+        // if failure, ignore it and continue.
+        if let Err(e) = self.new_processor.send_message(
             ProcessorMiddleMessage::NewMarket("future".to_string()), // notification that the future market was updated under new_name
-        )?;
+        ) {
+            error!(
+                "Could not send NewMarket message to new_processor! Continuing w/o sending: {:?}",
+                e
+            );
+        };
 
         // wait for new message
         debug!("Listening to raw mkt data.");
