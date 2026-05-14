@@ -165,6 +165,8 @@ where
             .iter_async(|trade_name, trade_val| {
                 if new_trades.contains(trade_name) {
                     curr_trades.push(trade_val.clone());
+                } else {
+                    warn!("Could not get trade {:?}. Continuing w/o it.", trade_name);
                 }
                 true
             })

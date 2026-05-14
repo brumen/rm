@@ -479,7 +479,7 @@ where
                             )
                             .await;
 
-                        debug!("Going to CalculatingBulk.");
+                        debug!("State: CalculatingSingle -> CalculatingBulk.");
                         // let Some(new_market_actual) = self.all_markets.get(&future_market_name)
                         // else {
                         //     warn!("Couldnt find market. Ignoring");
@@ -498,7 +498,7 @@ where
                     ProcessorNewState::CalculatingBulk => {
                         // ignore if new market comes in, no
                         //   action taken.
-                        debug!("Got new market while calculating bulk. Ignoring.");
+                        debug!("Got new market from mkt_handler while calculating bulk. Ignoring.");
                         return Ok(());
                     }
                 }

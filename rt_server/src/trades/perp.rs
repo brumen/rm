@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::extend_trade;
 use crate::market::MarketTypeT;
@@ -108,14 +108,14 @@ impl PriceTrade<LETFMarketType> for PerpTrade {
 
         match (spot, mark_price) {
             (None, _) => {
-                warn!(
+                error!(
                     "pv01: PerpTrade: could not obtain underlying {:?} from the market {:?}. Market has assets: {:?}",
                     self.underlying, market.market_name(), market.stock_names(),
                 );
                 PV01Results::new()
             }
             (_, None) => {
-                warn!(
+                error!(
                     "pv01: PerpTrade: missing perp price for {:?} from {:?}. Market has assets: {:?}",
                     self.underlying,
                     market.market_name(),
