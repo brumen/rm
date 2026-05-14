@@ -116,6 +116,7 @@ where
 
         // copies all trade information to curr_trades
         let mut curr_trades = vec![];
+        // analytics about the number of trades handled.
         let nb_all_trades = all_trades.len(); // all existing trades.
         let nb_new_trades = new_trades.len(); // trades that we want to compute.
         let mut nb_found_trades = 0; // how many trades from new_trades did we find in all_trades.

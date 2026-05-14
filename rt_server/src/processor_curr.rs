@@ -243,7 +243,9 @@ where
                 for pm in state.pricing_results.clone() {
                     if let Some(portf_pm) = state.portfolio.get_mut(&pm) {
                         // publishing the portfolio to kafka.
-                        self._publish_result_portfolio(portf_pm.clone(), pm).await?
+                        if let Err(e) = self._publish_result_portfolio(portf_pm.clone(), pm).await {
+                            error!("Could not publish the portfolio: {:?}", e);
+                        };
                     } else {
                         error!(
                             "Could not find pricing metric {:?} in state portfolio. Investigate.",
@@ -310,8 +312,12 @@ where
                     );
                     state.newtrades_since_last_newmarket = 0; // reset the newtrades count.
                     for (pm, new_portf_pm) in ntp_portfolio.iter() {
-                        self._publish_result_portfolio(new_portf_pm.clone(), *pm)
-                            .await?;
+                        if let Err(e) = self
+                            ._publish_result_portfolio(new_portf_pm.clone(), *pm)
+                            .await
+                        {
+                            error!("Error publishing: {:?}", e);
+                        }
                     }
 
                     // market that we were holding should be removed from the all_markets,
@@ -349,10 +355,15 @@ where
                     ntp_upstream_processor.get_name(),
                     acc_reject,
                 );
-                ntp_upstream_processor.send_message(ProcessorMiddleMessage::Behind(
+                if let Err(e) = ntp_upstream_processor.send_message(ProcessorMiddleMessage::Behind(
                     ntp_market,
                     ntp_behind_curr_portfolio,
-                ))?;
+                )) {
+                    error!(
+                        "Error sending to upstream {:?}: {:?}",
+                        ntp_upstream_processor, e
+                    );
+                }
             }
 
             // we get a portfolio of different metrics
@@ -363,8 +374,9 @@ where
 
                 // sending it to for publishing
                 for (pm, portf_pm) in state.portfolio.iter() {
-                    self._publish_result_portfolio(portf_pm.clone(), *pm)
-                        .await?;
+                    if let Err(e) = self._publish_result_portfolio(portf_pm.clone(), *pm).await {
+                        error!("Error publishing to kafka: {:?}", e);
+                    }
                 }
             }
 
