@@ -107,25 +107,35 @@ where
     //   a single thread instead of spawning them.
     async fn _price_multiple_parallel_single_thread(
         &self,
-        new_trades: HashSet<String>,
-        pricing_metrics: Vec<PricingMetric>,
-        market_actual: Arc<MT>,
-        all_trades: Arc<TradeRep<T>>,
+        new_trades: HashSet<String>, // trades that we want to compute.
+        pricing_metrics: Vec<PricingMetric>, // metrics we want to compute
+        market_actual: Arc<MT>,      // market
+        all_trades: Arc<TradeRep<T>>, // all trades in the registry.
     ) -> PmPortfolio {
         let mut portfolio = PmPortfolio::new();
 
         // copies all trade information to curr_trades
         let mut curr_trades = vec![];
+        let nb_all_trades = all_trades.len(); // all existing trades.
+        let nb_new_trades = new_trades.len(); // trades that we want to compute.
+        let mut nb_found_trades = 0; // how many trades from new_trades did we find in all_trades.
+
         let _ = all_trades
             .iter_async(|trade_name, trade_val| {
                 if new_trades.contains(trade_name) {
                     curr_trades.push(trade_val.clone());
-                } else {
-                    error!("Couldnt get trade {:?}", trade_name);
+                    nb_found_trades += 1;
                 }
                 true
             })
             .await;
+
+        if nb_found_trades < nb_new_trades {
+            error!(
+                "Found only {:?} out of {:?} trades. Total nb available trades: {:?}",
+                nb_found_trades, nb_new_trades, nb_all_trades
+            );
+        }
 
         for pm in &pricing_metrics {
             let trade_futures = curr_trades
