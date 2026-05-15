@@ -332,10 +332,12 @@ where
                     };
                     used_trades.push(trade_attempt);
                 }
-                warn!(
-                    "Could not find {:?} out of {:?} required trades. (All trade nb = {})",
-                    non_pricing_trade_nb, new_trades_nb, all_trade_nb
-                );
+                if non_pricing_trade_nb > 0 {
+                    warn!(
+                        "Could not find {:?} out of {:?} required trades. (All trade nb = {})",
+                        non_pricing_trade_nb, new_trades_nb, all_trade_nb
+                    );
+                }
 
                 debug!(
                     "Pricing {} trades on market: {:?}",
