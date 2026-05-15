@@ -205,9 +205,10 @@ class HyperliquidMidKafkaPublisher:
         )
 
     def publish_mid(self, msg: HLWsMidPrice, timeout_s: Optional[float] = None) -> None:
-        fut = self._producer.send(self._topic, value=[{"Perp": msg.coin}, msg.mid])
-        if timeout_s is not None:
-            fut.get(timeout=timeout_s)
+        if msg.coin in ("ETH", "BTC", "SEI", "MORPHO", "AAVE", "SOL", "HYPE"):
+            fut = self._producer.send(self._topic, value=[{"Perp": msg.coin}, msg.mid])
+            if timeout_s is not None:
+                fut.get(timeout=timeout_s)
 
     def flush(self, timeout_s: float = 10.0) -> None:
         self._producer.flush(timeout=timeout_s)
