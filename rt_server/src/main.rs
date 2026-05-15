@@ -83,10 +83,16 @@ async fn run_all() {
     let initial_filter = EnvFilter::from_default_env().add_directive(tracing_level.into());
     let (reload_layer, reload_handle) = reload::Layer::new(initial_filter);
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
-        .with(reload_layer)
+    tracing_subscriber::fmt()
+        .compact() // Focuses on the current span/target
+        .with_target(true)
         .init();
+
+    // this below is enabled if you want to reload and all.
+    //    tracing_subscriber::registry()
+    //        .with(tracing_subscriber::fmt::layer())
+    //        .with(reload_layer)
+    //        .init();
 
     let mut all_handles = vec![];
     let markets_used = vec!["curr".to_string(), "new".to_string()];
