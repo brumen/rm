@@ -514,7 +514,7 @@ where
                     .incr_one(ProcessorMiddleMessageStates::Behind);
 
                 debug!(
-                    "Message: Behind. Market: {:?}, trades_beind: {:?}",
+                    "Message: Behind. Market: {:?}, trades_beind: {:?}. Not doing anything about it",
                     market_behind,
                     trades_behind.len()
                 );
@@ -558,8 +558,6 @@ where
                     computed_portf.simple()
                 );
 
-                //match state.processor_state {
-                //    ProcessorNewState::CalculatingBulk =>
                 self._bulkreceive_calculatingbulk_idle(
                     new_trade_l,
                     computed_portf,
@@ -567,17 +565,7 @@ where
                     _bulk_market,
                     state,
                     myself,
-                )?
-
-                //     ProcessorNewState::CalculatingSingle => self._bulkreceive_calculatingsingle(
-                //         new_trade_l,
-                //         computed_portf,
-                //         offending_trades,
-                //         _bulk_market,
-                //         state,
-                //         myself,
-                //     )?,
-                // }
+                )?;
             }
 
             ProcessorMiddleMessage::Metric(new_pricing_metrics) => {
@@ -590,10 +578,9 @@ where
                 state.pricing_metrics = new_pricing_metrics;
             }
 
-            _ => {
-                // this type shouldnt occur
-                //   TODO: Better error message
-                panic!("This Message type shouldnt occur.");
+            // catch for other message types.
+            msg_type => {
+                error!("Message {:?} shouldnt occur. Continuing.", msg_type);
             }
         }
         Ok(())

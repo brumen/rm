@@ -24,7 +24,7 @@ const CB_LENGTH: usize = 10;
 type CB = CircularBuffer<CB_LENGTH, (NaiveDateTime, usize)>;
 
 #[allow(dead_code)]
-pub struct TradeProducer<T> {
+pub(crate) struct TradeProducer<T> {
     position_listener: StreamConsumer,
     processors: Vec<ActorRef<ProcessorMiddleMessage<String>>>,
     trade_list: Arc<TradeRep<T>>,
@@ -168,15 +168,13 @@ where
             let trade_id = trade.id();
             debug!("Received trade: {:?}", trade_id);
 
-            self.trade_list
-                .upsert_async(trade_id.clone(), trade)
-                .await;
+            self.trade_list.upsert_async(trade_id.clone(), trade).await;
 
             for processor in &self.processors {
                 debug!("Sending trade to {:?}", processor.get_name());
-                if let Err(e) = processor.send_message(
-                    ProcessorMiddleMessage::NewTrade(trade_id.clone()),
-                ) {
+                if let Err(e) =
+                    processor.send_message(ProcessorMiddleMessage::NewTrade(trade_id.clone()))
+                {
                     error!(
                         "Could not send NewTrade message to processor {:?}: {:?}",
                         processor.get_name(),

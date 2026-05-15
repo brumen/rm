@@ -381,7 +381,7 @@ where
             }
 
             _ => {
-                panic!("Unusual message. Shouldnt happen");
+                error!("Unusual message. Shouldnt happen.");
             }
         }
         Ok(())

@@ -291,12 +291,19 @@ where
                 let Some(market_actual) = self.all_markets.get(&market).await else {
                     warn!("Could not get market {}. Abandoning pricing.", market);
                     // if curr_mkt == None, we couldnt get the market, abandon the attempts
-                    sending_processor.send_message(ProcessorMiddleMessage::BulkReceive((
-                        new_trades.clone(), // referencing trades. <- TODO: DO WE NEED THIS - SHOULD BE REMOVED.
-                        PmPortfolio::new(), // computed portf = None, so not really useful.
-                        TradesLocal::new(), // offending trades
-                        market.clone(),     // referenced market
-                    )))?;
+                    if let Err(e) =
+                        sending_processor.send_message(ProcessorMiddleMessage::BulkReceive((
+                            new_trades.clone(), // referencing trades. <- TODO: DO WE NEED THIS - SHOULD BE REMOVED.
+                            PmPortfolio::new(), // computed portf = None, so not really useful.
+                            TradesLocal::new(), // offending trades
+                            market.clone(),     // referenced market
+                        )))
+                    {
+                        error!(
+                            "Error sending the message to the processor {:?}: {:?}. Not sending (should not be detrimental).",
+                            sending_processor, e
+                        );
+                    };
                     //*state = ProcessorBulkState::Idle; // back to idle.
                     return Ok(());
                 };
@@ -339,17 +346,19 @@ where
                     portfolio.simple(),
                 );
 
-                sending_processor.send_message(ProcessorMiddleMessage::BulkReceive((
-                    new_trades,
-                    portfolio,
-                    non_pricing_trades,
-                    market,
-                )))?;
+                if let Err(e) = sending_processor.send_message(ProcessorMiddleMessage::BulkReceive(
+                    (new_trades, portfolio, non_pricing_trades, market),
+                )) {
+                    error!(
+                        "Could not send message to {:?}: {:?}. Continuing.",
+                        sending_processor, e
+                    );
+                };
             }
 
             ProcessorBulkMessage::Abandon => {
                 // stop the computation and go into idle.
-                todo!()
+                error!("TODO: Not yet implemented.");
             }
         }
         Ok(())

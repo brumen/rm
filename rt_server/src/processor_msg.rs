@@ -19,7 +19,7 @@ pub(crate) type TradesLocal = HashSet<String>;
 #[strum_discriminants(derive(IntoStaticStr))]
 #[allow(dead_code)]
 #[derive(Clone, Debug, AsRefStr)]
-pub enum ProcessorMiddleMessage<MT> {
+pub(crate) enum ProcessorMiddleMessage<MT> {
     NewTrade(String), // message from trade producer, trade id.
     NewMarket(MT),    // message from market handler, market_name
     // message from Processor_below:
@@ -67,6 +67,7 @@ impl<MT> ProcessorMiddleMessage<MT> {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub enum ProcessorBulkMessage<MT> {
     // is a triple
