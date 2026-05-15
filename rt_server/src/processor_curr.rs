@@ -215,7 +215,7 @@ where
                 let Some(market_info) = self.all_markets.get(real_market).await else {
                     warn!(
                         "Could not find market {}. All markets: {:?}. Ignoring the new trade pricing.",
-                        real_market, self.all_markets,
+                        real_market, self.all_markets.market_size().await,
                     );
                     return Ok(());
                 };

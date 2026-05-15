@@ -181,6 +181,9 @@ impl MarketTypeT for LETFMarketType {
     }
 
     fn market_params(&self) {}
+    fn len(&self) -> usize {
+        self.market.len()
+    }
 }
 
 impl SetName for LETFMarketType {

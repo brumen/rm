@@ -33,6 +33,7 @@ where
     fn is_used(&self) -> bool {
         true
     }
+    fn len(&self) -> usize;
 }
 
 // Setting the name of the market
@@ -88,6 +89,9 @@ impl<T: MarketTypeT> MarketTypeT for Arc<T> {
 
     fn is_used(&self) -> bool {
         Arc::strong_count(self) > 1
+    }
+    fn len(&self) -> usize {
+        (**self).len()
     }
 }
 
