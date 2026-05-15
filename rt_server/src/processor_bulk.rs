@@ -172,16 +172,26 @@ where
 
         // copies all trade information to curr_trades
         let mut curr_trades = vec![];
+        let new_trade_nb = new_trades.len();
+        let mut pricing_trade_nb = 0;
+        let total_trade_nb = all_trades.len();
+
         let _ = all_trades
             .iter_async(|trade_name, trade_val| {
                 if new_trades.contains(trade_name) {
                     curr_trades.push(trade_val.clone());
-                } else {
-                    warn!("Could not get trade {:?}. Continuing w/o it.", trade_name);
+                    pricing_trade_nb += 1;
                 }
                 true
             })
             .await;
+
+        if pricing_trade_nb < new_trade_nb {
+            warn!(
+                "Could only find {} out of {} trade. (All trades = {}",
+                pricing_trade_nb, new_trade_nb, total_trade_nb
+            );
+        }
 
         // for every pricing metric launch a number of spawned tasks.
         for pm in &pricing_metrics {
