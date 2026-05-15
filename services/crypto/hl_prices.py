@@ -476,4 +476,4 @@ def __main__():
     stream_hl_mid_prices_to_kafka(bootstrap_servers="192.168.1.50:9092")
 
 
-__main__()
+# __main__()
