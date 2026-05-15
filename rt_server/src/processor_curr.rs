@@ -380,8 +380,8 @@ where
                 }
             }
 
-            _ => {
-                error!("Unusual message. Shouldnt happen.");
+            unusual_msg => {
+                error!("Unusual message. Shouldnt happen: {:?}", unusual_msg);
             }
         }
         Ok(())

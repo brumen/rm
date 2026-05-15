@@ -188,7 +188,7 @@ where
 
         if pricing_trade_nb < new_trade_nb {
             warn!(
-                "Could only find {} out of {} trade. (All trades = {}",
+                "Could only find {} out of {} trades. (All trade nb: {})",
                 pricing_trade_nb, new_trade_nb, total_trade_nb
             );
         }
