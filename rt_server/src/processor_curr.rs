@@ -294,6 +294,7 @@ where
                         warn!("Could not get NTP market {:?}", ntp_market);
                         return Ok(());
                     };
+                    debug!("Computing additional {:?} trades", ntp_portf_behind);
                     let additional_portf = self
                         .price_multiple(
                             ntp_behind_curr_portfolio.clone(),
