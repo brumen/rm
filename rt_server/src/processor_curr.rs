@@ -257,7 +257,7 @@ where
 
             ProcessorMiddleMessage::NewTradePortfolio((
                 ntp_trades,
-                ntp_portfolio,
+                mut ntp_portfolio,
                 ntp_market,
                 ntp_upstream_processor,
             )) => {
@@ -302,7 +302,7 @@ where
                             self.all_trades.clone(),
                         )
                         .await;
-                    state.portfolio += additional_portf;
+                    ntp_portfolio += additional_portf;
                 } // otherwise we dont need to compute them.
 
                 if ntp_portf_acc {
@@ -311,7 +311,8 @@ where
                         ntp_portfolio.simple()
                     );
                     state.newtrades_since_last_newmarket = 0; // reset the newtrades count.
-                    for (pm, new_portf_pm) in ntp_portfolio.iter() {
+                    state.portfolio = ntp_portfolio;
+                    for (pm, new_portf_pm) in state.portfolio.iter() {
                         if let Err(e) = self
                             ._publish_result_portfolio(new_portf_pm.clone(), *pm)
                             .await
@@ -335,7 +336,6 @@ where
                     };
 
                     // update the state of current processor.
-                    state.portfolio = ntp_portfolio;
                     state.trades.extend(ntp_trades); // *trades += &new_trades;
                     debug!(
                         "Switching: {:?} -> {}",
