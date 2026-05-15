@@ -311,23 +311,34 @@ where
                 // we have a market
                 let mut non_pricing_trades = TradesLocal::new();
                 let mut used_trades = vec![];
+
+                // accounting for missing trades
+                let new_trades_nb = new_trades.len();
+                let all_trade_nb = self.all_trades.len();
+                let mut non_pricing_trade_nb = 0;
+
                 for trade_name in new_trades.iter() {
                     // TODO: WHAT PART OF THESE TRADES COULD BE CACHED???
                     let Some(trade_attempt) =
                         self.all_trades.read_sync(trade_name, |_, v| v.clone())
                     else {
-                        warn!(
-                            "Could not get trade {} from all_trades. Continuing w/o it.",
-                            trade_name
-                        );
+                        non_pricing_trade_nb += 1;
+                        // warn!(
+                        //     "Could not get trade {} from all_trades. Continuing w/o it.",
+                        //     trade_name
+                        // );
                         non_pricing_trades.insert(trade_name.to_string());
                         continue;
                     };
                     used_trades.push(trade_attempt);
                 }
+                warn!(
+                    "Could not find {:?} out of {:?} required trades. (All trade nb = {})",
+                    non_pricing_trade_nb, new_trades_nb, all_trade_nb
+                );
 
                 debug!(
-                    "Pricing trades {} on market: {:?}",
+                    "Pricing {} trades on market: {:?}",
                     new_trades.len(),
                     market
                 );
