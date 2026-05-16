@@ -3,7 +3,7 @@ use rdkafka::consumer::StreamConsumer;
 use rdkafka::Message;
 use serde::Deserialize;
 use tokio::task::JoinHandle;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PricingMetric;
@@ -73,10 +73,22 @@ impl Actor for SetupActor {
         info!("Waiting on first setup message...");
         // Receive the first setup message
         let msg = self.setup_listener.recv().await?;
-        let payload = msg.payload_view::<str>().unwrap().unwrap();
-        let setup_req: SetupRequest = serde_json::from_str(payload)?;
-        info!("Initial setup request received: {:?}", setup_req);
-        myself.send_message(setup_req)?;
+        if let Some(payload) = msg.payload_view::<str>() {
+            match payload {
+                Ok(actual_payload) => {
+                    let setup_req: SetupRequest = serde_json::from_str(actual_payload)?;
+                    info!("Initial setup request received: {:?}", setup_req);
+                    myself.send_message(setup_req)?;
+                }
+                Err(e) => {
+                    error!("Error handling actual request {:?}", e);
+                    return Ok(());
+                }
+            }
+        } else {
+            error!("Setup message not received correctly.");
+            return Ok(());
+        }
 
         Ok(())
     }

@@ -19,6 +19,7 @@ where
         Self: Sized;
     fn market_name(&self) -> String;
     async fn get(&self, stock: &Self::MK) -> Option<f64>; // getting stock values.
+    fn stock_names(&self) -> Vec<Self::MK>; // returns all stocks for the current market.
     async fn insert(&self, key: Self::MK, value: f64); // Important: insert is _NOT_ mutable self
     fn is_empty(&self) -> bool;
     fn try_from_ref(
@@ -32,6 +33,7 @@ where
     fn is_used(&self) -> bool {
         true
     }
+    fn len(&self) -> usize;
 }
 
 // Setting the name of the market
@@ -57,6 +59,9 @@ impl<T: MarketTypeT> MarketTypeT for Arc<T> {
 
     async fn get(&self, stock: &Self::MK) -> Option<f64> {
         (**self).get(stock).await
+    }
+    fn stock_names(&self) -> Vec<Self::MK> {
+        (**self).stock_names()
     }
 
     async fn insert(&self, key: Self::MK, value: f64) {
@@ -85,7 +90,36 @@ impl<T: MarketTypeT> MarketTypeT for Arc<T> {
     fn is_used(&self) -> bool {
         Arc::strong_count(self) > 1
     }
+    fn len(&self) -> usize {
+        (**self).len()
+    }
 }
+
+// TODO: TO BE IMPLEMENTED AS SOON AS WE HAVE .market exposed on the trait.
+// impl<T: MarketTypeT> PartialEq for T {
+//     fn eq(&self, other: &Self) -> bool {
+//         if self.market_name != other.market_name {
+//             return false;
+//         }
+
+//         // TODO: HERE HAS TO CHANGE
+//         for self_entry in self.market.iter() {
+//             let self_key = self_entry.key();
+//             if !other.market.contains_key(self_key) {
+//                 return false;
+//             }
+//         }
+
+//         for other_entry in other.market.iter() {
+//             let other_key = other_entry.key();
+//             if !self.market.contains_key(other_key) {
+//                 return false;
+//             }
+//         }
+
+//         true
+//     }
+// }
 
 #[derive(Error, Debug)]
 pub enum MarketTypeError {

@@ -16,6 +16,7 @@ pub mod ref_deref;
 pub mod streaming;
 pub mod trade;
 // pub mod trader;
+mod postprocs;
 
 pub(crate) mod all_markets;
 pub(crate) mod engine_actor;
@@ -34,9 +35,11 @@ pub(crate) mod trades;
 pub(crate) mod utils;
 
 use crate::engine_letf::start2;
+use crate::postprocs::nav;
 // use crate::markets::ao_market;
 use crate::markets::letf_market::LETFMarketType;
 use crate::pricer::PricingMetric;
+use crate::processor_curr::RTOperatingMode;
 use crate::processor_setup_actor::start_setup_actor;
 use crate::trade::TradeRep;
 use trades::trade_letf::TradeTypes;
@@ -62,12 +65,12 @@ async fn run_all() {
     let _market_port = std::env::var("MARKET_PORT").expect("Could not find MARKET_PORT in .env");
     let _pricing_port = std::env::var("PRICING_PORT").expect("Could not find PRICING_PORT in .env");
     let debug_level = std::env::var("DEBUG_LEVEL").expect("Could not find DEBUG in .env");
-    info!(".env data loaded.");
+    let operating_mode = RTOperatingMode::DoubleBuffer;
     let kafka_params = engine_actor::KafkaParams {
-        kafka_server,
+        kafka_server: kafka_server.clone(),
         pos_topic,
         mkt_topic,
-        results_topic,
+        results_topic: results_topic.clone(),
     };
 
     let tracing_level = match debug_level.as_str() {
@@ -80,10 +83,16 @@ async fn run_all() {
     let initial_filter = EnvFilter::from_default_env().add_directive(tracing_level.into());
     let (reload_layer, reload_handle) = reload::Layer::new(initial_filter);
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
-        .with(reload_layer)
+    tracing_subscriber::fmt()
+        .compact() // Focuses on the current span/target
+        .with_target(true)
         .init();
+
+    // this below is enabled if you want to reload and all.
+    //    tracing_subscriber::registry()
+    //        .with(tracing_subscriber::fmt::layer())
+    //        .with(reload_layer)
+    //        .init();
 
     let mut all_handles = vec![];
     let markets_used = vec!["curr".to_string(), "new".to_string()];
@@ -103,7 +112,8 @@ async fn run_all() {
         markets_used,
         initial_trades.clone(),
         (),
-        3,
+        1,
+        operating_mode,
     )
     .await;
 
@@ -116,12 +126,20 @@ async fn run_all() {
     );
     all_handles.push(diagnostics_handle);
 
+    // postprocessing handles
+    let mut total_nav_processor = nav::NavProcessor::new(&kafka_server, &results_topic, "")
+        .expect("Could not start NAV processor");
+    let total_nav = tokio::spawn(async move {
+        total_nav_processor.run_ignore().await;
+    });
+
     // this creates the setup actor.
     let setup_actor_handle = start_setup_actor(host.clone(), setup_topic.clone(), all_actors).await;
 
     info!("All relevant actors initialized.");
     all_handles.append(&mut all_actors_handles);
     all_handles.push(setup_actor_handle);
+    all_handles.push(total_nav);
     join_all(all_handles).await;
 }
 

@@ -15,6 +15,7 @@ recursive_call = "allow"
 [dependencies]
 actix = "0.13.0"
 actix-rt = "2.9.0"
+anyhow = "1.0.102"
 argmin = "0.11.0"
 async-std = "1.12.0"
 async-trait = "0.1.73"

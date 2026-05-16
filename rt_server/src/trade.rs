@@ -1,5 +1,6 @@
 use core::cmp::Eq;
-use dashmap::DashMap;
+//use dashmap::DashMap;
+use scc::HashMap as DashMap;
 use std::default::Default;
 use std::ops::{AddAssign, Deref, DerefMut, Sub, SubAssign};
 use thiserror::Error;
@@ -27,28 +28,95 @@ pub enum TradeError {
     NoPayload,
 }
 
+/// Macro to create a new wrapper struct around an existing type, adding
+/// a `prev_pv: Option<f64>` field.
+///
+/// Example:
+/// add_prev_pv_field!(PricedTrade, MyTrade);
+///
+/// Expands to a struct roughly like:
+/// pub struct PricedTrade {
+///     pub trade: MyTrade,
+///     pub prev_pv: Option<f64>,
+/// }
+#[macro_export]
+macro_rules! extend_trade {
+    ($new_struct:ident, $base_type:ty) => {
+        #[derive(Clone, Debug, PartialEq)]
+        pub struct $new_struct {
+            pub trade: $base_type,
+            pub prev_pv: Option<f64>, // for computing pnl
+        }
+
+        impl $new_struct {
+            pub fn new(trade: $base_type, prev_pv: Option<f64>) -> Self {
+                Self { trade, prev_pv }
+            }
+        }
+
+        // inherit all the other implementations
+        impl BaseTrade for $new_struct {
+            fn id(&self) -> String {
+                self.trade.id()
+            }
+            fn direction(&self) -> TradeDirection {
+                self.trade.direction()
+            }
+        }
+
+        #[async_trait]
+        impl PriceTrade<LETFMarketType> for $new_struct {
+            async fn needs_recompute(
+                &self,
+                market_old: Arc<LETFMarketType>,
+                market_new: Arc<LETFMarketType>,
+            ) -> bool {
+                self.trade.needs_recompute(market_old, market_new).await
+            }
+
+            async fn initial_pv(&self) -> Option<f64> {
+                self.prev_pv
+            }
+
+            async fn price(&self, market: Arc<LETFMarketType>) -> Option<f64> {
+                self.trade.price(market).await
+            }
+            async fn pv01(&self, market: Arc<LETFMarketType>) -> PV01Results {
+                self.trade.pv01(market).await
+            }
+
+            async fn update_prev_pv(&mut self, new_market_val: Option<f64>) {
+                self.prev_pv = new_market_val;
+            }
+        }
+    };
+}
+
+#[allow(dead_code)]
+pub trait TradeReduce {
+    type TradeType: BaseTrade + Send;
+    type ReductionType: Send + Sync + Clone + BaseTrade;
+
+    fn reduce(&self, trade: &Self::TradeType) -> Self::ReductionType;
+}
+
+impl<TR> Default for TradeRep<TR> {
+    fn default() -> Self {
+        Self(DashMap::<String, TR>::new())
+    }
+}
+
 /// Internal representations of trades.
 /// String is the trade id, TR is the trade representation.
 #[derive(Debug, Clone)]
 pub struct TradeRep<TR>(pub DashMap<String, TR>);
 
 impl<TR> PartialEq for TradeRep<TR> {
-    // trade representations are equal if they have the same trade descriptors.
+    // Trade representations are equal if they have the same set of trade ids (keys).
     fn eq(&self, other: &Self) -> bool {
-        for entry in self.iter() {
-            if !other.contains(entry.key()) {
-                return false;
-            }
-        }
-
-        for trade_entry in other.iter() {
-            // .key is the trade name, .value is the trade representation
-            if !self.contains(trade_entry.key()) {
-                return false;
-            }
-        }
-
-        true
+        // Since `scc::HashMap` doesn't provide a cheap stable `len()` without iterating,
+        // we do a symmetric subset check.
+        self.iter_sync(|k, _| other.contains(k)) && other.iter_sync(|k, _| self.contains(k))
     }
 }
 
@@ -66,27 +134,17 @@ impl<TR> DerefMut for TradeRep<TR> {
     }
 }
 
-#[allow(dead_code)]
-pub trait TradeReduce {
-    type TradeType: BaseTrade + Send;
-    type ReductionType: Send + Sync + Clone + BaseTrade;
-
-    fn reduce(&self, trade: &Self::TradeType) -> Self::ReductionType;
-}
-
-impl<TR> Default for TradeRep<TR> {
-    fn default() -> Self {
-        Self(DashMap::<String, TR>::new())
-    }
-}
-
 impl<TR> TradeRep<TR> {
     /// returns all trade ids in the trade representation.
     // this does copy the trade names out. POTENTIAL COPY IMPACT.
     fn _keys(&self) -> Vec<String> {
-        self.iter()
-            .map(|entry| entry.key().clone())
-            .collect::<Vec<String>>()
+        // scc::HashMap::iter() yields references to (K, V) tuples.
+        let mut all_keys = Vec::<String>::new();
+        self.iter_sync(|k, _| {
+            all_keys.push(k.clone());
+            true
+        });
+        all_keys
     }
 
     pub fn all_trade_names(&self) -> Vec<String> {
@@ -95,17 +153,15 @@ impl<TR> TradeRep<TR> {
 
     /// does trade representation contain trade_id
     pub fn contains(&self, trade_id: &String) -> bool {
-        self.iter()
-            .position(|entry| entry.key() == trade_id)
-            .is_some()
+        self.read_sync(trade_id, |_, _| ()).is_some()
     }
 }
 
 impl<TR: Clone + BaseTrade> AddAssign<(String, TR)> for TradeRep<TR> {
     // adds the elements of the other TradeRep to this traderep
-    // uses cloning.
-    fn add_assign(&mut self, other: (String, TR)) {
-        self.insert(other.0, other.1);
+    fn add_assign(&mut self, (trade_id, trade): (String, TR)) {
+        // For scc::HashMap, use upsert_sync to insert or replace.
+        self.upsert_sync(trade_id, trade);
     }
 }
 
@@ -113,17 +169,21 @@ impl<TR: Clone + BaseTrade> AddAssign<&TradeRep<TR>> for TradeRep<TR> {
     // adds the elements of the other TradeRep to this traderep
     // uses cloning.
     fn add_assign(&mut self, other: &TradeRep<TR>) {
-        for other_entry in other.iter() {
-            self.insert(other_entry.key().clone(), other_entry.value().clone());
-        }
+        other.iter_sync(|k, v| {
+            self.upsert_sync(k.clone(), v.clone());
+            true
+        });
     }
 }
 
 impl<TR: Clone + BaseTrade> SubAssign<&TradeRep<TR>> for TradeRep<TR> {
     fn sub_assign(&mut self, other: &TradeRep<TR>) {
-        for other_entry in other.iter() {
-            self.remove(other_entry.key());
-        }
+        // scc::HashMap doesn't yield DashMap-style entries; iterate using iter_sync
+        // and remove by key.
+        other.iter_sync(|k, _| {
+            let _ = self.remove_sync(k);
+            true
+        });
     }
 }
 
@@ -131,23 +191,24 @@ impl<TR: Clone + BaseTrade> Sub<&TradeRep<TR>> for TradeRep<TR> {
     type Output = Self;
 
     fn sub(self, other: &TradeRep<TR>) -> Self::Output {
-        // create a separate hashmap.
+        // `scc::HashMap` doesn't provide the same entry API as `dashmap`.
+        // Build a new map containing only keys not present in `other`.
         let res_traderep = Self::default();
-        for entry in self.iter() {
-            // (trade_id, trade_rr)
-            let trade_id = entry.key();
-            let trade_rr = entry.value();
-            if !other.contains(trade_id) {
-                res_traderep.insert(trade_id.clone(), trade_rr.clone()); // TODO: CHECK IF CLONE IS GOOD!!!
+
+        self.iter_sync(|k, v| {
+            if !other.contains(k) {
+                res_traderep.upsert_sync(k.clone(), v.clone());
             }
-        }
+            true
+        });
+
         res_traderep
     }
 }
 
 impl<TR: Clone + BaseTrade> AddAssign<&TR> for TradeRep<TR> {
     fn add_assign(&mut self, other: &TR) {
-        self.insert(other.id().clone(), other.clone());
+        self.upsert_sync(other.id().clone(), other.clone());
     }
 }
 
@@ -156,7 +217,7 @@ impl<const N: usize, TR: BaseTrade> From<[TR; N]> for TradeRep<TR> {
         let hm = DashMap::with_capacity(N);
         for tr in arr {
             let trade_id = tr.id();
-            hm.insert(trade_id, tr);
+            hm.upsert_sync(trade_id, tr);
         }
 
         Self(hm)

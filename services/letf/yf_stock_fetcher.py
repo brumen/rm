@@ -31,6 +31,10 @@ class Stock(BaseModel):
     Stock: str
 
 
+class Perp(BaseModel):
+    Perp: str
+
+
 class Option(BaseModel):
     # Enum variant with a value: "Option": "TSLA250315C300"
     Option: str
@@ -57,7 +61,7 @@ class Sabr(BaseModel):
 
 
 # Union of all possible variants, representing the full LETFMarketTypes enum
-LETFMarketTypes = Union[Stock, Option, Sabr, MarketBreak, MrdsModel]
+LETFMarketTypes = Union[Stock, Option, Sabr, MarketBreak, MrdsModel, Perp]
 
 
 class MarketValueTuple(BaseModel):
@@ -233,6 +237,34 @@ class YFStockKafkaStreamer(YFStockFetcher):
                 f"Error streaming message to {self.topic}: {e}, {stock_message}"
             )
 
+    def _process_message_perp(self, msg):
+        """processes the message got from yfinance, includes the Perp price."""
+
+        stock_name = msg["id"]
+        stock_value = msg["price"]
+        perp_random_value = random.normal(loc=0.0, scale=0.1) * stock_value
+
+        stock_message = MarketValueTuple(
+            market_key=Stock(Stock=stock_name),
+            value=stock_value,
+        )
+
+        perp_message = MarketValueTuple(
+            market_key=Perp(Perp=stock_name),
+            value=stock_value + perp_random_value,
+        )
+
+        try:
+            self.producer.send(self.topic, stock_message.to_json_array())
+            _logger.info(f"Streamed to {self.topic}: {stock_message}")
+
+            self.producer.send(self.topic, perp_message.to_json_array())
+            _logger.info(f"Streamed to {self.topic}: {perp_message}")
+        except Exception as e:
+            _logger.error(
+                f"Error streaming message to {self.topic}: {e}, {stock_message}"
+            )
+
     def _break_point(self):
         break_msg = MarketValueTuple(
             market_key=MarketBreak(Break=None),
@@ -249,7 +281,7 @@ class YFStockKafkaStreamer(YFStockFetcher):
 
         for ticker in self.tickers:
             t = threading.Thread(
-                target=yf.Ticker(ticker).live, args=(self._process_message,)
+                target=yf.Ticker(ticker).live, args=(self._process_message_perp,)
             )
             t.daemon = True
             t.start()
@@ -271,7 +303,7 @@ class YFStockKafkaStreamerSim(YFStockKafkaStreamer):
                     "id": ticker,
                     "price": ticker_val[ticker],
                 }
-                self._process_message(msg)
+                self._process_message_perp(msg)
                 self._break_point()  # send the break msg.
             time.sleep(interval)
 

@@ -8,10 +8,6 @@ use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
 use tracing::{debug, error, info, warn};
 
-// use lapin::options::ClientOptions; // TODO:
-use lapin::Connection;
-use std::error::Error;
-
 use crate::portfolio::PortfolioType;
 use crate::pricer::PricingMetric;
 use crate::streaming::Streaming;

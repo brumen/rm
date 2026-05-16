@@ -3,35 +3,58 @@ use rdkafka::error::KafkaError;
 use rdkafka::producer::FutureProducer;
 use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
+use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 use crate::portfolio::{PmPortfolio, PortfolioType};
 use crate::pricer::{PriceTrade, PricingMetric};
+use crate::processor_bulk::{PriceMultiple, PricingStyle};
 use crate::processor_msg::{ProcessorMiddleMessage, TradesLocal};
 use crate::trade::{BaseTrade, TradeRep};
+
+#[derive(PartialEq)]
+pub enum RTOperatingMode {
+    DoubleBuffer, // usual double or triple buffering
+    SingleBuffer, // single buffering.
+}
 
 pub(crate) struct ProcessorCurr<T, MT>
 where
     MT: MarketTypeT + std::fmt::Debug,
+    T: std::fmt::Debug,
 {
     pub processor_name: String,
     pub results_topic: String,
     pub result_publisher: FutureProducer,
     pub all_markets: Arc<AllMarkets<Arc<MT>>>, // all_markets is DashMap
     pub all_trades: Arc<TradeRep<T>>,          // all_trades is DashMap
-                                               // trade_processor where we can send the info when the trades are processed
-                                               // pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
+    // trade_processor where we can send the info when the trades are processed
+    // pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
+    pub operating_mode: RTOperatingMode,
 }
 
 impl<T, MT> std::fmt::Debug for ProcessorCurr<T, MT>
 where
     MT: MarketTypeT + std::fmt::Debug,
+    T: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&format!("CurrentProcessor({})", self.processor_name))
+    }
+}
+
+#[async_trait]
+impl<T, MT> PriceMultiple<T, MT> for ProcessorCurr<T, MT>
+where
+    MT: MarketTypeT + 'static + std::fmt::Debug,
+    MT::MP: Clone,
+    T: PriceTrade<MT> + 'static + std::fmt::Debug + Sync + Send + Clone,
+{
+    fn pricing_style(&self) -> PricingStyle {
+        PricingStyle::Sequential
     }
 }
 
@@ -57,7 +80,7 @@ pub(crate) trait PublishPortfolio {
 #[async_trait]
 impl<T, MT> PublishPortfolio for ProcessorCurr<T, MT>
 where
-    T: Send + Sync,
+    T: Send + Sync + std::fmt::Debug,
     MT: Send + Sync + MarketTypeT + std::fmt::Debug,
 {
     async fn _publish_result_portfolio(
@@ -84,7 +107,7 @@ where
         // error is the Kafka error
         // OwnedMessage - copy of the original message.
         // Result<(i32, i64), (KafkaError, OwnedMessage)>;
-        info!("Publishing portfolio: size {}", portf.len());
+        debug!("Publishing portfolio: size {}", portf.len());
         match self
             .result_publisher
             .send(portf_record, Timeout::Never)
@@ -96,8 +119,7 @@ where
     }
 }
 
-// cutoff when we dont add a trade, to the portfolio, but just add it to the new trade count.
-const NEWTRADES_SINCE_NEWMARKET_CUTOFF: u64 = 10;
+const NTP_ALLOW_BEHIND: u64 = 10; // number of trades that the NTP is allowed behind, before we reject it.
 
 /// current state of the processor
 #[derive(Debug)]
@@ -125,7 +147,7 @@ impl std::fmt::Display for _ProcessorCurrState {
 #[async_trait]
 impl<T, MT> Actor for ProcessorCurr<T, MT>
 where
-    T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static,
+    T: Sync + Send + Clone + BaseTrade + PriceTrade<MT> + 'static + std::fmt::Debug,
     ProcessorCurr<T, MT>: PublishPortfolio,
     MT: MarketTypeT + Send + Sync + 'static + std::fmt::Debug,
     MT::MP: Clone,
@@ -153,10 +175,10 @@ where
     }
 
     #[instrument(
-        name="curr_handle",
         skip(self, _myself, message, state),
         fields(
-            msg = message.as_ref(),
+            processor="processor_curr",
+            // msg = message.as_ref(),
             mkt = state.curr_market,
         )
     )]
@@ -169,17 +191,13 @@ where
         debug!(%state, "State:");
         match message {
             ProcessorMiddleMessage::NewTrade(trade) => {
+                if self.operating_mode == RTOperatingMode::SingleBuffer {
+                    return Ok(());
+                }
+
                 debug!("Message: NewTrade: Adding trade {:?}.", trade);
                 state.newtrades_since_last_newmarket += 1;
                 state.trades.insert(trade.clone());
-                if state.newtrades_since_last_newmarket > NEWTRADES_SINCE_NEWMARKET_CUTOFF {
-                    // we try to let the newportfolio branch in
-                    warn!(
-                        "Processed at least {} new trades. Throttling to let a market in.",
-                        state.newtrades_since_last_newmarket,
-                    );
-                    return Ok(());
-                }
 
                 let Some(ref real_market) = state.curr_market else {
                     // only continue if you have a market.
@@ -187,7 +205,10 @@ where
                     return Ok(());
                 };
 
-                let Some(trade_info) = self.all_trades.get(&trade) else {
+                // TODO: can v. be without clone
+                let Some(mut trade_info) =
+                    self.all_trades.read_async(&trade, |_, v| v.clone()).await
+                else {
                     warn!(
                         "Could not find {} among all_atrades. Ignoring w/ computation and continuing.",
                         trade
@@ -195,12 +216,10 @@ where
                     return Ok(());
                 };
 
-                let trade_real = trade_info.value();
-
-                let Some(market_info) = self.all_markets.get(real_market) else {
+                let Some(market_info) = self.all_markets.get(real_market).await else {
                     warn!(
-                        "Could not find market {}. Ignoring the new trade pricing.",
-                        real_market
+                        "Could not find market {}. All markets: {:?}. Ignoring the new trade pricing.",
+                        real_market, self.all_markets.market_size().await,
                     );
                     return Ok(());
                 };
@@ -212,29 +231,45 @@ where
                     state.pricing_results,
                 );
                 for pm in state.pricing_results.clone() {
-                    let valued_trade_pm = trade_real.value_by_metric(pm, market_info.clone()).await;
-                    let portf_pm = state.portfolio.get_mut(&pm).unwrap();
-                    *portf_pm += valued_trade_pm;
+                    let valued_trade_pm = trade_info.value_by_metric(pm, market_info.clone()).await;
+                    debug!("Priced trade {:?}: {:?}", trade, valued_trade_pm);
+                    if let Some(portf_pm) = state.portfolio.get_mut(&pm) {
+                        *portf_pm += valued_trade_pm;
+                    } else {
+                        // for now just print warning.
+                        error!(
+                            "Could not find pricing metric {:?} in the state portfolio",
+                            pm
+                        );
+                    }
                 }
 
                 for pm in state.pricing_results.clone() {
-                    let portf_pm = state.portfolio.get_mut(&pm).unwrap();
-                    // publishing the portfolio to kafka.
-                    self._publish_result_portfolio(portf_pm.clone(), pm).await?
+                    if let Some(portf_pm) = state.portfolio.get_mut(&pm) {
+                        // publishing the portfolio to kafka.
+                        if let Err(e) = self._publish_result_portfolio(portf_pm.clone(), pm).await {
+                            error!("Could not publish the portfolio: {:?}", e);
+                        };
+                    } else {
+                        error!(
+                            "Could not find pricing metric {:?} in state portfolio. Investigate.",
+                            pm
+                        )
+                    }
                 }
             }
 
             ProcessorMiddleMessage::NewTradePortfolio((
-                new_trades,
-                new_portfolio,
-                new_market,
-                upstream_processor,
+                ntp_trades,
+                mut ntp_portfolio,
+                ntp_market,
+                ntp_upstream_processor,
             )) => {
                 debug!(
-                    "Message: NewTradePortfolio. Trades: {:?}, NewPortfolio: {:?}, NewMarket: {:?}",
-                    new_trades.len(),
-                    new_portfolio.simple(),
-                    new_market,
+                    "Message: NewTradePortfolio. CurrPortfolio: {:?}, NewPortfolio: {:?}, NewMarket: {:?}",
+                    state.portfolio.simple(),
+                    ntp_portfolio.simple(),
+                    ntp_market,
                 );
 
                 if state.pricing_results.is_empty() {
@@ -242,34 +277,64 @@ where
                     return Ok(());
                 }
 
-                // let new_behind_curr = trades - new_trades;
-                let new_behind_curr = state
-                    .trades
-                    .iter()
-                    .filter(|&x| !new_trades.contains(x.as_str()))
-                    .cloned()
-                    .collect::<TradesLocal>();
-
                 // new behind current but only considering trades from
-                //    a portfolio
-                let new_behind_curr_portfolio = state
-                    .portfolio
-                    .get_trades()
+                //    a portfolio (BUG: for some reason ntp_trades and portfolio from trades can diverge IT SHOULDNT)
+                // TODO: THIS NEEDS TO IMPROVE HERE!!.
+                let ntp_trades_from_portfolio = ntp_portfolio
+                    .get(&PricingMetric::PV)
+                    .unwrap_or(&PortfolioType::default())
+                    .clone();
+                let ntp_behind_curr_portfolio = state
+                    .trades
+                    .clone()
                     .into_iter()
-                    .filter(|x| !new_trades.contains(x.as_str()))
+                    .filter(|x| !ntp_trades_from_portfolio.contains_key(x.as_str()))
                     .collect::<TradesLocal>();
 
                 // new portfolio has more trades, send the portfolio to publisher.
-                let new_portf_acc = state.portfolio <= new_portfolio;
-                if new_portf_acc {
-                    info!(
-                        "NewPortfolio accepted ({:?}). Publishing.",
-                        new_portfolio.simple()
+                // let new_portf_acc = state.portfolio <= ntp_portfolio;
+                // amount of trades that the ntp_portfolio is behind state.portfolio.
+                let ntp_portf_behind = ntp_behind_curr_portfolio.len(); // state.portfolio.len() - ntp_portfolio.len(); //  < NTP_ALLOW_BEHIND;
+                let ntp_portf_acc = (ntp_portf_behind as u64) < NTP_ALLOW_BEHIND;
+
+                // compute those additional trades
+                debug!("NTP is {} traded behind", ntp_portf_behind);
+                //if (ntp_portf_behind > 0) & ntp_portf_acc {
+                if ntp_portf_acc {
+                    // new portfolio is accepted.
+                    let Some(ntp_market_actual) = self.all_markets.get(&ntp_market).await else {
+                        warn!("Could not get NTP market {:?}", ntp_market);
+                        return Ok(());
+                    };
+                    debug!("Computing additional {:?} trades", ntp_portf_behind);
+                    let (additional_trades, additional_portf) = self
+                        .price_multiple(
+                            ntp_behind_curr_portfolio.clone(),
+                            state.pricing_results.clone(),
+                            ntp_market_actual,
+                            self.all_trades.clone(),
+                        )
+                        .await;
+                    if additional_trades.len() < ntp_portf_behind {
+                        // we couldnt synchronize portfolios, abandonging
+                        return Ok(());
+                    } // else everything is ok, continue
+
+                    ntp_portfolio += additional_portf;
+
+                    debug!(
+                        "NTP portfolio accepted ({:?}). Publishing.",
+                        ntp_portfolio.simple()
                     );
                     state.newtrades_since_last_newmarket = 0; // reset the newtrades count.
-                    for (pm, new_portf_pm) in new_portfolio.iter() {
-                        self._publish_result_portfolio(new_portf_pm.clone(), *pm)
-                            .await?;
+                    state.portfolio = ntp_portfolio;
+                    for (pm, new_portf_pm) in state.portfolio.iter() {
+                        if let Err(e) = self
+                            ._publish_result_portfolio(new_portf_pm.clone(), *pm)
+                            .await
+                        {
+                            error!("Error publishing: {:?}", e);
+                        }
                     }
 
                     // market that we were holding should be removed from the all_markets,
@@ -278,43 +343,43 @@ where
                     // important: this works w/o old_market != new_market, but it's better
                     //   since we dont have potential deadlocks on self.all_markets.processor_market_map.
                     if let Some(ref old_market) = state.curr_market {
-                        if *old_market != new_market {
+                        if *old_market != ntp_market {
                             let _ = self
                                 .all_markets
-                                .insert_processor(self.processor_name.clone(), new_market.clone());
+                                .insert_processor(self.processor_name.clone(), ntp_market.clone())
+                                .await;
                         }
                     };
 
                     // update the state of current processor.
-                    state.portfolio = new_portfolio;
-                    state.trades.extend(new_trades); // *trades += &new_trades;
+                    state.trades.extend(ntp_trades); // *trades += &new_trades;
                     debug!(
                         "Switching: {:?} -> {}",
                         state.curr_market,
-                        new_market.clone()
+                        ntp_market.clone()
                     );
-                    state.curr_market = Some(new_market.clone());
-                } else {
-                    // otherwise dont do anything.
-                    debug!("NewPortfolio not accepted. Ignoring.");
+                    state.curr_market = Some(ntp_market.clone());
                 }
 
                 // send the behind information to the middle processor.
-                let acc_reject = match new_portf_acc {
+                let acc_reject = match ntp_portf_acc {
                     true => "accepted",
                     false => "rejected",
                 };
                 debug!(
                     "Notifying {:?} that new portfolio message was {}.",
-                    upstream_processor.get_name(),
+                    ntp_upstream_processor.get_name(),
                     acc_reject,
                 );
-                upstream_processor.send_message(ProcessorMiddleMessage::Behind(
-                    new_market,
-                    // TODO: WHICH ONE HERE???
-                    // new_behind_curr.clone(),
-                    new_behind_curr_portfolio,
-                ))?;
+                if let Err(e) = ntp_upstream_processor.send_message(ProcessorMiddleMessage::Behind(
+                    ntp_market,
+                    ntp_behind_curr_portfolio,
+                )) {
+                    error!(
+                        "Error sending to upstream {:?}: {:?}",
+                        ntp_upstream_processor, e
+                    );
+                }
             }
 
             // we get a portfolio of different metrics
@@ -325,13 +390,14 @@ where
 
                 // sending it to for publishing
                 for (pm, portf_pm) in state.portfolio.iter() {
-                    self._publish_result_portfolio(portf_pm.clone(), *pm)
-                        .await?;
+                    if let Err(e) = self._publish_result_portfolio(portf_pm.clone(), *pm).await {
+                        error!("Error publishing to kafka: {:?}", e);
+                    }
                 }
             }
 
-            _ => {
-                panic!("Unusual message. Shouldnt happen");
+            unusual_msg => {
+                error!("Unusual message. Shouldnt happen: {:?}", unusual_msg);
             }
         }
         Ok(())

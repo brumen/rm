@@ -19,8 +19,7 @@ logger.setLevel(logging.INFO)
 
 
 class ResultPublisherBase:
-    """ Base class for publishing results.
-    """
+    """Base class for publishing results."""
 
     def __init__(self):
 
@@ -35,18 +34,17 @@ class ResultPublisherBase:
         self._results_table.show()
 
     def _get_results(self):
-        """ Gets the results from Kafka.
+        """Gets the results from Kafka.
 
         :returns: None, just updates curr_value, new_value, and trades
         """
 
         raise NotImplementedError(
-            f'Implement the function that updates {self.curr_value}'
+            f"Implement the function that updates {self.curr_value}"
         )
 
     def update_results(self):
-        """ Updates the pandas table w/ the results.
-        """
+        """Updates the pandas table w/ the results."""
 
         if isinstance(self.curr_value, np.ndarray):
             self._results_table.model.df = pd.DataFrame(self.curr_value)
@@ -66,15 +64,14 @@ class ResultPublisherBase:
 
 
 class ResultPublisherKafka(ResultPublisherBase):
-    """ Results are obtained from Kafka.
-    """
+    """Results are obtained from Kafka."""
 
     def __init__(
-            self,
-            server_port_topic=('localhost', 9092, 'air_options.ao.results'),
-            metric: str = 'PV',
+        self,
+        server_port_topic=("localhost", 9092, "air_options.ao.results"),
+        metric: str = "PV",
     ):
-        """ Kafka receiver.
+        """Kafka receiver.
 
         :param server_port_topic: server, port and topic where to read data.
         :param metric: metric which should be extracted from the message,
@@ -87,28 +84,27 @@ class ResultPublisherKafka(ResultPublisherBase):
         self._server_port_topic = server_port_topic
         self.metric = metric
 
-        self._subscriber = KafkaConsumer(
-            topic,
-            bootstrap_servers=f'{server}:{port}'
-        )
+        self._subscriber = KafkaConsumer(topic, bootstrap_servers=f"{server}:{port}")
 
         # for processing
         self._current_value = None
         self._prev_value = None
 
     def _get_results(self):
-        """ Gets the results from Kafka.
+        """Gets the results from Kafka.
 
         :returns: None, just updates curr_value, new_value, and trades
         """
-
+        logger.debug(f"Processing trades from {self._server_port_topic}.")
         for msg in self._subscriber:
-            logger.debug(f'Processing trades from {self._server_port_topic}.')
-            logger.info(f'Got message: {msg.value}')
+            logger.debug(f"Got message: {msg.value}")
 
             # updating state
             self._prev_value = self._current_value
             self._current_value = loads(msg.value)
+
+            if self.metric not in self._current_value:
+                continue
 
             self.curr_value = self._process_result(
                 self._current_value,
@@ -116,23 +112,21 @@ class ResultPublisherKafka(ResultPublisherBase):
             )
 
     def _process_result(
-            self,
-            current_result: Optional[Dict[str, Any]],
-            prev_result: Optional[Dict[str, Any]],
+        self,
+        current_result: Optional[Dict[str, Any]],
+        prev_result: Optional[Dict[str, Any]],
     ):
-        raise NotImplementedError(
-            'Need to implement the _process_result method'
-        )
+        raise NotImplementedError("Need to implement the _process_result method")
 
 
 class ResultPublisherKafkaPV(ResultPublisherKafka):
 
     def _process_result(
-            self,
-            current_result: Optional[Dict[str, Dict[str, float]]],
-            prev_result: Optional[Dict[str, Dict[str, float]]],
+        self,
+        current_result: Optional[Dict[str, Dict[str, float]]],
+        prev_result: Optional[Dict[str, Dict[str, float]]],
     ):
-        """ Processing the PV result.
+        """Processing the PV result.
 
         :param result_dict: dictionary of results, the keys are PV, PV01,
            the computed requests. Value is a
@@ -143,10 +137,9 @@ class ResultPublisherKafkaPV(ResultPublisherKafka):
             return np.array([])
 
         results = current_result[self.metric]
-        sort_results = np.array(sorted(results.items(),
-                                       key=lambda trade: int(trade[0])
-                                       )
-                                )
+        sort_results = np.array(
+            sorted(results.items(), key=lambda trade: int(trade[0]))
+        )
 
         return sort_results
 
@@ -158,11 +151,11 @@ class ResultPublisherKafkaPV_Useless(ResultPublisherKafka):
         # self._subscriber.seek_to_end()
 
     def _process_result(
-            self,
-            curr_result: Optional[Dict[str, Dict[str, float]]],
-            prev_result: Optional[Dict[str, Dict[str, float]]],
+        self,
+        curr_result: Optional[Dict[str, Dict[str, float]]],
+        prev_result: Optional[Dict[str, Dict[str, float]]],
     ):
-        """ Processing the PV result.
+        """Processing the PV result.
 
         :param result_dict: dictionary of results, the keys are PV,
            PV01, the computed requests. Value is a
@@ -179,12 +172,12 @@ class ResultPublisherKafkaPV_Useless(ResultPublisherKafka):
         # sort the results:
         itemized_l = []
         for trade_id_date, trade_val in proper_results.items():
-            itemized_l.append((trade_id_date.split('|')[0], trade_val))
+            itemized_l.append((trade_id_date.split("|")[0], trade_val))
 
-        logger.info(f"Published list has {len(itemized_l)} trades")
-        return np.array(sorted(itemized_l,
-                               key=lambda trade_id_date: int(trade_id_date[0]))
-                        )
+        logger.debug(f"Published list has {len(itemized_l)} trades")
+        return np.array(
+            sorted(itemized_l, key=lambda trade_id_date: int(trade_id_date[0]))
+        )
 
 
 class ResultPublisherKafkaPV01_Useless(ResultPublisherKafka):
@@ -194,11 +187,11 @@ class ResultPublisherKafkaPV01_Useless(ResultPublisherKafka):
         # self._subscriber.seek_to_end()
 
     def _process_result(
-            self,
-            curr_result: Optional[Dict[str, Dict[str, float]]],
-            prev_result: Optional[Dict[str, Dict[str, float]]],
+        self,
+        curr_result: Optional[Dict[str, Dict[str, float]]],
+        prev_result: Optional[Dict[str, Dict[str, float]]],
     ):
-        """ Processing the PV result.
+        """Processing the PV result.
 
         :param result_dict: dictionary of results, the keys are PV,
            PV01, the computed requests. Value is a
@@ -215,7 +208,7 @@ class ResultPublisherKafkaPV01_Useless(ResultPublisherKafka):
         # sort the results:
         itemized_l = []
         for trade_id_date, trade_val in proper_results.items():
-            itemized_l.append((trade_id_date.split('|')[0], trade_val))
+            itemized_l.append((trade_id_date.split("|")[0], trade_val))
 
         logger.info(f"Published list has {len(itemized_l)} trades")
         return np.array(sorted(itemized_l, key=lambda trade_id: trade_id))
@@ -224,11 +217,11 @@ class ResultPublisherKafkaPV01_Useless(ResultPublisherKafka):
 class ResultPublisherKafkaPV_Useless2(ResultPublisherKafka):
 
     def _process_result(
-            self,
-            curr_result: Optional[Dict[str, Dict[str, float]]],
-            prev_result: Optional[Dict[str, Dict[str, float]]],
+        self,
+        curr_result: Optional[Dict[str, Dict[str, float]]],
+        prev_result: Optional[Dict[str, Dict[str, float]]],
     ):
-        """ Processing the PV result.
+        """Processing the PV result.
 
         :param result_dict: dictionary of results, the keys are PV,
            PV01, the computed requests. Value is a
@@ -238,37 +231,29 @@ class ResultPublisherKafkaPV_Useless2(ResultPublisherKafka):
         if curr_result is None or prev_result is None:
             return np.array([[]])
 
-        curr_pv = curr_result['PV']
-        prev_pv = prev_result['PV']
+        curr_pv = curr_result["PV"]
+        prev_pv = prev_result["PV"]
 
         # sort the results:
         curr_trade_pv = []
         for trade_id_date, trade_val in curr_pv.items():
-            curr_trade_pv.append((trade_id_date.split('|')[0], trade_val))
+            curr_trade_pv.append((trade_id_date.split("|")[0], trade_val))
 
         prev_trade_pv = []
         for trade_id_date, trade_val in prev_pv.items():
-            prev_trade_pv.append((trade_id_date.split('|')[0], trade_val))
+            prev_trade_pv.append((trade_id_date.split("|")[0], trade_val))
 
         curr_trade_pv_sorted = sorted(
-            curr_trade_pv,
-            key=lambda trade_id_date: trade_id_date[0]
+            curr_trade_pv, key=lambda trade_id_date: trade_id_date[0]
         )
         prev_trade_pv_sorted = sorted(
-            prev_trade_pv,
-            key=lambda trade_id_date: trade_id_date[0]
+            prev_trade_pv, key=lambda trade_id_date: trade_id_date[0]
         )
 
         all_pv = []
-        for curr_pv_elt, prev_pv_elt in zip(
-                curr_trade_pv_sorted,
-                prev_trade_pv_sorted
-        ):
+        for curr_pv_elt, prev_pv_elt in zip(curr_trade_pv_sorted, prev_trade_pv_sorted):
             all_pv.append(
-                (curr_pv_elt[0],
-                 curr_pv_elt[1],
-                 curr_pv_elt[1] - prev_pv_elt[1]
-                 )
+                (curr_pv_elt[0], curr_pv_elt[1], curr_pv_elt[1] - prev_pv_elt[1])
             )
 
         return np.array(all_pv)
@@ -276,31 +261,34 @@ class ResultPublisherKafkaPV_Useless2(ResultPublisherKafka):
 
 class ResultPublisherKafkaPV01(ResultPublisherKafka):
 
-    def _process_result(self,
-                        result_dict: Optional[Dict[str, Dict[str, float]]],
-                        prev_result: Optional[Dict[str, Dict[str, float]]],
-                        ):
-        """ Processing the PV result.
+    def _process_result(
+        self,
+        result_dict: Optional[Dict[str, Dict[str, float]]],
+        prev_result: Optional[Dict[str, Dict[str, float]]],
+    ):
+        """Processing the PV result.
 
         :param result_dict: dictionary of results, the keys are PV,
            PV01, the computed requests. Values is
            a dictionary of PV01s with respect to that flight.
         """
 
-        return np.array([]) if result_dict is None \
-            else np.array(list(result_dict['PV01'].items()))
+        return (
+            np.array([])
+            if result_dict is None
+            else np.array(list(result_dict["PV01"].items()))
+        )
 
 
 class ResultPublisherRester(ResultPublisherBase):
-    """ Results are obtained from rester and displayed, somewhat processed.
-    """
+    """Results are obtained from rester and displayed, somewhat processed."""
 
     def __init__(
-            self,
-            rester_addr='http://localhost:5001/mkt/get_market_2',
-            sleep_time=5,
+        self,
+        rester_addr="http://localhost:5001/mkt/get_market_2",
+        sleep_time=5,
     ):
-        """ Display the portfolio results from the rester.
+        """Display the portfolio results from the rester.
 
         :param rester_addr: address from which the results are read.
         :param sleep_time: sleep time in seconds between refreshes.
@@ -312,25 +300,23 @@ class ResultPublisherRester(ResultPublisherBase):
         self._sleep_time = sleep_time
 
     def _get_results(self) -> None:
-        """ Gets the results from rester and update self.curr_value
+        """Gets the results from rester and update self.curr_value
 
         :returns: updates curr_value which is then displayed.
         """
 
         while True:
-            logger.info('Obtaining new result batch.')
+            logger.debug("Obtaining new result batch.")
 
             try:
                 results = requests.get(self._rester_addr)
 
             except ConnectionError as ce:
-                logger.warning(
-                    f'Could not connect to {self._rester_addr}: {ce}'
-                )
+                logger.warning(f"Could not connect to {self._rester_addr}: {ce}")
                 results_final = {}
 
             except Exception as e:
-                logger.warning(f'Weird error: {e}')
+                logger.warning(f"Weird error: {e}")
                 results_final = {}
 
             finally:  # no exception
@@ -343,7 +329,7 @@ class ResultPublisherRester(ResultPublisherBase):
 
     @staticmethod
     def decode_results(results: Dict[str, float]) -> np.ndarray:
-        """ Processing the results.
+        """Processing the results.
 
         :param results: results to be decoded
         """
@@ -351,27 +337,42 @@ class ResultPublisherRester(ResultPublisherBase):
         if results is None:
             return np.array([])
 
-        return np.array(list(results.get('PV', {}).items()))
+        return np.array(list(results.get("PV", {}).items()))
 
 
 class ResultPublisherLETF(ResultPublisherKafka):
 
+    @staticmethod
+    def _sorting_fct(x):
+        try:
+            return int(x)
+        except Exception:
+            return x
+
     def _process_result(
-            self,
-            current_result: Optional[Dict[str, float]],
-            prev_result: Optional[Dict[str, float]],
+        self,
+        current_result: Optional[Dict[str, float]],
+        prev_result: Optional[Dict[str, float]],
     ):
-        """ Processing the PV result.
+        """Processing the PV result.
 
         :param result_dict: dictionary of results, the keys are PV, PV01,
            the computed requests. Value is a
            dictionary of flight names, and values of that flight.
         """
 
-        return np.array([]) if current_result is None \
-            else np.array(list(sorted(current_result[self.metric].items(),
-                                      key=lambda x: int(x[0])))
-                          )
+        return (
+            np.array([])
+            if current_result is None
+            else np.array(
+                list(
+                    sorted(
+                        current_result[self.metric].items(),
+                        key=lambda x: self._sorting_fct(x[0]),
+                    )
+                )
+            )
+        )
 
 
 # rp = ResultPublisherKafkaPV(metric='PV01')

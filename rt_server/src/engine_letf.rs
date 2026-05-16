@@ -14,6 +14,7 @@ use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PriceTrade;
 use crate::pricer::PricingMetric;
 use crate::processor_bulk::ProcessorBulk;
+use crate::processor_curr::RTOperatingMode;
 use crate::processor_msg::{PNStateDistr, ProcessorMiddleMessage};
 use crate::processor_new::ProcessorNew;
 use crate::ref_deref::TryFromRef2;
@@ -31,6 +32,7 @@ pub(crate) async fn start2<T, MT>(
     initial_trades: Arc<TradeRep<T>>,
     mp: MT::MP,
     nb_middle: usize,
+    operating_mode: RTOperatingMode,
 ) -> (
     Vec<ActorRef<ProcessorMiddleMessage<String>>>,
     Vec<JoinHandle<()>>,
@@ -53,6 +55,7 @@ where
         markets_used[0].clone(),
         initial_trades.clone(),
         mp.clone(),
+        operating_mode,
     )
     .await;
 
@@ -64,21 +67,19 @@ where
     actors_middle_msg.push(_processor_curr_a.clone());
 
     // middle actors (including state distribution for
-    let (
-        mut processor_actors,
-        mut processor_actor_futures,
-        mut bulk_actor_futures,
-        middle_state_distr_vec,
-    ) = create_middle_procs_chain(
-        nb_middle,
-        _processor_curr_a.clone(),
-        all_markets.clone(),
-        initial_trades.clone(),
-        mp.clone(),
-    )
-    .await;
+    let (mut processor_actors, mut processor_actor_futures, middle_state_distr_vec) =
+        create_middle_procs_chain(
+            nb_middle,
+            _processor_curr_a.clone(),
+            all_markets.clone(),
+            initial_trades.clone(),
+            mp.clone(),
+        )
+        .await;
 
-    let last_middle = processor_actors.last().unwrap().clone(); // last middle processor
+    // takes the last middle processor, if there are no
+    //   middle processors, takes the current one.
+    let last_middle = processor_actors.last().unwrap_or(&_processor_curr_a);
 
     actors_middle_msg.extend(processor_actors.clone());
 
@@ -155,13 +156,14 @@ where
     ];
 
     all_futures.append(&mut processor_actor_futures); // middle processors
-    all_futures.append(&mut bulk_actor_futures); // middle bulk processors.
 
     // (actors_middle_msg, all_futures, state_distr_new)
-    let state_distr_presented = middle_state_distr_vec.last().unwrap();
+    // TODO: CHECK HERE IF state_distr_new is correct, but it's currently
+    //   not used anyways.
+    // let state_distr_presented = middle_state_distr_vec.last().unwrap();
     (
         actors_middle_msg,
         all_futures,
-        state_distr_presented.clone(),
+        state_distr_new, // state_distr_presented.clone(),
     )
 }

@@ -4,7 +4,7 @@
 
 use chrono::NaiveDateTime;
 use circular_buffer::CircularBuffer;
-use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use rdkafka::consumer::StreamConsumer;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -24,7 +24,7 @@ const CB_LENGTH: usize = 10;
 type CB = CircularBuffer<CB_LENGTH, (NaiveDateTime, usize)>;
 
 #[allow(dead_code)]
-pub struct TradeProducer<T> {
+pub(crate) struct TradeProducer<T> {
     position_listener: StreamConsumer,
     processors: Vec<ActorRef<ProcessorMiddleMessage<String>>>,
     trade_list: Arc<TradeRep<T>>,
@@ -149,84 +149,50 @@ where
 
     async fn post_start(
         &self,
-        myself: ActorRef<Self::Msg>,
+        _myself: ActorRef<Self::Msg>,
         _state: &mut Self::State,
     ) -> Result<Self::State, ActorProcessingErr> {
-        info!("Trade Producer waiting on first message.");
-        // starting w/ the first trade.
-        let trade_msg = self.position_listener.recv().await?;
-        let trade_1 = T::try_from_ref(&trade_msg)?;
-        let trade_1_id = trade_1.id();
+        info!("Trade Producer waiting on messages.");
 
-        info!("First trade: {:?}", trade_1_id);
-        self.trade_list.insert(trade_1_id.clone(), trade_1); // add trade to the trade list.
+        loop {
+            let Ok(trade_msg) = self.position_listener.recv().await else {
+                error!("Listening to the trade topic failed. Ignoring.");
+                continue;
+            };
 
-        myself.send_message(ProcessorMiddleMessage::NewTrade(trade_1_id))?; // first message
+            let Ok(trade) = T::try_from_ref(&trade_msg) else {
+                error!("Could not decode trade message. Ignoring.");
+                continue;
+            };
 
-        Ok(())
+            let trade_id = trade.id();
+            debug!("Received trade: {:?}", trade_id);
+
+            self.trade_list.upsert_async(trade_id.clone(), trade).await;
+
+            for processor in &self.processors {
+                debug!("Sending trade to {:?}", processor.get_name());
+                if let Err(e) =
+                    processor.send_message(ProcessorMiddleMessage::NewTrade(trade_id.clone()))
+                {
+                    error!(
+                        "Could not send NewTrade message to processor {:?}: {:?}",
+                        processor.get_name(),
+                        e
+                    );
+                }
+            }
+
+            // TODO: HERE WE HAVE TO HANDLE ProcessingStat
+        }
     }
 
     async fn handle(
         &self,
-        myself: ActorRef<Self::Msg>,
-        message: Self::Msg,
+        _myself: ActorRef<Self::Msg>,
+        _message: Self::Msg,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        // add trades to trade_reduce
-        let trade_m = message;
-
-        // compute the ewma of all the processors and distribute accordingly.
-        // let processor_mavg = self._compute_all
-        let trade_id = trade_m.get_trade().unwrap(); // TODO: MAKE SURE HERE
-        debug!("Sending trade: {:?}", trade_id);
-        for processor in &self.processors[..] {
-            processor.send_message(
-                ProcessorMiddleMessage::NewTrade(trade_id.clone()), // trade_id is a string.
-            )?;
-        }
-
-        let new_msg = self.position_listener.recv().await?;
-        let new_trade = T::try_from_ref(&new_msg)?;
-        let new_trade_id = new_trade.id();
-        self.trade_list.insert(new_trade_id.clone(), new_trade);
-
-        myself.send_message(
-            ProcessorMiddleMessage::NewTrade(new_trade_id), // new trade has id.
-        )?;
-
-        // TODO: HERE WE HAVE TO HANDLE ProcessingStat
-
         Ok(())
     }
-
-    // what to do when you encounter a failure event.
-    //   try to restart the actor.
-    // async fn handle_supervisor_evt(
-    //     &self,
-    //     myself: ActorRef<Self::Msg>,
-    //     event: SupervisionEvent,
-    //     _state: &mut Self::State,
-    // ) -> Result<(), ActorProcessingErr> {
-    //     match event {
-    //         SupervisionEvent::ActorFailed(child_cell, error) => {
-    //             error!(
-    //                 "Child {} failed: {}. Restarting...",
-    //                 child_cell.get_id(),
-    //                 error
-    //             );
-
-    //             // RESTART LOGIC: Spawn a new instance to replace the failed one
-    //             // We pass `_myself.get_cell()` as the supervisor
-    //             let (new_child, _) = Actor::spawn_linked(
-    //                 myself.get_name(), // Optional Name
-    //                 self,              // The Actor struct
-    //                 (),                // Arguments
-    //                 myself.get_cell(), // The Supervisor (this actor)
-    //             )
-    //             .await?;
-    //         }
-    //         _ => {} // Handle other events like ActorStarted or ActorStopped
-    //     }
-    //     Ok(())
-    // }
 }

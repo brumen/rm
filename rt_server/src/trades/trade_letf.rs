@@ -2,8 +2,7 @@ use ractor::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use crate::market::MarketTypeT;
 use crate::markets::letf_market::{LETFMarketType, LETFMarketTypes};
@@ -11,6 +10,7 @@ use crate::portfolio::{PV01Results, PortfolioType};
 use crate::pricer::{Decoder, HedgeTrade, PriceTrade};
 use crate::ref_deref::TryFromRef2;
 use crate::trade::{BaseTrade, TradeDirection, TradeReduce};
+use crate::trades::perp::PerpTrade;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LETFTrade {
@@ -51,6 +51,21 @@ impl std::cmp::PartialEq for LETFTrade {
 
 #[async_trait]
 impl PriceTrade<LETFMarketType> for LETFTrade {
+    async fn needs_recompute(
+        &self,
+        market_old: Arc<LETFMarketType>,
+        market_new: Arc<LETFMarketType>,
+    ) -> bool {
+        let stock_v_real_old = market_old
+            .get(&LETFMarketTypes::Stock(self.stock.clone())) // TODO: CHECK IF WE DONT NEED TO CLONE HERE!!!
+            .await;
+        let stock_v_real_new = market_new
+            .get(&LETFMarketTypes::Stock(self.stock.clone()))
+            .await;
+
+        stock_v_real_new != stock_v_real_old
+    }
+
     async fn initial_pv(&self) -> Option<f64> {
         Some(0.)
     }
@@ -60,7 +75,6 @@ impl PriceTrade<LETFMarketType> for LETFTrade {
             .get(&LETFMarketTypes::Stock(self.stock.clone())) // TODO: CHECK IF WE DONT NEED TO CLONE HERE!!!
             .await?;
 
-        sleep(Duration::from_millis(100)).await;
         self.stock_value
             .map(|initial_stock| self.beta * self.amount * (stock_v_real / initial_stock - 1.))
     }
@@ -146,6 +160,21 @@ pub struct Future {
 
 #[async_trait]
 impl PriceTrade<LETFMarketType> for Future {
+    async fn needs_recompute(
+        &self,
+        market_old: Arc<LETFMarketType>,
+        market_new: Arc<LETFMarketType>,
+    ) -> bool {
+        let stock_v_real_old = market_old
+            .get(&LETFMarketTypes::Stock(self.stock.clone())) // TODO: CHECK IF WE DONT NEED TO CLONE HERE!!!
+            .await;
+        let stock_v_real_new = market_new
+            .get(&LETFMarketTypes::Stock(self.stock.clone()))
+            .await;
+
+        stock_v_real_new != stock_v_real_old
+    }
+
     async fn initial_pv(&self) -> Option<f64> {
         self.initial_val
     }
@@ -194,6 +223,14 @@ pub struct Cash {
 
 #[async_trait]
 impl PriceTrade<LETFMarketType> for Cash {
+    async fn needs_recompute(
+        &self,
+        market_old: Arc<LETFMarketType>,
+        market_new: Arc<LETFMarketType>,
+    ) -> bool {
+        false
+    }
+
     async fn initial_pv(&self) -> Option<f64> {
         Some(self.amount)
     }
@@ -235,14 +272,16 @@ pub enum TradeTypes {
     LETF(LETFTrade),
     Future(Future),
     Cash(Cash),
+    Perp(PerpTrade),
 }
 
 impl fmt::Display for TradeTypes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let pos_id = match self {
-            TradeTypes::LETF(letf_trade) => &letf_trade.stock,
-            TradeTypes::Future(letf_future) => &letf_future.stock,
-            TradeTypes::Cash(_cash) => &"cash".to_string(),
+        let pos_id: &str = match self {
+            TradeTypes::LETF(letf_trade) => letf_trade.stock.as_str(),
+            TradeTypes::Future(letf_future) => letf_future.stock.as_str(),
+            TradeTypes::Cash(_cash) => "cash",
+            TradeTypes::Perp(perp) => perp.underlying.as_str(),
         };
         write!(f, "{}", pos_id)
     }
@@ -255,6 +294,7 @@ impl TradeTypes {
             TradeTypes::LETF(ref letf_trade) => letf_trade.stock.clone(),
             TradeTypes::Future(ref letf_future) => letf_future.stock.clone(),
             TradeTypes::Cash(_) => "Cash".to_string(),
+            TradeTypes::Perp(ref perp) => perp.underlying.clone(),
         }
     }
 
@@ -264,46 +304,9 @@ impl TradeTypes {
             TradeTypes::LETF(ref letf_trade) => letf_trade.amount,
             TradeTypes::Future(ref letf_future) => letf_future.amount,
             TradeTypes::Cash(letf_cash) => letf_cash.amount,
+            TradeTypes::Perp(perp) => perp.amount,
         }
     }
-
-    // async fn value_by_metric(
-    //     &self,
-    //     metric: crate::pricer::PricingMetric,
-    //     market: Arc<&(dyn MarketTypeT<MP=()> + Send + Sync)>,
-    // ) -> PricingResults  {
-
-    //     match metric {
-    //         PricingMetric::PV => {
-    //             let price = self.price(market).await;
-    //             match price {
-    //                 None => {
-    //                     warn!("Could not price {}", self.id());
-    //                     PricingResults::PV(PortfolioType::default())
-    //                 },
-    //                 Some(actual_price) => {
-    //                     PricingResults::PV(PortfolioType::from([(self.id(), actual_price)]))
-    //                 },
-    //             }
-    //         }
-    //         PricingMetric::PV01 => {
-    //             let pv01 = self.pv01(market).await;
-    //             PricingResults::PV01(pv01)
-    //         }
-    //         PricingMetric::PnL => {
-    //             let pnl = self.pnl(market).await;
-    //             match pnl {
-    //                 None => {
-    //                     warn!("Could not compute PNL for {}", self.id());
-    //                     PricingResults::PV(PortfolioType::default())
-    //                 },
-    //                 Some(actual_pnl) => {
-    //                     PricingResults::PV(PortfolioType::from([(self.id(), actual_pnl)]))
-    //                 },
-    //             }
-    //         }
-    //     }
-    // }
 }
 
 impl Decoder for TradeTypes {}
@@ -311,46 +314,73 @@ impl TryFromRef2 for TradeTypes {}
 
 #[async_trait]
 impl PriceTrade<LETFMarketType> for TradeTypes {
+    async fn needs_recompute(
+        &self,
+        market_old: Arc<LETFMarketType>,
+        market_new: Arc<LETFMarketType>,
+    ) -> bool {
+        match self {
+            TradeTypes::LETF(letf_trade) => {
+                letf_trade
+                    .needs_recompute(market_old.clone(), market_new.clone())
+                    .await
+            }
+            TradeTypes::Future(letf_fut) => {
+                letf_fut
+                    .needs_recompute(market_old.clone(), market_new.clone())
+                    .await
+            }
+            TradeTypes::Cash(letf_cash) => {
+                letf_cash
+                    .needs_recompute(market_old.clone(), market_new.clone())
+                    .await
+            }
+            TradeTypes::Perp(perp_trade) => {
+                perp_trade
+                    .needs_recompute(market_old.clone(), market_new.clone())
+                    .await
+            }
+        }
+    }
+
     async fn initial_pv(&self) -> Option<f64> {
         match self {
             TradeTypes::LETF(letf_trade) => letf_trade.initial_pv().await,
             TradeTypes::Future(letf_fut) => letf_fut.initial_pv().await,
             TradeTypes::Cash(letf_cash) => letf_cash.initial_pv().await,
+            TradeTypes::Perp(perp_trade) => perp_trade.initial_pv().await,
         }
     }
 
     async fn price(&self, market: Arc<LETFMarketType>) -> Option<f64> {
         match self {
-            TradeTypes::LETF(letf_trade) => {
-                match letf_trade.stock_value {
-                    None => None,
-                    Some(initial_value) => {
-                        let mut letf_new = letf_trade.clone();
-                        letf_new.stock_value = Some(initial_value); // TODO: CHECK HERE
-                        let pv = letf_new.price(market).await;
-                        pv
-                    }
+            TradeTypes::LETF(letf_trade) => match letf_trade.stock_value {
+                None => None,
+                Some(initial_value) => {
+                    let mut letf_new = letf_trade.clone();
+                    letf_new.stock_value = Some(initial_value); // TODO: CHECK HERE
+                    letf_new.price(market).await
                 }
-            }
+            },
             TradeTypes::Cash(letf_cash) => letf_cash.price(market).await,
             TradeTypes::Future(letf_fut) => letf_fut.price(market).await,
+            TradeTypes::Perp(perp_trade) => perp_trade.price(market).await,
         }
     }
 
     async fn pv01(&self, market: Arc<LETFMarketType>) -> PV01Results {
         match self {
-            TradeTypes::LETF(letf_trade) => {
-                match letf_trade.stock_value {
-                    None => PV01Results::new(), // TODO: HERE
-                    Some(initial_value) => {
-                        let mut letf_new = letf_trade.clone();
-                        letf_new.stock_value = Some(initial_value); // TODO: HERE
-                        letf_new.pv01(market).await
-                    }
+            TradeTypes::LETF(letf_trade) => match letf_trade.stock_value {
+                None => PV01Results::new(), // TODO: HERE
+                Some(initial_value) => {
+                    let mut letf_new = letf_trade.clone();
+                    letf_new.stock_value = Some(initial_value); // TODO: HERE
+                    letf_new.pv01(market).await
                 }
-            }
+            },
             TradeTypes::Future(letf_fut) => letf_fut.pv01(market).await,
             TradeTypes::Cash(letf_cash) => letf_cash.pv01(market).await,
+            TradeTypes::Perp(perp_trade) => perp_trade.pv01(market).await,
         }
     }
 }
@@ -361,12 +391,18 @@ impl BaseTrade for TradeTypes {
             TradeTypes::LETF(letf_trade) => letf_trade.id(),
             TradeTypes::Future(letf_future) => letf_future.id(),
             TradeTypes::Cash(cash) => cash.id(),
+            TradeTypes::Perp(perp_trade) => perp_trade.id(),
         }
     }
 
     // TODO: THIS SHOULD BE FIXED.
     fn direction(&self) -> TradeDirection {
-        TradeDirection::Create
+        match self {
+            TradeTypes::LETF(letf_trade) => letf_trade.direction(),
+            TradeTypes::Future(letf_future) => letf_future.direction(),
+            TradeTypes::Cash(cash) => cash.direction(),
+            TradeTypes::Perp(perp_trade) => perp_trade.direction(),
+        }
     }
 }
 
@@ -378,32 +414,3 @@ impl TradeReduce for TradeTypes {
         trade.clone() // TODO: FIX THIS LATER, WITHOUT CLONE
     }
 }
-
-// pub type TradeTypesInner = TradeTypes;
-// pub struct TradeTypesRep(pub TradeTypesInner);
-
-// ref_deref_trait!(TradeTypesRep, TradeTypesInner);
-
-// impl BaseTrade for TradeTypesRep {
-//     fn id(&self) -> String {
-//         self.0.id()
-//     }
-
-//     fn direction(&self) -> TradeDirection {
-//         TradeDirection::Create
-//     }
-// }
-
-// impl PriceTrade for TradeTypesRep {
-//     fn initial_pv(&self) -> Option<f64> {
-//         Some(0.)
-//     }
-
-//     fn price(&self, market: &MarketType) -> Option<f64> {
-//         self.0.price(market)
-//     }
-
-//     fn pv01(&self, market: &MarketType) -> PV01Results {
-//         self.0.pv01(market)
-//     }
-// }

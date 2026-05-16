@@ -9,7 +9,7 @@ from typing import List, Tuple
 
 logging.basicConfig(level=logging.INFO)
 
-from rm.base_producer import BaseProducer
+from rm.services.base_producer import BaseProducer
 
 _logger = getLogger(__name__)
 
@@ -25,7 +25,7 @@ class SetupProducer(BaseProducer):
     def __init__(
         self,
         server_port_topic: Tuple[str, str, str] = (
-            "localhost",
+            "127.0.0.1",  # "192.168.1.50",
             9092,
             "letf.setup",
         ),
@@ -58,5 +58,8 @@ class SetupProducer(BaseProducer):
 
 
 if __name__ == "__main__":
-    setup_producer = SetupProducer.from_env()
+    # setup_producer = SetupProducer.from_env()
+    setup_producer = SetupProducer(
+        server_port_topic=("192.168.1.50", 9092, "letf.setup")
+    )
     setup_producer.send_metrics(["PV"])

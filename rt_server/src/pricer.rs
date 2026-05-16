@@ -1,3 +1,4 @@
+use futures::future::join_all;
 use ractor::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -130,19 +131,26 @@ where
     async fn initial_pv(&self) -> Option<f64>
     where
         Self: Send;
+    async fn needs_recompute(&self, market_old: Arc<MT>, market_new: Arc<MT>) -> bool; // whether the trade needs recompute on the new market
     async fn price(&self, market: Arc<MT>) -> Option<f64>;
+    // TODO: pv01 has to be changed to return Option<PV01Results>
     async fn pv01(&self, market: Arc<MT>) -> PV01Results;
-    async fn pnl(&self, market: Arc<MT>) -> Option<f64> {
+    async fn pnl(&mut self, market: Arc<MT>) -> Option<f64> {
         let initial_pv_val = self.initial_pv().await?;
-
-        self.price(market)
-            .await
-            .map(|curr_price| curr_price - initial_pv_val)
+        let curr_price = self.price(market).await?;
+        self.update_prev_pv(Some(curr_price));
+        let pnl = curr_price - initial_pv_val;
+        Some(pnl)
+        // let pnl = self
+        //     .price(market)
+        //     .await
+        //     .map(|curr_price| curr_price - initial_pv_val);
     }
+    async fn update_prev_pv(&mut self, new_market_val: Option<f64>) {}
 
     /// values the trade for a specific metric.
     #[allow(dead_code)]
-    async fn value_by_metric(&self, metric: PricingMetric, market: Arc<MT>) -> PricingResults {
+    async fn value_by_metric(&mut self, metric: PricingMetric, market: Arc<MT>) -> PricingResults {
         let trade_name = self.id();
 
         match metric {
@@ -200,53 +208,79 @@ impl<TR> BaseTrade for TradeRep<TR> {
 #[async_trait]
 impl<MT, TR> PriceTrade<MT> for TradeRep<TR>
 where
-    TR: PriceTrade<MT> + Send + Sync,
-    //MP: 'static + Send + Sync,
+    TR: PriceTrade<MT> + Send + Sync + Clone,
     MT: MarketTypeT + Send + Sync + 'static,
 {
+    async fn needs_recompute(&self, market_old: Arc<MT>, market_new: Arc<MT>) -> bool {
+        let mut trades_owned = vec![];
+        self.iter_async(|_, v| {
+            trades_owned.push(v.clone()); // TODO: This here is BAD!!
+            true
+        })
+        .await;
+
+        // iterate through the vector and check if they need recompute
+        let tof = trades_owned
+            .iter()
+            .map(|trade| trade.needs_recompute(market_old.clone(), market_new.clone()));
+
+        join_all(tof).await.iter().all(|x| *x)
+    }
+
     async fn initial_pv(&self) -> Option<f64> {
         let mut portf_val = 0.;
-        for indiv_trade in self.iter() {
-            let (_trade_name, trade_v) = indiv_trade.pair();
+        // TODO: This below is repeated 3 times. Factor out. depends on TR: Clone
+        let mut trades_owned = vec![];
+        self.iter_async(|_, v| {
+            trades_owned.push(v.clone()); // TODO: This here is BAD!!
+            true
+        })
+        .await;
 
-            let tv = trade_v.initial_pv().await; // tv = trade value
-            match tv {
+        for trade in trades_owned.iter() {
+            match trade.initial_pv().await {
+                Some(tv) => portf_val += tv,
                 None => {
-                    warn!("Could not initial_pv of {:?}", trade_v.id());
-                }
-                Some(tv_real) => {
-                    portf_val += tv_real;
+                    warn!("Could not initial_pv of {:?}", trade.id());
                 }
             }
         }
+
         Some(portf_val)
     }
 
     async fn price(&self, market: Arc<MT>) -> Option<f64> {
         let mut portf_val = 0.;
-        for indiv_trade in self.iter() {
-            let (_trade_name, trade_v) = indiv_trade.pair();
+        let mut trades_owned = vec![];
+        self.iter_async(|_, v| {
+            trades_owned.push(v.clone()); // TODO: This here is BAD!!
+            true
+        })
+        .await;
 
-            let tv = trade_v.price(market.clone()).await; // only clonging the Arc
-            match tv {
+        for trade in trades_owned.iter() {
+            match trade.price(market.clone()).await {
+                Some(tv) => portf_val += tv,
                 None => {
-                    warn!("Could not price of {:?}", trade_v.id());
+                    warn!("Could not initial_pv of {:?}", trade.id());
                 }
-                Some(tv_real) => {
-                    portf_val += tv_real;
-                }
-            }
+            };
         }
+
         Some(portf_val)
     }
 
     async fn pv01(&self, market: Arc<MT>) -> PV01Results {
         let mut portf_val = PV01Results::new();
-        for indiv_trade in self.iter() {
-            let (_trade_name, trade_v) = indiv_trade.pair();
+        let mut trades_owned = vec![];
+        self.iter_async(|_, trade| {
+            trades_owned.push(trade.clone()); // TODO: trade is cloned here - BAD.
+            true
+        })
+        .await;
 
-            let tv = trade_v.pv01(market.clone()).await;
-            portf_val += &tv;
+        for trade in trades_owned.iter() {
+            portf_val += &trade.pv01(market.clone()).await;
         }
         portf_val
     }

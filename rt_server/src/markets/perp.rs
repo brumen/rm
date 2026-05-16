@@ -1,4 +1,3 @@
-use chrono::NaiveDate;
 use dashmap::DashMap;
 use ractor::async_trait;
 use rdkafka::message::{BorrowedMessage, Message};
@@ -11,64 +10,57 @@ use uuid::Uuid;
 use crate::market::{MarketTypeError, MarketTypeT, SetName};
 use crate::ref_deref::TryFromRef2;
 
-pub(crate) type MarketInner = DashMap<LETFMarketTypes, f64>;
+/// Simple market implementation for perpetual swaps.
+///
+/// Modeled after `LETFMarketType` in `rt_server/src/markets/letf_market.rs`.
+/// - Keys are `PerpMarketTypes` (e.g., `Perp("BTC-PERP")`)
+/// - Values are `f64` (e.g., price, funding rate, etc. depending on your usage)
+pub(crate) type MarketInner = DashMap<PerpMarketTypes, f64>;
 
-#[derive(PartialEq, Serialize, Deserialize, Hash, Eq, Debug, Clone)]
-enum SabrParamNames {
-    Alpha,
-    Beta,
-    Rho,
-    Nu,
+pub(crate) struct PerpTrade {
+    underlying: String,
+    init_price: f64,
+    size: f64,
 }
 
 #[derive(PartialEq, Serialize, Deserialize, Hash, Eq, Debug, Clone)]
-pub struct SabrParameters {
-    stock: String,
-    maturity: NaiveDate,
-    param_name: SabrParamNames,
-}
-
-#[derive(PartialEq, Serialize, Deserialize, Hash, Eq, Debug, Clone)]
-pub enum LETFMarketTypes {
-    Stock(String),
-    Perp(String),         // perpetual swap on a stock underlyer.
-    Option(String),       // option ticker, option value
-    Sabr(SabrParameters), // Sabr parameters, sabr param value
-    // TODO: this to be removed later
+pub enum PerpMarketTypes {
+    Perp(PerpTrade),
+    // TODO: this to be removed later (kept for parity with LETFMarketTypes)
     Break,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LETFMarketType {
+pub struct PerpMarketType {
     pub market_name: String,
     pub market: MarketInner,
 }
 
-impl LETFMarketType {
+impl PerpMarketType {
     pub fn new(market_name: String) -> Self {
         Self {
             market_name,
-            market: DashMap::<LETFMarketTypes, f64>::new(),
+            market: DashMap::<PerpMarketTypes, f64>::new(),
         }
     }
 }
 
-impl Default for LETFMarketType {
+impl Default for PerpMarketType {
     fn default() -> Self {
         Self {
             market_name: format!("{}", Uuid::new_v4()),
-            market: DashMap::<LETFMarketTypes, f64>::default(),
+            market: DashMap::<PerpMarketTypes, f64>::default(),
         }
     }
 }
 
-impl std::fmt::Display for LETFMarketType {
+impl std::fmt::Display for PerpMarketType {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.market_name)
     }
 }
 
-impl PartialEq for LETFMarketType {
+impl PartialEq for PerpMarketType {
     fn eq(&self, other: &Self) -> bool {
         if self.market_name != other.market_name {
             return false;
@@ -92,16 +84,16 @@ impl PartialEq for LETFMarketType {
     }
 }
 
-impl AddAssign<&LETFMarketType> for LETFMarketType {
+impl AddAssign<&PerpMarketType> for PerpMarketType {
     fn add_assign(&mut self, rhs: &Self) {
         for rhs_entry in rhs.market.iter() {
-            self.market.insert(rhs_entry.key().clone(), *rhs_entry); // TODO: clone here
+            self.market.insert(rhs_entry.key().clone(), *rhs_entry); // NOTE: clones key
         }
     }
 }
 
-impl<const N: usize> From<(String, [(LETFMarketTypes, f64); N])> for LETFMarketType {
-    fn from(market_name_arr: (String, [(LETFMarketTypes, f64); N])) -> Self {
+impl<const N: usize> From<(String, [(PerpMarketTypes, f64); N])> for PerpMarketType {
+    fn from(market_name_arr: (String, [(PerpMarketTypes, f64); N])) -> Self {
         let (market_name, market_array) = market_name_arr;
         let mi = MarketInner::new();
         for (mn, mv) in market_array {
@@ -122,14 +114,14 @@ struct MktMsgDescr {
 }
 
 #[async_trait]
-impl MarketTypeT for LETFMarketType {
+impl MarketTypeT for PerpMarketType {
     type MP = ();
-    type MK = LETFMarketTypes;
+    type MK = PerpMarketTypes;
 
-    fn new(market_name: String, _mp: ()) -> Arc<LETFMarketType> {
-        Arc::new(LETFMarketType {
+    fn new(market_name: String, _mp: ()) -> Arc<PerpMarketType> {
+        Arc::new(PerpMarketType {
             market_name,
-            market: DashMap::<LETFMarketTypes, f64>::new(),
+            market: DashMap::<PerpMarketTypes, f64>::new(),
         })
     }
 
@@ -137,18 +129,8 @@ impl MarketTypeT for LETFMarketType {
         self.market_name.clone()
     }
 
-    async fn get(&self, stock: &Self::MK) -> Option<f64> {
-        Some(*(self.market.get(stock)?))
-    }
-
-    // TODO: this should be implemented better.
-    fn stock_names(&self) -> Vec<Self::MK> {
-        let mut all_stocks = vec![];
-        let _ = self
-            .market
-            .iter()
-            .map(|kv| all_stocks.push(kv.key().clone()));
-        all_stocks
+    async fn get(&self, key: &Self::MK) -> Option<f64> {
+        Some(*(self.market.get(key)?))
     }
 
     async fn insert(&self, key: Self::MK, value: f64) {
@@ -163,7 +145,7 @@ impl MarketTypeT for LETFMarketType {
         market_name: String,
         value: &BorrowedMessage,
         _mp: (),
-    ) -> Result<Arc<LETFMarketType>, MarketTypeError> {
+    ) -> Result<Arc<PerpMarketType>, MarketTypeError> {
         let msg_val = value
             .payload()
             .ok_or(MarketTypeError::GeneralError(format!(
@@ -181,15 +163,12 @@ impl MarketTypeT for LETFMarketType {
     }
 
     fn market_params(&self) {}
-    fn len(&self) -> usize {
-        self.market.len()
-    }
 }
 
-impl SetName for LETFMarketType {
+impl SetName for PerpMarketType {
     fn set_name(&mut self, new_name: String) {
         self.market_name = new_name;
     }
 }
 
-impl TryFromRef2 for (LETFMarketTypes, f64) {}
+impl TryFromRef2 for (PerpMarketTypes, f64) {}
