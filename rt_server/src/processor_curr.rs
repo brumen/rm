@@ -275,6 +275,8 @@ where
 
                 // new behind current but only considering trades from
                 //    a portfolio
+                debug!("STATE TRADES: {:?}", state.trades);
+                debug!("NTP TRADES: {:?}", ntp_trades);
                 let ntp_behind_curr_portfolio = state
                     .trades
                     .clone()
@@ -306,6 +308,7 @@ where
                         )
                         .await;
                     ntp_portfolio += additional_portf;
+
                     debug!(
                         "NTP portfolio accepted ({:?}). Publishing.",
                         ntp_portfolio.simple()
