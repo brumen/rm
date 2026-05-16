@@ -47,6 +47,12 @@ where
     }
 }
 
+pub(crate) enum PricingStyle {
+    Sequential,
+    ParallelSingleThread,
+    Parallel,
+}
+
 /// prices multiple trades - default configuration is to price them sequentially
 /// TODO: THIS SHOULD BE CHANGED - THIS TRAIT SHOULD GO TO MT: MarketTypeT
 #[async_trait]
@@ -54,22 +60,29 @@ pub(crate) trait PriceMultiple<T, MT>
 where
     MT: MarketTypeT + 'static,
     MT::MP: Clone,
-    T: PriceTrade<MT> + 'static + Clone,
+    T: PriceTrade<MT> + BaseTrade + 'static + Clone,
 {
+    // attempts to price the new_trades on the market_actual.
+    // returns the trades that were priced in the first component, and
+    //    the pricing result in the second.
+
+    fn pricing_style(&self) -> PricingStyle;
+
     async fn price_multiple(
         &self,
         new_trades: HashSet<String>,         // trades to price
-        pricing_metrics: Vec<PricingMetric>, // metrics to price on
+        pricing_metrics: Vec<PricingMetric>, // metrics to price on, PV, PV01, PnL, ...
         market_actual: Arc<MT>,              // actual market to price them on.
         all_trades: Arc<TradeRep<T>>, // collection of all trades from which new_trades are picked.
-    ) -> PmPortfolio {
-        self._price_multiple_parallel_single_thread(
-            new_trades,
-            pricing_metrics,
-            market_actual,
-            all_trades,
-        )
-        .await
+    ) -> (HashSet<String>, PmPortfolio) {
+        let pricing_fct = match self.pricing_style() {
+            PricingStyle::Sequential => Self::_price_multiple_seq,
+            PricingStyle::ParallelSingleThread => Self::_price_multiple_parallel_single_thread,
+            PricingStyle::Parallel => Self::_price_multiple_parallel,
+        };
+
+        //self._price_multiple_parallel_single_thread(
+        pricing_fct(self, new_trades, pricing_metrics, market_actual, all_trades).await
     }
 
     // this prices the trades in sequence.
@@ -79,17 +92,18 @@ where
         pricing_metrics: Vec<PricingMetric>, // metrics to price on
         market_actual: Arc<MT>,              // actual market to price them on.
         all_trades: Arc<TradeRep<T>>, // collection of all trades from which new_trades are picked.
-    ) -> PmPortfolio {
+    ) -> (HashSet<String>, PmPortfolio) {
         let mut portfolio = PmPortfolio::new();
+        let mut priced_trades = HashSet::<String>::new();
 
         for used_trade in new_trades.into_iter() {
             let Some(mut attempted_used) =
                 all_trades.read_async(&used_trade, |_, v| v.clone()).await
             else {
                 error!("Could not price {:?}. Ignoring that trade.", used_trade);
-                // TODO: In the future, handle this better by reporting on the unpriced trades.
                 continue;
             };
+            priced_trades.insert(attempted_used.id().clone());
 
             for pm in &pricing_metrics {
                 let price_pm_agg = attempted_used
@@ -100,18 +114,20 @@ where
             }
         }
 
-        portfolio
+        (priced_trades, portfolio)
     }
 
     // tries to construct a number of trade futures, but computes them on
     //   a single thread instead of spawning them.
+    // results: first elt of tuple are all the trades that were priced.
+    //    the second elt are the computation results for those trades.
     async fn _price_multiple_parallel_single_thread(
         &self,
         new_trades: HashSet<String>, // trades that we want to compute.
         pricing_metrics: Vec<PricingMetric>, // metrics we want to compute
         market_actual: Arc<MT>,      // market
         all_trades: Arc<TradeRep<T>>, // all trades in the registry.
-    ) -> PmPortfolio {
+    ) -> (HashSet<String>, PmPortfolio) {
         let mut portfolio = PmPortfolio::new();
 
         // copies all trade information to curr_trades
@@ -131,8 +147,9 @@ where
             })
             .await;
 
+        // diagnostics.
         if nb_found_trades < nb_new_trades {
-            error!(
+            warn!(
                 "Found only {:?} out of {:?} trades. Total nb available trades: {:?}",
                 nb_found_trades, nb_new_trades, nb_all_trades
             );
@@ -152,7 +169,13 @@ where
                 .unwrap_or_default();
             portfolio.assign_metric(pm, trade_results);
         }
-        portfolio
+
+        // trade ids of the priced trades.
+        let priced_trade_ids = curr_trades
+            .iter()
+            .map(|t| t.id().clone())
+            .collect::<HashSet<String>>();
+        (priced_trade_ids, portfolio)
     }
 
     // processes trades in a parallel fashion, parameters the same as above.
@@ -163,7 +186,7 @@ where
         pricing_metrics: Vec<PricingMetric>,
         market_actual: Arc<MT>,
         all_trades: Arc<TradeRep<T>>,
-    ) -> PmPortfolio
+    ) -> (HashSet<String>, PmPortfolio)
     where
         T: Send + Sync,
         MT: Send + Sync,
@@ -221,7 +244,12 @@ where
             portfolio.assign_metric(pm, portf_for_pm);
         }
 
-        portfolio
+        let priced_trade_ids = curr_trades
+            .iter()
+            .map(|t| t.id().clone())
+            .collect::<HashSet<String>>();
+
+        (priced_trade_ids, portfolio)
     }
 }
 
@@ -230,8 +258,11 @@ impl<T, MT> PriceMultiple<T, MT> for ProcessorBulk<T, MT>
 where
     MT: MarketTypeT + 'static + std::fmt::Debug,
     MT::MP: Clone,
-    T: PriceTrade<MT> + 'static + std::fmt::Debug + Sync + Send + Clone,
+    T: PriceTrade<MT> + BaseTrade + 'static + std::fmt::Debug + Sync + Send + Clone,
 {
+    fn pricing_style(&self) -> PricingStyle {
+        PricingStyle::Sequential
+    }
 }
 
 #[async_trait]
@@ -354,7 +385,7 @@ where
                     new_trades.len(),
                     market
                 );
-                let portfolio = self
+                let (priced_trades, priced_portfolio) = self
                     .price_multiple(
                         new_trades.clone(), // TODO: THIS .clone is NOT THE BEST - FIX IT
                         pricing_metrics,
@@ -366,11 +397,11 @@ where
                 debug!(
                     "Sending to actor {:?}: {:?}",
                     sending_processor.get_name(),
-                    portfolio.simple(),
+                    priced_portfolio.simple(),
                 );
 
                 if let Err(e) = sending_processor.send_message(ProcessorMiddleMessage::BulkReceive(
-                    (new_trades, portfolio, non_pricing_trades, market),
+                    (new_trades, priced_portfolio, non_pricing_trades, market),
                 )) {
                     error!(
                         "Could not send message to {:?}: {:?}. Continuing.",

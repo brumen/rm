@@ -7,7 +7,7 @@ use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 use crate::portfolio::PmPortfolio; // , PortfolioType
 use crate::pricer::{PriceTrade, PricingMetric};
-use crate::processor_bulk::PriceMultiple;
+use crate::processor_bulk::{PriceMultiple, PricingStyle};
 use crate::processor_msg::{
     PNStateDistr, ProcessorBulkMessage, ProcessorMiddleMessage, ProcessorMiddleMessageStates,
     TradesLocal,
@@ -179,7 +179,7 @@ where
                 warn!("Could not get market {:?}", market_behind);
                 return Ok(());
             };
-            let bulk_portfolio = self
+            let (bulk_trades_priced, bulk_portfolio) = self
                 .price_multiple(
                     state.trades.clone(),
                     state.pricing_metrics.clone(),
@@ -195,7 +195,7 @@ where
         // add the additional trades to the portfolio.
         let curr_mkt_actual = curr_mkt.unwrap(); // this is fine since curr_mkt is handled above.
         let curr_mkt_actual_name = curr_mkt_actual.market_name().clone();
-        let additional_portfolio = self
+        let (additional_trades, additional_portfolio) = self
             .price_multiple(
                 trades_behind,
                 state.pricing_metrics.clone(),
@@ -296,7 +296,7 @@ where
                 return Ok(());
             };
 
-            let added_portfolio = self
+            let (priced_trades, added_portfolio) = self
                 .price_multiple(
                     new_behind_curr,
                     state.pricing_metrics.clone(),
@@ -331,6 +331,9 @@ where
     MT::MP: Clone,
     T: PriceTrade<MT> + 'static + std::fmt::Debug + Sync + Send + Clone,
 {
+    fn pricing_style(&self) -> PricingStyle {
+        PricingStyle::Sequential
+    }
 }
 
 // state of the middle processor.

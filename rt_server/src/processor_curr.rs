@@ -11,7 +11,7 @@ use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 use crate::portfolio::{PmPortfolio, PortfolioType};
 use crate::pricer::{PriceTrade, PricingMetric};
-use crate::processor_bulk::PriceMultiple;
+use crate::processor_bulk::{PriceMultiple, PricingStyle};
 use crate::processor_msg::{ProcessorMiddleMessage, TradesLocal};
 use crate::trade::{BaseTrade, TradeRep};
 
@@ -53,6 +53,9 @@ where
     MT::MP: Clone,
     T: PriceTrade<MT> + 'static + std::fmt::Debug + Sync + Send + Clone,
 {
+    fn pricing_style(&self) -> PricingStyle {
+        PricingStyle::Sequential
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -275,20 +278,17 @@ where
                 }
 
                 // new behind current but only considering trades from
-                //    a portfolio
-                debug!("STATE TRADES: {:?}", state.trades);
-                debug!("NTP TRADES: {:?}", ntp_trades);
-                let ntp_trades2 = ntp_portfolio.clone();
-                let ntp_trades3 = ntp_trades2
+                //    a portfolio (BUG: for some reason ntp_trades and portfolio from trades can diverge IT SHOULDNT)
+                // TODO: THIS NEEDS TO IMPROVE HERE!!.
+                let ntp_trades_from_portfolio = ntp_portfolio
                     .get(&PricingMetric::PV)
                     .unwrap_or(&PortfolioType::default())
-                    .0
                     .clone();
                 let ntp_behind_curr_portfolio = state
                     .trades
                     .clone()
                     .into_iter()
-                    .filter(|x| !ntp_trades3.contains_key(x.as_str()))
+                    .filter(|x| !ntp_trades_from_portfolio.contains_key(x.as_str()))
                     .collect::<TradesLocal>();
 
                 // new portfolio has more trades, send the portfolio to publisher.
@@ -298,15 +298,16 @@ where
                 let ntp_portf_acc = (ntp_portf_behind as u64) < NTP_ALLOW_BEHIND;
 
                 // compute those additional trades
-                debug!("Behind trades: {}", ntp_portf_behind);
+                debug!("NTP is {} traded behind", ntp_portf_behind);
                 //if (ntp_portf_behind > 0) & ntp_portf_acc {
                 if ntp_portf_acc {
+                    // new portfolio is accepted.
                     let Some(ntp_market_actual) = self.all_markets.get(&ntp_market).await else {
                         warn!("Could not get NTP market {:?}", ntp_market);
                         return Ok(());
                     };
                     debug!("Computing additional {:?} trades", ntp_portf_behind);
-                    let additional_portf = self
+                    let (additional_trades, additional_portf) = self
                         .price_multiple(
                             ntp_behind_curr_portfolio.clone(),
                             state.pricing_results.clone(),
@@ -314,6 +315,11 @@ where
                             self.all_trades.clone(),
                         )
                         .await;
+                    if additional_trades.len() < ntp_portf_behind {
+                        // we couldnt synchronize portfolios, abandonging
+                        return Ok(());
+                    } // else everything is ok, continue
+
                     ntp_portfolio += additional_portf;
 
                     debug!(
