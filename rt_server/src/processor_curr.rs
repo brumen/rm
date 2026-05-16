@@ -3,6 +3,7 @@ use rdkafka::error::KafkaError;
 use rdkafka::producer::FutureProducer;
 use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -277,11 +278,17 @@ where
                 //    a portfolio
                 debug!("STATE TRADES: {:?}", state.trades);
                 debug!("NTP TRADES: {:?}", ntp_trades);
+                let ntp_trades2 = ntp_portfolio.clone();
+                let ntp_trades3 = ntp_trades2
+                    .get(&PricingMetric::PV)
+                    .unwrap_or(&PortfolioType::default())
+                    .0
+                    .clone();
                 let ntp_behind_curr_portfolio = state
                     .trades
                     .clone()
                     .into_iter()
-                    .filter(|x| !ntp_trades.contains(x.as_str()))
+                    .filter(|x| !ntp_trades3.contains_key(x.as_str()))
                     .collect::<TradesLocal>();
 
                 // new portfolio has more trades, send the portfolio to publisher.
