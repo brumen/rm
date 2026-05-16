@@ -289,7 +289,9 @@ where
                 let ntp_portf_acc = (ntp_portf_behind as u64) < NTP_ALLOW_BEHIND;
 
                 // compute those additional trades
-                if (ntp_portf_behind > 0) & ntp_portf_acc {
+                debug!("Behind trades: {}", ntp_portf_behind);
+                //if (ntp_portf_behind > 0) & ntp_portf_acc {
+                if ntp_portf_acc {
                     let Some(ntp_market_actual) = self.all_markets.get(&ntp_market).await else {
                         warn!("Could not get NTP market {:?}", ntp_market);
                         return Ok(());
@@ -304,9 +306,6 @@ where
                         )
                         .await;
                     ntp_portfolio += additional_portf;
-                } // otherwise we dont need to compute them.
-
-                if ntp_portf_acc {
                     debug!(
                         "NTP portfolio accepted ({:?}). Publishing.",
                         ntp_portfolio.simple()
