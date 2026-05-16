@@ -129,9 +129,9 @@ async fn run_all() {
     // postprocessing handles
     let mut total_nav_processor = nav::NavProcessor::new(&kafka_server, &results_topic, "")
         .expect("Could not start NAV processor");
-    // let total_nav = tokio::spawn(async move {
-    //     total_nav_processor.run_ignore().await;
-    // });
+    let total_nav = tokio::spawn(async move {
+        total_nav_processor.run_ignore().await;
+    });
 
     // this creates the setup actor.
     let setup_actor_handle = start_setup_actor(host.clone(), setup_topic.clone(), all_actors).await;
@@ -139,7 +139,7 @@ async fn run_all() {
     info!("All relevant actors initialized.");
     all_handles.append(&mut all_actors_handles);
     all_handles.push(setup_actor_handle);
-    // all_handles.push(total_nav);
+    all_handles.push(total_nav);
     join_all(all_handles).await;
 }
 
