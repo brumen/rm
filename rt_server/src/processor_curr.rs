@@ -83,30 +83,17 @@ where
     T: Send + Sync + std::fmt::Debug,
     MT: Send + Sync + MarketTypeT + std::fmt::Debug,
 {
+    // publishes the portfolio to the kafka bus.
     async fn _publish_result_portfolio(
         &self,
         portf: PortfolioType,
         metric: PricingMetric,
     ) -> Result<(), SendError> {
-        // sends to publisher actor
         let curr_mkt_json = serde_json::ser::to_string(&portf.clone())?;
-        let curr_mkt_pv = format!("{{\"{}\": {}}}", metric, curr_mkt_json);
+        let portf_record = FutureRecord::to(&self.results_topic)
+            .key(&metric)
+            .payload(&curr_mkt_json);
 
-        // implements bytearray(str(dumps(self.curr_market)), ascii))
-        let portf_record = FutureRecord::<'_, [u8], [u8]> {
-            topic: &self.results_topic,
-            partition: Some(0),
-            payload: Some(curr_mkt_pv.as_bytes()),
-            key: None, // TODO: pub key: Option<&'a K>,
-            timestamp: None,
-            headers: None,
-        };
-
-        // first i32 = partition
-        // second i64 = offset
-        // error is the Kafka error
-        // OwnedMessage - copy of the original message.
-        // Result<(i32, i64), (KafkaError, OwnedMessage)>;
         debug!("Publishing portfolio: size {}", portf.len());
         match self
             .result_publisher

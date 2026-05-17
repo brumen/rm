@@ -1,5 +1,6 @@
 use futures::future::join_all;
 use ractor::async_trait;
+use rdkafka::message::ToBytes;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -27,6 +28,16 @@ impl fmt::Display for PricingMetric {
             PricingMetric::PV => write!(f, "PV"),
             PricingMetric::PV01 => write!(f, "PV01"),
             PricingMetric::PnL => write!(f, "PnL"),
+        }
+    }
+}
+
+impl ToBytes for PricingMetric {
+    fn to_bytes(&self) -> &[u8] {
+        match self {
+            PricingMetric::PV => b"PV",
+            PricingMetric::PV01 => b"PV01",
+            PricingMetric::PnL => b"PnL",
         }
     }
 }
