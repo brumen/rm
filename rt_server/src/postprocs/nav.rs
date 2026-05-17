@@ -34,6 +34,19 @@ pub struct NavProcessor {
     latest_pvs: HashMap<String, f64>,
 }
 
+trait Aggregator {
+    // aggregates the individual results to a f64 value.
+    fn aggregate(&self, indiv_results: &Vec<RiskResultMessage>) -> f64;
+}
+
+impl Aggregator for NavProcessor {
+    fn aggregate(&self, indiv_results: &Vec<RiskResultMessage>) -> f64 {
+        todo!()
+        // let total_nav: f64 = indiv_results.into_iter().copied().sum();
+        // total_nav
+    }
+}
+
 impl NavProcessor {
     pub fn new(bootstrap_servers: &str, topic: &str, _group_id: &str) -> anyhow::Result<Self> {
         let consumer = connect_with_retries_rd(bootstrap_servers, topic);
@@ -58,6 +71,14 @@ impl NavProcessor {
         }
     }
 
+    pub async fn run_with_restart(&mut self) -> anyhow::Result<()> {
+        loop {
+            if let Err(e) = self.run().await {
+                error!("NAV failed: {:?}. Restarting.", e);
+            }
+        }
+    }
+
     pub async fn run(&mut self) -> anyhow::Result<()> {
         info!("Starting NAV processor on topic {}", self.topic);
 
@@ -69,9 +90,12 @@ impl NavProcessor {
                 continue;
             };
 
-            let Ok(parsed) = serde_json::from_slice::<RiskResultMessage>(payload) else {
-                error!("Could not deserialize risk result payload.");
-                continue;
+            let parsed = match serde_json::from_slice::<RiskResultMessage>(payload) {
+                Ok(parsed1) => parsed1,
+                Err(e) => {
+                    error!("Could not deserialize risk result payload: {:?}", e);
+                    continue;
+                }
             };
 
             for (trade_id, trade_value) in parsed.pv {
@@ -79,6 +103,7 @@ impl NavProcessor {
             }
 
             let total_nav: f64 = self.latest_pvs.values().copied().sum();
+            // let total_nav = self.aggregate(self.latest_pvs.values());
 
             let nav_msg = NavResultMessage {
                 id: "TOTAL_NAV".to_string(),
