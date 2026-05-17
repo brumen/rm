@@ -25,6 +25,7 @@ where
     pub all_markets: Arc<AllMarkets<Arc<MT>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub(crate) state_distr: Arc<PNStateDistr>, // evmap for state distributions.
+    pub(crate) pricing_mode: PricingStyle,
 }
 
 #[allow(dead_code)]
@@ -54,6 +55,7 @@ where
         all_markets: Arc<AllMarkets<Arc<MT>>>,
         all_trades: Arc<TradeRep<T>>,
         state_distr: Arc<PNStateDistr>,
+        pricing_mode: PricingStyle,
     ) -> Self {
         Self {
             processor_name: processor_name.clone(),
@@ -62,6 +64,7 @@ where
             all_markets,
             all_trades,
             state_distr,
+            pricing_mode,
         }
     }
 
@@ -369,8 +372,8 @@ where
     MT::MP: Clone,
     T: PriceTrade<MT> + 'static + std::fmt::Debug + Sync + Send + Clone,
 {
-    fn pricing_style(&self) -> PricingStyle {
-        PricingStyle::Sequential
+    fn pricing_style(&self) -> &PricingStyle {
+        &self.pricing_mode
     }
 }
 

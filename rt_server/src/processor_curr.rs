@@ -3,7 +3,6 @@ use rdkafka::error::KafkaError;
 use rdkafka::producer::FutureProducer;
 use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
-use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -34,6 +33,7 @@ where
     // trade_processor where we can send the info when the trades are processed
     // pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
     pub operating_mode: RTOperatingMode,
+    pub(crate) pricing_mode: PricingStyle,
 }
 
 impl<T, MT> std::fmt::Debug for ProcessorCurr<T, MT>
@@ -53,8 +53,8 @@ where
     MT::MP: Clone,
     T: PriceTrade<MT> + 'static + std::fmt::Debug + Sync + Send + Clone,
 {
-    fn pricing_style(&self) -> PricingStyle {
-        PricingStyle::Sequential
+    fn pricing_style(&self) -> &PricingStyle {
+        &self.pricing_mode
     }
 }
 

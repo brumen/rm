@@ -23,6 +23,7 @@ pub(crate) struct ProcessorMiddle<T, MT: std::fmt::Debug> {
     pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub(crate) state_distr: Arc<PNStateDistr>,
+    pub(crate) pricing_mode: PricingStyle,
 }
 
 // ProcessorMiddle is either in one of the three states:
@@ -43,6 +44,7 @@ where
         all_trades: Arc<TradeRep<T>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
         state_distr: Arc<PNStateDistr>,
+        pricing_mode: PricingStyle,
     ) -> Self {
         Self {
             processor_name,
@@ -51,6 +53,7 @@ where
             all_trades,
             all_markets,
             state_distr: state_distr.clone(),
+            pricing_mode,
         }
     }
 
@@ -331,8 +334,8 @@ where
     MT::MP: Clone,
     T: PriceTrade<MT> + 'static + std::fmt::Debug + Sync + Send + Clone,
 {
-    fn pricing_style(&self) -> PricingStyle {
-        PricingStyle::Sequential
+    fn pricing_style(&self) -> &PricingStyle {
+        &self.pricing_mode
     }
 }
 

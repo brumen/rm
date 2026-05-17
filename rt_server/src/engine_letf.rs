@@ -13,7 +13,7 @@ use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PriceTrade;
 use crate::pricer::PricingMetric;
-use crate::processor_bulk::ProcessorBulk;
+use crate::processor_bulk::{PricingStyle, ProcessorBulk};
 use crate::processor_curr::RTOperatingMode;
 use crate::processor_msg::{PNStateDistr, ProcessorMiddleMessage};
 use crate::processor_new::ProcessorNew;
@@ -33,6 +33,7 @@ pub(crate) async fn start2<T, MT>(
     mp: MT::MP,
     nb_middle: usize,
     operating_mode: RTOperatingMode,
+    pricing_mode: PricingStyle,
 ) -> (
     Vec<ActorRef<ProcessorMiddleMessage<String>>>,
     Vec<JoinHandle<()>>,
@@ -56,6 +57,7 @@ where
         initial_trades.clone(),
         mp.clone(),
         operating_mode,
+        pricing_mode.clone(),
     )
     .await;
 
@@ -74,6 +76,7 @@ where
             all_markets.clone(),
             initial_trades.clone(),
             mp.clone(),
+            pricing_mode.clone(),
         )
         .await;
 
@@ -88,6 +91,7 @@ where
         "processor_new".to_string(),
         initial_trades.clone(),
         all_markets.clone(),
+        pricing_mode.clone(),
     );
 
     let (processor_new_bulk_actor, processor_new_bulk_handle) = Actor::spawn(
@@ -107,6 +111,7 @@ where
         all_markets.clone(),
         initial_trades.clone(),
         state_distr_new.clone(),
+        pricing_mode,
     );
 
     let (_processor_new_a, processor_new_handle) =
