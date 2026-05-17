@@ -65,6 +65,7 @@ async fn run_all() {
     let _market_port = std::env::var("MARKET_PORT").expect("Could not find MARKET_PORT in .env");
     let _pricing_port = std::env::var("PRICING_PORT").expect("Could not find PRICING_PORT in .env");
     let debug_level = std::env::var("DEBUG_LEVEL").expect("Could not find DEBUG in .env");
+    let pricing_mode = std::env::var("PRICING_MODE").expect("Could not find PRICING_MODE in .env");
     let operating_mode = match std::env::var("OPERATING_MODE")
         .expect("Could not find OPERATING_MODE in .env")
         .as_str()

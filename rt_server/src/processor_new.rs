@@ -73,27 +73,30 @@ where
         state: &mut _ProcessorNewStateful,
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
-        debug!("CalculatingSingle, Computing trade {}.", new_trade);
-        state.trades.insert(new_trade.clone()); // we add the trade to the list.
-
         if state.pricing_metrics.is_empty() {
             // there's nothing to do, return.
             debug!("No pricing metrics. Ignoring.");
             return Ok(());
         }
 
-        // the next 3 are conditions when we can actually compute something
-        // condition if we can get the relevant trade
-        // TODO: Check if .clone is needed in the closure???
+        debug!(
+            "CalculatingSingle, Computing trade {} for {:?}.",
+            new_trade, state.pricing_metrics
+        );
+
         let Some(mut new_trade_info) = self.all_trades.read_sync(&new_trade, |_, v| v.clone())
         else {
             // we dont have a trade info - ignore and continue.
             warn!(
-                "No trade info could be obtained for {}. Investigate. Continuing w/o processing.",
+                "No trade info could be obtained for {}. Investigate! Continuing w/o processing.",
                 new_trade
             );
             return Ok(());
         };
+
+        // the next 3 are conditions when we can actually compute something
+        // condition if we can get the relevant trade
+        // TODO: Check if .clone is needed in the closure???
         // condition if new_m is a market or just None
         let Some(ref new_m_real) = &state.new_market else {
             warn!("Do not have new_m. Continuing w/o processing.");
@@ -107,6 +110,9 @@ where
             );
             return Ok(());
         };
+
+        // we have the trade w/ trade info
+        state.trades.insert(new_trade.clone()); // we add the trade to the list.
 
         // if all the three conditions above are satisfied, continue
         //   w/ actual pricing.
@@ -128,20 +134,24 @@ where
             state.portfolio.simple(),
             new_m_real,
         );
-        self.processor_middle
-            .send_message(ProcessorMiddleMessage::NewTradePortfolio((
-                state.trades.clone(),
-                state.portfolio.clone(),
-                new_m_real.to_string(),
-                myself,
-            )))?;
+
+        if let Err(e) =
+            self.processor_middle
+                .send_message(ProcessorMiddleMessage::NewTradePortfolio((
+                    state.trades.clone(),
+                    state.portfolio.clone(),
+                    new_m_real.to_string(),
+                    myself,
+                )))
+        {
+            error!("Could not send NTP to the middle (lower) processor.");
+        };
 
         Ok(())
     }
 
     // we are in calculating bulk state, new trade comes in.
     //   we only add the trade to the list of trades. nothing else.
-    // #[instrument(skip_all)]
     async fn _new_trade_calculating_bulk(
         &self,
         new_trade: String,
@@ -159,7 +169,6 @@ where
     }
 
     // we receive the Behind message, we are in calculating single mode.
-    // #[instrument(skip_all)]
     async fn _behind_calculating_single(
         &self,
         market_behind: String,
@@ -173,9 +182,6 @@ where
             debug!("Lower processor accepted. Not behind. Ignoring.");
             return Ok(());
         }
-
-        // lower processor is ahead. Add trades, and compute the difference.
-        state.trades.extend(trades_behind.clone());
 
         // TODO: HERE PERHAPS CONSIDER DEPENDING ON HOW MANY
         // TRADES ARE BEHIND,
@@ -197,6 +203,8 @@ where
             }
         }
 
+        // TODO: EITHER THIS ALL HAPPENS OR NOTHING!!! IT HAS TO BE ATOMIC.
+
         // check if we have a new_m
         let Some(ref new_m_real) = &state.new_market else {
             warn!("Does not have new_m. Ignoring and continuing.");
@@ -207,6 +215,9 @@ where
             warn!("Doesnt have market. Ignoring.");
             return Ok(());
         };
+
+        // lower processor is ahead. Add trades, and compute the difference.
+        state.trades.extend(trades_behind.clone());
 
         let (bulk_trades, bulk_portfolio) = self
             .price_multiple(
@@ -264,19 +275,24 @@ where
             state.portfolio.simple(),
             state.new_market.clone()
         );
-        self.processor_middle
-            .send_message(ProcessorMiddleMessage::NewTradePortfolio((
-                state.trades.clone(),
-                state.portfolio.clone(),
-                state.new_market.clone().unwrap(),
-                myself,
-            )))?;
+        if let Err(e) =
+            self.processor_middle
+                .send_message(ProcessorMiddleMessage::NewTradePortfolio((
+                    state.trades.clone(),
+                    state.portfolio.clone(),
+                    state.new_market.clone().unwrap(),
+                    myself,
+                )))
+        {
+            error!("Could not send NTP message to processor middle. Continuing w/o it.");
+        };
         debug!("New State: {} -> Idle", state.processor_state);
         state.processor_state = ProcessorNewState::CalculatingSingle;
         Ok(())
     }
 
-    // #[instrument(skip_all)]
+    // receives the new_trade_l, computed_portf and _offending trades,
+    //    when it's in a state calculating single.
     fn _bulkreceive_calculatingsingle(
         &self,
         new_trade_l: TradesLocal,
@@ -317,13 +333,20 @@ where
                     self.processor_middle.get_name(),
                     state.portfolio,
                 );
-                self.processor_middle
-                    .send_message(ProcessorMiddleMessage::NewTradePortfolio((
-                        state.trades.clone(),
-                        state.portfolio.clone(),
-                        new_m_str.to_string(),
-                        myself,
-                    )))?;
+                if let Err(e) =
+                    self.processor_middle
+                        .send_message(ProcessorMiddleMessage::NewTradePortfolio((
+                            state.trades.clone(),
+                            state.portfolio.clone(),
+                            new_m_str.to_string(),
+                            myself,
+                        )))
+                {
+                    error!(
+                        "Could not send the NTP to lower processor ({:?}. Continuing.",
+                        self.processor_middle
+                    );
+                };
             }
 
             // no market match. print error and return.
@@ -561,14 +584,16 @@ where
                     computed_portf.simple()
                 );
 
-                self._bulkreceive_calculatingbulk_idle(
+                if let Err(e) = self._bulkreceive_calculatingbulk_idle(
                     new_trade_l,
                     computed_portf,
                     offending_trades,
                     _bulk_market,
                     state,
                     myself,
-                )?;
+                ) {
+                    error!("Could not correctly handle bulkreceive when calculating bulk.");
+                } // otherwise there's nothing to do.
             }
 
             ProcessorMiddleMessage::Metric(new_pricing_metrics) => {
