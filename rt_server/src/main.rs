@@ -65,7 +65,18 @@ async fn run_all() {
     let _market_port = std::env::var("MARKET_PORT").expect("Could not find MARKET_PORT in .env");
     let _pricing_port = std::env::var("PRICING_PORT").expect("Could not find PRICING_PORT in .env");
     let debug_level = std::env::var("DEBUG_LEVEL").expect("Could not find DEBUG in .env");
-    let operating_mode = RTOperatingMode::DoubleBuffer;
+    let operating_mode = match std::env::var("OPERATING_MODE")
+        .expect("Could not find OPERATING_MODE in .env")
+        .as_str()
+    {
+        "single" => RTOperatingMode::SingleBuffer,
+        _ => RTOperatingMode::DoubleBuffer,
+    };
+    // number of middle processors.
+    let nb_middle_procs = match operating_mode {
+        RTOperatingMode::SingleBuffer => 0,
+        _ => 1,
+    };
     let kafka_params = engine_actor::KafkaParams {
         kafka_server: kafka_server.clone(),
         pos_topic,
@@ -112,7 +123,7 @@ async fn run_all() {
         markets_used,
         initial_trades.clone(),
         (),
-        1,
+        nb_middle_procs,
         operating_mode,
     )
     .await;
