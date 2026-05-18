@@ -7,7 +7,6 @@ use uuid::Uuid;
 
 use crate::all_markets::AllMarkets;
 use crate::market::{MarketTypeT, SetName};
-use crate::pricer::PricingMetric;
 use crate::processor_msg::ProcessorMiddleMessage;
 use crate::ref_deref::TryFromRef2;
 
@@ -15,7 +14,6 @@ pub struct MarketProducer<MT>
 where
     MT: MarketTypeT + std::fmt::Debug,
 {
-    pub metric: PricingMetric,
     pub pricing_options: MT::MP,
     pub mkt_listener: StreamConsumer, // listening for market events.
     pub new_processor: ActorRef<ProcessorMiddleMessage<String>>,

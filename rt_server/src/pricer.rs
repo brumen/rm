@@ -149,7 +149,7 @@ where
     async fn pnl(&mut self, market: Arc<MT>) -> Option<f64> {
         let initial_pv_val = self.initial_pv().await?;
         let curr_price = self.price(market).await?;
-        self.update_prev_pv(Some(curr_price));
+        let _ = self.update_prev_pv(Some(curr_price));
         let pnl = curr_price - initial_pv_val;
         Some(pnl)
         // let pnl = self
@@ -157,7 +157,7 @@ where
         //     .await
         //     .map(|curr_price| curr_price - initial_pv_val);
     }
-    async fn update_prev_pv(&mut self, new_market_val: Option<f64>) {}
+    async fn update_prev_pv(&mut self, _new_market_val: Option<f64>) {}
 
     /// values the trade for a specific metric.
     #[allow(dead_code)]

@@ -12,7 +12,6 @@ use crate::market::{MarketTypeT, SetName};
 use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PriceTrade;
-use crate::pricer::PricingMetric;
 use crate::processor_bulk::{PricingStyle, ProcessorBulk};
 use crate::processor_curr::RTOperatingMode;
 use crate::processor_msg::{PNStateDistr, ProcessorMiddleMessage};
@@ -26,7 +25,6 @@ use crate::trade_sender::TradeProducer;
 #[allow(dead_code)]
 pub(crate) async fn start2<T, MT>(
     kafka_params: KafkaParams,
-    metric: PricingMetric, // pricing metric, like PV
     all_markets: Arc<AllMarkets<Arc<MT>>>,
     markets_used: Vec<String>,
     initial_trades: Arc<TradeRep<T>>,
@@ -69,7 +67,7 @@ where
     actors_middle_msg.push(_processor_curr_a.clone());
 
     // middle actors (including state distribution for
-    let (mut processor_actors, mut processor_actor_futures, middle_state_distr_vec) =
+    let (mut processor_actors, mut processor_actor_futures, _middle_state_distr_vec) =
         create_middle_procs_chain(
             nb_middle,
             _processor_curr_a.clone(),
@@ -128,7 +126,6 @@ where
     info!("Connecting to market topic {:?}", kafka_params.mkt_topic);
     let mkt_listener = connect_with_retries_rd(&kafka_params.kafka_server, &kafka_params.mkt_topic);
     let market_producer = MarketProducer {
-        metric,
         pricing_options: mp.clone(),
         mkt_listener,
         new_processor: _processor_new_a.clone(),
@@ -162,13 +159,5 @@ where
 
     all_futures.append(&mut processor_actor_futures); // middle processors
 
-    // (actors_middle_msg, all_futures, state_distr_new)
-    // TODO: CHECK HERE IF state_distr_new is correct, but it's currently
-    //   not used anyways.
-    // let state_distr_presented = middle_state_distr_vec.last().unwrap();
-    (
-        actors_middle_msg,
-        all_futures,
-        state_distr_new, // state_distr_presented.clone(),
-    )
+    (actors_middle_msg, all_futures, state_distr_new)
 }

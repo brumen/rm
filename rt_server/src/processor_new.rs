@@ -147,7 +147,10 @@ where
                     myself,
                 )))
         {
-            error!("Could not send NTP to the middle (lower) processor.");
+            error!(
+                "Could not send NTP to the middle (lower) processor: {:?}",
+                e
+            );
         };
 
         Ok(())
@@ -222,7 +225,7 @@ where
         // lower processor is ahead. Add trades, and compute the difference.
         state.trades.extend(trades_behind.clone());
 
-        let (bulk_trades, bulk_portfolio) = self
+        let (_bulk_trades, bulk_portfolio) = self
             .price_multiple(
                 trades_behind,
                 state.pricing_metrics.clone(),
@@ -287,7 +290,10 @@ where
                     myself,
                 )))
         {
-            error!("Could not send NTP message to processor middle. Continuing w/o it.");
+            error!(
+                "Could not send NTP message to processor middle: {:?}. Continuing w/o it.",
+                e
+            );
         };
         debug!("New State: {} -> Idle", state.processor_state);
         state.processor_state = ProcessorNewState::CalculatingSingle;
@@ -346,8 +352,8 @@ where
                         )))
                 {
                     error!(
-                        "Could not send the NTP to lower processor ({:?}. Continuing.",
-                        self.processor_middle
+                        "Could not send the NTP to lower processor ({:?}: {:?} Continuing.",
+                        self.processor_middle, e
                     );
                 };
             }
@@ -595,7 +601,10 @@ where
                     state,
                     myself,
                 ) {
-                    error!("Could not correctly handle bulkreceive when calculating bulk.");
+                    error!(
+                        "Could not correctly handle bulkreceive when calculating bulk: {:?}",
+                        e
+                    );
                 } // otherwise there's nothing to do.
             }
 

@@ -2,9 +2,9 @@ use ractor::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 
-use crate::extend_trade;
+// use crate::extend_trade;
 use crate::market::MarketTypeT;
 use crate::markets::letf_market::{LETFMarketType, LETFMarketTypes};
 use crate::portfolio::{PV01Results, PortfolioType};
@@ -23,7 +23,7 @@ pub struct PerpTrade {
 }
 
 // generate the extended trade
-extend_trade!(PerpTradeExtend, PerpTrade);
+// extend_trade!(PerpTradeExtend, PerpTrade);
 
 const INTEREST_RATE: f64 = 0.0001;
 

@@ -9,14 +9,12 @@ use tracing_subscriber::{layer::SubscriberExt, reload, util::SubscriberInitExt, 
 pub mod market;
 pub mod portfolio;
 pub mod portfolio_sender;
+mod postprocs;
 pub mod pricer;
-// pub mod process_trade;
 pub mod publish;
 pub mod ref_deref;
 pub mod streaming;
 pub mod trade;
-// pub mod trader;
-mod postprocs;
 
 pub(crate) mod all_markets;
 pub(crate) mod engine_actor;
@@ -35,10 +33,8 @@ pub(crate) mod trades;
 pub(crate) mod utils;
 
 use crate::engine_letf::start2;
-use crate::postprocs::nav;
-// use crate::markets::ao_market;
 use crate::markets::letf_market::LETFMarketType;
-use crate::pricer::PricingMetric;
+use crate::postprocs::nav;
 use crate::processor_bulk::PricingStyle;
 use crate::processor_curr::RTOperatingMode;
 use crate::processor_setup_actor::start_setup_actor;
@@ -56,7 +52,6 @@ async fn run_all() {
     let host = std::env::var("HOST").expect("Could not find HOST in .env");
     let kafka_port = std::env::var("KAFKA_PORT").expect("Could not find KAFKA_PORT in .env");
     let kafka_server = format!("{host}:{kafka_port}");
-    let metric = PricingMetric::PV;
     let pos_topic =
         std::env::var("POSITIONS_TOPIC").expect("Could not find POSITIONS_TOPIC in .env"); // "air_options.ao.option_positions"
     let mkt_topic = std::env::var("MKT_RAW_TOPIC").expect("Could not find MKT_RAW_TOPIC in .env"); // "air_options.ao.mkt_events"
@@ -101,7 +96,7 @@ async fn run_all() {
 
     // Reloadable log filter layer
     let initial_filter = EnvFilter::from_default_env().add_directive(tracing_level.into());
-    let (reload_layer, reload_handle) = reload::Layer::new(initial_filter);
+    let (_reload_layer, reload_handle) = reload::Layer::new(initial_filter);
 
     tracing_subscriber::fmt()
         .compact() // Focuses on the current span/target
@@ -127,7 +122,6 @@ async fn run_all() {
     info!("Starting main system controller.");
     let (all_actors, mut all_actors_handles, state_distr_new) = start2(
         kafka_params,
-        metric,
         all_markets.clone(),
         markets_used,
         initial_trades.clone(),

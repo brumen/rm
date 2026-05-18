@@ -389,7 +389,7 @@ where
                     new_trades.len(),
                     market
                 );
-                let (priced_trades, priced_portfolio) = self
+                let (_priced_trades, priced_portfolio) = self
                     .price_multiple(
                         new_trades.clone(), // TODO: THIS .clone is NOT THE BEST - FIX IT
                         pricing_metrics,
