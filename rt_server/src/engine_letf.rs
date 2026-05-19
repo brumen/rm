@@ -60,7 +60,8 @@ where
     .await;
 
     let (_processor_curr_a, processor_curr_handle) =
-        Actor::spawn(Some("processor_curr_actor".to_string()), curr_processor, ())
+    //Actor::spawn(Some("processor_curr_actor".to_string()), curr_processor, ())
+        Actor::spawn(None, curr_processor, ())
             .await
             .expect("Could not start current processor");
 
@@ -93,7 +94,8 @@ where
     );
 
     let (processor_new_bulk_actor, processor_new_bulk_handle) = Actor::spawn(
-        Some("processor_new_bulk".to_string()),
+        //Some("processor_new_bulk".to_string()),
+        None,
         new_mkt_bulk,
         mp.clone(),
     )
@@ -113,7 +115,8 @@ where
     );
 
     let (_processor_new_a, processor_new_handle) =
-        Actor::spawn(Some("processor_new".to_string()), processor_new, ())
+    //Actor::spawn(Some("processor_new".to_string()), processor_new, ())
+        Actor::spawn(None, processor_new, ())
             .await
             .expect("Could not start new processor");
 
@@ -132,7 +135,8 @@ where
         all_markets: all_markets.clone(),
     };
     let (_mkt_producer_a, mkt_producer_handle) =
-        Actor::spawn(Some("mkt_producer".to_string()), market_producer, ())
+    //Actor::spawn(Some("mkt_producer".to_string()), market_producer, ())
+        Actor::spawn(None, market_producer, ())
             .await
             .expect("Could not start market producer");
 
@@ -144,7 +148,8 @@ where
     );
 
     let (_trade_capture_a, trade_capture_handle) =
-        Actor::spawn(Some("trade_producer".to_string()), trade_producer, ())
+    //Actor::spawn(Some("trade_producer".to_string()), trade_producer, ())
+        Actor::spawn(None, trade_producer, ())
             .await
             .expect("Could not start trade producer");
 

@@ -139,7 +139,8 @@ where
 
         state_distr_vec.push(middle_state_distr);
 
-        let (proc_actor, proc_actor_future) = Actor::spawn(Some(market_name), processor_middle, ())
+        //let (proc_actor, proc_actor_future) = Actor::spawn(Some(market_name), processor_middle, ())
+        let (proc_actor, proc_actor_future) = Actor::spawn(None, processor_middle, ())
             .await
             .expect("Could not start middle actor");
 
