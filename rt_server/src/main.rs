@@ -34,7 +34,7 @@ pub(crate) mod utils;
 
 use crate::engine_letf::start2;
 use crate::markets::letf_market::LETFMarketType;
-use crate::postprocs::nav;
+use crate::postprocs::{nav, var};
 use crate::processor_bulk::PricingStyle;
 use crate::processor_curr::RTOperatingMode;
 use crate::processor_setup_actor::start_setup_actor;
@@ -84,7 +84,7 @@ async fn run_all() {
     let kafka_params = engine_actor::KafkaParams {
         kafka_server: kafka_server.clone(),
         pos_topic,
-        mkt_topic,
+        mkt_topic: mkt_topic.clone(),
         results_topic: results_topic.clone(),
     };
 
@@ -148,6 +148,21 @@ async fn run_all() {
         total_nav_processor.run_ignore().await;
     });
 
+    let mut total_var_processor = var::VarProcessor::new_with_market_config(
+        &kafka_server,
+        &results_topic,
+        "",
+        0.95,
+        &mkt_topic,
+        250,
+        20,
+    )
+    .expect("Could not start VaR processor");
+
+    let total_var = tokio::spawn(async move {
+        total_var_processor.run_ignore().await;
+    });
+
     // this creates the setup actor.
     let setup_actor_handle = start_setup_actor(host.clone(), setup_topic.clone(), all_actors).await;
 
@@ -155,6 +170,7 @@ async fn run_all() {
     all_handles.append(&mut all_actors_handles);
     all_handles.push(setup_actor_handle);
     all_handles.push(total_nav);
+    all_handles.push(total_var);
     join_all(all_handles).await;
 }
 
