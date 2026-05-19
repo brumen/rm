@@ -92,7 +92,7 @@ async fn run_all() {
         kafka_server: kafka_server.clone(),
         pos_topic,
         mkt_topic: mkt_topic.clone(),
-        results_topic: "letf.risk_seq".to_string(),
+        results_topic: "letf.risk2".to_string(),
     };
 
     let tracing_level = match debug_level.as_str() {
@@ -196,6 +196,7 @@ async fn run_all() {
     // kafka_params2 setup.
     all_handles.append(&mut all_actors_handles2);
     all_handles.push(setup_actor_handle2);
+
     join_all(all_handles).await;
 }
 
