@@ -97,14 +97,31 @@ class ResultPublisherKafka(ResultPublisherBase):
         """
         logger.debug(f"Processing trades from {self._server_port_topic}.")
         for msg in self._subscriber:
-            logger.debug(f"Got message: {msg.value}")
+            logger.debug(f"Got message: key={msg.key}, value={msg.value}")
 
-            # updating state
+            msg_key = msg.key.decode("utf-8") if msg.key is not None else None
+
+            # New format: metric is carried by Kafka key, payload is the portfolio.
+            if msg_key is not None:
+                if msg_key != self.metric:
+                    continue
+
+                decoded_value = loads(msg.value)
+
+                # Keep the existing _process_result contract:
+                # current_result[self.metric] should contain the portfolio.
+                next_value = {self.metric: decoded_value}
+
+            # Backward-compatible old format:
+            # payload contains {"PV": {...}}, {"PV01": {...}}, etc.
+            else:
+                next_value = loads(msg.value)
+
+                if self.metric not in next_value:
+                    continue
+
             self._prev_value = self._current_value
-            self._current_value = loads(msg.value)
-
-            if self.metric not in self._current_value:
-                continue
+            self._current_value = next_value
 
             self.curr_value = self._process_result(
                 self._current_value,
@@ -361,15 +378,18 @@ class ResultPublisherLETF(ResultPublisherKafka):
            dictionary of flight names, and values of that flight.
         """
 
-        return (
-            np.array([])
-            if current_result is None
-            else np.array(
-                list(
-                    sorted(
-                        current_result[self.metric].items(),
-                        key=lambda x: self._sorting_fct(x[0]),
-                    )
+        if current_result is None:
+            return np.array([])
+
+        metric_result = current_result.get(self.metric)
+        if metric_result is None:
+            return np.array([])
+
+        return np.array(
+            list(
+                sorted(
+                    metric_result.items(),
+                    key=lambda x: self._sorting_fct(x[0]),
                 )
             )
         )
