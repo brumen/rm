@@ -48,13 +48,13 @@ def main() -> None:
             bootstrap_servers="192.168.1.50:9092",
         ),
     )
-    add_worker(
-        "hl_trades",
-        lambda: stream_hl_trades_to_kafka(
-            bootstrap_servers="192.168.1.50:9092",
-            coins=["ETH", "BTC", "SEI", "MORPHO", "AAVE", "SOL", "HYPE"],
-        ),
-    )
+    # add_worker(
+    #     "hl_trades",
+    #     lambda: stream_hl_trades_to_kafka(
+    #         bootstrap_servers="192.168.1.50:9092",
+    #         coins=["ETH", "BTC", "SEI", "MORPHO", "AAVE", "SOL", "HYPE"],
+    #     ),
+    # )
     add_worker(
         "spots",
         lambda: stream_spot_prices_to_kafka(
