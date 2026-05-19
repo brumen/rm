@@ -13,6 +13,7 @@ References (public):
 
 from __future__ import annotations
 
+import sys
 import json
 import threading
 import time
@@ -398,12 +399,18 @@ def fetch_recent_hl_trades(
     )
 
 
-def main():
+def main(host="192.168.1.50"):
     stream_hl_trades_to_kafka(
-        bootstrap_servers="192.168.1.50:9092",
+        bootstrap_servers=f"{host}:9092",
         coins=["ETH", "BTC", "SEI", "MORPHO", "AAVE", "SOL", "HYPE"],
     )
 
 
 if __name__ == "__main__":
-    main()
+
+    try:
+        host = sys.argv[1]
+    except Exception as e:
+        host = "192.168.1.50"
+
+    main(host=host)
