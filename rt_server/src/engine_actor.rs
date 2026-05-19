@@ -47,7 +47,8 @@ where
 
     // bulk processor for the current processor.
     let (_processor_bulk_a, processor_new_bulk_h) =
-        Actor::spawn(Some("processor_curr".to_string()), curr_bulk, mp.clone())
+    //Actor::spawn(Some("processor_curr".to_string()), curr_bulk, mp.clone())
+        Actor::spawn(None, curr_bulk, mp.clone())
             .await
             .expect("Could not start current_bulk processor.");
 
