@@ -24,9 +24,9 @@ from rm.result_publisher_by_trade import (
 )
 
 
-def main(result_idx="PV", host="localhost"):
+def main(result_idx="PV", host="localhost", topic="letf.risk"):
     rp = ResultPublisherLETF(
-        server_port_topic=(host, 9092, "letf.risk"),
+        server_port_topic=(host, 9092, topic),
         metric=result_idx,
     )
     rp.start()
@@ -45,4 +45,11 @@ except Exception as e:
     host = "192.168.1.50"
     logger.info(f"Host: 192.168.1.50 ({e})")
 
-main(result_idx=result_idx, host=host)
+try:
+    topic = sys.argv[3]
+except Exception as e:
+    topic = "letf.risk"
+    logger.info(f"Topic: {e}")
+
+
+main(result_idx=result_idx, host=host, topic=topic)

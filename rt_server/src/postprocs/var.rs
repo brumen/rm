@@ -19,8 +19,8 @@ const DEFAULT_MIN_OBSERVATIONS: usize = 20;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RiskResultMessage {
-    #[serde(rename = "PV", default)]
-    pub pv: HashMap<String, f64>,
+    #[serde(rename = "PV01", default)]
+    pub pv01: HashMap<String, f64>,
 
     // Legacy optional flat delta format.
     #[serde(default)]
@@ -198,17 +198,16 @@ impl VarProcessor {
 
     fn handle_risk_payload(&mut self, msg_key: Option<&str>, payload: &[u8]) {
         match msg_key {
-            Some("PV") => match serde_json::from_slice::<HashMap<String, f64>>(payload) {
-                Ok(pv_updates) => {
-                    for (trade_id, pv) in pv_updates {
-                        self.latest_pvs.insert(trade_id, pv);
-                    }
-                }
-                Err(e) => {
-                    error!("Could not deserialize keyed PV payload: {:?}", e);
-                }
-            },
-
+            // Some("PV") => match serde_json::from_slice::<HashMap<String, f64>>(payload) {
+            //     Ok(pv_updates) => {
+            //         for (trade_id, pv) in pv_updates {
+            //             self.latest_pvs.insert(trade_id, pv);
+            //         }
+            //     }
+            //     Err(e) => {
+            //         error!("Could not deserialize keyed PV payload: {:?}", e);
+            //     }
+            // },
             Some("PV01") => match parse_exposure_payload(payload) {
                 Ok(exposures) => {
                     self.latest_exposures = exposures;
@@ -222,7 +221,7 @@ impl VarProcessor {
                 }
             },
 
-            Some("VaR") | Some("NAV") | Some("PnL") => {
+            Some("VaR") | Some("NAV") | Some("PnL") | Some("PV") => {
                 debug!(
                     "Ignoring post-processed/non-exposure risk message with key {:?}",
                     msg_key
@@ -237,7 +236,7 @@ impl VarProcessor {
                 // Legacy compatibility.
                 match serde_json::from_slice::<RiskResultMessage>(payload) {
                     Ok(parsed) => {
-                        for (trade_id, pv) in parsed.pv {
+                        for (trade_id, pv) in parsed.pv01 {
                             self.latest_pvs.insert(trade_id, pv);
                         }
 

@@ -140,13 +140,13 @@ async fn run_all() {
     .await;
 
     info!("Starting main system controller.");
-    let (all_actors2, mut all_actors_handles2, state_distr_new2) = start2(
+    let (all_actors2, mut all_actors_handles2, _state_distr_new2) = start2(
         kafka_params2,
         all_markets.clone(),
         markets_used,
         initial_trades.clone(),
         (),
-        0,
+        0, // 0 middle processors (TODO: CHECK THIS)
         RTOperatingMode::SingleBuffer,
         pricing_mode,
     )
@@ -191,6 +191,7 @@ async fn run_all() {
     info!("All relevant actors initialized.");
     all_handles.append(&mut all_actors_handles);
     all_handles.push(setup_actor_handle);
+    // post processing handles
     all_handles.push(total_nav);
     all_handles.push(total_var);
     // kafka_params2 setup.
