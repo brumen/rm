@@ -83,9 +83,16 @@ async fn run_all() {
     };
     let kafka_params = engine_actor::KafkaParams {
         kafka_server: kafka_server.clone(),
-        pos_topic,
+        pos_topic: pos_topic.clone(),
         mkt_topic: mkt_topic.clone(),
         results_topic: results_topic.clone(),
+    };
+
+    let kafka_params2 = engine_actor::KafkaParams {
+        kafka_server: kafka_server.clone(),
+        pos_topic,
+        mkt_topic: mkt_topic.clone(),
+        results_topic: "letf.risk_seq".to_string(),
     };
 
     let tracing_level = match debug_level.as_str() {
@@ -123,11 +130,24 @@ async fn run_all() {
     let (all_actors, mut all_actors_handles, state_distr_new) = start2(
         kafka_params,
         all_markets.clone(),
-        markets_used,
+        markets_used.clone(),
         initial_trades.clone(),
         (),
         nb_middle_procs,
-        operating_mode,
+        operating_mode.clone(),
+        pricing_mode.clone(),
+    )
+    .await;
+
+    info!("Starting main system controller.");
+    let (all_actors2, mut all_actors_handles2, state_distr_new2) = start2(
+        kafka_params2,
+        all_markets.clone(),
+        markets_used,
+        initial_trades.clone(),
+        (),
+        0,
+        RTOperatingMode::SingleBuffer,
         pricing_mode,
     )
     .await;
@@ -165,12 +185,17 @@ async fn run_all() {
 
     // this creates the setup actor.
     let setup_actor_handle = start_setup_actor(host.clone(), setup_topic.clone(), all_actors).await;
+    let setup_actor_handle2 =
+        start_setup_actor(host.clone(), setup_topic.clone(), all_actors2).await;
 
     info!("All relevant actors initialized.");
     all_handles.append(&mut all_actors_handles);
     all_handles.push(setup_actor_handle);
     all_handles.push(total_nav);
     all_handles.push(total_var);
+    // kafka_params2 setup.
+    all_handles.append(&mut all_actors_handles2);
+    all_handles.push(setup_actor_handle2);
     join_all(all_handles).await;
 }
 

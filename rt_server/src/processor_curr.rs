@@ -14,7 +14,7 @@ use crate::processor_bulk::{PriceMultiple, PricingStyle};
 use crate::processor_msg::{ProcessorMiddleMessage, TradesLocal};
 use crate::trade::{BaseTrade, TradeRep};
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum RTOperatingMode {
     DoubleBuffer, // usual double or triple buffering
     SingleBuffer, // single buffering.
