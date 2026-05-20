@@ -339,7 +339,10 @@ where
                     };
 
                     // update the state of current processor.
-                    state.trades.extend(ntp_trades); // *trades += &new_trades;
+                    // this below ntp_trades_from_portfolio should be
+                    //    ntp_trades -> But currently there is a bug and the
+                    //    two dont always coincide.
+                    state.trades.extend(ntp_behind_curr_portfolio.clone()); // *trades += &new_trades;
                     debug!(
                         "Switching: {:?} -> {}",
                         state.curr_market,

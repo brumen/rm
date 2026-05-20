@@ -152,14 +152,24 @@ async fn run_all() {
     )
     .await;
 
-    let diagnostics_handle = processor_setup::diagnostics(
+    let diagnostics_future = processor_setup::diagnostics(
         local_ip_address.to_string(),
         all_markets,
         initial_trades,
         reload_handle,
         state_distr_new.clone(),
     );
-    all_handles.push(diagnostics_handle);
+    let diagnostic_join = tokio::spawn(async move {
+        match diagnostics_future.await {
+            Ok(_) => {
+                info!("Starting diagnostics.");
+            }
+            Err(e) => {
+                error!("Diagnostics failed: {:?} - continuing without it.", e);
+            }
+        }
+    });
+    all_handles.push(diagnostic_join);
 
     // postprocessing handles
     let mut total_nav_processor = nav::NavProcessor::new(&kafka_server, &results_topic, "")
