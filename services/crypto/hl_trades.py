@@ -13,7 +13,9 @@ References (public):
 
 from __future__ import annotations
 
+import sys
 import json
+import threading
 import time
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional
@@ -53,6 +55,27 @@ class HLTrade:
     ts_ms: int
     trade_id: Optional[str] = None
     leverage: Optional[float] = None
+
+
+class PublishGate:
+    """
+    Allows one publish each time the user presses Enter.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._permits = 0
+
+    def allow_one(self) -> None:
+        with self._lock:
+            self._permits += 1
+
+    def consume_one_if_available(self) -> bool:
+        with self._lock:
+            if self._permits <= 0:
+                return False
+            self._permits -= 1
+            return True
 
 
 def _require_kafka() -> None:
@@ -95,7 +118,7 @@ class HyperliquidTradesHTTP:
 
     @staticmethod
     def _leverage(coin: str):
-        return HyperliquidTradesHTTP._leverage(coin)
+        return HyperliquidTradesWS._leverage(coin)
 
     def recent_trades(self, coin: str, limit: int = 200) -> List[HLTrade]:
         """
@@ -108,8 +131,6 @@ class HyperliquidTradesHTTP:
         if limit <= 0:
             return []
 
-        # Hyperliquid's endpoint returns recent trades; it may not accept "limit" directly.
-        # We fetch and then truncate.
         data = self._post("/info", {"type": "recentTrades", "coin": coin})
 
         if not isinstance(data, list):
@@ -134,7 +155,7 @@ class HyperliquidTradesHTTP:
                             if (t.get("tid") or t.get("hash") or t.get("id"))
                             else None
                         ),
-                        leverage=self._leverage(coin),  # defined by coin
+                        leverage=self._leverage(coin),
                     )
                 )
             except (TypeError, ValueError):
@@ -183,16 +204,6 @@ class HyperliquidTradesKafkaPublisher:
 class HyperliquidTradesWS:
     """
     WebSocket client to stream trades.
-
-    Typical usage:
-
-        def on_trade(tr: HLTrade) -> None:
-            print(tr)
-
-        ws = HyperliquidTradesWS()
-        ws.stream_trades(["BTC", "ETH"], on_trade=on_trade)
-
-    This call blocks forever until the socket closes or raises.
     """
 
     def __init__(
@@ -202,8 +213,6 @@ class HyperliquidTradesWS:
         self._ping_interval_s = ping_interval_s
 
     def _build_subscribe_msg(self, coin: str) -> Dict[str, Any]:
-        # Hyperliquid WS subscription message format (best-effort):
-        # { "method": "subscribe", "subscription": { "type": "trades", "coin": "BTC" } }
         return {"method": "subscribe", "subscription": {"type": "trades", "coin": coin}}
 
     def stream_trades(
@@ -214,23 +223,6 @@ class HyperliquidTradesWS:
         on_raw: Optional[Callable[[Dict[str, Any]], None]] = None,
         run_forever: bool = True,
     ) -> None:
-        """
-        Connect and stream trades for the given coins.
-
-        Parameters
-        ----------
-        coins:
-            Iterable of coin symbols, e.g. ["BTC", "ETH"].
-        on_trade:
-            Callback invoked for each normalized trade.
-        on_error:
-            Optional error callback.
-        on_raw:
-            Optional callback invoked with each decoded message.
-        run_forever:
-            If True, reconnect on disconnect with exponential backoff.
-        """
-
         coins_l = [c for c in coins]
         if not coins_l:
             raise ValueError("coins cannot be empty")
@@ -240,7 +232,6 @@ class HyperliquidTradesWS:
             try:
                 self._run_once(coins_l=coins_l, on_trade=on_trade, on_raw=on_raw)
                 time.sleep(2.0)
-                # If _run_once returns, connection closed cleanly.
                 if not run_forever:
                     return
             except Exception as e:
@@ -267,20 +258,17 @@ class HyperliquidTradesWS:
     ) -> None:
         ws = websocket.create_connection(self._ws_url, enable_multithread=True)
         try:
-            # Subscribe to each coin
             for coin in coins_l:
                 ws.send(json.dumps(self._build_subscribe_msg(coin)))
 
             last_ping = time.time()
 
             while True:
-                # lightweight keepalive ping
                 now = time.time()
                 if now - last_ping >= self._ping_interval_s:
                     try:
                         ws.ping()
                     except Exception:
-                        # Force reconnect by breaking to outer loop
                         break
                     last_ping = now
 
@@ -296,9 +284,6 @@ class HyperliquidTradesWS:
                 if on_raw and isinstance(msg, dict):
                     on_raw(msg)
 
-                # Message schema is best-effort. We handle both "channel/data" and nested forms.
-                # Expected trade event shape commonly resembles:
-                # { "channel": "trades", "data": [ { "coin": "BTC", "px": "...", "sz": "...", "side": "B", "time": 123 } ] }
                 if not isinstance(msg, dict):
                     continue
 
@@ -315,7 +300,6 @@ class HyperliquidTradesWS:
                         continue
                     coin = str(t.get("coin") or "")
                     if not coin:
-                        # Some variants omit coin because it is implied by subscription. Skip if absent.
                         continue
                     try:
                         trade = HLTrade(
@@ -329,7 +313,7 @@ class HyperliquidTradesWS:
                                 if (t.get("tid") or t.get("hash") or t.get("id"))
                                 else None
                             ),
-                            leverage=self._leverage(coin),  # defined by coin
+                            leverage=self._leverage(coin),
                         )
                     except (TypeError, ValueError):
                         continue
@@ -339,6 +323,22 @@ class HyperliquidTradesWS:
                 ws.close()
             except Exception:
                 pass
+
+
+def _start_keyboard_gate_thread(gate: PublishGate) -> threading.Thread:
+    def _reader() -> None:
+        print("Press Enter to allow the next trade to be published to Kafka.")
+        while True:
+            try:
+                input()
+            except EOFError:
+                break
+            gate.allow_one()
+            print("[gate] next trade will be published")
+
+    t = threading.Thread(target=_reader, name="hl_trades_keyboard_gate", daemon=True)
+    t.start()
+    return t
 
 
 def stream_hl_trades_to_kafka(
@@ -353,18 +353,24 @@ def stream_hl_trades_to_kafka(
     """
     Stream trades from WS and publish them to Kafka.
 
-    Requires `kafka-python`.
+    Trades are ignored by default.
+    Press Enter in the terminal to allow exactly one next trade through to Kafka.
     """
     publisher = HyperliquidTradesKafkaPublisher(
         bootstrap_servers=bootstrap_servers,
         topic=topic,
     )
+    gate = PublishGate()
+    _keyboard_thread = _start_keyboard_gate_thread(gate)
 
     def _on_trade(tr: HLTrade) -> None:
-        publisher.publish_trade(tr)
+        if gate.consume_one_if_available():
+            publisher.publish_trade(tr)
+            print(
+                f"[published] {tr.underlying} px={tr.px} amount={tr.amount} side={tr.side}"
+            )
 
     def _on_error(e: Exception) -> None:
-        # Ensure we don't accumulate buffered messages indefinitely across reconnect loops.
         try:
             publisher.flush(timeout_s=5.0)
         except Exception:
@@ -393,11 +399,18 @@ def fetch_recent_hl_trades(
     )
 
 
-def __main__():
+def main(host="192.168.1.50"):
     stream_hl_trades_to_kafka(
-        bootstrap_servers="192.168.1.50:9092",
+        bootstrap_servers=f"{host}:9092",
         coins=["ETH", "BTC", "SEI", "MORPHO", "AAVE", "SOL", "HYPE"],
     )
 
 
-# __main__()
+if __name__ == "__main__":
+
+    try:
+        host = sys.argv[1]
+    except Exception as e:
+        host = "192.168.1.50"
+
+    main(host=host)

@@ -2,10 +2,9 @@ use ractor::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 
-use crate::extend_trade;
+// use crate::extend_trade;
 use crate::market::MarketTypeT;
 use crate::markets::letf_market::{LETFMarketType, LETFMarketTypes};
 use crate::portfolio::{PV01Results, PortfolioType};
@@ -24,7 +23,7 @@ pub struct PerpTrade {
 }
 
 // generate the extended trade
-extend_trade!(PerpTradeExtend, PerpTrade);
+// extend_trade!(PerpTradeExtend, PerpTrade);
 
 const INTEREST_RATE: f64 = 0.0001;
 
@@ -93,8 +92,6 @@ impl PriceTrade<LETFMarketType> for PerpTrade {
 
         let funding_basis = interest * 1.; // 1 is funding interval hours. TO BE CORRECTED LATER.
         let mark_price = underlying_price * (1. + funding_basis) * self.amount;
-
-        // sleep(Duration::from_secs(1)).await; // artificial sleeping.
 
         Some(mark_price)
     }

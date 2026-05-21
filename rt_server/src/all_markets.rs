@@ -55,6 +55,7 @@ where
         market_names
     }
 
+    #[allow(dead_code)]
     pub(crate) async fn list_processor_names(&self) -> Vec<String> {
         let mut processor_names = vec![];
         self.processor_market_map
@@ -84,6 +85,7 @@ where
         Some(actual_market.clone()) // .clone here is OK, since we're using it on Arc (MT = Arc<...>)
     }
 
+    #[allow(dead_code)]
     pub(crate) async fn get_processor(&self, processor_name: &String) -> Option<String> {
         self.processor_market_map
             .read_async(processor_name, |_, v| v.clone())

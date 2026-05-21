@@ -23,6 +23,7 @@ where
     pub processor_name: String, // name of the bulk processor, usually curr_bulk, new_bulk, middle_1_bulk
     pub(crate) all_trades: Arc<TradeRep<T>>, // all_trades is a reference to the structure that contains all trades.
     pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>,
+    pub(crate) pricing_mode: PricingStyle,
 }
 
 impl<T, MT> ProcessorBulk<T, MT>
@@ -35,6 +36,7 @@ where
         processor_name: String, // original processor on which this depends.
         all_trades: Arc<TradeRep<T>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
+        pricing_mode: PricingStyle,
     ) -> Self {
         // like processor_new_bulk, processor_curr_bulk, processor_middle_1_bulk
         let bulk_name = format!("{}_bulk", processor_name.clone());
@@ -43,10 +45,12 @@ where
             processor_name: bulk_name,
             all_trades,
             all_markets,
+            pricing_mode,
         }
     }
 }
 
+#[derive(Clone, Debug)]
 pub(crate) enum PricingStyle {
     Sequential,
     ParallelSingleThread,
@@ -66,7 +70,7 @@ where
     // returns the trades that were priced in the first component, and
     //    the pricing result in the second.
 
-    fn pricing_style(&self) -> PricingStyle;
+    fn pricing_style(&self) -> &PricingStyle;
 
     async fn price_multiple(
         &self,
@@ -260,8 +264,8 @@ where
     MT::MP: Clone,
     T: PriceTrade<MT> + BaseTrade + 'static + std::fmt::Debug + Sync + Send + Clone,
 {
-    fn pricing_style(&self) -> PricingStyle {
-        PricingStyle::Sequential
+    fn pricing_style(&self) -> &PricingStyle {
+        &self.pricing_mode
     }
 }
 
@@ -385,7 +389,7 @@ where
                     new_trades.len(),
                     market
                 );
-                let (priced_trades, priced_portfolio) = self
+                let (_priced_trades, priced_portfolio) = self
                     .price_multiple(
                         new_trades.clone(), // TODO: THIS .clone is NOT THE BEST - FIX IT
                         pricing_metrics,

@@ -59,7 +59,5 @@ class SetupProducer(BaseProducer):
 
 if __name__ == "__main__":
     # setup_producer = SetupProducer.from_env()
-    setup_producer = SetupProducer(
-        server_port_topic=("192.168.1.50", 9092, "letf.setup")
-    )
+    setup_producer = SetupProducer(server_port_topic=("127.0.0.1", 9092, "letf.setup"))
     setup_producer.send_metrics(["PV"])

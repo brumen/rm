@@ -58,14 +58,14 @@ pub(crate) enum ProcessorMiddleMessage<MT> {
     Metric(Vec<PricingMetric>), // we compute the vector of pricing metrics.
 }
 
-impl<MT> ProcessorMiddleMessage<MT> {
-    pub(crate) fn get_trade(&self) -> Option<String> {
-        match self {
-            ProcessorMiddleMessage::NewTrade(trade_id) => Some(trade_id.clone()),
-            _ => None,
-        }
-    }
-}
+// impl<MT> ProcessorMiddleMessage<MT> {
+//     pub(crate) fn get_trade(&self) -> Option<String> {
+//         match self {
+//             ProcessorMiddleMessage::NewTrade(trade_id) => Some(trade_id.clone()),
+//             _ => None,
+//         }
+//     }
+// }
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]

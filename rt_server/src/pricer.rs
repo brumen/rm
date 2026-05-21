@@ -1,5 +1,6 @@
 use futures::future::join_all;
 use ractor::async_trait;
+use rdkafka::message::ToBytes;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -27,6 +28,16 @@ impl fmt::Display for PricingMetric {
             PricingMetric::PV => write!(f, "PV"),
             PricingMetric::PV01 => write!(f, "PV01"),
             PricingMetric::PnL => write!(f, "PnL"),
+        }
+    }
+}
+
+impl ToBytes for PricingMetric {
+    fn to_bytes(&self) -> &[u8] {
+        match self {
+            PricingMetric::PV => b"PV",
+            PricingMetric::PV01 => b"PV01",
+            PricingMetric::PnL => b"PnL",
         }
     }
 }
@@ -138,7 +149,7 @@ where
     async fn pnl(&mut self, market: Arc<MT>) -> Option<f64> {
         let initial_pv_val = self.initial_pv().await?;
         let curr_price = self.price(market).await?;
-        self.update_prev_pv(Some(curr_price));
+        let _ = self.update_prev_pv(Some(curr_price));
         let pnl = curr_price - initial_pv_val;
         Some(pnl)
         // let pnl = self
@@ -146,7 +157,7 @@ where
         //     .await
         //     .map(|curr_price| curr_price - initial_pv_val);
     }
-    async fn update_prev_pv(&mut self, new_market_val: Option<f64>) {}
+    async fn update_prev_pv(&mut self, _new_market_val: Option<f64>) {}
 
     /// values the trade for a specific metric.
     #[allow(dead_code)]

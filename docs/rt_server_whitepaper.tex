@@ -1,0 +1,212 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{microtype}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{xcolor}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+}
+
+\title{\textbf{rt\_server: Real-Time Pricing and Risk Processing Architecture}}
+\author{Internal Engineering Whitepaper}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\texttt{rt\_server} is a Rust-based real-time pricing and risk-processing runtime. The system consumes trade, market, setup, and portfolio events over Kafka; maintains in-memory state for trades and markets; computes configured pricing metrics; and publishes portfolio-level results for downstream consumers.
+
+The architecture combines asynchronous Rust execution, actor-based orchestration, generic market and trade abstractions, and Kafka-based integration. The result is a modular valuation engine designed for low-latency internal workflows where pricing and risk outputs must be updated continuously as market and trade state changes.
+
+The current implementation supports present value, PV01, and PnL-style pricing flows, along with post-processing components for aggregate NAV and delta-normal VaR. The design emphasizes extensibility: new trade types, market types, metrics, and post-processors can be added without replacing the core runtime.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Executive Summary}
+
+\texttt{rt\_server} is an event-driven valuation engine implemented as a stateful stream processor runtime. It consumes market and trade events, maintains in-memory state required for valuation, computes pricing metrics as configured, and publishes portfolio-level outputs to Kafka for downstream processors and consumers.
+
+The runtime is organized around:
+\begin{itemize}[leftmargin=*]
+    \item asynchronous execution in Rust,
+    \item actor-based orchestration via \texttt{ractor},
+    \item generic abstractions over market types and trade types, and
+    \item Kafka integration for inbound and outbound message flow.
+\end{itemize}
+
+Portfolio analytics are produced incrementally. Rather than batch repricing on a fixed schedule, the processor runtime updates state on each event and publishes updated portfolios keyed by pricing metric. A post-processing layer consumes these outputs to compute derived portfolio-level analytics such as aggregate NAV and delta-normal VaR.
+
+\section{System Objectives}
+
+The system is intended to provide a reusable real-time runtime for streaming valuation and risk analytics. The operational objectives are:
+
+\begin{enumerate}[leftmargin=*]
+    \item Ingest market and trade state updates over Kafka.
+    \item Maintain in-memory representations of active markets and trade collections.
+    \item Execute incremental recomputation for configured pricing metrics as events arrive.
+    \item Aggregate trade-level results into portfolio-level payloads keyed by pricing metric.
+    \item Publish pricing outputs and derived analytics with explicit message contracts.
+    \item Provide an extension surface for additional portfolio-level analytics through post-processors.
+\end{enumerate}
+
+\section{Architecture Overview}
+
+The repository follows a layered architecture with explicit separation between abstractions (markets/trades), runtime orchestration (processors), data models (portfolio), and integration boundaries (Kafka, post-processors).
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Layer & Primary Module Area & Responsibility \\
+\midrule
+Market abstraction & \texttt{market.rs}, \texttt{markets/*} & Market construction and state access \\
+Trade abstraction & \texttt{trade.rs}, \texttt{trades/*} & Trade identity and valuation behavior \\
+Processor runtime & \texttt{processor\_curr.rs}, \texttt{processor\_middle.rs} & Incremental pricing orchestration \\
+Portfolio model & \texttt{portfolio.rs} & Aggregation by pricing metric \\
+Kafka integration & \texttt{portfolio\_sender.rs}, \texttt{publish.rs} & Inbound/outbound event transport \\
+Post-processing & \texttt{postprocs/*} & Derived portfolio analytics such as NAV and VaR \\
+\bottomrule
+\end{tabular}
+\caption{Primary architectural layers in \texttt{rt\_server}.}
+\end{table}
+
+\subsection{Market abstraction}
+
+Markets are represented through a generic trait (\texttt{MarketTypeT}) which standardizes market construction and state access. This design decouples valuation logic from product-specific market implementations and allows processors to operate uniformly across multiple market types.
+
+A registry layer (e.g., \texttt{AllMarkets}) maintains available market instances and processor-to-market associations. Processors resolve the active market from this registry to price incoming trades and to recompute portfolios on market transitions.
+
+\subsection{Trade abstraction}
+
+Trades implement \texttt{BaseTrade} for identity and lifecycle direction. Valuation behavior is introduced through the \texttt{PriceTrade<MT>} trait, which defines a metric-driven valuation interface:
+\begin{itemize}[leftmargin=*]
+    \item \texttt{initial\_pv}
+    \item \texttt{needs\_recompute}
+    \item \texttt{price}
+    \item \texttt{pv01}
+    \item \texttt{pnl}
+    \item \texttt{value\_by\_metric} dispatch by \texttt{PricingMetric}
+\end{itemize}
+
+Trades are stored in a concurrent trade representation (\texttt{TradeRep<TR>}). When the contained trade type implements \texttt{PriceTrade}, the collection can be treated as a priceable entity, enabling portfolio-level valuation patterns.
+
+\subsection{Processor runtime}
+
+The processor runtime is implemented as actors which maintain internal state and react to stream events. \texttt{processor\_curr.rs} demonstrates an incremental pricing orchestration loop:
+\begin{itemize}[leftmargin=*]
+    \item accept trade updates,
+    \item resolve the active market state,
+    \item compute configured metrics per trade, and
+    \item update and publish portfolios by metric.
+\end{itemize}
+
+This model emphasizes incremental recomputation, reducing the need for full repricing on every event and supporting low-latency operational semantics.
+
+\section{Pricing and Risk Model}
+
+\subsection{Pricing metrics}
+
+Pricing metrics are modeled by the \texttt{PricingMetric} enum, currently including \texttt{PV}, \texttt{PV01}, and \texttt{PnL}. The enum is serializable and also implements \texttt{rdkafka::message::ToBytes}, enabling compact message discrimination via Kafka keys.
+
+\subsection{Metric-based valuation dispatch}
+
+\texttt{PriceTrade<MT>::value\_by\_metric} routes valuation behavior by \texttt{PricingMetric}. At runtime, processors select which metrics to compute based on configuration and internal state. Portfolio state is maintained as a per-metric aggregation, and downstream consumers can subscribe to a unified topic while filtering by Kafka key.
+
+\subsection{VaR methodology}
+
+The VaR post-processor implements a delta-normal estimator using rolling log-return covariance computed from raw market price updates. Exposures are derived from \texttt{PV01} payloads, and the covariance matrix is estimated from a rolling window of log returns per factor. VaR is computed as:
+\[
+\mathrm{VaR} = z(\alpha) \cdot \sqrt{\mathbf{x}^\top \Sigma \mathbf{x}}
+\]
+where \(\mathbf{x}\) are factor exposures and \(\Sigma\) is the rolling return covariance matrix.
+
+\section{Kafka Messaging Model}
+
+Kafka topics provide the primary integration boundary for the runtime. Message keys and payload fields define operational semantics and message contracts for both pricing results and post-processed analytics.
+
+\subsection{Pricing Result Publication}
+
+Portfolio results are published to the configured results topic. The Kafka message key identifies the pricing metric, using the \texttt{PricingMetric} enum. Current keys include \texttt{PV}, \texttt{PV01}, and \texttt{PnL}. The message value contains the serialized portfolio payload for that metric.
+
+This allows consumers to distinguish result types without fully deserializing every payload.
+
+\subsection{Post-Processed Result Publication}
+
+Post-processors publish derived analytics back to Kafka using self-describing JSON payloads. For example, NAV messages include \texttt{id}, \texttt{metric}, \texttt{value}, \texttt{kind}, and \texttt{ts\_ms}. VaR messages additionally include \texttt{confidence} and \texttt{methodology}.
+
+\section{Post-Processing Framework}
+
+The post-processing layer (\texttt{postprocs/*}) implements derived portfolio-level analytics as independent stateful stream processors. Each post-processor follows a common operational pattern:
+\begin{itemize}[leftmargin=*]
+    \item consume a pricing/results topic (and optionally a market topic),
+    \item maintain processor-local state (e.g., latest PVs, exposures, rolling returns),
+    \item compute an aggregate analytic on each relevant update, and
+    \item publish a result message with an explicit message contract.
+\end{itemize}
+
+\subsection{NAV}
+
+The NAV processor maintains a map of latest PV values keyed by trade id, computes aggregate NAV as the sum over trade PVs, and publishes a \texttt{NavResultMessage} with timestamped semantics.
+
+\subsection{VaR}
+
+The VaR processor consumes \texttt{PV01}-keyed exposure messages and raw market price updates. It computes rolling log returns per factor, estimates a rolling covariance matrix over the configured return window, and publishes a \texttt{VarResultMessage} including confidence and methodology.
+
+\section{Operational Characteristics}
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Event-driven operation:} processors react to inbound Kafka messages and update state on each event.
+    \item \textbf{Stateful runtime:} processors maintain in-memory state for active market selection, portfolios, exposures, and rolling history.
+    \item \textbf{Incremental recomputation:} portfolios are updated incrementally rather than recomputed in full on every event.
+    \item \textbf{Message discrimination:} Kafka keys and payload fields jointly define message contracts and consumer filtering behavior.
+    \item \textbf{Failure behavior:} post-processors can be run under restart loops to avoid process termination on transient errors.
+\end{itemize}
+
+\section{Current Limitations}
+
+The implementation is intentionally pragmatic and still evolving. The main engineering limitations are:
+
+\begin{itemize}[leftmargin=*]
+    \item Some market and trade implementations still contain incomplete branches or placeholder behavior.
+    \item Kafka filtering is performed by consumers rather than broker-side semantic filtering.
+    \item Some async pricing paths clone trade or market state for convenience; this should be reviewed under higher throughput workloads.
+    \item Post-processors currently maintain local in-memory state and do not yet expose checkpointing or replay-state recovery semantics.
+    \item VaR currently depends on rolling price history observed by the process and does not yet support externally supplied covariance matrices, scenario sets, or historical simulation.
+\end{itemize}
+
+\section{Recommended Roadmap}
+
+\begin{itemize}[leftmargin=*]
+    \item Formalize message contracts across pricing and post-processing topics (schema versioning, compatibility rules).
+    \item Standardize post-processor lifecycle and configuration patterns (topics, window sizes, restart semantics).
+    \item Reduce avoidable cloning in hot pricing paths; add profiling and throughput-oriented benchmarks.
+    \item Extend post-processing analytics (stress, expected shortfall, concentration, exposure summaries) as modular processors.
+    \item Improve observability with structured tracing fields and runtime metrics per processor (latency, message counts, error rates).
+\end{itemize}
+
+\section{Conclusion}
+
+\texttt{rt\_server} implements a modular, event-driven architecture for real-time valuation and portfolio-level analytics. The core runtime provides generic market and trade abstractions, actor-based orchestration, and Kafka message contracts for incremental pricing outputs. A post-processing layer extends the runtime with derived analytics such as aggregate NAV and delta-normal VaR computed from rolling market data.
+
+\section*{Build Instructions}
+
+This document can be rendered with:
+
+\begin{verbatim}
+pdflatex docs/rt_server_whitepaper.tex
+\end{verbatim}
+
+For repeated table-of-contents updates, run \texttt{pdflatex} twice.
+
+\end{document}

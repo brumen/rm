@@ -3,7 +3,6 @@ use rdkafka::error::KafkaError;
 use rdkafka::producer::FutureProducer;
 use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
-use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -15,7 +14,7 @@ use crate::processor_bulk::{PriceMultiple, PricingStyle};
 use crate::processor_msg::{ProcessorMiddleMessage, TradesLocal};
 use crate::trade::{BaseTrade, TradeRep};
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum RTOperatingMode {
     DoubleBuffer, // usual double or triple buffering
     SingleBuffer, // single buffering.
@@ -34,6 +33,7 @@ where
     // trade_processor where we can send the info when the trades are processed
     // pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
     pub operating_mode: RTOperatingMode,
+    pub(crate) pricing_mode: PricingStyle,
 }
 
 impl<T, MT> std::fmt::Debug for ProcessorCurr<T, MT>
@@ -53,8 +53,8 @@ where
     MT::MP: Clone,
     T: PriceTrade<MT> + 'static + std::fmt::Debug + Sync + Send + Clone,
 {
-    fn pricing_style(&self) -> PricingStyle {
-        PricingStyle::Sequential
+    fn pricing_style(&self) -> &PricingStyle {
+        &self.pricing_mode
     }
 }
 
@@ -83,30 +83,17 @@ where
     T: Send + Sync + std::fmt::Debug,
     MT: Send + Sync + MarketTypeT + std::fmt::Debug,
 {
+    // publishes the portfolio to the kafka bus.
     async fn _publish_result_portfolio(
         &self,
         portf: PortfolioType,
         metric: PricingMetric,
     ) -> Result<(), SendError> {
-        // sends to publisher actor
         let curr_mkt_json = serde_json::ser::to_string(&portf.clone())?;
-        let curr_mkt_pv = format!("{{\"{}\": {}}}", metric, curr_mkt_json);
+        let portf_record = FutureRecord::to(&self.results_topic)
+            .key(&metric)
+            .payload(&curr_mkt_json);
 
-        // implements bytearray(str(dumps(self.curr_market)), ascii))
-        let portf_record = FutureRecord::<'_, [u8], [u8]> {
-            topic: &self.results_topic,
-            partition: Some(0),
-            payload: Some(curr_mkt_pv.as_bytes()),
-            key: None, // TODO: pub key: Option<&'a K>,
-            timestamp: None,
-            headers: None,
-        };
-
-        // first i32 = partition
-        // second i64 = offset
-        // error is the Kafka error
-        // OwnedMessage - copy of the original message.
-        // Result<(i32, i64), (KafkaError, OwnedMessage)>;
         debug!("Publishing portfolio: size {}", portf.len());
         match self
             .result_publisher
@@ -352,7 +339,10 @@ where
                     };
 
                     // update the state of current processor.
-                    state.trades.extend(ntp_trades); // *trades += &new_trades;
+                    // this below ntp_trades_from_portfolio should be
+                    //    ntp_trades -> But currently there is a bug and the
+                    //    two dont always coincide.
+                    state.trades.extend(ntp_behind_curr_portfolio.clone()); // *trades += &new_trades;
                     debug!(
                         "Switching: {:?} -> {}",
                         state.curr_market,

@@ -14,7 +14,7 @@ use crate::publish::connect_with_retries_producer_rd;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RiskResultMessage {
-    #[serde(rename = "PV")]
+    #[serde(rename = "PV", default)]
     pub pv: HashMap<String, f64>,
 }
 
@@ -32,6 +32,21 @@ pub struct NavProcessor {
     producer: FutureProducer,
     topic: String,
     latest_pvs: HashMap<String, f64>,
+}
+
+trait Aggregator {
+    // aggregates the individual results to a f64 value.
+    fn aggregate(&self, indiv_results: &Vec<RiskResultMessage>) -> f64;
+}
+
+impl Aggregator for NavProcessor {
+    fn aggregate(&self, indiv_results: &Vec<RiskResultMessage>) -> f64 {
+        indiv_results
+            .iter()
+            .flat_map(|result| result.pv.values())
+            .copied()
+            .sum()
+    }
 }
 
 impl NavProcessor {
@@ -58,6 +73,14 @@ impl NavProcessor {
         }
     }
 
+    pub async fn run_with_restart(&mut self) -> anyhow::Result<()> {
+        loop {
+            if let Err(e) = self.run().await {
+                error!("NAV failed: {:?}. Restarting.", e);
+            }
+        }
+    }
+
     pub async fn run(&mut self) -> anyhow::Result<()> {
         info!("Starting NAV processor on topic {}", self.topic);
 
@@ -69,16 +92,57 @@ impl NavProcessor {
                 continue;
             };
 
-            let Ok(parsed) = serde_json::from_slice::<RiskResultMessage>(payload) else {
-                error!("Could not deserialize risk result payload.");
-                continue;
+            let msg_key = match msg.key() {
+                Some(key_bytes) => match std::str::from_utf8(key_bytes) {
+                    Ok(key) => Some(key),
+                    Err(e) => {
+                        warn!("Received Kafka message with non-UTF8 key: {:?}", e);
+                        continue;
+                    }
+                },
+                None => None,
             };
 
-            for (trade_id, trade_value) in parsed.pv {
+            let pv_updates: HashMap<String, f64> = match msg_key {
+                // New format:
+                // Kafka key = "PV"
+                // Kafka value = {"trade_id": value, ...}
+                Some("PV") => match serde_json::from_slice::<HashMap<String, f64>>(payload) {
+                    Ok(pv_map) => pv_map,
+                    Err(e) => {
+                        error!("Could not deserialize PV payload: {:?}", e);
+                        continue;
+                    }
+                },
+
+                // Ignore NAV, VaR, PV01, PnL, etc.
+                Some(other_key) => {
+                    debug!("Ignoring non-PV message with key {}", other_key);
+                    continue;
+                }
+
+                // Backward-compatible old format:
+                // Kafka value = {"PV": {"trade_id": value, ...}}
+                None => match serde_json::from_slice::<RiskResultMessage>(payload) {
+                    Ok(parsed) => parsed.pv,
+                    Err(e) => {
+                        error!("Could not deserialize legacy risk result payload: {:?}", e);
+                        continue;
+                    }
+                },
+            };
+
+            if pv_updates.is_empty() {
+                debug!("Received empty PV update");
+                continue;
+            }
+
+            for (trade_id, trade_value) in pv_updates {
                 self.latest_pvs.insert(trade_id, trade_value);
             }
 
             let total_nav: f64 = self.latest_pvs.values().copied().sum();
+            // let total_nav = self.aggregate(self.latest_pvs.values());
 
             let nav_msg = NavResultMessage {
                 id: "TOTAL_NAV".to_string(),
@@ -91,7 +155,7 @@ impl NavProcessor {
             let payload = serde_json::to_string(&nav_msg)?;
 
             let record = FutureRecord::to(&self.topic)
-                .key(&nav_msg.id)
+                .key(&nav_msg.metric)
                 .payload(&payload);
 
             match self.producer.send(record, Timeout::Never).await {

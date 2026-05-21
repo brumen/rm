@@ -9,8 +9,7 @@ use crate::portfolio::PmPortfolio; // , PortfolioType
 use crate::pricer::{PriceTrade, PricingMetric};
 use crate::processor_bulk::{PriceMultiple, PricingStyle};
 use crate::processor_msg::{
-    PNStateDistr, ProcessorBulkMessage, ProcessorMiddleMessage, ProcessorMiddleMessageStates,
-    TradesLocal,
+    PNStateDistr, ProcessorMiddleMessage, ProcessorMiddleMessageStates, TradesLocal,
 };
 use crate::trade::{BaseTrade, TradeRep};
 
@@ -19,10 +18,10 @@ use crate::trade::{BaseTrade, TradeRep};
 pub(crate) struct ProcessorMiddle<T, MT: std::fmt::Debug> {
     pub(crate) processor_name: String,
     pub processor_below: ActorRef<ProcessorMiddleMessage<String>>,
-    // pub processor_bulk: ActorRef<ProcessorBulkMessage<String>>,
     pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>,
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub(crate) state_distr: Arc<PNStateDistr>,
+    pub(crate) pricing_mode: PricingStyle,
 }
 
 // ProcessorMiddle is either in one of the three states:
@@ -43,6 +42,7 @@ where
         all_trades: Arc<TradeRep<T>>,
         all_markets: Arc<AllMarkets<Arc<MT>>>,
         state_distr: Arc<PNStateDistr>,
+        pricing_mode: PricingStyle,
     ) -> Self {
         Self {
             processor_name,
@@ -51,6 +51,7 @@ where
             all_trades,
             all_markets,
             state_distr: state_distr.clone(),
+            pricing_mode,
         }
     }
 
@@ -179,7 +180,7 @@ where
                 warn!("Could not get market {:?}", market_behind);
                 return Ok(());
             };
-            let (bulk_trades_priced, bulk_portfolio) = self
+            let (_bulk_trades_priced, bulk_portfolio) = self
                 .price_multiple(
                     state.trades.clone(),
                     state.pricing_metrics.clone(),
@@ -195,7 +196,7 @@ where
         // add the additional trades to the portfolio.
         let curr_mkt_actual = curr_mkt.unwrap(); // this is fine since curr_mkt is handled above.
         let curr_mkt_actual_name = curr_mkt_actual.market_name().clone();
-        let (additional_trades, additional_portfolio) = self
+        let (_additional_trades, additional_portfolio) = self
             .price_multiple(
                 trades_behind,
                 state.pricing_metrics.clone(),
@@ -296,7 +297,7 @@ where
                 return Ok(());
             };
 
-            let (priced_trades, added_portfolio) = self
+            let (_priced_trades, added_portfolio) = self
                 .price_multiple(
                     new_behind_curr,
                     state.pricing_metrics.clone(),
@@ -331,8 +332,8 @@ where
     MT::MP: Clone,
     T: PriceTrade<MT> + 'static + std::fmt::Debug + Sync + Send + Clone,
 {
-    fn pricing_style(&self) -> PricingStyle {
-        PricingStyle::Sequential
+    fn pricing_style(&self) -> &PricingStyle {
+        &self.pricing_mode
     }
 }
 

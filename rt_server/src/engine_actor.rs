@@ -7,7 +7,7 @@ use tokio::task::JoinHandle;
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 use crate::pricer::PriceTrade;
-use crate::processor_bulk::ProcessorBulk;
+use crate::processor_bulk::{PricingStyle, ProcessorBulk};
 use crate::processor_curr::{ProcessorCurr, RTOperatingMode};
 use crate::processor_middle::ProcessorMiddle;
 use crate::processor_msg::{PNStateDistr, ProcessorMiddleMessage};
@@ -31,6 +31,7 @@ pub(crate) async fn create_curr_actor<T, MT>(
     initial_trades: Arc<TradeRep<T>>,
     mp: MT::MP,
     operating_mode: RTOperatingMode,
+    pricing_mode: PricingStyle,
 ) -> (ProcessorCurr<T, MT>, JoinHandle<()>)
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT> + std::fmt::Debug,
@@ -41,11 +42,13 @@ where
         "curr".to_string(), // bulk is for processor current
         initial_trades.clone(),
         all_markets.clone(),
+        pricing_mode.clone(),
     );
 
     // bulk processor for the current processor.
     let (_processor_bulk_a, processor_new_bulk_h) =
-        Actor::spawn(Some("processor_curr".to_string()), curr_bulk, mp.clone())
+    //Actor::spawn(Some("processor_curr".to_string()), curr_bulk, mp.clone())
+        Actor::spawn(None, curr_bulk, mp.clone())
             .await
             .expect("Could not start current_bulk processor.");
 
@@ -58,6 +61,7 @@ where
         all_markets: all_markets.clone(),
         all_trades: initial_trades,
         operating_mode,
+        pricing_mode,
     };
 
     (processor_curr, processor_new_bulk_h)
@@ -71,6 +75,7 @@ pub(crate) async fn create_middle_actor<T, MT>(
     initial_trades: Arc<TradeRep<T>>,
     processor_below: ActorRef<ProcessorMiddleMessage<String>>,
     _mp: MT::MP,
+    pricing_mode: PricingStyle,
 ) -> (ProcessorMiddle<T, MT>, Arc<PNStateDistr>)
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT> + std::fmt::Debug,
@@ -85,6 +90,7 @@ where
         initial_trades.clone(),
         all_markets.clone(),
         state_distr.clone(),
+        pricing_mode,
     );
 
     (proc_middle, state_distr)
@@ -103,6 +109,7 @@ pub(crate) async fn create_middle_procs_chain<T, MT>(
     all_markets: Arc<AllMarkets<Arc<MT>>>,
     initial_trades: Arc<TradeRep<T>>,
     mp: MT::MP,
+    pricing_mode: PricingStyle,
 ) -> (
     Vec<ActorRef<ProcessorMiddleMessage<String>>>, // middle processors
     Vec<JoinHandle<()>>,                           // middle processor joint handles.
@@ -127,12 +134,14 @@ where
             initial_trades.clone(),
             last_middle.clone(),
             mp.clone(),
+            pricing_mode.clone(),
         )
         .await;
 
         state_distr_vec.push(middle_state_distr);
 
-        let (proc_actor, proc_actor_future) = Actor::spawn(Some(market_name), processor_middle, ())
+        //let (proc_actor, proc_actor_future) = Actor::spawn(Some(market_name), processor_middle, ())
+        let (proc_actor, proc_actor_future) = Actor::spawn(None, processor_middle, ())
             .await
             .expect("Could not start middle actor");
 

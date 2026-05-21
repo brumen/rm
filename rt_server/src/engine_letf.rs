@@ -12,8 +12,7 @@ use crate::market::{MarketTypeT, SetName};
 use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PriceTrade;
-use crate::pricer::PricingMetric;
-use crate::processor_bulk::ProcessorBulk;
+use crate::processor_bulk::{PricingStyle, ProcessorBulk};
 use crate::processor_curr::RTOperatingMode;
 use crate::processor_msg::{PNStateDistr, ProcessorMiddleMessage};
 use crate::processor_new::ProcessorNew;
@@ -26,13 +25,13 @@ use crate::trade_sender::TradeProducer;
 #[allow(dead_code)]
 pub(crate) async fn start2<T, MT>(
     kafka_params: KafkaParams,
-    metric: PricingMetric, // pricing metric, like PV
     all_markets: Arc<AllMarkets<Arc<MT>>>,
     markets_used: Vec<String>,
     initial_trades: Arc<TradeRep<T>>,
     mp: MT::MP,
     nb_middle: usize,
     operating_mode: RTOperatingMode,
+    pricing_mode: PricingStyle,
 ) -> (
     Vec<ActorRef<ProcessorMiddleMessage<String>>>,
     Vec<JoinHandle<()>>,
@@ -56,24 +55,27 @@ where
         initial_trades.clone(),
         mp.clone(),
         operating_mode,
+        pricing_mode.clone(),
     )
     .await;
 
     let (_processor_curr_a, processor_curr_handle) =
-        Actor::spawn(Some("processor_curr_actor".to_string()), curr_processor, ())
+    //Actor::spawn(Some("processor_curr_actor".to_string()), curr_processor, ())
+        Actor::spawn(None, curr_processor, ())
             .await
             .expect("Could not start current processor");
 
     actors_middle_msg.push(_processor_curr_a.clone());
 
     // middle actors (including state distribution for
-    let (mut processor_actors, mut processor_actor_futures, middle_state_distr_vec) =
+    let (mut processor_actors, mut processor_actor_futures, _middle_state_distr_vec) =
         create_middle_procs_chain(
             nb_middle,
             _processor_curr_a.clone(),
             all_markets.clone(),
             initial_trades.clone(),
             mp.clone(),
+            pricing_mode.clone(),
         )
         .await;
 
@@ -88,10 +90,12 @@ where
         "processor_new".to_string(),
         initial_trades.clone(),
         all_markets.clone(),
+        pricing_mode.clone(),
     );
 
     let (processor_new_bulk_actor, processor_new_bulk_handle) = Actor::spawn(
-        Some("processor_new_bulk".to_string()),
+        //Some("processor_new_bulk".to_string()),
+        None,
         new_mkt_bulk,
         mp.clone(),
     )
@@ -107,10 +111,12 @@ where
         all_markets.clone(),
         initial_trades.clone(),
         state_distr_new.clone(),
+        pricing_mode,
     );
 
     let (_processor_new_a, processor_new_handle) =
-        Actor::spawn(Some("processor_new".to_string()), processor_new, ())
+    //Actor::spawn(Some("processor_new".to_string()), processor_new, ())
+        Actor::spawn(None, processor_new, ())
             .await
             .expect("Could not start new processor");
 
@@ -123,14 +129,14 @@ where
     info!("Connecting to market topic {:?}", kafka_params.mkt_topic);
     let mkt_listener = connect_with_retries_rd(&kafka_params.kafka_server, &kafka_params.mkt_topic);
     let market_producer = MarketProducer {
-        metric,
         pricing_options: mp.clone(),
         mkt_listener,
         new_processor: _processor_new_a.clone(),
         all_markets: all_markets.clone(),
     };
     let (_mkt_producer_a, mkt_producer_handle) =
-        Actor::spawn(Some("mkt_producer".to_string()), market_producer, ())
+    //Actor::spawn(Some("mkt_producer".to_string()), market_producer, ())
+        Actor::spawn(None, market_producer, ())
             .await
             .expect("Could not start market producer");
 
@@ -142,7 +148,8 @@ where
     );
 
     let (_trade_capture_a, trade_capture_handle) =
-        Actor::spawn(Some("trade_producer".to_string()), trade_producer, ())
+    //Actor::spawn(Some("trade_producer".to_string()), trade_producer, ())
+        Actor::spawn(None, trade_producer, ())
             .await
             .expect("Could not start trade producer");
 
@@ -157,13 +164,5 @@ where
 
     all_futures.append(&mut processor_actor_futures); // middle processors
 
-    // (actors_middle_msg, all_futures, state_distr_new)
-    // TODO: CHECK HERE IF state_distr_new is correct, but it's currently
-    //   not used anyways.
-    // let state_distr_presented = middle_state_distr_vec.last().unwrap();
-    (
-        actors_middle_msg,
-        all_futures,
-        state_distr_new, // state_distr_presented.clone(),
-    )
+    (actors_middle_msg, all_futures, state_distr_new)
 }

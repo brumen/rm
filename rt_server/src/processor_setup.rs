@@ -5,6 +5,7 @@ use axum::{
     Json, Router,
 };
 use std::collections::HashMap;
+use std::io::Result;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::task::{self, JoinHandle};
@@ -60,13 +61,13 @@ struct LogLevelQuery {
     span_events: Option<String>,
 }
 
-pub(crate) fn diagnostics(
+pub(crate) async fn diagnostics(
     host: String,
     all_markets: MarketsState,
     initial_trades: Trades,
     reload_handle: ReloadHandle,
     state_distr_new: Arc<PNStateDistr>,
-) -> JoinHandle<()> {
+) -> Result<()> {
     let state = DiagnosticsState {
         portfolio: Arc::new(Mutex::new(portfolio::PortfolioType::default())),
         all_markets,
@@ -75,27 +76,23 @@ pub(crate) fn diagnostics(
         state_distr_new,
     };
 
-    let axum_process = task::spawn(async move {
-        let app = Router::new()
-            .route("/portfolio", get(portfolio_handler))
-            .route("/market", get(market_handler))
-            .route("/market_map", get(market_map_handler))
-            .route("/trades", get(trades_handler))
-            .route("/price", get(price_handler))
-            .route("/loglevel", post(loglevel_handler))
-            .route("/state_distr_new", get(state_distr_new_handler))
-            .with_state(state);
+    //    let axum_process = task::spawn(async move || -> Result<()> {
+    let app = Router::new()
+        .route("/portfolio", get(portfolio_handler))
+        .route("/market", get(market_handler))
+        .route("/market_map", get(market_map_handler))
+        .route("/trades", get(trades_handler))
+        .route("/price", get(price_handler))
+        .route("/loglevel", post(loglevel_handler))
+        .route("/state_distr_new", get(state_distr_new_handler))
+        .with_state(state);
 
-        let addr = format!("{host}:3000");
-        info!("Starting diagnostics process serving on {}", addr);
+    let addr = format!("{host}:3000");
+    info!("Starting diagnostics process serving on {}", addr);
 
-        let listener = TcpListener::bind(&addr).await.unwrap();
-        axum::serve(listener, app.into_make_service())
-            .await
-            .unwrap();
-    });
-
-    axum_process
+    let listener = TcpListener::bind(&addr).await?;
+    let _ = axum::serve(listener, app.into_make_service()).await?;
+    Ok(())
 }
 
 async fn portfolio_handler(State(state): State<DiagnosticsState>) -> String {
