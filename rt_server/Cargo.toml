@@ -13,48 +13,30 @@ recursive_call = "allow"
 
 
 [dependencies]
-actix = "0.13.0"
 actix-rt = "2.9.0"
 anyhow = "1.0.102"
-argmin = "0.11.0"
-async-std = "1.12.0"
 async-trait = "0.1.73"
 axum = "0.8.8"
-chrono = "0.4.42"
+chrono = { version = "0.4.42", features = ["serde"] }
 circular-buffer = "1.2.0"
-console-subscriber = "0.2.0"
 dashmap = { version = "6.1.0", features = ["arbitrary", "rayon", "serde"] }
-date = "0.1.3"
 dotenv = "0.15.0"
-env_logger = "0.10.0"
-evmap = "11.0.0"
-flurry = { version = "0.5.2", features = ["rayon", "serde"] }
 futures = { version = "0.3.28", features = ["futures-executor", "thread-pool"] }
 futures-channel = "0.3.28"
-glommio = "0.9.0"
 kafka = "0.9.0"
-lapin = "3.7.2"
 lazy_static = "1.5.0"
 local-ip-address = "0.6.10"
 log = "0.4.18"
-monoio = "0.2.4"
-nalgebra = "0.34.1"
-orx-concurrent-vec = "3.10.0"
-queues = "1.1.0"
 ractor = { version = "0.15.9", features = ["async-trait", "message_span_propogation"] }
 rdkafka = "0.36.2"
 reqwest = { version = "0.11.13", features = ["blocking", "json"] }
 scc = "3.5.5"
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.91"
-serde_yaml = "0.9.16"
-string-join = "0.1.2"
 strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "1.0.40"
 time = { version = "0.3.17", features = ["formatting", "parsing"] }
 tokio = { version = "1.24.2", features = ["full", "macros", "rt", "rt-multi-thread", "tracing", "net"] }
-tokio-scoped = "0.2.0"
 tracing = { version = "0.1.37", features = ["log"] }
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 uuid = { version = "1.3.4", features = ["v4"] }
-yfinance-rs = "0.7.2"
