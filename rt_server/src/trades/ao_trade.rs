@@ -41,7 +41,13 @@ pub struct AOTrade {
 }
 
 impl Decoder for AOTrade {}
-impl TryFromRef2 for AOTrade {}
+impl TryFromRef2<crate::trade::TradeError> for AOTrade {
+    fn try_from_ref(
+        value: &rdkafka::message::BorrowedMessage,
+    ) -> Result<Self, crate::trade::TradeError> {
+        crate::ref_deref::decode_from_ref(value, crate::trade::TradeError::NoPayload)
+    }
+}
 
 impl fmt::Display for AOTrade {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

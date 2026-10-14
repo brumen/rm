@@ -30,7 +30,7 @@ where
         MarketTypeT + Send + Sync + AddAssign<&'a MT> + Clone + 'static + SetName + std::fmt::Debug,
     MT::MP: 'static + Send + Sync + Clone,
     MT::MK: std::fmt::Debug,
-    (MT::MK, f64): TryFromRef2,
+    (MT::MK, f64): TryFromRef2<crate::market::MarketTypeError>,
 {
     type Msg = MT;
     type State = MT;

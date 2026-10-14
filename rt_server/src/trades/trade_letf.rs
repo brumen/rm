@@ -310,7 +310,13 @@ impl TradeTypes {
 }
 
 impl Decoder for TradeTypes {}
-impl TryFromRef2 for TradeTypes {}
+impl TryFromRef2<crate::trade::TradeError> for TradeTypes {
+    fn try_from_ref(
+        value: &rdkafka::message::BorrowedMessage,
+    ) -> Result<Self, crate::trade::TradeError> {
+        crate::ref_deref::decode_from_ref(value, crate::trade::TradeError::NoPayload)
+    }
+}
 
 #[async_trait]
 impl PriceTrade<LETFMarketType> for TradeTypes {

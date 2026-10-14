@@ -38,10 +38,17 @@ pub(crate) async fn start2<T, MT>(
     Arc<PNStateDistr>, // state distribution of the new processor
 )
 where
-    T: BaseTrade + Clone + Send + Sync + 'static + PriceTrade<MT> + TryFromRef2 + std::fmt::Debug,
+    T: BaseTrade
+        + Clone
+        + Send
+        + Sync
+        + 'static
+        + PriceTrade<MT>
+        + TryFromRef2<crate::trade::TradeError>
+        + std::fmt::Debug,
     MT::MP: 'static + Send + Sync + Clone,
     MT::MK: std::fmt::Debug,
-    (MT::MK, f64): TryFromRef2,
+    (MT::MK, f64): TryFromRef2<crate::market::MarketTypeError>,
     for<'a> MT:
         Send + Sync + MarketTypeT + 'static + Clone + AddAssign<&'a MT> + SetName + std::fmt::Debug,
 {

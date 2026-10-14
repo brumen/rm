@@ -132,7 +132,13 @@ impl<T> TradeProducer<T> {
 #[async_trait]
 impl<T> Actor for TradeProducer<T>
 where
-    T: Send + Sync + Clone + BaseTrade + for<'a> Deserialize<'a> + TryFromRef2 + 'static,
+    T: Send
+        + Sync
+        + Clone
+        + BaseTrade
+        + for<'a> Deserialize<'a>
+        + TryFromRef2<crate::trade::TradeError>
+        + 'static,
 {
     type Msg = ProcessorMiddleMessage<String>;
     type State = ();

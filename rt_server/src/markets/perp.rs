@@ -171,4 +171,15 @@ impl SetName for PerpMarketType {
     }
 }
 
-impl TryFromRef2 for (PerpMarketTypes, f64) {}
+impl TryFromRef2<crate::market::MarketTypeError> for (PerpMarketTypes, f64) {
+    fn try_from_ref(
+        value: &BorrowedMessage,
+    ) -> Result<Self, crate::market::MarketTypeError> {
+        crate::ref_deref::decode_from_ref(
+            value,
+            crate::market::MarketTypeError::GeneralError(
+                "Didnt get payload in market message".to_string(),
+            ),
+        )
+    }
+}
