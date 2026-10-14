@@ -78,14 +78,16 @@ where
                 continue;
             };
 
-            debug!("Received market message: {:?}", new_msg);
             let (new_item_name, new_item_value) = match <(MT::MK, f64)>::try_from_ref(&new_msg) {
                 Err(decode_error) => {
                     error!("Problem decoding message: {:?}", decode_error);
                     error!("Continuing without that message");
                     continue;
                 }
-                Ok(new_item_name_value) => new_item_name_value,
+                Ok(new_item_name_value) => {
+                    debug!("New item value: {:?}", new_item_name_value);
+                    new_item_name_value
+                }
             };
 
             debug!(
@@ -97,9 +99,9 @@ where
 
             let new_name = Uuid::new_v4().to_string();
             market.set_name(new_name.clone());
+            debug!("Most recent constructed market: {:?}", market);
 
             let market_sent = Arc::new((*market).clone());
-            debug!("Inserting future ({}) into all_markets", new_name);
 
             self.all_markets
                 .insert("future".to_string(), market_sent)
@@ -113,6 +115,7 @@ where
                 "Current processor-market map: {:?}",
                 self.all_markets.processor_market_map,
             );
+            debug!("all_markets: {:?}", self.all_markets);
 
             if let Err(e) = self
                 .new_processor

@@ -130,4 +130,3 @@ pub enum MarketTypeError {
     #[error("Cant convert to MarketType")]
     CantConvertToMarket(#[from] serde_json::Error),
 }
-

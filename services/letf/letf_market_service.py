@@ -41,7 +41,7 @@ class LETFMarketProducer(BaseProducer):
             # The Rust market handler deserializes each message as the tuple
             # (LETFMarketTypes, f64), with enum variants externally tagged.
             for stock, value in self.curr_stocks.items():
-                yield [({"Stock": stock}, value)]
+                yield ({"Stock": stock}, value)
 
             for stock in self._stocks:
                 # add some random value to the current stock values

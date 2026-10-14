@@ -81,6 +81,7 @@ async fn run_all() {
         RTOperatingMode::SingleBuffer => 0,
         _ => 1,
     };
+
     let kafka_params = engine_actor::KafkaParams {
         kafka_server: kafka_server.clone(),
         pos_topic: pos_topic.clone(),
@@ -128,6 +129,7 @@ async fn run_all() {
     };
 
     info!("Starting main system controller.");
+    info!("Starting {} middle processors.", nb_middle_procs);
     let (all_actors, mut all_actors_handles, state_distr_new) = start2(
         kafka_params,
         all_markets.clone(),

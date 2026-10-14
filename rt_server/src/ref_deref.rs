@@ -50,10 +50,7 @@ where
     fn try_from_ref(value: &BorrowedMessage) -> Result<Self, E>;
 }
 
-pub fn decode_from_ref<T, E>(
-    value: &BorrowedMessage,
-    no_payload: E,
-) -> Result<T, E>
+pub fn decode_from_ref<T, E>(value: &BorrowedMessage, no_payload: E) -> Result<T, E>
 where
     for<'a> T: Deserialize<'a>,
     E: From<std::str::Utf8Error> + From<serde_json::Error>,

@@ -193,9 +193,7 @@ impl SetName for LETFMarketType {
 }
 
 impl TryFromRef2<crate::market::MarketTypeError> for (LETFMarketTypes, f64) {
-    fn try_from_ref(
-        value: &BorrowedMessage,
-    ) -> Result<Self, crate::market::MarketTypeError> {
+    fn try_from_ref(value: &BorrowedMessage) -> Result<Self, crate::market::MarketTypeError> {
         crate::ref_deref::decode_from_ref(
             value,
             crate::market::MarketTypeError::GeneralError(
