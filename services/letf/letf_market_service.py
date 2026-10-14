@@ -1,56 +1,50 @@
-""" The actual rester for the market service.
-    The rester service is on: localhost:5000/mkt/get_market
-    The market reported is a tuple, with two elements:
-       1.st: uuid4 of the current market ("5342234234kasdasda-asd-asdasd-")
-       2nd: dictionary where keys are flight_nb|departure_date, values are prices
-            key = "UA06|20170608"; value=303
-    Market service publishes on mkt_events topic, mkt event is the uuid4 described above.
+"""Publish LETF market updates as ``(LETFMarketTypes, f64)`` tuples.
+
+The Rust market consumer reads each Kafka message as one tuple and inserts it
+into the current market.
 """
 
 from typing import List, Tuple, Dict
 from numpy import random
 from time import sleep
 
-from rm.base_producer import BaseProducer
+from rm.services.base_producer import BaseProducer
 
 
 class LETFMarketProducer(BaseProducer):
 
     def __init__(
-            self,
-            stocks: List[str],
-            server_port_topic: Tuple[str, str, str] = (
-                'localhost',
-                9092,
-                'letf.mkt',
-            ),
+        self,
+        stocks: List[str],
+        server_port_topic: Tuple[str, str, str] = (
+            "localhost",
+            9092,
+            "letf.mkt",
+        ),
     ):
         super().__init__(server_port_topic)
         self._stocks: List[str] = stocks
 
-        # intermediate state for stock values.
-        # stocks are in the form of {stock_name: stock_value},
-        # like {'APL': 150., 'NVA': 300.}
+        # Keep the simulated stock prices between market updates.
         self.curr_stocks: Dict[str, float] = {
-            stock: 50. + stock_idx * 5
-            for stock_idx, stock in enumerate(self._stocks)
+            stock: 50.0 + stock_idx * 5 for stock_idx, stock in enumerate(self._stocks)
         }  # initial values
 
-    def _value_to_publish(self, sleep_between_publish=11.):
-        """ Keeps generating new fictitious market for stocks.
+    def _value_to_publish(self, sleep_between_publish=11.0):
+        """Keeps generating new fictitious market for stocks.
 
         :param sleep_between_publish: sleep time between individual publishes
         """
 
         while True:
 
-            yield {
-                'market_name': 'future',
-                'market': self.curr_stocks
-            }
+            # The Rust market handler deserializes each message as the tuple
+            # (LETFMarketTypes, f64), with enum variants externally tagged.
+            for stock, value in self.curr_stocks.items():
+                yield [({"Stock": stock}, value)]
 
             for stock in self._stocks:
                 # add some random value to the current stock values
-                self.curr_stocks[stock] += random.normal(loc=0., scale=1.)
+                self.curr_stocks[stock] += random.normal(loc=0.0, scale=1.0)
 
             sleep(sleep_between_publish)

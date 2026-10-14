@@ -103,9 +103,10 @@ async fn run_all() {
 
     // Reloadable log filter layer
     let initial_filter = EnvFilter::from_default_env().add_directive(tracing_level.into());
-    let (_reload_layer, reload_handle) = reload::Layer::new(initial_filter);
+    let (_reload_layer, reload_handle) = reload::Layer::new(initial_filter.clone());
 
     tracing_subscriber::fmt()
+        .with_env_filter(initial_filter)
         .compact() // Focuses on the current span/target
         .with_target(true)
         .init();

@@ -77,10 +77,15 @@ where
                 error!("Listening to the market topic failed.! Ignoring.");
                 continue;
             };
-            let Ok((new_item_name, new_item_value)) = <(MT::MK, f64)>::try_from_ref(&new_msg)
-            else {
-                error!("Could not decode the market message.! ignoring.");
-                continue;
+
+            debug!("Received market message: {:?}", new_msg);
+            let (new_item_name, new_item_value) = match <(MT::MK, f64)>::try_from_ref(&new_msg) {
+                Err(decode_error) => {
+                    error!("Problem decoding message: {:?}", decode_error);
+                    error!("Continuing without that message");
+                    continue;
+                }
+                Ok(new_item_name_value) => new_item_name_value,
             };
 
             debug!(
