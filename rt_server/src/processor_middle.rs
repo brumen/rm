@@ -109,7 +109,7 @@ where
         debug!(
             "Sending portfolio {:?} to processor {:?}.",
             state.pricing_results.simple(),
-            self.processor_below.get_name(),
+            self.processor_below.get_id(),
         );
         self.processor_below
             .send_message(ProcessorMiddleMessage::NewTradePortfolio((
@@ -123,7 +123,6 @@ where
     }
 
     // receiving the behind message, in calculating single.
-    // #[instrument(skip_all)]
     async fn _behind_calculating_single(
         &self,
         market_behind: String,

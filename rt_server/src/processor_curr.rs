@@ -4,6 +4,7 @@ use rdkafka::producer::FutureProducer;
 use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;
@@ -165,7 +166,6 @@ where
         skip(self, _myself, message, state),
         fields(
             processor="processor_curr",
-            // msg = message.as_ref(),
             mkt = state.curr_market,
         )
     )]
@@ -180,6 +180,13 @@ where
             ProcessorMiddleMessage::NewTrade(trade) => {
                 if self.operating_mode == RTOperatingMode::SingleBuffer {
                     return Ok(());
+                }
+
+                // if newtrades_since_last_newmarket > 10, then wait for 4 seconds here before
+                //   continuing. This is to prevent constant looping between this actor and the
+                //   middle actor.
+                if state.newtrades_since_last_newmarket > 10 {
+                    tokio::time::sleep(Duration::from_secs(4)).await;
                 }
 
                 debug!("Message: NewTrade: Adding trade {:?}.", trade);
@@ -285,7 +292,7 @@ where
                 let ntp_portf_acc = (ntp_portf_behind as u64) < NTP_ALLOW_BEHIND;
 
                 // compute those additional trades
-                debug!("NTP is {} traded behind", ntp_portf_behind);
+                debug!("New portfolio is {ntp_portf_behind} trades behind.");
                 //if (ntp_portf_behind > 0) & ntp_portf_acc {
                 if ntp_portf_acc {
                     // new portfolio is accepted.
