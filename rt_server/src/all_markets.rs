@@ -1,4 +1,5 @@
 use scc::HashMap as DashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 use tracing::debug;
 
@@ -65,6 +66,17 @@ where
             })
             .await;
         processor_names
+    }
+
+    pub(crate) async fn processor_market_snapshot(&self) -> BTreeMap<String, String> {
+        let mut snapshot = BTreeMap::new();
+        self.processor_market_map
+            .iter_async(|processor_name, market_name| {
+                snapshot.insert(processor_name.clone(), market_name.clone());
+                true
+            })
+            .await;
+        snapshot
     }
 
     // creates a new empty all markets structure
@@ -237,6 +249,37 @@ mod tests {
         let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
         assert!(all.list_market_names().await.is_empty());
         assert!(all.get(&"anything".to_string()).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_processor_market_snapshot_empty() {
+        let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
+        assert!(all.processor_market_snapshot().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_processor_market_snapshot_sorted_and_owned() {
+        let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
+        all.insert_processor("processor-b".into(), "market-1".into())
+            .await;
+        all.insert_processor("processor-a".into(), "market-1".into())
+            .await;
+
+        let snapshot = all.processor_market_snapshot().await;
+        assert_eq!(
+            snapshot.keys().map(String::as_str).collect::<Vec<_>>(),
+            vec!["processor-a", "processor-b"]
+        );
+        assert_eq!(snapshot["processor-a"], "market-1");
+        assert_eq!(snapshot["processor-b"], "market-1");
+
+        all.insert_processor("processor-a".into(), "market-2".into())
+            .await;
+        assert_eq!(snapshot["processor-a"], "market-1");
+        assert_eq!(
+            all.processor_market_snapshot().await["processor-a"],
+            "market-2"
+        );
     }
 
     #[tokio::test]

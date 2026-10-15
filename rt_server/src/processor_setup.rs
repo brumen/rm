@@ -1,12 +1,14 @@
 use axum::{
     extract::{Query, State},
     http::StatusCode,
+    response::{sse::Event, sse::KeepAlive, Html, IntoResponse, Sse},
     routing::{get, post},
     Json, Router,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Result;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::{self, JoinHandle};
 use tracing::info;
@@ -81,6 +83,12 @@ pub(crate) async fn diagnostics(
         .route("/portfolio", get(portfolio_handler))
         .route("/market", get(market_handler))
         .route("/market_map", get(market_map_handler))
+        .route("/processor_market_map", get(processor_market_map_page))
+        .route("/processor_market_map/data", get(processor_market_map_data))
+        .route(
+            "/processor_market_map/events",
+            get(processor_market_map_events),
+        )
         .route("/trades", get(trades_handler))
         .route("/price", get(price_handler))
         .route("/loglevel", post(loglevel_handler))
@@ -91,6 +99,7 @@ pub(crate) async fn diagnostics(
     info!("Starting diagnostics process serving on {}", addr);
 
     let listener = TcpListener::bind(&addr).await?;
+    info!("Live processor market map: http://{addr}/processor_market_map");
     let _ = axum::serve(listener, app.into_make_service()).await?;
     Ok(())
 }
@@ -108,6 +117,31 @@ async fn market_handler(State(state): State<DiagnosticsState>) -> String {
 async fn market_map_handler(State(state): State<DiagnosticsState>) -> String {
     let market_map_names = state.all_markets.list_processor_names().await;
     format!("Market map: {:?}", market_map_names)
+}
+
+async fn processor_market_map_page() -> Html<&'static str> {
+    Html(include_str!("processor_market_map.html"))
+}
+
+async fn processor_market_map_data(
+    State(state): State<DiagnosticsState>,
+) -> Json<BTreeMap<String, String>> {
+    Json(state.all_markets.processor_market_snapshot().await)
+}
+
+async fn processor_market_map_events(State(state): State<DiagnosticsState>) -> impl IntoResponse {
+    let mut interval = tokio::time::interval(Duration::from_millis(500));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let stream = futures::stream::unfold(
+        (state.all_markets, interval),
+        |(all_markets, mut interval)| async move {
+            interval.tick().await;
+            let snapshot = all_markets.processor_market_snapshot().await;
+            let event = Event::default().json_data(snapshot);
+            Some((event, (all_markets, interval)))
+        },
+    );
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 async fn trades_handler(State(state): State<DiagnosticsState>) -> String {
@@ -310,4 +344,91 @@ async fn state_distr_new_handler(
     }
 
     Json(snapshot)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::StreamExt;
+
+    fn diagnostics_state() -> DiagnosticsState {
+        let (_layer, reload_handle) = reload::Layer::new(EnvFilter::new("info"));
+        DiagnosticsState {
+            portfolio: Arc::new(Mutex::new(portfolio::PortfolioType::default())),
+            all_markets: Arc::new(all_markets::AllMarkets::new()),
+            all_trades: Arc::new(TradeRep::default()),
+            reload_handle,
+            state_distr_new: Arc::new(PNStateDistr::new()),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_processor_market_map_page() {
+        let response = processor_market_map_page().await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()["content-type"],
+            "text/html; charset=utf-8"
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = std::str::from_utf8(&body).unwrap();
+        assert!(html.contains("new EventSource"));
+        assert!(html.contains("/processor_market_map/events"));
+    }
+
+    #[tokio::test]
+    async fn test_processor_market_map_data() {
+        let state = diagnostics_state();
+        assert!(processor_market_map_data(State(state.clone()))
+            .await
+            .0
+            .is_empty());
+        state
+            .all_markets
+            .insert_processor("processor".into(), "market".into())
+            .await;
+        let Json(snapshot) = processor_market_map_data(State(state)).await;
+        assert_eq!(snapshot["processor"], "market");
+    }
+
+    #[tokio::test]
+    async fn test_processor_market_map_stream_updates_and_removals() {
+        let state = diagnostics_state();
+        let response = processor_market_map_events(State(state.clone()))
+            .await
+            .into_response();
+        assert_eq!(response.headers()["content-type"], "text/event-stream");
+        let mut stream = response.into_body().into_data_stream();
+
+        for (market, expected) in [
+            (None, "data: {}\n\n"),
+            (Some("market-1"), "data: {\"processor\":\"market-1\"}\n\n"),
+            (Some("market-2"), "data: {\"processor\":\"market-2\"}\n\n"),
+            (None, "data: {}\n\n"),
+        ] {
+            match market {
+                Some(market) => {
+                    state
+                        .all_markets
+                        .insert_processor("processor".into(), market.into())
+                        .await;
+                }
+                None => {
+                    state
+                        .all_markets
+                        .processor_market_map
+                        .remove_async("processor")
+                        .await;
+                }
+            }
+            let chunk = tokio::time::timeout(Duration::from_secs(2), stream.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_eq!(std::str::from_utf8(&chunk).unwrap(), expected);
+        }
+    }
 }

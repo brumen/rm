@@ -39,7 +39,76 @@ use crate::processor_bulk::PricingStyle;
 use crate::processor_curr::RTOperatingMode;
 use crate::processor_setup_actor::start_setup_actor;
 use crate::trade::TradeRep;
+use tracing::{Event, Subscriber};
+use tracing_subscriber::{
+    fmt::{
+        format::{FormatEvent, FormatFields, Writer},
+        time::{FormatTime, SystemTime},
+        FmtContext, FormattedFields,
+    },
+    registry::LookupSpan,
+};
 use trades::trade_letf::TradeTypes;
+
+// this returns only the inner most span, and not other spans.
+struct InnermostSpanFormat;
+
+impl<S, N> FormatEvent<S, N> for InnermostSpanFormat
+where
+    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
+    N: for<'writer> FormatFields<'writer> + 'static,
+{
+    fn format_event(
+        &self,
+        ctx: &FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &Event<'_>,
+    ) -> std::fmt::Result {
+        let ansi = writer.has_ansi_escapes();
+        let dim = if ansi { "\x1b[2m" } else { "" };
+        let bold = if ansi { "\x1b[1m" } else { "" };
+        let reset = if ansi { "\x1b[0m" } else { "" };
+
+        write!(writer, "{dim}")?;
+        SystemTime.format_time(&mut writer)?;
+        write!(writer, "{reset}")?;
+
+        let metadata = event.metadata();
+        let level_color = if ansi {
+            match *metadata.level() {
+                Level::ERROR => "\x1b[31m",
+                Level::WARN => "\x1b[33m",
+                Level::INFO => "\x1b[32m",
+                Level::DEBUG => "\x1b[34m",
+                Level::TRACE => "\x1b[35m",
+            }
+        } else {
+            ""
+        };
+        write!(
+            writer,
+            " {level_color}{:>5}{reset} {dim}{}{reset}: ",
+            metadata.level(),
+            metadata.target()
+        )?;
+
+        if let Some(span) = ctx.parent_span() {
+            write!(writer, "{bold}{}{reset}", span.name())?;
+
+            let extensions = span.extensions();
+            if let Some(fields) = extensions.get::<FormattedFields<N>>() {
+                if !fields.is_empty() {
+                    write!(writer, "{{{fields}}}")?;
+                }
+            }
+
+            write!(writer, ": ")?;
+        }
+
+        ctx.format_fields(writer.by_ref(), event)?;
+        writeln!(writer)
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -108,8 +177,9 @@ async fn run_all() {
 
     tracing_subscriber::fmt()
         .with_env_filter(initial_filter)
-        .compact() // Focuses on the current span/target
-        .with_target(true)
+        .event_format(InnermostSpanFormat)
+        //.compact() // Focuses on the current span/target
+        //.with_target(true)
         .init();
 
     // this below is enabled if you want to reload and all.
