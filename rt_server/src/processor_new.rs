@@ -470,6 +470,11 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        info!(
+            processor = %self.processor_name,
+            message_type = message.as_ref(),
+            "Received processor message."
+        );
         //let (trade_l, trades_non_pricing, portf, pns, new_m, pricing_metrics) = state;
         match message {
             ProcessorMiddleMessage::NewTrade(new_trade) => {

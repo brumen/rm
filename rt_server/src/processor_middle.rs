@@ -420,6 +420,11 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        info!(
+            processor = %self.processor_name,
+            message_type = message.as_ref(),
+            "Received processor message."
+        );
         // let (trade_l, trades_non_pricing, portf, pns, market, pricing_metrics) = state; // market is the market where we're operating
         let pns_old = state.processor_state.clone();
 

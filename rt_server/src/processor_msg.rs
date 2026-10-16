@@ -68,7 +68,7 @@ pub(crate) enum ProcessorMiddleMessage<MT> {
 // }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, AsRefStr)]
 pub enum ProcessorBulkMessage<MT> {
     // is a triple
     //    first is the market type, a name of the market
