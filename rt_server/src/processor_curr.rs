@@ -169,7 +169,7 @@ where
     #[instrument(
         skip(self, _myself, message, state),
         fields(
-            processor="processor_curr",
+            processor=self.processor_name,
             mkt = state.curr_market,
         )
     )]
@@ -327,11 +327,11 @@ where
 
                     // Register the first accepted market too, before publishing can wait.
                     // Reinsert our Arc in case the sender switched markets while we priced.
-                    if state.curr_market.as_ref() != Some(&ntp_market) {
+                    if state.curr_market.as_ref() != Some(&*ntp_market) {
                         self.all_markets
                             .insert_both(
                                 self.processor_name.clone(),
-                                ntp_market.clone(),
+                                ntp_market.to_string(),
                                 ntp_market_actual,
                             )
                             .await;
@@ -364,7 +364,7 @@ where
                         state.curr_market,
                         ntp_market.clone()
                     );
-                    state.curr_market = Some(ntp_market.clone());
+                    state.curr_market = Some(ntp_market.to_string());
                 }
 
                 // send the behind information to the middle processor.
@@ -418,6 +418,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::all_markets::MarketLease;
     use crate::markets::letf_market::LETFMarketType;
     use crate::portfolio_results::PortfolioResults;
     use crate::trades::trade_letf::LETFTrade;
@@ -480,17 +481,25 @@ mod tests {
                     Arc::new(LETFMarketType::new(market_name.clone())),
                 )
                 .await;
-            processor
-                .handle(
-                    sink.clone(),
-                    ProcessorMiddleMessage::NewTradePortfolio((
-                        TradesLocal::new(),
-                        PmPortfolio::new(),
-                        market_name.clone(),
-                        sink.clone(),
-                    )),
-                    &mut state,
+            let message = ProcessorMiddleMessage::NewTradePortfolio((
+                TradesLocal::new(),
+                PmPortfolio::new(),
+                MarketLease::new(
+                    market_name.clone(),
+                    all_markets.get(&market_name).await.unwrap(),
+                ),
+                sink.clone(),
+            ));
+            // Delay delivery until the sender has switched away from this market.
+            all_markets
+                .insert_both(
+                    "upstream".into(),
+                    "next".into(),
+                    Arc::new(LETFMarketType::new("next".into())),
                 )
+                .await;
+            processor
+                .handle(sink.clone(), message, &mut state)
                 .await
                 .unwrap();
 

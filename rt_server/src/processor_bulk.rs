@@ -15,7 +15,7 @@ use crate::trade::{BaseTrade, TradeRep};
 
 // computes bulk evaluation of trades in trade_names
 #[derive(Debug)]
-pub struct ProcessorBulk<T, MT>
+pub(crate) struct ProcessorBulk<T, MT>
 where
     MT: MarketTypeT + std::fmt::Debug,
     T: std::fmt::Debug,
@@ -326,7 +326,7 @@ where
                 // registering the market that is sent:
                 let _ = self
                     .all_markets
-                    .insert_processor(self.processor_name.clone(), market.clone())
+                    .insert_processor(self.processor_name.clone(), market.to_string())
                     .await;
                 debug!(
                     "Bulk: Current processor-market map: {:?}",

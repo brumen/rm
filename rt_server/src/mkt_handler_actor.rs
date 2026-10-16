@@ -14,6 +14,7 @@ pub struct MarketProducer<MT>
 where
     MT: MarketTypeT + std::fmt::Debug,
 {
+    pub(crate) future_market_name: String,
     pub pricing_options: MT::MP,
     pub mkt_listener: StreamConsumer, // listening for market events.
     pub new_processor: ActorRef<ProcessorMiddleMessage<String>>,
@@ -48,10 +49,7 @@ where
 
         info!("Adding initial _future_ market to all_markets.");
         self.all_markets
-            .insert(
-                "future".to_string(), // market is inserted at "future" entry
-                fut_mkt.clone(),
-            )
+            .insert(self.future_market_name.clone(), fut_mkt.clone())
             .await;
 
         Ok((*fut_mkt).clone()) // state after initialization is empty market.
@@ -111,7 +109,7 @@ where
             let market_sent = Arc::new((*market).clone());
 
             self.all_markets
-                .insert("future".to_string(), market_sent)
+                .insert(self.future_market_name.clone(), market_sent)
                 .await;
 
             debug!(
@@ -125,7 +123,9 @@ where
 
             if let Err(e) = self
                 .new_processor
-                .send_message(ProcessorMiddleMessage::NewMarket("future".to_string()))
+                .send_message(ProcessorMiddleMessage::NewMarket(
+                    self.future_market_name.clone(),
+                ))
             {
                 error!(
                     "Could not send NewMarket message to new_processor! Continuing w/o sending: {:?}",

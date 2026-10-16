@@ -3,7 +3,7 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 
-use crate::all_markets::AllMarkets;
+use crate::all_markets::{AllMarkets, MarketLease};
 use crate::market::MarketTypeT;
 use crate::portfolio::PmPortfolio; // , PortfolioType
 use crate::pricer::{PriceTrade, PricingMetric};
@@ -115,7 +115,7 @@ where
             .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                 state.trades.clone(),
                 state.pricing_results.clone(),
-                real_market.to_string(),
+                MarketLease::new(real_market.to_string(), market_info),
                 myself,
             )))?;
         // stay in CalcuatingSingle mode.
@@ -125,7 +125,7 @@ where
     // receiving the behind message, in calculating single.
     async fn _behind_calculating_single(
         &self,
-        market_behind: String,
+        market_behind: MarketLease,
         trades_behind: TradesLocal,
         state: &mut _ProcessorMiddleStateful,
         myself: ActorRef<ProcessorMiddleMessage<String>>,
@@ -165,9 +165,9 @@ where
             );
 
             self.all_markets
-                .insert_processor(self.processor_name.clone(), market_behind.clone())
+                .insert_processor(self.processor_name.clone(), market_behind.to_string())
                 .await;
-            state.curr_market = Some(market_behind.clone());
+            state.curr_market = Some(market_behind.to_string());
             // self.processor_bulk
             //     .send_message(ProcessorBulkMessage::NewBulk((
             //         market_behind.to_string(),
@@ -199,7 +199,7 @@ where
             .price_multiple(
                 trades_behind,
                 state.pricing_metrics.clone(),
-                curr_mkt_actual, // this works since .is_none is handled above.
+                curr_mkt_actual.clone(), // this works since .is_none is handled above.
                 self.all_trades.clone(),
             )
             .await;
@@ -208,7 +208,7 @@ where
             .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                 state.trades.clone(),
                 state.pricing_results.clone(),
-                curr_mkt_actual_name,
+                MarketLease::new(curr_mkt_actual_name, curr_mkt_actual),
                 myself,
             )))?;
 
@@ -225,7 +225,7 @@ where
         ntp: (
             TradesLocal,
             PmPortfolio,
-            String,
+            MarketLease,
             ActorRef<ProcessorMiddleMessage<String>>,
         ),
         state: &mut _ProcessorMiddleStateful,
@@ -261,9 +261,10 @@ where
             "Received portfolio accepted. Informing upstream processor {:?}",
             upstream_processor.get_name(),
         );
-        let _ = upstream_processor.send_message(
-            ProcessorMiddleMessage::Behind(new_market.to_string(), new_behind_curr.clone()), // TODO: CHECK IF THIS IS REALLY NEW_MARKET??
-        );
+        let _ = upstream_processor.send_message(ProcessorMiddleMessage::Behind(
+            new_market.clone(),
+            new_behind_curr.clone(),
+        ));
         // return Ok(());
         // }
 
@@ -277,10 +278,10 @@ where
             "Switching markets: {:?} -> {}",
             state.curr_market, new_market,
         );
-        state.curr_market = Some(new_market.clone());
+        state.curr_market = Some(new_market.to_string());
         state.trades_since_ntp = 0; // reset the trades_since_ntp
         self.all_markets
-            .insert_processor(self.processor_name.clone(), new_market.clone())
+            .insert_processor(self.processor_name.clone(), new_market.to_string())
             .await;
 
         // new_behind_curr is empty, replace the portfolio w/ the received one.

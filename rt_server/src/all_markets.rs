@@ -1,10 +1,48 @@
 use scc::HashMap as DashMap;
 use std::collections::BTreeMap;
 use std::fmt;
+use std::ops::Deref;
+use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::debug;
 
 use crate::market::MarketTypeT;
+
+/// Keeps a market alive while a message is queued or being handled.
+#[derive(Clone)]
+pub(crate) struct MarketLease {
+    name: String,
+    _market: Arc<dyn Send + Sync>,
+}
+
+impl MarketLease {
+    pub(crate) fn new<MT: MarketTypeT + 'static>(name: String, market: Arc<MT>) -> Self {
+        Self {
+            name,
+            _market: market,
+        }
+    }
+}
+
+impl Deref for MarketLease {
+    type Target = String;
+
+    fn deref(&self) -> &String {
+        &self.name
+    }
+}
+
+impl fmt::Debug for MarketLease {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
+impl fmt::Display for MarketLease {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.name.fmt(f)
+    }
+}
 
 /// list of (market names, actual market)
 /// MT.. market type
@@ -119,7 +157,8 @@ where
         );
     }
 
-    /// Registers a processor and prunes unreferenced markets, preserving `future`.
+    /// Registers a processor and prunes unreferenced markets, preserving future markets
+    /// and markets retained by readers or queued messages.
     /// Use `insert_both` when inserting a market and registering its first processor.
     pub(crate) async fn insert_processor(
         &self,
@@ -154,8 +193,8 @@ where
         // Remove any market in `self.markets` that is not referenced.
         let mut to_remove: Vec<String> = Vec::new();
         self.markets
-            .iter_async(|market_name: &String, _| {
-                if !referenced_markets.contains(market_name) {
+            .iter_async(|market_name: &String, market| {
+                if !referenced_markets.contains(market_name) && !market.is_used() {
                     to_remove.push(market_name.clone());
                 }
                 true
@@ -163,14 +202,19 @@ where
             .await;
 
         for market_name in to_remove {
-            if market_name == "future" {
+            if market_name == "future" || market_name.starts_with("future::") {
                 continue; // ignoring market future, dont prune.
             }
-            debug!(
-                "Pruning market: {}. (not referenced by any processor.)",
-                market_name,
-            );
-            self.markets.remove_async(&market_name).await;
+            // A reader may have acquired a lease since the scan. Recheck while
+            // holding the entry's write lock before removing it.
+            if self
+                .markets
+                .remove_if_async(&market_name, |market| !market.is_used())
+                .await
+                .is_some()
+            {
+                debug!("Pruning unreferenced market: {}", market_name);
+            }
         }
     }
 
@@ -192,7 +236,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::AllMarkets;
+    use super::{AllMarkets, MarketLease};
     use crate::market::MarketTypeT;
     use ractor::async_trait;
     use std::collections::{HashMap, HashSet};
@@ -328,6 +372,38 @@ mod tests {
         assert!(all.get(&"shared".into()).await.is_none());
         assert!(all.get(&"future".into()).await.is_some());
         assert!(all.processor_market_snapshot().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_queued_market_survives_sender_switch_and_is_pruned_after_delivery() {
+        let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
+        let market_name = "queued".to_string();
+        all.insert_both(
+            "sender".into(),
+            market_name.clone(),
+            TestMarket::new(market_name.clone(), ()),
+        )
+        .await;
+        let lease = MarketLease::new(market_name.clone(), all.get(&market_name).await.unwrap());
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        sender.send(lease).unwrap();
+
+        all.insert_both(
+            "sender".into(),
+            "next".into(),
+            TestMarket::new("next".into(), ()),
+        )
+        .await;
+        // No processor references the old market, but the queued message does.
+        assert!(all.get(&market_name).await.is_some());
+        let delivered = receiver.recv().await.unwrap();
+        all.insert_processor("receiver".into(), delivered.to_string())
+            .await;
+        drop(delivered);
+        assert!(all.get(&market_name).await.is_some());
+
+        all.remove_processor("receiver").await;
+        assert!(all.get(&market_name).await.is_none());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

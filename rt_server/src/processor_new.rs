@@ -2,7 +2,7 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn}; // for tracking states.
 
-use crate::all_markets::AllMarkets;
+use crate::all_markets::{AllMarkets, MarketLease};
 use crate::market::MarketTypeT;
 use crate::portfolio::PmPortfolio;
 use crate::portfolio_results::PortfolioReporter;
@@ -152,7 +152,7 @@ where
                 .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                     state.trades.clone(),
                     state.portfolio.clone(),
-                    new_m_real.to_string(),
+                    MarketLease::new(new_m_real.to_string(), new_m_actual),
                     myself,
                 )))
         {
@@ -186,7 +186,7 @@ where
     // we receive the Behind message, we are in calculating single mode.
     async fn _behind_calculating_single(
         &self,
-        market_behind: String,
+        market_behind: MarketLease,
         trades_behind: TradesLocal,
         state: &mut _ProcessorNewStateful,
         myself: ActorRef<ProcessorMiddleMessage<String>>,
@@ -206,9 +206,9 @@ where
         match &state.new_market {
             None => {
                 debug!("New_m is None, doing: New_m <- {}", market_behind.clone());
-                state.new_market = Some(market_behind.clone());
+                state.new_market = Some(market_behind.to_string());
                 self.all_markets
-                    .insert_processor(self.processor_name.clone(), market_behind)
+                    .insert_processor(self.processor_name.clone(), market_behind.to_string())
                     .await;
             }
             Some(ref real_market) => {
@@ -238,7 +238,7 @@ where
             .price_multiple(
                 trades_behind,
                 state.pricing_metrics.clone(),
-                new_m_actual,
+                new_m_actual.clone(),
                 self.all_trades.clone(),
             )
             .await;
@@ -254,7 +254,7 @@ where
             .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                 state.trades.clone(),
                 state.portfolio.clone(),
-                new_m_real.to_string(),
+                MarketLease::new(new_m_real.to_string(), new_m_actual),
                 myself,
             )))?;
 
@@ -266,7 +266,7 @@ where
         new_trade_l: TradesLocal,
         computed_portf: PmPortfolio,
         offending_trades: TradesLocal,
-        bulk_market: String,
+        bulk_market: MarketLease,
         state: &mut _ProcessorNewStateful,
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
@@ -286,7 +286,7 @@ where
 
         // TODO: THIS IS WRONG!!!
         //if state.new_market.is_none() {
-        state.new_market = Some(bulk_market);
+        state.new_market = Some(bulk_market.to_string());
         // }
 
         debug!(
@@ -300,7 +300,7 @@ where
                 .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                     state.trades.clone(),
                     state.portfolio.clone(),
-                    state.new_market.clone().unwrap(),
+                    bulk_market,
                     myself,
                 )))
         {
@@ -326,7 +326,7 @@ where
         new_trade_l: TradesLocal,
         computed_portf: PmPortfolio,
         _offending_trades: TradesLocal,
-        _bulk_market: String,
+        _bulk_market: MarketLease,
         state: &mut _ProcessorNewStateful,
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
@@ -342,7 +342,7 @@ where
         //     _bulk_market,
 
         match state.new_market {
-            Some(ref new_m_str) if new_m_str == &_bulk_market => {
+            Some(ref new_m_str) if new_m_str == &*_bulk_market => {
                 debug!("Markets match. Will merge computation results.");
                 // merging.
                 // _bulk and new_m are the same, merge the trades.
@@ -366,7 +366,7 @@ where
                         .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                             state.trades.clone(),
                             state.portfolio.clone(),
-                            new_m_str.to_string(),
+                            _bulk_market.clone(),
                             myself,
                         )))
                 {
@@ -459,7 +459,7 @@ where
     #[instrument(
         skip(self, myself, message, state),
         fields(
-            processor = "processor_new",
+            processor = self.processor_name,
             state = %state.processor_state,
             new_m = state.new_market,
         )
@@ -499,10 +499,7 @@ where
                 state
                     .state_distr
                     .incr_one(ProcessorMiddleMessageStates::NewMarket);
-                debug!(
-                    "Message NewMarket: {} <- this should be 'future'",
-                    new_market_name
-                );
+                debug!("Message NewMarket: {}", new_market_name);
 
                 match state.processor_state {
                     ProcessorNewState::CalculatingSingle => {
@@ -514,7 +511,7 @@ where
                             .record(None, "CalculatingBulk", &state.portfolio);
 
                         // this shouldnt fail, but we have a failsafe
-                        let Some(future_market) = self.all_markets.get(&"future".to_string()).await
+                        let Some(future_market) = self.all_markets.get(&new_market_name).await
                         else {
                             warn!(
                                 "Could not find 'future' market. This is weird. Continuing w/o it."
@@ -533,7 +530,7 @@ where
                             .insert_both(
                                 self.processor_name.clone(),
                                 future_market_name.clone(),
-                                future_market,
+                                future_market.clone(),
                             )
                             .await;
 
@@ -551,7 +548,7 @@ where
                         );
                         self.processor_bulk
                             .send_message(ProcessorBulkMessage::NewBulk((
-                                future_market_name.to_string(),
+                                MarketLease::new(future_market_name, future_market),
                                 state.trades.clone(),
                                 myself,
                                 state.pricing_metrics.clone(),
