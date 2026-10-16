@@ -179,11 +179,6 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        info!(
-            processor = %self.processor_name,
-            message_type = message.as_ref(),
-            "Received processor message."
-        );
         debug!(%state, "State:");
         match message {
             ProcessorMiddleMessage::NewTrade(trade) => {

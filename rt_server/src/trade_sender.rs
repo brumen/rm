@@ -162,10 +162,7 @@ where
         info!("Sending trade to processors: {:?}", self.processors);
 
         loop {
-            info!("Trade producer loop");
             let message = self.position_listener.recv().await;
-
-            info!(actor = "trade_producer", "Received trade message",);
 
             let Ok(trade_msg) = message else {
                 error!("Listening to the trade topic failed. Ignoring.");
@@ -180,7 +177,7 @@ where
             let trade_id = trade.id();
             debug!("Received trade: {:?}", trade_id);
 
-            self.trade_list.upsert_async(trade_id.clone(), trade).await;
+            self.trade_list.upsert_sync(trade_id.clone(), trade);
 
             for processor in &self.processors {
                 debug!(

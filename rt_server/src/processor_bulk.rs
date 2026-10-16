@@ -301,13 +301,6 @@ where
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        info!(
-            processor = %self.processor_name,
-            message_type = message.as_ref(),
-            "Received processor message."
-        );
-        debug!("Computing bulk.");
-
         match message {
             // market is where the trades are priced.
             // new_trades are trades that should be priced.
