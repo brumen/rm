@@ -134,22 +134,19 @@ where
         let mut referenced_markets: std::collections::HashSet<String> =
             std::collections::HashSet::new();
         self.processor_market_map
-            .iter_async(|_proc_name: &String, market_name: &String| {
+            .iter_sync(|_proc_name: &String, market_name: &String| {
                 referenced_markets.insert(market_name.clone());
                 true
-            })
-            .await;
+            });
 
         // Remove any market in `self.markets` that is not referenced.
         let mut to_remove: Vec<String> = Vec::new();
-        self.markets
-            .iter_async(|market_name: &String, _| {
-                if !referenced_markets.contains(market_name) {
-                    to_remove.push(market_name.clone());
-                }
-                true
-            })
-            .await;
+        self.markets.iter_sync(|market_name: &String, _| {
+            if !referenced_markets.contains(market_name) {
+                to_remove.push(market_name.clone());
+            }
+            true
+        });
 
         for market_name in to_remove {
             if market_name == "future" {
