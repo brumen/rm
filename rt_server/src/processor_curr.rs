@@ -314,7 +314,7 @@ where
                         .price_multiple(
                             ntp_behind_curr_portfolio.clone(),
                             state.pricing_results.clone(),
-                            ntp_market_actual,
+                            ntp_market_actual.clone(),
                             self.all_trades.clone(),
                         )
                         .await;
@@ -324,6 +324,18 @@ where
                     } // else everything is ok, continue
 
                     ntp_portfolio += additional_portf;
+
+                    // Register the first accepted market too, before publishing can wait.
+                    // Reinsert our Arc in case the sender switched markets while we priced.
+                    if state.curr_market.as_ref() != Some(&ntp_market) {
+                        self.all_markets
+                            .insert_both(
+                                self.processor_name.clone(),
+                                ntp_market.clone(),
+                                ntp_market_actual,
+                            )
+                            .await;
+                    }
 
                     debug!(
                         "NTP portfolio accepted ({:?}). Publishing.",
@@ -341,20 +353,6 @@ where
                             error!("Error publishing: {:?}", e);
                         }
                     }
-
-                    // market that we were holding should be removed from the all_markets,
-                    // as it's not needed anymore.
-                    // destroys the market at the end.
-                    // important: this works w/o old_market != new_market, but it's better
-                    //   since we dont have potential deadlocks on self.all_markets.processor_market_map.
-                    if let Some(ref old_market) = state.curr_market {
-                        if *old_market != ntp_market {
-                            let _ = self
-                                .all_markets
-                                .insert_processor(self.processor_name.clone(), ntp_market.clone())
-                                .await;
-                        }
-                    };
 
                     // update the state of current processor.
                     // this below ntp_trades_from_portfolio should be
@@ -414,5 +412,105 @@ where
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::markets::letf_market::LETFMarketType;
+    use crate::portfolio_results::PortfolioResults;
+    use crate::trades::trade_letf::LETFTrade;
+
+    struct MessageSink;
+
+    #[async_trait]
+    impl Actor for MessageSink {
+        type Msg = ProcessorMiddleMessage<String>;
+        type State = ();
+        type Arguments = ();
+
+        async fn pre_start(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            _args: (),
+        ) -> Result<(), ActorProcessingErr> {
+            Ok(())
+        }
+
+        async fn handle(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            _message: Self::Msg,
+            _state: &mut (),
+        ) -> Result<(), ActorProcessingErr> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_accepted_markets_are_registered_from_first_portfolio() {
+        let all_markets = Arc::new(AllMarkets::new());
+        let results = Arc::new(PortfolioResults::default());
+        // Empty portfolios never publish, so this client needs no Kafka broker.
+        let result_publisher = rdkafka::ClientConfig::new()
+            .set_log_level(rdkafka::config::RDKafkaLogLevel::Emerg)
+            .create()
+            .unwrap();
+        let processor: ProcessorCurr<LETFTrade, LETFMarketType> = ProcessorCurr {
+            processor_name: "current".into(),
+            results_topic: "test".into(),
+            result_publisher,
+            all_markets: all_markets.clone(),
+            all_trades: Arc::new(TradeRep::default()),
+            operating_mode: RTOperatingMode::DoubleBuffer,
+            pricing_mode: PricingStyle::Sequential,
+            portfolio_reporter: results.reporter("test".into(), "current", "current".into()),
+        };
+        let (sink, sink_handle) = Actor::spawn(None, MessageSink, ()).await.unwrap();
+        let mut state = processor.pre_start(sink.clone(), ()).await.unwrap();
+        state.pricing_results = vec![PricingMetric::PV];
+
+        for market_name in ["first", "second", "second"] {
+            let market_name = market_name.to_string();
+            all_markets
+                .insert_both(
+                    "upstream".into(),
+                    market_name.clone(),
+                    Arc::new(LETFMarketType::new(market_name.clone())),
+                )
+                .await;
+            processor
+                .handle(
+                    sink.clone(),
+                    ProcessorMiddleMessage::NewTradePortfolio((
+                        TradesLocal::new(),
+                        PmPortfolio::new(),
+                        market_name.clone(),
+                        sink.clone(),
+                    )),
+                    &mut state,
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(state.curr_market.as_ref(), Some(&market_name));
+            assert_eq!(
+                all_markets.get_processor(&"current".into()).await,
+                Some(market_name.clone())
+            );
+            // Once the sender moves on, the current processor must still pin its market.
+            all_markets
+                .insert_both(
+                    "upstream".into(),
+                    "next".into(),
+                    Arc::new(LETFMarketType::new("next".into())),
+                )
+                .await;
+            assert!(all_markets.get(&market_name).await.is_some());
+        }
+
+        sink.stop(None);
+        sink_handle.await.unwrap();
     }
 }

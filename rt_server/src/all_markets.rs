@@ -1,6 +1,7 @@
 use scc::HashMap as DashMap;
 use std::collections::BTreeMap;
 use std::fmt;
+use tokio::sync::{Mutex, MutexGuard};
 use tracing::debug;
 
 use crate::market::MarketTypeT;
@@ -11,9 +12,10 @@ use crate::market::MarketTypeT;
 /// MT = MarketTypeT<MP>
 #[derive(Debug)]
 pub(crate) struct AllMarkets<MT: fmt::Debug> {
-    pub(crate) markets: DashMap<String, MT>,
-    pub(crate) processor_market_map: DashMap<String, String>, // mapping between processor names and market names used.
-                                                              //    pub(crate) mp: Option<MT::MP>,
+    markets: DashMap<String, MT>,
+    processor_market_map: DashMap<String, String>,
+    // Serialize mutations across both maps so registration and pruning cannot race.
+    updates: Mutex<()>,
 }
 
 impl<MT: fmt::Debug> fmt::Display for AllMarkets<MT> {
@@ -85,6 +87,7 @@ where
         Self {
             markets: DashMap::<String, MT>::new(),
             processor_market_map: DashMap::<String, String>::new(),
+            updates: Mutex::new(()),
         }
     }
 
@@ -106,7 +109,9 @@ where
 
     // inserts the market into the all structure.
     pub(crate) async fn insert(&self, market_name: String, market: MT) {
+        let update_guard = self.updates.lock().await;
         self.markets.upsert_async(market_name.clone(), market).await;
+        drop(update_guard);
         debug!(
             "Inserting {} into all_market. All_markets: {:?}",
             market_name,
@@ -114,39 +119,48 @@ where
         );
     }
 
-    /// Like `insert_processor`, but additionally prunes `self.markets` so that it only contains
-    /// markets that are referenced by at least one processor in `processor_market_map`.
-    ///
-    /// This is useful if `self.markets` may contain many "stale" markets and you want the set of
-    /// stored markets to reflect only what processors are actively using.
+    /// Registers a processor and prunes unreferenced markets, preserving `future`.
+    /// Use `insert_both` when inserting a market and registering its first processor.
     pub(crate) async fn insert_processor(
         &self,
         processor_name: String,
         new_processor_market: String,
     ) {
-        // First, update the processor -> market mapping (upsert).
-        let _ = self
-            .processor_market_map
+        let update_guard = self.updates.lock().await;
+        self.processor_market_map
             .upsert_async(processor_name, new_processor_market)
             .await;
+        self.prune_unreferenced_markets(&update_guard).await;
+    }
 
+    #[allow(dead_code)]
+    pub(crate) async fn remove_processor(&self, processor_name: &str) {
+        let update_guard = self.updates.lock().await;
+        self.processor_market_map.remove_async(processor_name).await;
+        self.prune_unreferenced_markets(&update_guard).await;
+    }
+
+    async fn prune_unreferenced_markets(&self, _update_guard: &MutexGuard<'_, ()>) {
         // Build the set of all markets referenced by any processor.
         let mut referenced_markets: std::collections::HashSet<String> =
             std::collections::HashSet::new();
         self.processor_market_map
-            .iter_sync(|_proc_name: &String, market_name: &String| {
+            .iter_async(|_proc_name: &String, market_name: &String| {
                 referenced_markets.insert(market_name.clone());
                 true
-            });
+            })
+            .await;
 
         // Remove any market in `self.markets` that is not referenced.
         let mut to_remove: Vec<String> = Vec::new();
-        self.markets.iter_sync(|market_name: &String, _| {
-            if !referenced_markets.contains(market_name) {
-                to_remove.push(market_name.clone());
-            }
-            true
-        });
+        self.markets
+            .iter_async(|market_name: &String, _| {
+                if !referenced_markets.contains(market_name) {
+                    to_remove.push(market_name.clone());
+                }
+                true
+            })
+            .await;
 
         for market_name in to_remove {
             if market_name == "future" {
@@ -160,15 +174,19 @@ where
         }
     }
 
-    // this is when the processor changes to a new market market_name w/ market
+    /// Inserts and registers a market under one lock before pruning can run.
     pub(crate) async fn insert_both(
         &self,
         processor_name: String,
         market_name: String,
         market: MT,
     ) {
-        self.insert(market_name.clone(), market).await;
-        self.insert_processor(processor_name, market_name).await;
+        let update_guard = self.updates.lock().await;
+        self.markets.upsert_async(market_name.clone(), market).await;
+        self.processor_market_map
+            .upsert_async(processor_name, market_name)
+            .await;
+        self.prune_unreferenced_markets(&update_guard).await;
     }
 }
 
@@ -296,6 +314,78 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_unregister_prunes_only_unreferenced_markets() {
+        let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
+        let market = TestMarket::new("shared".into(), ());
+        all.insert("future".into(), TestMarket::new("future".into(), ()))
+            .await;
+        all.insert_both("p1".into(), "shared".into(), market).await;
+        all.insert_processor("p2".into(), "shared".into()).await;
+
+        all.remove_processor("p1").await;
+        assert!(all.get(&"shared".into()).await.is_some());
+        all.remove_processor("p2").await;
+        assert!(all.get(&"shared".into()).await.is_none());
+        assert!(all.get(&"future".into()).await.is_some());
+        assert!(all.processor_market_snapshot().await.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_concurrent_registration_and_pruning_preserve_referenced_markets() {
+        let all: Arc<AllMarkets<Arc<TestMarket>>> = Arc::new(AllMarkets::new());
+        all.insert("future".into(), TestMarket::new("future".into(), ()))
+            .await;
+        let start = Arc::new(tokio::sync::Barrier::new(8));
+        let mut tasks = tokio::task::JoinSet::new();
+
+        for processor in 0..8 {
+            let all = all.clone();
+            let start = start.clone();
+            tasks.spawn(async move {
+                let processor_name = format!("p{processor}");
+                start.wait().await;
+                for version in 0..100 {
+                    let market_name = format!("p{processor}-m{version}");
+                    all.insert_both(
+                        processor_name.clone(),
+                        market_name.clone(),
+                        TestMarket::new(market_name.clone(), ()),
+                    )
+                    .await;
+                    tokio::task::yield_now().await;
+                    // Exercise registration-only pruning concurrently with insert_both.
+                    all.insert_processor(processor_name.clone(), market_name.clone())
+                        .await;
+                    assert!(
+                        all.get(&market_name).await.is_some(),
+                        "referenced market {market_name} was pruned"
+                    );
+                }
+            });
+        }
+
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while let Some(result) = tasks.join_next().await {
+                result.expect("concurrent market update failed");
+            }
+        })
+        .await
+        .expect("market updates deadlocked or failed to make progress");
+
+        let referenced = all.processor_market_snapshot().await;
+        assert_eq!(referenced.len(), 8);
+        let mut expected: HashSet<String> = referenced.into_values().collect();
+        expected.insert("future".into());
+        assert_eq!(
+            all.list_market_names()
+                .await
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            expected
+        );
+    }
+
+    #[tokio::test]
     async fn test_multiple_processors_keep_multiple_markets() {
         let all: AllMarkets<Arc<TestMarket>> = AllMarkets::new();
 
@@ -360,7 +450,10 @@ mod tests {
             let start_c = start.clone();
             let mn = market_names[t % market_names.len()].clone();
             handles.push(thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("failed to create tokio runtime");
                 start_c.wait();
                 rt.block_on(async move {
                     all_c.insert_processor("p1".to_string(), mn).await;
@@ -425,7 +518,10 @@ mod tests {
             let market_pool_c = market_pool.clone();
 
             handles.push(thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("failed to create tokio runtime");
                 start_c.wait();
 
                 rt.block_on(async move {

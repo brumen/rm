@@ -330,7 +330,7 @@ where
                     .await;
                 debug!(
                     "Bulk: Current processor-market map: {:?}",
-                    self.all_markets.processor_market_map,
+                    self.all_markets.processor_market_snapshot().await,
                 );
 
                 let Some(market_actual) = self.all_markets.get(&market).await else {
