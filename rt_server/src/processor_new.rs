@@ -5,6 +5,7 @@ use tracing::{debug, error, info, instrument, warn}; // for tracking states.
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 use crate::portfolio::PmPortfolio;
+use crate::portfolio_results::PortfolioReporter;
 use crate::pricer::{PriceTrade, PricingMetric};
 use crate::processor_bulk::{PriceMultiple, PricingStyle};
 use crate::processor_msg::{
@@ -26,6 +27,7 @@ where
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub(crate) state_distr: Arc<PNStateDistr>, // evmap for state distributions.
     pub(crate) pricing_mode: PricingStyle,
+    pub(crate) portfolio_reporter: PortfolioReporter,
 }
 
 #[allow(dead_code)]
@@ -56,6 +58,7 @@ where
         all_trades: Arc<TradeRep<T>>,
         state_distr: Arc<PNStateDistr>,
         pricing_mode: PricingStyle,
+        portfolio_reporter: PortfolioReporter,
     ) -> Self {
         Self {
             processor_name: processor_name.clone(),
@@ -65,6 +68,7 @@ where
             all_trades,
             state_distr,
             pricing_mode,
+            portfolio_reporter,
         }
     }
 
@@ -127,6 +131,11 @@ where
             debug!("New trade price: {:?}", new_trade_price_pm);
             state.portfolio.assign_metric(pm, new_trade_price_pm);
         }
+        self.portfolio_reporter.record(
+            state.new_market.as_deref(),
+            "CalculatingSingle",
+            &state.portfolio,
+        );
 
         // we send the computed portfolio & trades to the current processor
         //   hoping that we are ahead.
@@ -235,6 +244,11 @@ where
             .await;
 
         state.portfolio += bulk_portfolio;
+        self.portfolio_reporter.record(
+            state.new_market.as_deref(),
+            "CalculatingSingle",
+            &state.portfolio,
+        );
 
         self.processor_middle
             .send_message(ProcessorMiddleMessage::NewTradePortfolio((
@@ -297,6 +311,11 @@ where
         };
         debug!("New State: {} -> Idle", state.processor_state);
         state.processor_state = ProcessorNewState::CalculatingSingle;
+        self.portfolio_reporter.record(
+            state.new_market.as_deref(),
+            "CalculatingSingle",
+            &state.portfolio,
+        );
         Ok(())
     }
 
@@ -423,6 +442,8 @@ where
         _args: Self::Arguments, // market parameters are passed here
     ) -> Result<Self::State, ActorProcessingErr> {
         info!("Starting ProcessorNew.");
+        self.portfolio_reporter
+            .record(None, "Waiting for results", &PmPortfolio::new());
 
         Ok(_ProcessorNewStateful {
             trades: TradesLocal::new(),
@@ -489,6 +510,8 @@ where
 
                         debug!("Switching markets and starting the bulk computation.");
                         state.portfolio = PmPortfolio::new();
+                        self.portfolio_reporter
+                            .record(None, "CalculatingBulk", &state.portfolio);
 
                         // this shouldnt fail, but we have a failsafe
                         let Some(future_market) = self.all_markets.get(&"future".to_string()).await
@@ -521,6 +544,11 @@ where
                         //     return Ok(());
                         // };
                         state.processor_state = ProcessorNewState::CalculatingBulk;
+                        self.portfolio_reporter.record(
+                            state.new_market.as_deref(),
+                            "CalculatingBulk",
+                            &state.portfolio,
+                        );
                         self.processor_bulk
                             .send_message(ProcessorBulkMessage::NewBulk((
                                 future_market_name.to_string(),
@@ -616,6 +644,11 @@ where
                 info!("Changing metrics to {:?}", new_pricing_metrics);
                 crate::utils::change_metrics(&mut state.portfolio, new_pricing_metrics.clone()); // fixes the portf to correspond to new_pricing_metrics
                 state.pricing_metrics = new_pricing_metrics;
+                self.portfolio_reporter.record(
+                    state.new_market.as_deref(),
+                    &state.processor_state.to_string(),
+                    &state.portfolio,
+                );
             }
 
             // catch for other message types.

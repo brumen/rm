@@ -10,6 +10,7 @@ use tracing::{debug, error, info, instrument, warn};
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
 use crate::portfolio::{PmPortfolio, PortfolioType};
+use crate::portfolio_results::PortfolioReporter;
 use crate::pricer::{PriceTrade, PricingMetric};
 use crate::processor_bulk::{PriceMultiple, PricingStyle};
 use crate::processor_msg::{ProcessorMiddleMessage, TradesLocal};
@@ -35,6 +36,7 @@ where
     // pub trade_processor: ActorRef<ProcessorMiddleMessage<dyn MarketTypeT<MP=MP>>>,
     pub operating_mode: RTOperatingMode,
     pub(crate) pricing_mode: PricingStyle,
+    pub(crate) portfolio_reporter: PortfolioReporter,
 }
 
 impl<T, MT> std::fmt::Debug for ProcessorCurr<T, MT>
@@ -152,6 +154,8 @@ where
         info!("Starting ProcessorCurr: {}", self.processor_name);
         let initial_trades = TradesLocal::new();
         let initial_curr_portf = PmPortfolio::new();
+        self.portfolio_reporter
+            .record(None, "Waiting for results", &initial_curr_portf);
         // no initial metrics
         Ok(_ProcessorCurrState {
             trades: initial_trades,
@@ -238,6 +242,11 @@ where
                     }
                 }
 
+                self.portfolio_reporter.record(
+                    state.curr_market.as_deref(),
+                    "Current",
+                    &state.portfolio,
+                );
                 for pm in state.pricing_results.clone() {
                     if let Some(portf_pm) = state.portfolio.get_mut(&pm) {
                         // publishing the portfolio to kafka.
@@ -322,6 +331,8 @@ where
                     );
                     state.newtrades_since_last_newmarket = 0; // reset the newtrades count.
                     state.portfolio = ntp_portfolio;
+                    self.portfolio_reporter
+                        .record(Some(&ntp_market), "Current", &state.portfolio);
                     for (pm, new_portf_pm) in state.portfolio.iter() {
                         if let Err(e) = self
                             ._publish_result_portfolio(new_portf_pm.clone(), *pm)
@@ -384,6 +395,11 @@ where
                 info!("Changing metrics to {:?}", new_pricing_metrics);
                 crate::utils::change_metrics(&mut state.portfolio, new_pricing_metrics.clone()); // fixes the portf to correspond to new_pricing_metrics
                 state.pricing_results = new_pricing_metrics;
+                self.portfolio_reporter.record(
+                    state.curr_market.as_deref(),
+                    "Current",
+                    &state.portfolio,
+                );
 
                 // sending it to for publishing
                 for (pm, portf_pm) in state.portfolio.iter() {

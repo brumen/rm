@@ -73,6 +73,49 @@ The engine constructs a hierarchical processing chain:
 - `processor_msg.rs`: Defines the inter-actor messaging protocol (`ProcessorMiddleMessage`, `ProcessorBulkMessage`).
 - `market.rs` / `trade.rs`: Core domain traits and data structures.
 
+## Live Processor Market Map
+
+With the server running, open `http://<diagnostics-host>:3000/processor_market_map`
+using the address printed by the diagnostics startup log (the local IP detected by
+`main.rs`). The page displays processor-to-market assignments, with filtering,
+processor/market counts, highlighted assignment changes, and connection status.
+It reconnects automatically if the diagnostics connection drops.
+
+- `/processor_market_map/data` returns the current mapping as a JSON object.
+- `/processor_market_map/events` streams JSON snapshots using server-sent events
+  every 500 ms, including an immediate initial snapshot. Changes between samples
+  may not be visible; this is a live sampled view, not an event history.
+- The existing `/market_map` text endpoint remains unchanged.
+
+The display uses the diagnostics server's existing shared `AllMarkets` instance
+and requires no additional frontend build or external assets. Like the other
+diagnostics endpoints, it has no authentication; expose port 3000 only to trusted
+users or protect it with an authenticated proxy.
+
+## Live Portfolio Results
+
+Open `http://<diagnostics-host>:3000/portfolio_results` to view portfolio results
+from `processor_curr` and `processor_new`. The URL is also printed at startup and
+linked from the processor market map. The display streams snapshots every 500 ms,
+with metric totals, trade counts, associated market, processor state, and result
+capture time. Filter by results topic, processor, or free text, and expand
+per-trade results to inspect individual values (up to 500 matching rows at once).
+
+Results are captured directly from the actor portfolios on pricing updates,
+accepted portfolio replacements, metric changes, and bulk resets. They are grouped
+by Kafka results topic so the two engine pipelines do not overwrite each other.
+`processor_new` results are provisional and clear while a new bulk calculation is
+pending; `processor_curr` shows its current accepted/priced portfolio. These are
+actor-state snapshots, not confirmations of Kafka delivery. Non-finite values and
+totals are represented as `null` in JSON and `N/A` in the page.
+
+- `/portfolio_results/data` returns the latest snapshots as JSON.
+- `/portfolio_results/events` streams the same data using server-sent events.
+- The existing `/portfolio` text endpoint is unchanged.
+
+The page requires no frontend build or external assets and uses the same
+unauthenticated diagnostics server; keep it restricted to trusted users.
+
 
 ## Kafka connection functions 
 

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Processor market map</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; background: light-dark(#f4f7fb, #101722); color: light-dark(#172338, #e6edf7); }
+    body { max-width: 1080px; margin: 0 auto; padding: 36px 20px; }
+    header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+    h1 { margin: 0; font-size: 1.8rem; }
+    .muted { color: light-dark(#54647a, #a1b0c5); }
+    #status { border-radius: 20px; padding: 7px 14px; background: light-dark(#fff0cc, #493914); }
+    #status[data-live="true"] { background: light-dark(#d9f6e5, #163d2c); color: light-dark(#17643d, #8be4b3); }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin: 28px 0 16px; }
+    label { display: grid; gap: 6px; }
+    input { font: inherit; padding: 10px 12px; border: 1px solid light-dark(#c8d2df, #43506a); border-radius: 8px; background: light-dark(white, #192334); color: inherit; width: min(320px, 75vw); }
+    .table-wrap { overflow-x: auto; border: 1px solid light-dark(#d6dfeb, #334158); border-radius: 12px; background: light-dark(white, #192334); }
+    table { border-collapse: collapse; width: 100%; text-align: left; }
+    th, td { padding: 14px 18px; border-bottom: 1px solid light-dark(#e8edf4, #2c394f); overflow-wrap: anywhere; }
+    th { font-size: .85rem; color: light-dark(#54647a, #a1b0c5); }
+    td { font-family: ui-monospace, monospace; }
+    tr:last-child td { border-bottom: none; }
+    tr.changed { background: light-dark(#e1f2ff, #203e59); }
+    #empty { padding: 30px; text-align: center; }
+    footer { margin-top: 16px; font-size: .85rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Processor market map</h1>
+      <p class="muted">Live processor → market assignments · <a href="/portfolio_results">Portfolio results</a></p>
+    </div>
+    <span id="status" role="status" data-live="false">Connecting…</span>
+  </header>
+  <div class="toolbar">
+    <label for="filter">Filter processors or markets
+      <input id="filter" type="search" placeholder="Search assignments…" autocomplete="off">
+    </label>
+    <span id="summary" class="muted">Waiting for assignments…</span>
+  </div>
+  <div class="table-wrap">
+    <table aria-label="Processor market assignments">
+      <thead><tr><th scope="col">Processor</th><th scope="col">Market</th></tr></thead>
+      <tbody id="assignments"></tbody>
+    </table>
+    <div id="empty" class="muted">Waiting for the first update…</div>
+  </div>
+  <footer class="muted">Samples every 500 ms · Blue rows indicate recently changed assignments · <span id="updated">No updates yet</span></footer>
+  <script>
+    const assignments = document.getElementById("assignments");
+    const status = document.getElementById("status");
+    const summary = document.getElementById("summary");
+    const empty = document.getElementById("empty");
+    const filter = document.getElementById("filter");
+    const updated = document.getElementById("updated");
+    let snapshot = new Map();
+    let initialized = false;
+    const changedUntil = new Map();
+
+    function render() {
+      const query = filter.value.trim().toLowerCase();
+      const rows = document.createDocumentFragment();
+      const now = Date.now();
+      let visible = 0;
+
+      for (const [processor, market] of snapshot) {
+        if (!`${processor} ${market}`.toLowerCase().includes(query)) continue;
+        const row = document.createElement("tr");
+        if ((changedUntil.get(processor) || 0) > now) row.className = "changed";
+        for (const value of [processor, market]) {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.append(cell);
+        }
+        rows.append(row);
+        visible += 1;
+      }
+
+      assignments.replaceChildren(rows);
+      empty.hidden = visible > 0;
+      empty.textContent = snapshot.size ? "No matching assignments." : "No processors registered yet.";
+      const markets = new Set(snapshot.values()).size;
+      summary.textContent = `${visible} / ${snapshot.size} processors · ${markets} distinct markets`;
+    }
+
+    const events = new EventSource("/processor_market_map/events");
+    events.onmessage = (event) => {
+      const next = new Map(Object.entries(JSON.parse(event.data)));
+      const now = Date.now();
+      for (const [processor, market] of next) {
+        if (initialized && snapshot.get(processor) !== market) changedUntil.set(processor, now + 1500);
+      }
+      for (const processor of changedUntil.keys()) {
+        if (!next.has(processor) || changedUntil.get(processor) <= now) changedUntil.delete(processor);
+      }
+      snapshot = next;
+      initialized = true;
+      status.textContent = "Live";
+      status.dataset.live = "true";
+      updated.textContent = `Last update ${new Date(now).toLocaleTimeString()}`;
+      render();
+    };
+    events.onerror = () => {
+      status.textContent = "Disconnected · reconnecting…";
+      status.dataset.live = "false";
+    };
+    filter.addEventListener("input", render);
+  </script>
+</body>
+</html>

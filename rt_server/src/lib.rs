@@ -3,6 +3,7 @@
 // #![feature(impl_trait_in_assoc_type)]
 pub mod market;
 pub mod portfolio;
+pub(crate) mod portfolio_results;
 pub mod portfolio_sender;
 pub mod pricer;
 // pub mod process_trade;

@@ -8,6 +8,7 @@ use tracing_subscriber::{layer::SubscriberExt, reload, util::SubscriberInitExt, 
 
 pub mod market;
 pub mod portfolio;
+pub(crate) mod portfolio_results;
 pub mod portfolio_sender;
 mod postprocs;
 pub mod pricer;
@@ -192,6 +193,7 @@ async fn run_all() {
     let markets_used = vec!["curr".to_string(), "new".to_string()];
 
     let (initial_trades, all_markets) = init_letf();
+    let portfolio_results = Arc::new(portfolio_results::PortfolioResults::default());
 
     let Ok(local_ip_address) = local_ip() else {
         error!("Error getting local IP addres.");
@@ -209,6 +211,7 @@ async fn run_all() {
         nb_middle_procs,
         operating_mode.clone(),
         pricing_mode.clone(),
+        portfolio_results.clone(),
     )
     .await;
 
@@ -222,6 +225,7 @@ async fn run_all() {
         0, // 0 middle processors (TODO: CHECK THIS)
         RTOperatingMode::SingleBuffer,
         pricing_mode,
+        portfolio_results.clone(),
     )
     .await;
 
@@ -231,6 +235,7 @@ async fn run_all() {
         initial_trades,
         reload_handle,
         state_distr_new.clone(),
+        portfolio_results,
     );
     let diagnostic_join = tokio::spawn(async move {
         match diagnostics_future.await {

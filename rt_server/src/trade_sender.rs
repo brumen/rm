@@ -159,6 +159,7 @@ where
         _state: &mut Self::State,
     ) -> Result<Self::State, ActorProcessingErr> {
         info!("Trade Producer waiting on messages.");
+        info!("Sending trade to processors: {:?}", self.processors);
 
         loop {
             let Ok(trade_msg) = self.position_listener.recv().await else {
@@ -177,7 +178,11 @@ where
             self.trade_list.upsert_async(trade_id.clone(), trade).await;
 
             for processor in &self.processors {
-                debug!("Sending trade to {:?}", processor.get_name());
+                debug!(
+                    "Sending trade to processor name={:?}, id={:?}",
+                    processor.get_name(),
+                    processor.get_id()
+                );
                 if let Err(e) =
                     processor.send_message(ProcessorMiddleMessage::NewTrade(trade_id.clone()))
                 {

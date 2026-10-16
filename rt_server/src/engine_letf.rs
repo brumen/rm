@@ -10,6 +10,7 @@ use crate::all_markets::AllMarkets;
 use crate::engine_actor::{create_curr_actor, create_middle_procs_chain, KafkaParams};
 use crate::market::{MarketTypeT, SetName};
 use crate::mkt_handler_actor::MarketProducer;
+use crate::portfolio_results::PortfolioResults;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PriceTrade;
 use crate::processor_bulk::{PricingStyle, ProcessorBulk};
@@ -32,6 +33,7 @@ pub(crate) async fn start2<T, MT>(
     nb_middle: usize,
     operating_mode: RTOperatingMode,
     pricing_mode: PricingStyle,
+    portfolio_results: Arc<PortfolioResults>,
 ) -> (
     Vec<ActorRef<ProcessorMiddleMessage<String>>>,
     Vec<JoinHandle<()>>,
@@ -63,6 +65,11 @@ where
         mp.clone(),
         operating_mode,
         pricing_mode.clone(),
+        portfolio_results.reporter(
+            kafka_params.results_topic.clone(),
+            "processor_curr",
+            markets_used[0].clone(),
+        ),
     )
     .await;
 
@@ -119,6 +126,11 @@ where
         initial_trades.clone(),
         state_distr_new.clone(),
         pricing_mode,
+        portfolio_results.reporter(
+            kafka_params.results_topic.clone(),
+            "processor_new",
+            "processor_new".to_string(),
+        ),
     );
 
     let (_processor_new_a, processor_new_handle) =

@@ -6,6 +6,7 @@ use tokio::task::JoinHandle;
 
 use crate::all_markets::AllMarkets;
 use crate::market::MarketTypeT;
+use crate::portfolio_results::PortfolioReporter;
 use crate::pricer::PriceTrade;
 use crate::processor_bulk::{PricingStyle, ProcessorBulk};
 use crate::processor_curr::{ProcessorCurr, RTOperatingMode};
@@ -32,6 +33,7 @@ pub(crate) async fn create_curr_actor<T, MT>(
     mp: MT::MP,
     operating_mode: RTOperatingMode,
     pricing_mode: PricingStyle,
+    portfolio_reporter: PortfolioReporter,
 ) -> (ProcessorCurr<T, MT>, JoinHandle<()>)
 where
     T: Sync + Send + 'static + Clone + BaseTrade + PriceTrade<MT> + std::fmt::Debug,
@@ -62,6 +64,7 @@ where
         all_trades: initial_trades,
         operating_mode,
         pricing_mode,
+        portfolio_reporter,
     };
 
     (processor_curr, processor_new_bulk_h)

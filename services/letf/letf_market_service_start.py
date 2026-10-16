@@ -33,29 +33,11 @@ letf_market_producer = LETFMarketProducer(
     ],
     server_port_topic=(KAFKA_HOST, KAFKA_PORT, MKT_TOPIC),
 )
-letf_trade_producer = LETFTradeProducer(
-    stocks=[
-        "AAPL",
-        "NVDA",
-    ],
-    server_port_topic=(
-        KAFKA_HOST,
-        KAFKA_PORT,
-        POSITIONS_TOPIC,
-    ),
-    mkt_producer=letf_market_producer,
-)
 
-frequency_of_market = 15
+frequency_of_market = 0.1
 market_thread = letf_market_producer.create_thread(
     sleep_between_publish=frequency_of_market
 )
 
-frequency_of_trades = 1
-trade_thread = letf_trade_producer.create_thread(
-    sleep_between_publish=frequency_of_trades
-)
-
 # this just simulates markets
 market_thread.start()
-# trade_thread.start()

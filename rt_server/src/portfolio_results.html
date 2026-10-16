@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Processor portfolio results</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; background: light-dark(#f4f7fb, #101722); color: light-dark(#172338, #e6edf7); }
+    body { max-width: 1440px; margin: 0 auto; padding: 36px 20px; }
+    header, .toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+    h1 { margin: 0; font-size: 1.8rem; }
+    .muted, th { color: light-dark(#54647a, #a1b0c5); }
+    a { color: light-dark(#2465a8, #8fc6ff); }
+    #status { border-radius: 20px; padding: 7px 14px; background: light-dark(#fff0cc, #493914); }
+    #status[data-live="true"] { background: light-dark(#d9f6e5, #163d2c); color: light-dark(#17643d, #8be4b3); }
+    .toolbar { justify-content: flex-start; margin: 28px 0 16px; }
+    label { display: grid; gap: 6px; }
+    input, select { font: inherit; padding: 10px 12px; border: 1px solid light-dark(#c8d2df, #43506a); border-radius: 8px; background: light-dark(white, #192334); color: inherit; max-width: 80vw; }
+    .table-wrap { overflow-x: auto; border: 1px solid light-dark(#d6dfeb, #334158); border-radius: 12px; background: light-dark(white, #192334); }
+    table { border-collapse: collapse; width: 100%; text-align: left; }
+    th, td { padding: 12px 16px; border-bottom: 1px solid light-dark(#e8edf4, #2c394f); overflow-wrap: anywhere; }
+    th { font-size: .85rem; }
+    td { font-family: ui-monospace, monospace; font-size: .9rem; }
+    tr:last-child td { border-bottom: none; }
+    .number { text-align: right; white-space: nowrap; }
+    .changed { animation: changed 1.5s ease-out; }
+    @keyframes changed { from { background: light-dark(#cce8ff, #285276); } to { background: transparent; } }
+    @media (prefers-reduced-motion: reduce) { .changed { animation: none; } }
+    #empty { padding: 30px; text-align: center; }
+    details { margin-top: 24px; }
+    summary { cursor: pointer; font-weight: 600; }
+    footer { margin-top: 20px; font-size: .85rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Processor portfolio results</h1>
+      <p class="muted">Live processor_curr and processor_new valuations · <a href="/processor_market_map">Processor market map</a></p>
+    </div>
+    <span id="status" role="status" data-live="false">Connecting…</span>
+  </header>
+  <div class="toolbar">
+    <label for="pipeline">Results topic<select id="pipeline"><option value="">All results topics</option></select></label>
+    <label for="processor">Processor<select id="processor"><option value="">Both processors</option><option value="processor_curr">processor_curr</option><option value="processor_new">processor_new</option></select></label>
+    <label for="filter">Filter results<input id="filter" type="search" placeholder="Topic, market, metric, trade…" autocomplete="off"></label>
+    <span id="summary" class="muted">Waiting for results…</span>
+  </div>
+  <div class="table-wrap">
+    <table aria-label="Portfolio metric totals">
+      <thead><tr><th scope="col">Results topic</th><th scope="col">Processor</th><th scope="col">Market</th><th scope="col">State</th><th scope="col">Metric</th><th scope="col" class="number">Total</th><th scope="col" class="number">Trades</th><th scope="col">Result captured</th></tr></thead>
+      <tbody id="results"></tbody>
+    </table>
+    <div id="empty" class="muted">Waiting for the first update…</div>
+  </div>
+  <details id="trade-details">
+    <summary>Per-trade results</summary>
+    <p id="trade-count" class="muted">Open to view trade values. Use the filters above to narrow results.</p>
+    <div class="table-wrap">
+      <table aria-label="Per-trade portfolio results">
+        <thead><tr><th scope="col">Results topic</th><th scope="col">Processor</th><th scope="col">Metric</th><th scope="col">Trade</th><th scope="col" class="number">Value</th></tr></thead>
+        <tbody id="trades"></tbody>
+      </table>
+    </div>
+  </details>
+  <footer class="muted">
+    Samples every 500 ms · Blue flashes indicate changed results · <span id="updated">No updates yet</span><br>
+    These are actor-state snapshots, not Kafka delivery confirmations. processor_new is provisional; its metrics clear during bulk recomputation. N/A indicates a non-finite value. Result capture times remain unchanged when no new results arrive.
+  </footer>
+  <script>
+    const results = document.getElementById("results");
+    const trades = document.getElementById("trades");
+    const status = document.getElementById("status");
+    const summary = document.getElementById("summary");
+    const empty = document.getElementById("empty");
+    const pipeline = document.getElementById("pipeline");
+    const processor = document.getElementById("processor");
+    const filter = document.getElementById("filter");
+    const details = document.getElementById("trade-details");
+    const tradeCount = document.getElementById("trade-count");
+    const updated = document.getElementById("updated");
+    const number = new Intl.NumberFormat(undefined, { maximumSignificantDigits: 12 });
+    let snapshot = {};
+    let previousPayload = null;
+    let topicKeys = "[]";
+    let previousRows = new Map();
+
+    function formatValue(value) {
+      return typeof value === "number" && Number.isFinite(value) ? number.format(value) : "N/A";
+    }
+
+    function appendRow(fragment, values, numericColumns = [], changed = false) {
+      const row = document.createElement("tr");
+      if (changed) row.className = "changed";
+      values.forEach((value, index) => {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        if (numericColumns.includes(index)) cell.className = "number";
+        row.append(cell);
+      });
+      fragment.append(row);
+    }
+
+    function render() {
+      const query = filter.value.trim().toLowerCase();
+      const rows = document.createDocumentFragment();
+      const tradeRows = document.createDocumentFragment();
+      const nextRows = new Map();
+      let visible = 0;
+      let matchingTrades = 0;
+
+      for (const [topic, processors] of Object.entries(snapshot)) {
+        if (pipeline.value && pipeline.value !== topic) continue;
+        for (const [role, result] of Object.entries(processors)) {
+          if (processor.value && processor.value !== role) continue;
+          const market = result.market ?? "Not assigned";
+          const captured = new Date(result.updated_at_ms).toLocaleString();
+          const metrics = Object.entries(result.metrics);
+          if (!metrics.length && `${topic} ${role} ${result.processor_name} ${market} ${result.phase}`.toLowerCase().includes(query)) {
+            appendRow(rows, [topic, role, market, result.phase, "Waiting for results", "—", 0, captured], [5, 6]);
+            visible += 1;
+          }
+          for (const [metric, portfolio] of metrics) {
+            const context = `${topic} ${role} ${result.processor_name} ${market} ${result.phase} ${metric}`.toLowerCase();
+            const contextMatches = context.includes(query);
+            const entries = Object.entries(portfolio.trades);
+            const matching = contextMatches ? entries : entries.filter(([trade]) => trade.toLowerCase().includes(query));
+            if (!contextMatches && !matching.length) continue;
+            const key = JSON.stringify([topic, role, metric]);
+            const fingerprint = JSON.stringify([market, result.phase, portfolio]);
+            nextRows.set(key, fingerprint);
+            const changed = previousRows.has(key) && previousRows.get(key) !== fingerprint;
+            appendRow(rows, [topic, role, market, result.phase, metric, formatValue(portfolio.total), entries.length, captured], [5, 6], changed);
+            visible += 1;
+            for (const [trade, value] of matching) {
+              matchingTrades += 1;
+              if (details.open && matchingTrades <= 500) {
+                appendRow(tradeRows, [topic, role, metric, trade, formatValue(value)], [4]);
+              }
+            }
+          }
+        }
+      }
+
+      results.replaceChildren(rows);
+      trades.replaceChildren(tradeRows);
+      previousRows = nextRows;
+      empty.hidden = visible > 0;
+      empty.textContent = Object.keys(snapshot).length ? "No matching results." : "No processor results recorded yet.";
+      summary.textContent = `${visible} result rows`;
+      tradeCount.textContent = details.open
+        ? `Showing ${Math.min(matchingTrades, 500)} of ${matchingTrades} matching trade values. Filter to narrow results.`
+        : "Open to view trade values. Use the filters above to narrow results.";
+    }
+
+    const events = new EventSource("/portfolio_results/events");
+    events.onmessage = (event) => {
+      status.textContent = "Live";
+      status.dataset.live = "true";
+      updated.textContent = `Last received ${new Date().toLocaleTimeString()}`;
+      if (event.data === previousPayload) return;
+      previousPayload = event.data;
+      snapshot = JSON.parse(event.data);
+      const topics = Object.keys(snapshot);
+      if (JSON.stringify(topics) !== topicKeys) {
+        topicKeys = JSON.stringify(topics);
+        const selected = pipeline.value;
+        const options = document.createDocumentFragment();
+        for (const [value, label] of [["", "All results topics"], ...topics.map(topic => [topic, topic])]) {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = label;
+          options.append(option);
+        }
+        pipeline.replaceChildren(options);
+        pipeline.value = topics.includes(selected) ? selected : "";
+      }
+      render();
+    };
+    events.onerror = () => {
+      status.textContent = "Disconnected · reconnecting…";
+      status.dataset.live = "false";
+    };
+    pipeline.addEventListener("change", render);
+    processor.addEventListener("change", render);
+    filter.addEventListener("input", render);
+    details.addEventListener("toggle", render);
+  </script>
+</body>
+</html>

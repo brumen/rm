@@ -46,5 +46,6 @@ class LETFMarketProducer(BaseProducer):
             for stock in self._stocks:
                 # add some random value to the current stock values
                 self.curr_stocks[stock] += random.normal(loc=0.0, scale=1.0)
+                self.curr_stocks[stock] = max(self.curr_stocks[stock], 10.0)
 
             sleep(sleep_between_publish)

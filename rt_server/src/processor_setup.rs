@@ -17,6 +17,7 @@ use tracing_subscriber::{fmt::Layer, layer::Layered, reload, EnvFilter, Registry
 use crate::all_markets;
 use crate::markets::letf_market::LETFMarketType;
 use crate::portfolio;
+use crate::portfolio_results::{PortfolioResults, PortfolioSnapshots};
 use crate::pricer::PriceTrade;
 use crate::processor_msg::PNStateDistr;
 use crate::trade::TradeRep;
@@ -35,6 +36,7 @@ struct DiagnosticsState {
     all_trades: Trades,
     reload_handle: ReloadHandle,
     state_distr_new: Arc<PNStateDistr>,
+    portfolio_results: Arc<PortfolioResults>,
 }
 
 #[derive(serde::Deserialize)]
@@ -69,6 +71,7 @@ pub(crate) async fn diagnostics(
     initial_trades: Trades,
     reload_handle: ReloadHandle,
     state_distr_new: Arc<PNStateDistr>,
+    portfolio_results: Arc<PortfolioResults>,
 ) -> Result<()> {
     let state = DiagnosticsState {
         portfolio: Arc::new(Mutex::new(portfolio::PortfolioType::default())),
@@ -76,11 +79,15 @@ pub(crate) async fn diagnostics(
         all_trades: initial_trades,
         reload_handle,
         state_distr_new,
+        portfolio_results,
     };
 
     //    let axum_process = task::spawn(async move || -> Result<()> {
     let app = Router::new()
         .route("/portfolio", get(portfolio_handler))
+        .route("/portfolio_results", get(portfolio_results_page))
+        .route("/portfolio_results/data", get(portfolio_results_data))
+        .route("/portfolio_results/events", get(portfolio_results_events))
         .route("/market", get(market_handler))
         .route("/market_map", get(market_map_handler))
         .route("/processor_market_map", get(processor_market_map_page))
@@ -100,6 +107,7 @@ pub(crate) async fn diagnostics(
 
     let listener = TcpListener::bind(&addr).await?;
     info!("Live processor market map: http://{addr}/processor_market_map");
+    info!("Live portfolio results: http://{addr}/portfolio_results");
     let _ = axum::serve(listener, app.into_make_service()).await?;
     Ok(())
 }
@@ -107,6 +115,28 @@ pub(crate) async fn diagnostics(
 async fn portfolio_handler(State(state): State<DiagnosticsState>) -> String {
     let s = (*(state.portfolio.lock().unwrap())).clone();
     format!("LEN = {:?} PORTFOLIO = {:?}", s.len(), s)
+}
+
+async fn portfolio_results_page() -> Html<&'static str> {
+    Html(include_str!("portfolio_results.html"))
+}
+
+async fn portfolio_results_data(State(state): State<DiagnosticsState>) -> Json<PortfolioSnapshots> {
+    Json(state.portfolio_results.snapshot())
+}
+
+async fn portfolio_results_events(State(state): State<DiagnosticsState>) -> impl IntoResponse {
+    let mut interval = tokio::time::interval(Duration::from_millis(500));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let stream = futures::stream::unfold(
+        (state.portfolio_results, interval),
+        |(results, mut interval)| async move {
+            interval.tick().await;
+            let event = Event::default().json_data(results.snapshot());
+            Some((event, (results, interval)))
+        },
+    );
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 async fn market_handler(State(state): State<DiagnosticsState>) -> String {
@@ -359,6 +389,71 @@ mod tests {
             all_trades: Arc::new(TradeRep::default()),
             reload_handle,
             state_distr_new: Arc::new(PNStateDistr::new()),
+            portfolio_results: Arc::new(PortfolioResults::default()),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_portfolio_results_page() {
+        let response = portfolio_results_page().await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()["content-type"],
+            "text/html; charset=utf-8"
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = std::str::from_utf8(&body).unwrap();
+        assert!(html.contains("/portfolio_results/events"));
+        assert!(html.contains("processor_curr"));
+        assert!(html.contains("processor_new"));
+    }
+
+    #[tokio::test]
+    async fn test_portfolio_results_data_and_stream() {
+        let state = diagnostics_state();
+        assert!(portfolio_results_data(State(state.clone()))
+            .await
+            .0
+            .is_empty());
+        let response = portfolio_results_events(State(state.clone()))
+            .await
+            .into_response();
+        assert_eq!(response.headers()["content-type"], "text/event-stream");
+        let mut stream = response.into_body().into_data_stream();
+        let reporter =
+            state
+                .portfolio_results
+                .reporter("risk".into(), "processor_curr", "curr".into());
+        for total in [None, Some(12.5), Some(-2.0)] {
+            if let Some(total) = total {
+                let mut portfolio = portfolio::PmPortfolio::new();
+                portfolio.insert(
+                    crate::pricer::PricingMetric::PV,
+                    portfolio::PortfolioType::from([("trade".into(), total)]),
+                );
+                reporter.record(Some("market"), "Current", &portfolio);
+            }
+            let chunk = tokio::time::timeout(Duration::from_secs(2), stream.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let event = std::str::from_utf8(&chunk).unwrap();
+            let snapshot: serde_json::Value =
+                serde_json::from_str(event.strip_prefix("data: ").unwrap().trim()).unwrap();
+            let Json(data) = portfolio_results_data(State(state.clone())).await;
+            assert_eq!(snapshot, serde_json::to_value(data).unwrap());
+            if let Some(total) = total {
+                assert_eq!(
+                    snapshot["risk"]["processor_curr"]["metrics"]["PV"]["total"],
+                    total
+                );
+                assert_eq!(snapshot["risk"]["processor_curr"]["market"], "market");
+            } else {
+                assert_eq!(snapshot, serde_json::json!({}));
+            }
         }
     }
 
