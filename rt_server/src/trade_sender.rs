@@ -162,7 +162,12 @@ where
         info!("Sending trade to processors: {:?}", self.processors);
 
         loop {
-            let Ok(trade_msg) = self.position_listener.recv().await else {
+            info!("Trade producer loop");
+            let message = self.position_listener.recv().await;
+
+            info!(actor = "trade_producer", "Received trade message",);
+
+            let Ok(trade_msg) = message else {
                 error!("Listening to the trade topic failed. Ignoring.");
                 continue;
             };
