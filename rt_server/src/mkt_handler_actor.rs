@@ -69,8 +69,15 @@ where
         info!("Waiting on market messages. Enable debug to display messages.");
 
         let market = state;
+        let mut loop_count = 0;
 
         loop {
+            loop_count += 1;
+            if loop_count == 20 {
+                info!("MarketProducer is still alive after another 20 loops.");
+                loop_count = 0;
+            }
+
             debug!("Listening to raw mkt data.");
             let Ok(new_msg) = self.mkt_listener.recv().await else {
                 // ignore the loop - something went wrong.
