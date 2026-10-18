@@ -147,6 +147,12 @@ where
             return Ok(());
         }
 
+        // Compare against the current population before adding the missing trades.
+        let trades_behind = trades_behind
+            .difference(&state.trades)
+            .cloned()
+            .collect::<TradesLocal>();
+
         // we are still behind the below processor.
         //   we add the trades to the trade list, and
         //   send it to the bulk processor.
@@ -555,5 +561,126 @@ where
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::markets::letf_market::{LETFMarketType, LETFMarketTypes};
+    use crate::portfolio::PortfolioType;
+    use crate::trades::trade_letf::LETFTrade;
+    use tokio::sync::mpsc;
+
+    struct PortfolioSink;
+
+    #[async_trait]
+    impl Actor for PortfolioSink {
+        type Msg = ProcessorMiddleMessage<String>;
+        type State = mpsc::UnboundedSender<PmPortfolio>;
+        type Arguments = Self::State;
+
+        async fn pre_start(
+            &self,
+            _: ActorRef<Self::Msg>,
+            sender: Self::Arguments,
+        ) -> Result<Self::State, ActorProcessingErr> {
+            Ok(sender)
+        }
+
+        async fn handle(
+            &self,
+            _: ActorRef<Self::Msg>,
+            message: Self::Msg,
+            sender: &mut Self::State,
+        ) -> Result<(), ActorProcessingErr> {
+            if let ProcessorMiddleMessage::NewTradePortfolio((_, portfolio, _, _)) = message {
+                sender.send(portfolio)?;
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_behind_prices_only_missing_trades() {
+        let markets = Arc::new(AllMarkets::new());
+        let market = Arc::new(LETFMarketType::new("market".into()));
+        market
+            .insert(LETFMarketTypes::Stock("stock".into()), 20.0)
+            .await;
+        markets
+            .insert_both("middle".into(), "market".into(), market)
+            .await;
+        let trades = Arc::new(TradeRep::default());
+        for (id, amount) in [("existing", 10.0), ("missing", 20.0)] {
+            trades
+                .upsert_async(
+                    id.into(),
+                    LETFTrade {
+                        trade_id: id.into(),
+                        stock: "stock".into(),
+                        amount,
+                        beta: 1.0,
+                        stock_value: Some(10.0),
+                    },
+                )
+                .await;
+        }
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let (below, task) = Actor::spawn(None, PortfolioSink, sender).await.unwrap();
+        let middle = ProcessorMiddle::new(
+            "middle".into(),
+            below.clone(),
+            trades,
+            markets,
+            Arc::new(PNStateDistr::new()),
+            PricingStyle::Sequential,
+        );
+        let mut state = middle.pre_start(below.clone(), ()).await.unwrap();
+        state.curr_market = Some("market".into());
+        state.pricing_metrics = vec![PricingMetric::PV];
+        state.trades.insert("existing".into());
+        state.pricing_results.insert(
+            PricingMetric::PV,
+            PortfolioType::from([("existing".into(), 10.0)]),
+        );
+        let requested = TradesLocal::from(["existing".into(), "missing".into()]);
+        let mut expected = PmPortfolio::new();
+        expected.insert(
+            PricingMetric::PV,
+            PortfolioType::from([("existing".into(), 10.0), ("missing".into(), 20.0)]),
+        );
+
+        // The first request overlaps current trades; the repeat is entirely known.
+        for _ in 0..2 {
+            middle
+                ._behind_calculating_single(
+                    "market".into(),
+                    requested.clone(),
+                    &mut state,
+                    below.clone(),
+                )
+                .await
+                .unwrap();
+            let forwarded = tokio::time::timeout(Duration::from_secs(2), receiver.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(forwarded, expected);
+            assert_eq!(state.pricing_results, expected);
+            assert_eq!(state.trades, requested);
+        }
+
+        // Without a usable current market, rebuild the whole portfolio, even
+        // when all requested trade IDs are already in the population.
+        state.curr_market = None;
+        state.pricing_results = PmPortfolio::new();
+        middle
+            ._behind_calculating_single("market".into(), requested, &mut state, below.clone())
+            .await
+            .unwrap();
+        assert_eq!(state.pricing_results, expected);
+        below.stop(None);
+        task.await.unwrap();
     }
 }
