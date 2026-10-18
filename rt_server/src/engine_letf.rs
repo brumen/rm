@@ -15,7 +15,7 @@ use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PriceTrade;
 use crate::processor_bulk::{PricingStyle, ProcessorBulk};
 use crate::processor_curr::RTOperatingMode;
-use crate::processor_msg::{PNStateDistr, ProcessorMiddleMessage};
+use crate::processor_msg::{Latest, PNStateDistr, ProcessorMiddleMessage};
 use crate::processor_new::ProcessorNew;
 use crate::ref_deref::TryFromRef2;
 use crate::trade::{BaseTrade, TradeRep};
@@ -154,6 +154,7 @@ where
         pricing_options: mp.clone(),
         mkt_listener,
         new_processor: _processor_new_a.clone(),
+        market_outbox: Arc::new(Latest::default()),
         all_markets: all_markets.clone(),
     };
     let (_mkt_producer_a, mkt_producer_handle) =

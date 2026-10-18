@@ -13,7 +13,9 @@ use crate::portfolio::{PmPortfolio, PortfolioType};
 use crate::portfolio_results::PortfolioReporter;
 use crate::pricer::{PriceTrade, PricingMetric};
 use crate::processor_bulk::{PriceMultiple, PricingStyle};
-use crate::processor_msg::{ProcessorMiddleMessage, TradesLocal};
+use crate::processor_msg::{
+    send_latest_behind, BehindUpdate, Latest, ProcessorMiddleMessage, TradesLocal,
+};
 use crate::trade::{BaseTrade, TradeRep};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -37,6 +39,7 @@ where
     pub operating_mode: RTOperatingMode,
     pub(crate) pricing_mode: PricingStyle,
     pub(crate) portfolio_reporter: PortfolioReporter,
+    pub(crate) feedback_outbox: Arc<Latest<BehindUpdate>>,
 }
 
 impl<T, MT> std::fmt::Debug for ProcessorCurr<T, MT>
@@ -271,12 +274,12 @@ where
                 }
             }
 
-            ProcessorMiddleMessage::NewTradePortfolio((
-                ntp_trades,
-                mut ntp_portfolio,
-                ntp_market_lease,
-                ntp_upstream_processor,
-            )) => {
+            ProcessorMiddleMessage::NewTradePortfolio(pending) => {
+                let Some((ntp_trades, mut ntp_portfolio, ntp_market_lease, ntp_upstream_processor)) =
+                    pending.take()
+                else {
+                    return Ok(());
+                };
                 let ntp_market = ntp_market_lease.name().clone();
                 debug!(
                     "Message: NewTradePortfolio. CurrPortfolio: {:?}, NewPortfolio: {:?}, NewMarket: {:?}",
@@ -380,10 +383,11 @@ where
                     ntp_upstream_processor.get_name(),
                     acc_reject,
                 );
-                if let Err(e) = ntp_upstream_processor.send_message(ProcessorMiddleMessage::Behind(
-                    ntp_market_lease,
-                    ntp_behind_curr_portfolio,
-                )) {
+                if let Err(e) = send_latest_behind(
+                    &ntp_upstream_processor,
+                    &self.feedback_outbox,
+                    (ntp_market_lease, ntp_behind_curr_portfolio),
+                ) {
                     error!(
                         "Error sending to upstream {:?}: {:?}",
                         ntp_upstream_processor, e
@@ -449,10 +453,12 @@ mod tests {
             message: Self::Msg,
             sender: &mut Self::State,
         ) -> Result<(), ActorProcessingErr> {
-            if let ProcessorMiddleMessage::Behind(lease, _) = message {
-                let name = lease.name().clone();
-                drop(lease);
-                sender.send(name)?;
+            if let ProcessorMiddleMessage::Behind(pending) = message {
+                if let Some((lease, _)) = pending.take() {
+                    let name = lease.name().clone();
+                    drop(lease);
+                    sender.send(name)?;
+                }
             }
             Ok(())
         }
@@ -467,6 +473,7 @@ mod tests {
             // Empty portfolios exercise market handoff without sending to Kafka.
             result_publisher: ClientConfig::new().set("log_level", "0").create().unwrap(),
             all_markets,
+            feedback_outbox: Arc::new(Latest::default()),
             all_trades: Arc::new(TradeRep::default()),
             operating_mode: RTOperatingMode::DoubleBuffer,
             pricing_mode: PricingStyle::Sequential,
@@ -495,12 +502,14 @@ mod tests {
                 Arc::new(LETFMarketType::new(name.clone())),
             )
             .await;
-            let message = ProcessorMiddleMessage::NewTradePortfolio((
+            let pending = Arc::new(Latest::default());
+            pending.replace((
                 TradesLocal::new(),
                 PmPortfolio::new(),
                 all.lease(&name).await.unwrap(),
                 upstream.clone(),
             ));
+            let message = ProcessorMiddleMessage::NewTradePortfolio(pending);
             current
                 .handle(upstream.clone(), message, &mut state)
                 .await
@@ -540,12 +549,14 @@ mod tests {
                 Arc::new(LETFMarketType::new(name.clone())),
             )
             .await;
-            let message = ProcessorMiddleMessage::NewTradePortfolio((
+            let pending = Arc::new(Latest::default());
+            pending.replace((
                 TradesLocal::new(),
                 PmPortfolio::new(),
                 all.lease(&name).await.unwrap(),
                 upstream.clone(),
             ));
+            let message = ProcessorMiddleMessage::NewTradePortfolio(pending);
             // Simulate a queued message: its sender has already moved on.
             all.insert_both(
                 "new".into(),

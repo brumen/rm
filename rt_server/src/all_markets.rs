@@ -164,6 +164,14 @@ where
         );
     }
 
+    /// Replace the latest snapshot and release markets no longer used by a
+    /// processor, an active handler, or a pending update.
+    pub(crate) async fn update_future(&self, market: MT) {
+        let mut registry = self.registry.write().await;
+        registry.insert("future".into(), market);
+        registry.prune();
+    }
+
     /// Update ownership and prune under one write lock, including message leases.
     pub(crate) async fn insert_processor(&self, processor_name: String, market_name: String) {
         let mut registry = self.registry.write().await;

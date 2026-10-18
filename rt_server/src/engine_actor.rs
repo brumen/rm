@@ -11,7 +11,7 @@ use crate::pricer::PriceTrade;
 use crate::processor_bulk::{PricingStyle, ProcessorBulk};
 use crate::processor_curr::{ProcessorCurr, RTOperatingMode};
 use crate::processor_middle::ProcessorMiddle;
-use crate::processor_msg::{PNStateDistr, ProcessorMiddleMessage};
+use crate::processor_msg::{Latest, PNStateDistr, ProcessorMiddleMessage};
 use crate::publish::connect_with_retries_producer_rd;
 use crate::trade::{BaseTrade, TradeRep};
 
@@ -66,6 +66,7 @@ where
         operating_mode,
         pricing_mode,
         portfolio_reporter,
+        feedback_outbox: Arc::new(Latest::default()),
     };
 
     (processor_curr, processor_new_bulk_h)

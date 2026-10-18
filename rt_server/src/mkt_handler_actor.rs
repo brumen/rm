@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::all_markets::AllMarkets;
 use crate::market::{MarketTypeT, SetName};
-use crate::processor_msg::ProcessorMiddleMessage;
+use crate::processor_msg::{send_latest_market, Latest, ProcessorMiddleMessage};
 use crate::ref_deref::TryFromRef2;
 
 pub struct MarketProducer<MT>
@@ -17,6 +17,7 @@ where
     pub pricing_options: MT::MP,
     pub mkt_listener: StreamConsumer, // listening for market events.
     pub new_processor: ActorRef<ProcessorMiddleMessage<String>>,
+    pub(crate) market_outbox: Arc<Latest<String>>,
     pub(crate) all_markets: Arc<AllMarkets<Arc<MT>>>,
 }
 
@@ -47,12 +48,7 @@ where
         let fut_mkt = MT::new(fut_mkt_tag.to_string(), mp.clone());
 
         info!("Adding initial _future_ market to all_markets.");
-        self.all_markets
-            .insert(
-                "future".to_string(), // market is inserted at "future" entry
-                fut_mkt.clone(),
-            )
-            .await;
+        self.all_markets.update_future(fut_mkt.clone()).await;
 
         Ok((*fut_mkt).clone()) // state after initialization is empty market.
     }
@@ -110,9 +106,7 @@ where
 
             let market_sent = Arc::new((*market).clone());
 
-            self.all_markets
-                .insert("future".to_string(), market_sent)
-                .await;
+            self.all_markets.update_future(market_sent).await;
 
             debug!(
                 "Current markets: {:?}",
@@ -124,10 +118,7 @@ where
             );
             debug!("all_markets: {:?}", self.all_markets);
 
-            if let Err(e) = self
-                .new_processor
-                .send_message(ProcessorMiddleMessage::NewMarket("future".to_string()))
-            {
+            if let Err(e) = send_latest_market(&self.new_processor, &self.market_outbox) {
                 error!(
                     "Could not send NewMarket message to new_processor! Continuing w/o sending: {:?}",
                     e

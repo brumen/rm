@@ -10,7 +10,8 @@ use crate::portfolio::PmPortfolio; // , PortfolioType
 use crate::pricer::{PriceTrade, PricingMetric};
 use crate::processor_bulk::{PriceMultiple, PricingStyle};
 use crate::processor_msg::{
-    PNStateDistr, ProcessorMiddleMessage, ProcessorMiddleMessageStates, TradesLocal,
+    send_latest_behind, send_latest_portfolio, BehindUpdate, Latest, PNStateDistr, PortfolioUpdate,
+    ProcessorMiddleMessage, ProcessorMiddleMessageStates, TradesLocal,
 };
 use crate::trade::{BaseTrade, TradeRep};
 
@@ -23,6 +24,8 @@ pub(crate) struct ProcessorMiddle<T, MT: std::fmt::Debug> {
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub(crate) state_distr: Arc<PNStateDistr>,
     pub(crate) pricing_mode: PricingStyle,
+    portfolio_outbox: Arc<Latest<PortfolioUpdate<String>>>,
+    feedback_outbox: Arc<Latest<BehindUpdate>>,
 }
 
 // ProcessorMiddle is either in one of the three states:
@@ -53,6 +56,8 @@ where
             all_markets,
             state_distr: state_distr.clone(),
             pricing_mode,
+            portfolio_outbox: Arc::new(Latest::default()),
+            feedback_outbox: Arc::new(Latest::default()),
         }
     }
 
@@ -115,8 +120,10 @@ where
             state.pricing_results.simple(),
             self.processor_below.get_id(),
         );
-        self.processor_below
-            .send_message(ProcessorMiddleMessage::NewTradePortfolio((
+        send_latest_portfolio(
+            &self.processor_below,
+            &self.portfolio_outbox,
+            (
                 state.trades.clone(),
                 state.pricing_results.clone(),
                 self.all_markets
@@ -124,7 +131,8 @@ where
                     .await
                     .ok_or("Current market missing")?,
                 myself,
-            )))?;
+            ),
+        )?;
         // stay in CalcuatingSingle mode.
         Ok(())
     }
@@ -228,8 +236,10 @@ where
             "Sending it to processor below {:?}",
             self.processor_below.get_id()
         );
-        self.processor_below
-            .send_message(ProcessorMiddleMessage::NewTradePortfolio((
+        send_latest_portfolio(
+            &self.processor_below,
+            &self.portfolio_outbox,
+            (
                 state.trades.clone(),
                 state.pricing_results.clone(),
                 self.all_markets
@@ -237,7 +247,8 @@ where
                     .await
                     .ok_or("Current market missing")?,
                 myself,
-            )))?;
+            ),
+        )?;
 
         Ok(())
     }
@@ -289,8 +300,10 @@ where
             "Received portfolio accepted. Informing upstream processor {:?}",
             upstream_processor.get_name(),
         );
-        let _ = upstream_processor.send_message(
-            ProcessorMiddleMessage::Behind(market_lease.clone(), new_behind_curr.clone()), // TODO: CHECK IF THIS IS REALLY NEW_MARKET??
+        let _ = send_latest_behind(
+            &upstream_processor,
+            &self.feedback_outbox,
+            (market_lease.clone(), new_behind_curr.clone()),
         );
         // return Ok(());
         // }
@@ -340,13 +353,16 @@ where
             "Sending the portfolio to {:?}",
             self.processor_below.get_name()
         );
-        self.processor_below
-            .send_message(ProcessorMiddleMessage::NewTradePortfolio((
+        send_latest_portfolio(
+            &self.processor_below,
+            &self.portfolio_outbox,
+            (
                 state.trades.clone(),
                 state.pricing_results.clone(),
                 market_lease,
                 myself,
-            )))?;
+            ),
+        )?;
 
         Ok(())
     }
@@ -475,7 +491,8 @@ where
                     .await?
             }
 
-            (ProcessorMiddleMessage::NewMarket(_new_market), _) => {
+            (ProcessorMiddleMessage::NewMarket(pending), _) => {
+                pending.take();
                 state
                     .state_distr
                     .incr_one(ProcessorMiddleMessageStates::NewMarket);
@@ -484,16 +501,15 @@ where
             }
 
             // this only comes from processor below
-            (
-                ProcessorMiddleMessage::Behind(market_behind, trades_behind),
-                ProcessorMiddleState::CalculatingSingle,
-            ) => {
+            (ProcessorMiddleMessage::Behind(pending), ProcessorMiddleState::CalculatingSingle) => {
                 state
                     .state_distr
                     .incr_one(ProcessorMiddleMessageStates::Behind);
 
-                self._behind_calculating_single(market_behind, trades_behind, state, myself)
-                    .await?
+                if let Some((market_behind, trades_behind)) = pending.take() {
+                    self._behind_calculating_single(market_behind, trades_behind, state, myself)
+                        .await?;
+                }
             }
 
             (
@@ -533,14 +549,16 @@ where
             }
 
             (
-                ProcessorMiddleMessage::NewTradePortfolio(ntp),
+                ProcessorMiddleMessage::NewTradePortfolio(pending),
                 ProcessorMiddleState::CalculatingSingle,
             ) => {
                 state
                     .state_distr
                     .incr_one(ProcessorMiddleMessageStates::NewTradePortfolio);
 
-                self._ntp_calculating_single(ntp, state, myself).await?
+                if let Some(ntp) = pending.take() {
+                    self._ntp_calculating_single(ntp, state, myself).await?;
+                }
             }
 
             (ProcessorMiddleMessage::BulkBusy, _) => {

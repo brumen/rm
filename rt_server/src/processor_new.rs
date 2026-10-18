@@ -9,8 +9,8 @@ use crate::portfolio_results::PortfolioReporter;
 use crate::pricer::{PriceTrade, PricingMetric};
 use crate::processor_bulk::{PriceMultiple, PricingStyle};
 use crate::processor_msg::{
-    PNStateDistr, ProcessorBulkMessage, ProcessorMiddleMessage, ProcessorMiddleMessageStates,
-    TradesLocal,
+    send_latest_portfolio, Latest, PNStateDistr, PortfolioUpdate, ProcessorBulkMessage,
+    ProcessorMiddleMessage, ProcessorMiddleMessageStates, TradesLocal,
 };
 use crate::trade::{BaseTrade, TradeRep};
 
@@ -27,6 +27,7 @@ where
     pub(crate) all_trades: Arc<TradeRep<T>>,
     pub(crate) state_distr: Arc<PNStateDistr>, // evmap for state distributions.
     pub(crate) pricing_mode: PricingStyle,
+    portfolio_outbox: Arc<Latest<PortfolioUpdate<String>>>,
     pub(crate) portfolio_reporter: PortfolioReporter,
 }
 
@@ -68,6 +69,7 @@ where
             all_trades,
             state_distr,
             pricing_mode,
+            portfolio_outbox: Arc::new(Latest::default()),
             portfolio_reporter,
         }
     }
@@ -147,18 +149,19 @@ where
             new_m_real,
         );
 
-        if let Err(e) =
-            self.processor_middle
-                .send_message(ProcessorMiddleMessage::NewTradePortfolio((
-                    state.trades.clone(),
-                    state.portfolio.clone(),
-                    self.all_markets
-                        .lease(new_m_real)
-                        .await
-                        .ok_or("New market missing")?,
-                    myself,
-                )))
-        {
+        if let Err(e) = send_latest_portfolio(
+            &self.processor_middle,
+            &self.portfolio_outbox,
+            (
+                state.trades.clone(),
+                state.portfolio.clone(),
+                self.all_markets
+                    .lease(new_m_real)
+                    .await
+                    .ok_or("New market missing")?,
+                myself,
+            ),
+        ) {
             error!(
                 "Could not send NTP to the middle (lower) processor: {:?}",
                 e
@@ -254,8 +257,10 @@ where
             &state.portfolio,
         );
 
-        self.processor_middle
-            .send_message(ProcessorMiddleMessage::NewTradePortfolio((
+        send_latest_portfolio(
+            &self.processor_middle,
+            &self.portfolio_outbox,
+            (
                 state.trades.clone(),
                 state.portfolio.clone(),
                 self.all_markets
@@ -263,7 +268,8 @@ where
                     .await
                     .ok_or("New market missing")?,
                 myself,
-            )))?;
+            ),
+        )?;
 
         Ok(())
     }
@@ -306,15 +312,16 @@ where
             state.portfolio.simple(),
             state.new_market.clone()
         );
-        if let Err(e) =
-            self.processor_middle
-                .send_message(ProcessorMiddleMessage::NewTradePortfolio((
-                    state.trades.clone(),
-                    state.portfolio.clone(),
-                    market_lease,
-                    myself,
-                )))
-        {
+        if let Err(e) = send_latest_portfolio(
+            &self.processor_middle,
+            &self.portfolio_outbox,
+            (
+                state.trades.clone(),
+                state.portfolio.clone(),
+                market_lease,
+                myself,
+            ),
+        ) {
             error!(
                 "Could not send NTP message to processor middle: {:?}. Continuing w/o it.",
                 e
@@ -373,15 +380,16 @@ where
                     self.processor_middle.get_name(),
                     state.portfolio,
                 );
-                if let Err(e) =
-                    self.processor_middle
-                        .send_message(ProcessorMiddleMessage::NewTradePortfolio((
-                            state.trades.clone(),
-                            state.portfolio.clone(),
-                            market_lease,
-                            myself,
-                        )))
-                {
+                if let Err(e) = send_latest_portfolio(
+                    &self.processor_middle,
+                    &self.portfolio_outbox,
+                    (
+                        state.trades.clone(),
+                        state.portfolio.clone(),
+                        market_lease,
+                        myself,
+                    ),
+                ) {
                     error!(
                         "Could not send the NTP to lower processor ({:?}: {:?} Continuing.",
                         self.processor_middle, e
@@ -507,7 +515,10 @@ where
 
             // this is coming from mkt_handler, and market handler only produces
             //   "future" market.  Here we can potentially create a new market
-            ProcessorMiddleMessage::NewMarket(new_market_name) => {
+            ProcessorMiddleMessage::NewMarket(pending) => {
+                let Some(new_market_name) = pending.take() else {
+                    return Ok(());
+                };
                 state
                     .state_distr
                     .incr_one(ProcessorMiddleMessageStates::NewMarket);
@@ -585,7 +596,10 @@ where
             // this only comes from ProcessorMiddle,
             //
             // TODO:
-            ProcessorMiddleMessage::Behind(market_behind, trades_behind) => {
+            ProcessorMiddleMessage::Behind(pending) => {
+                let Some((market_behind, trades_behind)) = pending.take() else {
+                    return Ok(());
+                };
                 // we are behind trades behind the below processor
                 state
                     .state_distr
