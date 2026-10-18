@@ -199,6 +199,7 @@ where
         // add the additional trades to the portfolio.
         let curr_mkt_actual = curr_mkt.unwrap(); // this is fine since curr_mkt is handled above.
         let curr_mkt_actual_name = curr_mkt_actual.market_name().clone();
+        debug!("Pricing trades {:?}", trades_behind);
         let (_additional_trades, additional_portfolio) = self
             .price_multiple(
                 trades_behind,
@@ -207,7 +208,13 @@ where
                 self.all_trades.clone(),
             )
             .await;
+
         state.pricing_results += additional_portfolio;
+        debug!("Current portfolio: {:?}", state.pricing_results);
+        debug!(
+            "Sending it to processor below {:?}",
+            self.processor_below.get_id()
+        );
         self.processor_below
             .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                 state.trades.clone(),

@@ -139,6 +139,7 @@ async fn run_all() {
         "parallel_one_thread" => PricingStyle::ParallelSingleThread,
         _ => PricingStyle::Parallel,
     };
+    info!("Using pricing style: {:?}", pricing_mode);
     let operating_mode = match std::env::var("OPERATING_MODE")
         .expect("Could not find OPERATING_MODE in .env")
         .as_str()
@@ -146,6 +147,7 @@ async fn run_all() {
         "single" => RTOperatingMode::SingleBuffer,
         _ => RTOperatingMode::DoubleBuffer,
     };
+    info!("Operating in {:?} mode", operating_mode);
     // number of middle processors.
     let nb_middle_procs = match operating_mode {
         RTOperatingMode::SingleBuffer => 0,
