@@ -84,6 +84,7 @@ where
     // middle actors (including state distribution for
     let (mut processor_actors, mut processor_actor_futures, _middle_state_distr_vec) =
         create_middle_procs_chain(
+            &kafka_params.results_topic,
             nb_middle,
             _processor_curr_a.clone(),
             all_markets.clone(),
@@ -99,9 +100,11 @@ where
 
     actors_middle_msg.extend(processor_actors.clone());
 
+    // Each pipeline needs distinct ownership entries in the shared registry.
+    let new_processor_name = format!("{}:processor_new", kafka_params.results_topic);
     // creating the bulk processor
     let new_mkt_bulk = ProcessorBulk::new(
-        "processor_new".to_string(),
+        new_processor_name.clone(),
         initial_trades.clone(),
         all_markets.clone(),
         pricing_mode.clone(),
@@ -119,7 +122,7 @@ where
     // state distribution of the processor new
     let state_distr_new = Arc::new(PNStateDistr::new());
     let processor_new = ProcessorNew::new(
-        "processor_new".to_string(),
+        new_processor_name,
         last_middle.clone(),
         processor_new_bulk_actor.clone(),
         all_markets.clone(),

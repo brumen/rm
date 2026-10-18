@@ -120,7 +120,7 @@ where
             );
             debug!(
                 "Current processor-market map: {:?}",
-                self.all_markets.processor_market_map,
+                self.all_markets.processor_market_snapshot().await,
             );
             debug!("all_markets: {:?}", self.all_markets);
 

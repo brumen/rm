@@ -306,11 +306,12 @@ where
             // new_trades are trades that should be priced.
             // sending_processor ... processor where the result should be sent.
             ProcessorBulkMessage::NewBulk((
-                market,
+                market_lease,
                 new_trades,
                 sending_processor,
                 pricing_metrics,
             )) => {
+                let market = market_lease.name().clone();
                 // start the long-running pricing procedure
                 debug!("Message: NewBulk. State: {:?} -> Calculating", state);
                 // *state = ProcessorBulkState::Calculating;
@@ -328,7 +329,7 @@ where
                     .await;
                 debug!(
                     "Bulk: Current processor-market map: {:?}",
-                    self.all_markets.processor_market_map,
+                    self.all_markets.processor_market_snapshot().await,
                 );
 
                 let Some(market_actual) = self.all_markets.get(&market).await else {
@@ -339,7 +340,7 @@ where
                             new_trades.clone(), // referencing trades. <- TODO: DO WE NEED THIS - SHOULD BE REMOVED.
                             PmPortfolio::new(), // computed portf = None, so not really useful.
                             TradesLocal::new(), // offending trades
-                            market.clone(),     // referenced market
+                            market_lease,       // retained market
                         )))
                     {
                         error!(
@@ -402,9 +403,14 @@ where
                     priced_portfolio.simple(),
                 );
 
-                if let Err(e) = sending_processor.send_message(ProcessorMiddleMessage::BulkReceive(
-                    (new_trades, priced_portfolio, non_pricing_trades, market),
-                )) {
+                if let Err(e) =
+                    sending_processor.send_message(ProcessorMiddleMessage::BulkReceive((
+                        new_trades,
+                        priced_portfolio,
+                        non_pricing_trades,
+                        market_lease,
+                    )))
+                {
                     error!(
                         "Could not send message to {:?}: {:?}. Continuing.",
                         sending_processor, e

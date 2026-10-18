@@ -2,7 +2,7 @@ use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn}; // for tracking states.
 
-use crate::all_markets::AllMarkets;
+use crate::all_markets::{AllMarkets, MarketLease};
 use crate::market::MarketTypeT;
 use crate::portfolio::PmPortfolio;
 use crate::portfolio_results::PortfolioReporter;
@@ -152,7 +152,10 @@ where
                 .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                     state.trades.clone(),
                     state.portfolio.clone(),
-                    new_m_real.to_string(),
+                    self.all_markets
+                        .lease(new_m_real)
+                        .await
+                        .ok_or("New market missing")?,
                     myself,
                 )))
         {
@@ -186,11 +189,12 @@ where
     // we receive the Behind message, we are in calculating single mode.
     async fn _behind_calculating_single(
         &self,
-        market_behind: String,
+        market_lease: MarketLease,
         trades_behind: TradesLocal,
         state: &mut _ProcessorNewStateful,
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
+        let market_behind = market_lease.name().clone();
         debug!("Received Behind message.");
 
         if trades_behind.is_empty() {
@@ -254,22 +258,26 @@ where
             .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                 state.trades.clone(),
                 state.portfolio.clone(),
-                new_m_real.to_string(),
+                self.all_markets
+                    .lease(new_m_real)
+                    .await
+                    .ok_or("New market missing")?,
                 myself,
             )))?;
 
         Ok(())
     }
 
-    fn _bulkreceive_calculatingbulk_idle(
+    async fn _bulkreceive_calculatingbulk_idle(
         &self,
         new_trade_l: TradesLocal,
         computed_portf: PmPortfolio,
         offending_trades: TradesLocal,
-        bulk_market: String,
+        market_lease: MarketLease,
         state: &mut _ProcessorNewStateful,
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
+        let bulk_market = market_lease.name().clone();
         // result of computation has arrived.
         // check if the markets match
         debug!(
@@ -286,6 +294,9 @@ where
 
         // TODO: THIS IS WRONG!!!
         //if state.new_market.is_none() {
+        self.all_markets
+            .insert_processor(self.processor_name.clone(), bulk_market.clone())
+            .await;
         state.new_market = Some(bulk_market);
         // }
 
@@ -300,7 +311,7 @@ where
                 .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                     state.trades.clone(),
                     state.portfolio.clone(),
-                    state.new_market.clone().unwrap(),
+                    market_lease,
                     myself,
                 )))
         {
@@ -321,15 +332,16 @@ where
 
     // receives the new_trade_l, computed_portf and _offending trades,
     //    when it's in a state calculating single.
-    fn _bulkreceive_calculatingsingle(
+    async fn _bulkreceive_calculatingsingle(
         &self,
         new_trade_l: TradesLocal,
         computed_portf: PmPortfolio,
         _offending_trades: TradesLocal,
-        _bulk_market: String,
+        market_lease: MarketLease,
         state: &mut _ProcessorNewStateful,
         myself: ActorRef<ProcessorMiddleMessage<String>>,
     ) -> Result<(), ActorProcessingErr> {
+        let _bulk_market = market_lease.name().clone();
         // result of computation has arrived, this is a bit weird.
         warn!("Received BulkReceive. This is weird. Will attempt to merge portfolios.");
 
@@ -366,7 +378,7 @@ where
                         .send_message(ProcessorMiddleMessage::NewTradePortfolio((
                             state.trades.clone(),
                             state.portfolio.clone(),
-                            new_m_str.to_string(),
+                            market_lease,
                             myself,
                         )))
                 {
@@ -551,7 +563,10 @@ where
                         );
                         self.processor_bulk
                             .send_message(ProcessorBulkMessage::NewBulk((
-                                future_market_name.to_string(),
+                                self.all_markets
+                                    .lease(&future_market_name)
+                                    .await
+                                    .ok_or("New market missing")?,
                                 state.trades.clone(),
                                 myself,
                                 state.pricing_metrics.clone(),
@@ -621,14 +636,17 @@ where
                     computed_portf.simple()
                 );
 
-                if let Err(e) = self._bulkreceive_calculatingbulk_idle(
-                    new_trade_l,
-                    computed_portf,
-                    offending_trades,
-                    _bulk_market,
-                    state,
-                    myself,
-                ) {
+                if let Err(e) = self
+                    ._bulkreceive_calculatingbulk_idle(
+                        new_trade_l,
+                        computed_portf,
+                        offending_trades,
+                        _bulk_market,
+                        state,
+                        myself,
+                    )
+                    .await
+                {
                     error!(
                         "Could not correctly handle bulkreceive when calculating bulk: {:?}",
                         e

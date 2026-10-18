@@ -274,9 +274,10 @@ where
             ProcessorMiddleMessage::NewTradePortfolio((
                 ntp_trades,
                 mut ntp_portfolio,
-                ntp_market,
+                ntp_market_lease,
                 ntp_upstream_processor,
             )) => {
+                let ntp_market = ntp_market_lease.name().clone();
                 debug!(
                     "Message: NewTradePortfolio. CurrPortfolio: {:?}, NewPortfolio: {:?}, NewMarket: {:?}",
                     state.portfolio.simple(),
@@ -351,19 +352,10 @@ where
                         }
                     }
 
-                    // market that we were holding should be removed from the all_markets,
-                    // as it's not needed anymore.
-                    // destroys the market at the end.
-                    // important: this works w/o old_market != new_market, but it's better
-                    //   since we dont have potential deadlocks on self.all_markets.processor_market_map.
-                    if let Some(ref old_market) = state.curr_market {
-                        if *old_market != ntp_market {
-                            let _ = self
-                                .all_markets
-                                .insert_processor(self.processor_name.clone(), ntp_market.clone())
-                                .await;
-                        }
-                    };
+                    // Register every accepted market, including the first one.
+                    self.all_markets
+                        .insert_processor(self.processor_name.clone(), ntp_market.clone())
+                        .await;
 
                     // update the state of current processor.
                     // this below ntp_trades_from_portfolio should be
@@ -389,7 +381,7 @@ where
                     acc_reject,
                 );
                 if let Err(e) = ntp_upstream_processor.send_message(ProcessorMiddleMessage::Behind(
-                    ntp_market,
+                    ntp_market_lease,
                     ntp_behind_curr_portfolio,
                 )) {
                     error!(
@@ -423,5 +415,163 @@ where
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::markets::letf_market::LETFMarketType;
+    use crate::portfolio_results::PortfolioResults;
+    use crate::trades::trade_letf::LETFTrade;
+    use rdkafka::config::ClientConfig;
+    use tokio::sync::mpsc;
+
+    struct FeedbackSink;
+
+    #[async_trait]
+    impl Actor for FeedbackSink {
+        type Msg = ProcessorMiddleMessage<String>;
+        type State = mpsc::UnboundedSender<String>;
+        type Arguments = Self::State;
+
+        async fn pre_start(
+            &self,
+            _: ActorRef<Self::Msg>,
+            sender: Self::Arguments,
+        ) -> Result<Self::State, ActorProcessingErr> {
+            Ok(sender)
+        }
+
+        async fn handle(
+            &self,
+            _: ActorRef<Self::Msg>,
+            message: Self::Msg,
+            sender: &mut Self::State,
+        ) -> Result<(), ActorProcessingErr> {
+            if let ProcessorMiddleMessage::Behind(lease, _) = message {
+                let name = lease.name().clone();
+                drop(lease);
+                sender.send(name)?;
+            }
+            Ok(())
+        }
+    }
+
+    fn processor(
+        all_markets: Arc<AllMarkets<Arc<LETFMarketType>>>,
+    ) -> ProcessorCurr<LETFTrade, LETFMarketType> {
+        ProcessorCurr {
+            processor_name: "curr".into(),
+            results_topic: "test".into(),
+            // Empty portfolios exercise market handoff without sending to Kafka.
+            result_publisher: ClientConfig::new().set("log_level", "0").create().unwrap(),
+            all_markets,
+            all_trades: Arc::new(TradeRep::default()),
+            operating_mode: RTOperatingMode::DoubleBuffer,
+            pricing_mode: PricingStyle::Sequential,
+            portfolio_reporter: Arc::new(PortfolioResults::default()).reporter(
+                "test".into(),
+                "processor_curr",
+                "curr".into(),
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_first_and_subsequent_accepted_markets_are_registered() {
+        let all = Arc::new(AllMarkets::new());
+        let current = processor(all.clone());
+        let (feedback_tx, mut feedback_rx) = mpsc::unbounded_channel();
+        let (upstream, task) = Actor::spawn(None, FeedbackSink, feedback_tx).await.unwrap();
+        let mut state = current.pre_start(upstream.clone(), ()).await.unwrap();
+        state.pricing_results = vec![PricingMetric::PV];
+
+        for market_name in ["first", "first", "second"] {
+            let name = market_name.to_string();
+            all.insert_both(
+                "new".into(),
+                name.clone(),
+                Arc::new(LETFMarketType::new(name.clone())),
+            )
+            .await;
+            let message = ProcessorMiddleMessage::NewTradePortfolio((
+                TradesLocal::new(),
+                PmPortfolio::new(),
+                all.lease(&name).await.unwrap(),
+                upstream.clone(),
+            ));
+            current
+                .handle(upstream.clone(), message, &mut state)
+                .await
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(2), feedback_rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(state.curr_market.as_ref(), Some(&name));
+            assert_eq!(
+                all.get_processor(&"curr".into()).await.as_ref(),
+                Some(&name)
+            );
+        }
+        assert!(all.get(&"first".into()).await.is_none());
+        // Dropping all upstream ownership must still preserve current's market.
+        all.remove_processor("new").await;
+        assert!(all.get(&"second".into()).await.is_some());
+        upstream.stop(None);
+        task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_delayed_and_rejected_portfolios_retain_and_release_markets() {
+        let all = Arc::new(AllMarkets::new());
+        let current = processor(all.clone());
+        let (feedback_tx, mut feedback_rx) = mpsc::unbounded_channel();
+        let (upstream, task) = Actor::spawn(None, FeedbackSink, feedback_tx).await.unwrap();
+        let mut state = current.pre_start(upstream.clone(), ()).await.unwrap();
+        state.pricing_results = vec![PricingMetric::PV];
+
+        for (market_name, reject) in [("accepted", false), ("rejected", true)] {
+            let name = market_name.to_string();
+            all.insert_both(
+                "new".into(),
+                name.clone(),
+                Arc::new(LETFMarketType::new(name.clone())),
+            )
+            .await;
+            let message = ProcessorMiddleMessage::NewTradePortfolio((
+                TradesLocal::new(),
+                PmPortfolio::new(),
+                all.lease(&name).await.unwrap(),
+                upstream.clone(),
+            ));
+            // Simulate a queued message: its sender has already moved on.
+            all.insert_both(
+                "new".into(),
+                "latest".into(),
+                Arc::new(LETFMarketType::new("latest".into())),
+            )
+            .await;
+            assert!(all.get(&name).await.is_some());
+            if reject {
+                state.trades = (0..NTP_ALLOW_BEHIND)
+                    .map(|i| format!("trade-{i}"))
+                    .collect();
+            }
+            current
+                .handle(upstream.clone(), message, &mut state)
+                .await
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(2), feedback_rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            all.insert_processor("new".into(), "latest".into()).await;
+            assert_eq!(state.curr_market.as_deref(), Some("accepted"));
+            assert_eq!(all.get(&name).await.is_none(), reject);
+        }
+        upstream.stop(None);
+        task.await.unwrap();
     }
 }

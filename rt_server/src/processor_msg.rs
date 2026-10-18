@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
 use strum::{AsRefStr, EnumDiscriminants, IntoStaticStr};
 
+use crate::all_markets::MarketLease;
 use crate::portfolio::PmPortfolio;
 use crate::pricer::PricingMetric;
 use crate::ref_deref_trait;
@@ -26,27 +27,27 @@ pub(crate) enum ProcessorMiddleMessage<MT> {
     //    1st arg: market that we are evaluating
     //    2nd arg: missing trades that we still need -
     //                if Vec.is_empty() then we accepted the portfolio, otherwise market is not accepted.
-    Behind(String, TradesLocal),
+    Behind(MarketLease, TradesLocal),
 
     // message from Bulk computation
     // first elt: all trades,
     // second: portfolio from computed trades
     // third: offending trades.
-    // fourth: market reference on which these trades were computed.
-    BulkReceive((TradesLocal, PmPortfolio, TradesLocal, String)),
+    // fourth: lease retaining the market on which these trades were computed.
+    BulkReceive((TradesLocal, PmPortfolio, TradesLocal, MarketLease)),
     BulkBusy, // unable to compute right now, as it's busy
 
     // message from the processor above.
     // elements:
     //    1st elt: trades for which portfolio was computed.
     //    2nd elt: portfolio:
-    //    3rd market for which it was computed.
+    //    3rd lease retaining the market for which it was computed.
     //    4th actor where this was sent from.
     NewTradePortfolio(
         (
             TradesLocal,
             PmPortfolio,
-            String,
+            MarketLease,
             ActorRef<ProcessorMiddleMessage<MT>>,
         ),
     ),
@@ -71,13 +72,13 @@ pub(crate) enum ProcessorMiddleMessage<MT> {
 #[derive(Clone, Debug, AsRefStr)]
 pub enum ProcessorBulkMessage<MT> {
     // is a triple
-    //    first is the market type, a name of the market
+    //    first is a lease retaining the market
     //    second - is a vector of trades that need to be computed.
     //    third - an actor processing ProcessorMiddleMessage
     //    4th: vector of pricing metrics to compute
     NewBulk(
         (
-            String,
+            MarketLease,
             TradesLocal,
             ActorRef<ProcessorMiddleMessage<MT>>,
             Vec<PricingMetric>,

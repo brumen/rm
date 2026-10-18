@@ -40,8 +40,9 @@ where
     MT::MP: 'static + Send + Sync + Clone,
     MT: MarketTypeT + Send + Sync + 'static + Clone + std::fmt::Debug,
 {
+    let curr_mkt_name = format!("{}:{}", kafka_params.results_topic, curr_mkt_name);
     let curr_bulk = ProcessorBulk::new(
-        "curr".to_string(), // bulk is for processor current
+        curr_mkt_name.clone(), // bulk is for processor current
         initial_trades.clone(),
         all_markets.clone(),
         pricing_mode.clone(),
@@ -107,6 +108,7 @@ where
 ///    last middle processor actor - to be used for new_actor, special case)
 #[allow(dead_code)]
 pub(crate) async fn create_middle_procs_chain<T, MT>(
+    pipeline: &str,
     nb_middle: usize, // number of middle actors.
     processor_curr: ActorRef<ProcessorMiddleMessage<String>>,
     all_markets: Arc<AllMarkets<Arc<MT>>>,
@@ -130,7 +132,7 @@ where
     let mut last_middle: ActorRef<ProcessorMiddleMessage<String>> = processor_curr.clone();
 
     for market_nb in 0..nb_middle {
-        let market_name = format!("middle_{}", market_nb);
+        let market_name = format!("{}:middle_{}", pipeline, market_nb);
         let (processor_middle, middle_state_distr) = create_middle_actor(
             market_name.clone(),
             all_markets.clone(),

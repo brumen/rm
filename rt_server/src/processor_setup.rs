@@ -511,11 +511,7 @@ mod tests {
                         .await;
                 }
                 None => {
-                    state
-                        .all_markets
-                        .processor_market_map
-                        .remove_async("processor")
-                        .await;
+                    state.all_markets.remove_processor("processor").await;
                 }
             }
             let chunk = tokio::time::timeout(Duration::from_secs(2), stream.next())
