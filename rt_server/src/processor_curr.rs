@@ -121,6 +121,18 @@ pub(crate) struct _ProcessorCurrState {
     newtrades_since_last_newmarket: u64, // how many new trades were processed since last newmarket
 }
 
+impl _ProcessorCurrState {
+    // throttle down a certain number of seconds.
+    fn _delay_time(&mut self) -> Duration {
+        if self.newtrades_since_last_newmarket > 10 {
+            self.newtrades_since_last_newmarket = 0; // reset the state counter.
+            return Duration::from_secs(4);
+        }
+
+        Duration::from_secs(0)
+    }
+}
+
 impl std::fmt::Display for _ProcessorCurrState {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
@@ -186,15 +198,12 @@ where
                     return Ok(());
                 }
 
-                // if newtrades_since_last_newmarket > 10, then wait for 4 seconds here before
-                //   continuing. This is to prevent constant looping between this actor and the
-                //   middle actor.
-                if state.newtrades_since_last_newmarket > 10 {
-                    tokio::time::sleep(Duration::from_secs(4)).await;
-                }
+                // manipulates the state and delays the processing.
+                tokio::time::sleep(state._delay_time()).await;
 
                 debug!("Message: NewTrade: Adding trade {:?}.", trade);
-                state.newtrades_since_last_newmarket += 1;
+                state.newtrades_since_last_newmarket =
+                    state.newtrades_since_last_newmarket.saturating_add(1);
                 state.trades.insert(trade.clone());
 
                 let Some(ref real_market) = state.curr_market else {

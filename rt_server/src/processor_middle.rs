@@ -1,6 +1,7 @@
 // middle processor, sits between 2 new processors
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::all_markets::AllMarkets;
@@ -71,6 +72,8 @@ where
             return Ok(());
         }
 
+        tokio::time::sleep(state._delay_time()).await; // delay processing if conditions for throttling are met.
+
         let mut trade_info = self
             .all_trades
             .read_async(&new_trade, |_, v| v.clone())
@@ -88,7 +91,8 @@ where
             return Ok(());
         };
 
-        state.trades_since_ntp += 1;
+        // here we're gonna really process the trade.
+        state.trades_since_ntp = state.trades_since_ntp.saturating_add(1);
 
         for pm in &state.pricing_metrics {
             let new_trade_price_pm = trade_info.value_by_metric(*pm, market_info.clone()).await;
@@ -372,6 +376,17 @@ pub struct _ProcessorMiddleStateful {
     pricing_metrics: Vec<PricingMetric>, //   6th: list of metrics that the system is operating on.
     state_distr: Arc<PNStateDistr>,      // map of state -> number of times visiting that state.
     trades_since_ntp: u64, // how many trades have we processed in NewTrade since the last NewTradePortfolio
+}
+
+impl _ProcessorMiddleStateful {
+    fn _delay_time(&mut self) -> Duration {
+        if self.trades_since_ntp > 10 {
+            self.trades_since_ntp = 0;
+            return Duration::from_secs(4);
+        }
+
+        Duration::from_secs(0)
+    }
 }
 
 #[async_trait]
