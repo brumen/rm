@@ -140,12 +140,12 @@ async fn portfolio_results_events(State(state): State<DiagnosticsState>) -> impl
 }
 
 async fn market_handler(State(state): State<DiagnosticsState>) -> String {
-    let market_names = state.all_markets.list_market_names().await;
+    let market_names = state.all_markets.list_market_names();
     format!("Markets: {:?}", market_names)
 }
 
 async fn market_map_handler(State(state): State<DiagnosticsState>) -> String {
-    let market_map_names = state.all_markets.list_processor_names().await;
+    let market_map_names = state.all_markets.list_processor_names();
     format!("Market map: {:?}", market_map_names)
 }
 
@@ -156,7 +156,7 @@ async fn processor_market_map_page() -> Html<&'static str> {
 async fn processor_market_map_data(
     State(state): State<DiagnosticsState>,
 ) -> Json<BTreeMap<String, String>> {
-    Json(state.all_markets.processor_market_snapshot().await)
+    Json(state.all_markets.processor_market_snapshot())
 }
 
 async fn processor_market_map_events(State(state): State<DiagnosticsState>) -> impl IntoResponse {
@@ -166,7 +166,7 @@ async fn processor_market_map_events(State(state): State<DiagnosticsState>) -> i
         (state.all_markets, interval),
         |(all_markets, mut interval)| async move {
             interval.tick().await;
-            let snapshot = all_markets.processor_market_snapshot().await;
+            let snapshot = all_markets.processor_market_snapshot();
             let event = Event::default().json_data(snapshot);
             Some((event, (all_markets, interval)))
         },
@@ -187,12 +187,12 @@ async fn price_handler(
     let market_name = params.market;
     let trade_id = params.trade_id;
 
-    let market = match state.all_markets.get(&market_name).await {
+    let market = match state.all_markets.get(&market_name) {
         None => {
             return format!(
                 "ERROR: market '{}' not found. Available markets: {:?}",
                 market_name,
-                state.all_markets.list_market_names().await
+                state.all_markets.list_market_names()
             );
         }
         Some(m) => m,
@@ -482,8 +482,7 @@ mod tests {
             .is_empty());
         state
             .all_markets
-            .insert_processor("processor".into(), "market".into())
-            .await;
+            .insert_processor("processor".into(), "market".into());
         let Json(snapshot) = processor_market_map_data(State(state)).await;
         assert_eq!(snapshot["processor"], "market");
     }
@@ -507,15 +506,13 @@ mod tests {
                 Some(market) => {
                     state
                         .all_markets
-                        .insert_processor("processor".into(), market.into())
-                        .await;
+                        .insert_processor("processor".into(), market.into());
                 }
                 None => {
                     state
                         .all_markets
                         .processor_market_map
-                        .remove_async("processor")
-                        .await;
+                        .remove_sync("processor");
                 }
             }
             let chunk = tokio::time::timeout(Duration::from_secs(2), stream.next())
