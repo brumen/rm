@@ -159,6 +159,7 @@ where
         if trades_behind.is_empty() {
             // there is no meaningful progress with the trades. return Ok().
             debug!("Processor below has the same portfolio as this one.");
+            return Ok(());
         } else {
             // we are still behind the below processor.
             //   we add the trades to the trade list, and
