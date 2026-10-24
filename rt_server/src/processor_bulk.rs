@@ -111,7 +111,7 @@ where
 
             for pm in &pricing_metrics {
                 let price_pm_agg = attempted_used
-                    .value_by_metric(*pm, market_actual.clone())
+                    .value_by_metric(pm, market_actual.clone())
                     .await
                     .aggregate();
                 portfolio.assign_metric(pm, price_pm_agg);
@@ -162,7 +162,7 @@ where
         for pm in &pricing_metrics {
             let trade_futures = curr_trades
                 .iter_mut()
-                .map(|t| t.value_by_metric(*pm, market_actual.clone()));
+                .map(|t| t.value_by_metric(pm, market_actual.clone()));
 
             // aggreate the results
             let trade_results = join_all(trade_futures)
@@ -223,14 +223,17 @@ where
         // for every pricing metric launch a number of spawned tasks.
         for pm in &pricing_metrics {
             let mut task_handles = vec![];
+            let pm_clone = pm.clone();
 
             for mut trade in curr_trades.clone() {
                 let market_actual = market_actual.clone();
-                let pm = *pm;
 
                 // launches the task for each future.
                 let handle = ractor::concurrency::spawn(async move {
-                    trade.value_by_metric(pm, market_actual).await.aggregate()
+                    trade
+                        .value_by_metric(&pm_clone, market_actual)
+                        .await
+                        .aggregate()
                 });
 
                 task_handles.push(handle);

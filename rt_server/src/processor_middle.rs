@@ -95,7 +95,7 @@ where
         state.trades_since_ntp = state.trades_since_ntp.saturating_add(1);
 
         for pm in &state.pricing_metrics {
-            let new_trade_price_pm = trade_info.value_by_metric(*pm, market_info.clone()).await;
+            let new_trade_price_pm = trade_info.value_by_metric(pm, market_info.clone()).await;
 
             // TODO: THIS SHOULD BE SOMETHING LIKE THE LINE BELOW:
             // state.pricing_results.assign_metric(pm, new_trade_price_pm);

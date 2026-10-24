@@ -161,7 +161,7 @@ where
 
     /// values the trade for a specific metric.
     #[allow(dead_code)]
-    async fn value_by_metric(&mut self, metric: PricingMetric, market: Arc<MT>) -> PricingResults {
+    async fn value_by_metric(&mut self, metric: &PricingMetric, market: Arc<MT>) -> PricingResults {
         let trade_name = self.id();
 
         match metric {

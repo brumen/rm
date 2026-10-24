@@ -125,7 +125,7 @@ where
         //   w/ actual pricing.
         for pm in &state.pricing_metrics {
             let new_trade_price_pm = new_trade_info
-                .value_by_metric(*pm, new_m_actual.clone())
+                .value_by_metric(pm, new_m_actual.clone())
                 .await
                 .aggregate();
             debug!("New trade price: {:?}", new_trade_price_pm);

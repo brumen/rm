@@ -122,7 +122,9 @@ pub(crate) struct _ProcessorCurrState {
 }
 
 impl _ProcessorCurrState {
-    // throttle down a certain number of seconds.
+    // throttle down a certain number of seconds
+    //   current logic: if the new trade processing is too fast, slow it down,
+    //   so that the new trade processor can catch up.
     fn _delay_time(&mut self) -> Duration {
         if self.newtrades_since_last_newmarket > 10 {
             self.newtrades_since_last_newmarket = 0; // reset the state counter.
@@ -208,7 +210,7 @@ where
 
                 let Some(ref real_market) = state.curr_market else {
                     // only continue if you have a market.
-                    warn!("Do not have market. Ignoring the trade.");
+                    warn!("Do not have market, not pricing the trade: {:?}.", trade);
                     return Ok(());
                 };
 
@@ -237,7 +239,7 @@ where
                     market_info.market_name(),
                     state.pricing_metrics,
                 );
-                for pm in state.pricing_metrics.clone() {
+                for pm in &state.pricing_metrics {
                     let valued_trade_pm = trade_info.value_by_metric(pm, market_info.clone()).await;
                     debug!("Priced trade {:?}: {:?}", trade, valued_trade_pm);
                     if let Some(portf_pm) = state.portfolio.get_mut(&pm) {
@@ -256,10 +258,11 @@ where
                     "Current",
                     &state.portfolio,
                 );
-                for pm in state.pricing_metrics.clone() {
-                    if let Some(portf_pm) = state.portfolio.get_mut(&pm) {
+                for pm in &state.pricing_metrics {
+                    if let Some(portf_pm) = state.portfolio.get_mut(pm) {
                         // publishing the portfolio to kafka.
-                        if let Err(e) = self._publish_result_portfolio(portf_pm.clone(), pm).await {
+                        if let Err(e) = self._publish_result_portfolio(portf_pm.clone(), *pm).await
+                        {
                             error!("Could not publish the portfolio: {:?}", e);
                         };
                     } else {
@@ -399,7 +402,8 @@ where
                 }
             }
 
-            // we get a portfolio of different metrics
+            // we get a vector of different metrics
+            //  (check utils::change_metrics for details.
             ProcessorMiddleMessage::Metric(new_pricing_metrics) => {
                 info!("Changing metrics to {:?}", new_pricing_metrics);
                 crate::utils::change_metrics(&mut state.portfolio, new_pricing_metrics.clone()); // fixes the portf to correspond to new_pricing_metrics
