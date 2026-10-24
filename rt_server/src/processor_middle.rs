@@ -159,17 +159,16 @@ where
         if trades_behind.is_empty() {
             // there is no meaningful progress with the trades. return Ok().
             debug!("Processor below has the same portfolio as this one.");
-            return Ok(()); // TODO: Unsure if this works.
+        } else {
+            // we are still behind the below processor.
+            //   we add the trades to the trade list, and
+            //   send it to the bulk processor.
+            debug!(
+                "Message: Behind: {} trades. Adding those trades to current population.",
+                trades_behind.len(),
+            );
+            state.trades.extend(trades_behind.clone());
         }
-
-        // we are still behind the below processor.
-        //   we add the trades to the trade list, and
-        //   send it to the bulk processor.
-        debug!(
-            "Message: Behind: {} trades. Adding those trades to current population.",
-            trades_behind.len(),
-        );
-        state.trades.extend(trades_behind.clone());
 
         // we dont have current market, use market_behind
         let curr_mkt = match &state.curr_market {
@@ -178,24 +177,21 @@ where
         };
 
         if curr_mkt.is_none() {
+            let processor_name = self.processor_name.clone();
             warn!(
-                "Processor does not have market: Destroying the market {}",
-                market_behind,
+                "Processor {:?}: Market = {:?}",
+                processor_name, market_behind,
             );
 
             self.all_markets
-                .insert_processor(self.processor_name.clone(), market_behind.clone())
+                .insert_processor(processor_name, market_behind.clone())
                 .await;
             state.curr_market = Some(market_behind.clone());
-            // self.processor_bulk
-            //     .send_message(ProcessorBulkMessage::NewBulk((
-            //         market_behind.to_string(),
-            //         state.trades.clone(),
-            //         myself,
-            //         state.pricing_metrics.clone(),
-            //     )))?;
             let Some(market_actual) = self.all_markets.get(&market_behind).await else {
-                warn!("Could not get market {:?}", market_behind);
+                error!(
+                    "Could not get market {:?}. This is weird. Investigate. Not pricing.",
+                    market_behind
+                );
                 return Ok(());
             };
             let (_bulk_trades_priced, bulk_portfolio) = self
@@ -507,27 +503,8 @@ where
                     .state_distr
                     .incr_one(ProcessorMiddleMessageStates::BulkReceive);
 
-                // result of computation has arrived.
-                //  add it to the computation
-                // TODO: WHAT TO DO W/ OFFENDING TRADES???
-
                 debug!("Message: BulkReceive: This shouldnt happen.",);
                 return Ok(());
-                // state.pricing_results = computed_portf;
-                // state.trades.extend(new_trade_l);
-
-                // let Some(ref real_market) = state.curr_market else {
-                //     warn!("Processor does not have market. Ignoring.");
-                //     return Ok(());
-                // };
-
-                // self.processor_below
-                //     .send_message(ProcessorMiddleMessage::NewTradePortfolio((
-                //         state.trades.clone(),
-                //         state.pricing_results.clone(),
-                //         real_market.to_string(),
-                //         myself,
-                //     )))?;
             }
 
             (
