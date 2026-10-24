@@ -117,7 +117,7 @@ pub(crate) struct _ProcessorCurrState {
     trades: TradesLocal,                 // current trades
     portfolio: PmPortfolio, //  2nd arg:  a map of metrics to portfolioTypes, e.g. PV: Portf1, PV01: Portf2...
     curr_market: Option<String>, // current market name
-    pricing_results: Vec<PricingMetric>, // vector of pricing metrics.
+    pricing_metrics: Vec<PricingMetric>, // vector of pricing metrics.
     newtrades_since_last_newmarket: u64, // how many new trades were processed since last newmarket
 }
 
@@ -173,7 +173,7 @@ where
             trades: initial_trades,
             portfolio: initial_curr_portf,
             curr_market: None,
-            pricing_results: vec![],
+            pricing_metrics: vec![],
             newtrades_since_last_newmarket: 0,
         })
     }
@@ -235,9 +235,9 @@ where
                     "Valuing trade {} on market {:?} for {:?} and adding to portfolio.",
                     trade,
                     market_info.market_name(),
-                    state.pricing_results,
+                    state.pricing_metrics,
                 );
-                for pm in state.pricing_results.clone() {
+                for pm in state.pricing_metrics.clone() {
                     let valued_trade_pm = trade_info.value_by_metric(pm, market_info.clone()).await;
                     debug!("Priced trade {:?}: {:?}", trade, valued_trade_pm);
                     if let Some(portf_pm) = state.portfolio.get_mut(&pm) {
@@ -256,7 +256,7 @@ where
                     "Current",
                     &state.portfolio,
                 );
-                for pm in state.pricing_results.clone() {
+                for pm in state.pricing_metrics.clone() {
                     if let Some(portf_pm) = state.portfolio.get_mut(&pm) {
                         // publishing the portfolio to kafka.
                         if let Err(e) = self._publish_result_portfolio(portf_pm.clone(), pm).await {
@@ -284,7 +284,7 @@ where
                     ntp_market,
                 );
 
-                if state.pricing_results.is_empty() {
+                if state.pricing_metrics.is_empty() {
                     warn!("No pricing metrics. Not replacing portfolios.");
                     return Ok(());
                 }
@@ -322,7 +322,7 @@ where
                     let (additional_trades, additional_portf) = self
                         .price_multiple(
                             ntp_behind_curr_portfolio.clone(),
-                            state.pricing_results.clone(),
+                            state.pricing_metrics.clone(),
                             ntp_market_actual,
                             self.all_trades.clone(),
                         )
@@ -403,7 +403,7 @@ where
             ProcessorMiddleMessage::Metric(new_pricing_metrics) => {
                 info!("Changing metrics to {:?}", new_pricing_metrics);
                 crate::utils::change_metrics(&mut state.portfolio, new_pricing_metrics.clone()); // fixes the portf to correspond to new_pricing_metrics
-                state.pricing_results = new_pricing_metrics;
+                state.pricing_metrics = new_pricing_metrics;
                 self.portfolio_reporter.record(
                     state.curr_market.as_deref(),
                     "Current",
