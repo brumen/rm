@@ -47,12 +47,10 @@ where
         let fut_mkt = MT::new(fut_mkt_tag.to_string(), mp.clone());
 
         info!("Adding initial _future_ market to all_markets.");
-        self.all_markets
-            .insert(
-                "future".to_string(), // market is inserted at "future" entry
-                fut_mkt.clone(),
-            )
-            .await;
+        self.all_markets.insert(
+            "future".to_string(), // market is inserted at "future" entry
+            fut_mkt.clone(),
+        );
 
         Ok((*fut_mkt).clone()) // state after initialization is empty market.
     }
@@ -110,13 +108,11 @@ where
 
             let market_sent = Arc::new((*market).clone());
 
-            self.all_markets
-                .insert("future".to_string(), market_sent)
-                .await;
+            self.all_markets.insert("future".to_string(), market_sent);
 
             debug!(
                 "Current markets: {:?}",
-                self.all_markets.list_market_names().await
+                self.all_markets.list_market_names()
             );
             debug!(
                 "Current processor-market map: {:?}",

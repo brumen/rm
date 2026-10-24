@@ -86,7 +86,7 @@ where
             return Ok(());
         };
 
-        let Some(market_info) = self.all_markets.get(real_market).await else {
+        let Some(market_info) = self.all_markets.get(real_market) else {
             warn!("Could not get market {}. Weird - Continuing.", real_market);
             return Ok(());
         };
@@ -174,7 +174,7 @@ where
         // we dont have current market, use market_behind
         let curr_mkt = match &state.curr_market {
             None => None,
-            Some(curr_mkt_str) => self.all_markets.get(curr_mkt_str).await,
+            Some(curr_mkt_str) => self.all_markets.get(curr_mkt_str),
         };
 
         if curr_mkt.is_none() {
@@ -185,12 +185,11 @@ where
             );
 
             self.all_markets
-                .insert_processor(processor_name, market_behind.clone())
-                .await;
+                .insert_processor(processor_name, market_behind.clone());
             state.curr_market = Some(market_behind.clone());
-            let Some(market_actual) = self.all_markets.get(&market_behind).await else {
+            let Some(market_actual) = self.all_markets.get(&market_behind) else {
                 error!(
-                    "Could not get market {:?}. This is weird. Investigate. Not pricing.",
+                    "Could not get market {:?}. This is weird. Investigate. Not pricing further.",
                     market_behind
                 );
                 return Ok(());
@@ -303,8 +302,7 @@ where
         state.curr_market = Some(new_market.clone());
         state.trades_since_ntp = 0; // reset the trades_since_ntp
         self.all_markets
-            .insert_processor(self.processor_name.clone(), new_market.clone())
-            .await;
+            .insert_processor(self.processor_name.clone(), new_market.clone());
 
         // new_behind_curr is empty, replace the portfolio w/ the received one.
         // ntp is ahead of the current portfolio.
@@ -315,7 +313,7 @@ where
         // compute the potential added trades.
         if !new_behind_curr.is_empty() {
             // compute the new_behind_curr and then send it lower.
-            let Some(new_market_actual) = self.all_markets.get(&new_market).await else {
+            let Some(new_market_actual) = self.all_markets.get(&new_market) else {
                 return Ok(());
             };
 
@@ -595,9 +593,7 @@ mod tests {
         market
             .insert(LETFMarketTypes::Stock("stock".into()), 20.0)
             .await;
-        markets
-            .insert_both("middle".into(), "market".into(), market)
-            .await;
+        markets.insert_both("middle".into(), "market".into(), market);
         let trades = Arc::new(TradeRep::default());
         for (id, amount) in [("existing", 10.0), ("missing", 20.0)] {
             trades

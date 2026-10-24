@@ -225,10 +225,10 @@ where
                     return Ok(());
                 };
 
-                let Some(market_info) = self.all_markets.get(real_market).await else {
+                let Some(market_info) = self.all_markets.get(real_market) else {
                     warn!(
                         "Could not find market {}. All markets: {:?}. Ignoring the new trade pricing.",
-                        real_market, self.all_markets.market_size().await,
+                        real_market, self.all_markets.market_size(),
                     );
                     return Ok(());
                 };
@@ -319,7 +319,7 @@ where
                 //if (ntp_portf_behind > 0) & ntp_portf_acc {
                 if ntp_portf_acc {
                     // new portfolio is accepted.
-                    let Some(ntp_market_actual) = self.all_markets.get(&ntp_market).await else {
+                    let Some(ntp_market_actual) = self.all_markets.get(&ntp_market) else {
                         warn!("Could not get NTP market {:?}", ntp_market);
                         return Ok(());
                     };
@@ -365,8 +365,7 @@ where
                         if *old_market != ntp_market {
                             let _ = self
                                 .all_markets
-                                .insert_processor(self.processor_name.clone(), ntp_market.clone())
-                                .await;
+                                .insert_processor(self.processor_name.clone(), ntp_market.clone());
                         }
                     };
 
