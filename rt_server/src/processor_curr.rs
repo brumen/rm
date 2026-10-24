@@ -258,6 +258,8 @@ where
                     "Current",
                     &state.portfolio,
                 );
+
+                // publish portfolios on the kafka bus for each metric.
                 for pm in &state.pricing_metrics {
                     if let Some(portf_pm) = state.portfolio.get_mut(pm) {
                         // publishing the portfolio to kafka.
