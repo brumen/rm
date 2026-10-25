@@ -1,89 +1,74 @@
-use dashmap::DashMap;
-/// messages for the Multiple Actor references.
-use ractor::ActorRef;
-use std::collections::HashSet;
-use std::ops::{Deref, DerefMut};
-use strum::{AsRefStr, EnumDiscriminants, IntoStaticStr};
-
+//! Internal, versioned actor protocol. Kafka payloads are unchanged.
 use crate::portfolio::PmPortfolio;
 use crate::pricer::PricingMetric;
 use crate::ref_deref_trait;
+use dashmap::DashMap;
+use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
+use strum::{AsRefStr, EnumDiscriminants, IntoStaticStr};
+use tokio::sync::OwnedSemaphorePermit;
+use tokio::time::Instant;
 
-pub(crate) type TradesLocal = HashSet<String>;
-
-/// message that the new processor receives
-#[derive(EnumDiscriminants)]
-#[strum_discriminants(name(ProcessorMiddleMessageStates))] // Renames the generated enum
-#[strum_discriminants(derive(std::hash::Hash))] // Adds hash trait to ProcessorMiddleMessageStates
-#[strum_discriminants(derive(strum::Display))] // Adds display trait to ProcessorMiddleMessageStates
-#[strum_discriminants(derive(IntoStaticStr))]
-#[allow(dead_code)]
-#[derive(Clone, Debug, AsRefStr)]
-pub(crate) enum ProcessorMiddleMessage<MT> {
-    NewTrade(String), // message from trade producer, trade id.
-    NewMarket(MT),    // message from market handler, market_name
-    // message from Processor_below:
-    //    1st arg: market that we are evaluating
-    //    2nd arg: missing trades that we still need -
-    //                if Vec.is_empty() then we accepted the portfolio, otherwise market is not accepted.
-    Behind(String, TradesLocal),
-
-    // message from Bulk computation
-    // first elt: all trades,
-    // second: portfolio from computed trades
-    // third: offending trades.
-    // fourth: market reference on which these trades were computed.
-    BulkReceive((TradesLocal, PmPortfolio, TradesLocal, String)),
-    BulkBusy, // unable to compute right now, as it's busy
-
-    // message from the processor above.
-    // elements:
-    //    1st elt: trades for which portfolio was computed.
-    //    2nd elt: portfolio:
-    //    3rd market for which it was computed.
-    //    4th actor where this was sent from.
-    NewTradePortfolio(
-        (
-            TradesLocal,
-            PmPortfolio,
-            String,
-            ActorRef<ProcessorMiddleMessage<MT>>,
-        ),
-    ),
-    // processing stat:
-    //   1st arg: processor name
-    //   2nd arg: when the events ocurred.
-    //   3rd arg: cumulative number of trades processed.
-    ProcessingStat((String, chrono::NaiveDateTime, usize)),
-    Metric(Vec<PricingMetric>), // we compute the vector of pricing metrics.
+#[derive(Debug)]
+pub(crate) struct TradeEvent<T> {
+    pub id: String,
+    pub version: u64,
+    pub value: T,
+    pub received: Instant,
 }
 
-// impl<MT> ProcessorMiddleMessage<MT> {
-//     pub(crate) fn get_trade(&self) -> Option<String> {
-//         match self {
-//             ProcessorMiddleMessage::NewTrade(trade_id) => Some(trade_id.clone()),
-//             _ => None,
-//         }
-//     }
-// }
+#[derive(Debug)]
+pub(crate) struct TradeDelivery<T> {
+    pub event: Arc<TradeEvent<T>>,
+    // The permit follows the event through the mailbox, pending queue and worker.
+    // Returning from handle() alone does not release admission capacity.
+    pub _permit: OwnedSemaphorePermit,
+}
 
-#[allow(dead_code)]
-#[derive(Clone, Debug, AsRefStr)]
-pub enum ProcessorBulkMessage<MT> {
-    // is a triple
-    //    first is the market type, a name of the market
-    //    second - is a vector of trades that need to be computed.
-    //    third - an actor processing ProcessorMiddleMessage
-    //    4th: vector of pricing metrics to compute
-    NewBulk(
-        (
-            String,
-            TradesLocal,
-            ActorRef<ProcessorMiddleMessage<MT>>,
-            Vec<PricingMetric>,
-        ),
-    ),
-    Abandon, // TODO: WHAT TO DO W/ THIS???
+#[derive(Debug)]
+pub(crate) struct PricedTrade<T> {
+    pub event: Arc<TradeEvent<T>>,
+    pub results: PmPortfolio,
+}
+
+#[derive(Debug)]
+pub(crate) struct PortfolioUpdate<T, MT> {
+    pub sequence: u64,
+    pub market: Arc<MT>,
+    pub metrics: Vec<PricingMetric>,
+    pub trades: HashMap<String, Arc<PricedTrade<T>>>,
+    pub failed: HashMap<String, u64>,
+}
+
+#[derive(Debug)]
+pub(crate) struct PortfolioDelivery<T, MT> {
+    pub update: PortfolioUpdate<T, MT>,
+    pub _permit: OwnedSemaphorePermit,
+}
+
+#[derive(Debug)]
+pub(crate) struct PricingCompletion<T> {
+    pub epoch: u64,
+    pub outcomes: Vec<(Arc<TradeEvent<T>>, Result<PmPortfolio, String>)>,
+    pub elapsed: std::time::Duration,
+}
+
+#[derive(EnumDiscriminants, Debug, AsRefStr)]
+#[strum_discriminants(name(ProcessorMiddleMessageStates))]
+#[strum_discriminants(derive(std::hash::Hash, strum::Display, IntoStaticStr))]
+pub(crate) enum ProcessorMessage<T, MT> {
+    NewTrade(TradeDelivery<T>),
+    NewMarket,
+    NewTradePortfolio(PortfolioDelivery<T, MT>),
+    Metric(Vec<PricingMetric>),
+    Wake,
+    PricingDone(PricingCompletion<T>),
+    PublishDone {
+        sequence: u64,
+        elapsed: std::time::Duration,
+        result: Result<(), String>,
+    },
 }
 
 // Accounting for the distribution of messages of types
@@ -99,12 +84,11 @@ impl PNStateDistr {
         PNStateDistr::from([
             (ProcessorMiddleMessageStates::NewTrade, 0),
             (ProcessorMiddleMessageStates::NewMarket, 0),
-            (ProcessorMiddleMessageStates::Behind, 0),
-            (ProcessorMiddleMessageStates::BulkReceive, 0),
-            (ProcessorMiddleMessageStates::BulkBusy, 0),
             (ProcessorMiddleMessageStates::NewTradePortfolio, 0),
-            (ProcessorMiddleMessageStates::ProcessingStat, 0),
             (ProcessorMiddleMessageStates::Metric, 0),
+            (ProcessorMiddleMessageStates::Wake, 0),
+            (ProcessorMiddleMessageStates::PricingDone, 0),
+            (ProcessorMiddleMessageStates::PublishDone, 0),
         ])
     }
 }

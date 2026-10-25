@@ -36,16 +36,25 @@
   <header>
     <div>
       <h1>Processor portfolio results</h1>
-      <p class="muted">Live processor_curr and processor_new valuations · <a href="/processor_market_map">Processor market map</a></p>
+      <p class="muted">Live pipeline valuations and adaptive pacing · <a href="/processor_market_map">Processor market map</a></p>
     </div>
     <span id="status" role="status" data-live="false">Connecting…</span>
   </header>
   <div class="toolbar">
     <label for="pipeline">Results topic<select id="pipeline"><option value="">All results topics</option></select></label>
-    <label for="processor">Processor<select id="processor"><option value="">Both processors</option><option value="processor_curr">processor_curr</option><option value="processor_new">processor_new</option></select></label>
+    <label for="processor">Processor<select id="processor"><option value="">All processors</option><option value="processor_curr">processor_curr</option><option value="processor_new">processor_new</option></select></label>
     <label for="filter">Filter results<input id="filter" type="search" placeholder="Topic, market, metric, trade…" autocomplete="off"></label>
     <span id="summary" class="muted">Waiting for results…</span>
   </div>
+  <details open>
+    <summary>Adaptive pacing</summary>
+    <div class="table-wrap">
+      <table aria-label="Adaptive pacing performance">
+        <thead><tr><th>Results topic</th><th>Processor</th><th>Pending</th><th>Oldest pending (ms)</th><th>Lead / target</th><th>Rate / second</th><th>Pricing ms / trade</th><th>Publish ms</th><th>Upstream</th><th>Failed prices</th></tr></thead>
+        <tbody id="pacing"></tbody>
+      </table>
+    </div>
+  </details>
   <div class="table-wrap">
     <table aria-label="Portfolio metric totals">
       <thead><tr><th scope="col">Results topic</th><th scope="col">Processor</th><th scope="col">Market</th><th scope="col">State</th><th scope="col">Metric</th><th scope="col" class="number">Total</th><th scope="col" class="number">Trades</th><th scope="col">Result captured</th></tr></thead>
@@ -65,7 +74,7 @@
   </details>
   <footer class="muted">
     Samples every 500 ms · Blue flashes indicate changed results · <span id="updated">No updates yet</span><br>
-    These are actor-state snapshots, not Kafka delivery confirmations. processor_new is provisional; its metrics clear during bulk recomputation. N/A indicates a non-finite value. Result capture times remain unchanged when no new results arrive.
+    These are actor-state snapshots, not Kafka delivery confirmations. processor_new is provisional; its metrics clear during bulk recomputation. N/A indicates a non-finite or unavailable value. Capture times include pacing updates.
   </footer>
   <script>
     const results = document.getElementById("results");
@@ -79,6 +88,7 @@
     const details = document.getElementById("trade-details");
     const tradeCount = document.getElementById("trade-count");
     const updated = document.getElementById("updated");
+    const pacing = document.getElementById("pacing");
     const number = new Intl.NumberFormat(undefined, { maximumSignificantDigits: 12 });
     let snapshot = {};
     let previousPayload = null;
@@ -105,6 +115,7 @@
       const query = filter.value.trim().toLowerCase();
       const rows = document.createDocumentFragment();
       const tradeRows = document.createDocumentFragment();
+      const pacingRows = document.createDocumentFragment();
       const nextRows = new Map();
       let visible = 0;
       let matchingTrades = 0;
@@ -114,6 +125,10 @@
         for (const [role, result] of Object.entries(processors)) {
           if (processor.value && processor.value !== role) continue;
           const market = result.market ?? "Not assigned";
+          const t = result.throttle;
+          if (t && `${topic} ${role} ${result.processor_name} ${market}`.toLowerCase().includes(query)) {
+            appendRow(pacingRows, [topic, role, t.pending, formatValue(t.oldest_pending_ms), `${t.lead} / ${t.target_lead}`, formatValue(t.rate_per_second), formatValue(t.pricing_ms_per_trade), formatValue(t.publishing_ms), role === "processor_new" ? "Source" : t.upstream_stalled ? "Stalled · fallback" : "Following", t.failed_trades], [2, 3, 4, 5, 6, 7, 9]);
+          }
           const captured = new Date(result.updated_at_ms).toLocaleString();
           const metrics = Object.entries(result.metrics);
           if (!metrics.length && `${topic} ${role} ${result.processor_name} ${market} ${result.phase}`.toLowerCase().includes(query)) {
@@ -144,6 +159,7 @@
 
       results.replaceChildren(rows);
       trades.replaceChildren(tradeRows);
+      pacing.replaceChildren(pacingRows);
       previousRows = nextRows;
       empty.hidden = visible > 0;
       empty.textContent = Object.keys(snapshot).length ? "No matching results." : "No processor results recorded yet.";
@@ -161,6 +177,15 @@
       if (event.data === previousPayload) return;
       previousPayload = event.data;
       snapshot = JSON.parse(event.data);
+      const roles = [...new Set(Object.values(snapshot).flatMap(processors => Object.keys(processors)))].sort();
+      const selectedRole = processor.value;
+      const roleOptions = document.createDocumentFragment();
+      for (const [value, label] of [["", "All processors"], ...roles.map(role => [role, role])]) {
+        const option = document.createElement("option");
+        option.value = value; option.textContent = label; roleOptions.append(option);
+      }
+      processor.replaceChildren(roleOptions);
+      processor.value = roles.includes(selectedRole) ? selectedRole : "";
       const topics = Object.keys(snapshot);
       if (JSON.stringify(topics) !== topicKeys) {
         topicKeys = JSON.stringify(topics);

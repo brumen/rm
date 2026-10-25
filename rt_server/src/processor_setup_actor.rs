@@ -7,12 +7,12 @@ use tracing::{error, info};
 
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PricingMetric;
-use crate::processor_msg::ProcessorMiddleMessage;
+use crate::processor_msg::ProcessorMessage;
 
 /// Actor that listens for setup messages from Kafka and sends metrics to processors
-pub struct SetupActor {
+pub struct SetupActor<T, MT> {
     pub setup_listener: StreamConsumer,
-    pub processors: Vec<ActorRef<ProcessorMiddleMessage<String>>>,
+    pub processors: Vec<ActorRef<ProcessorMessage<T, MT>>>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -20,11 +20,11 @@ pub enum SetupRequest {
     Metrics(Vec<PricingMetric>),
 }
 
-impl SetupActor {
+impl<T, MT> SetupActor<T, MT> {
     pub fn new(
         kafka_server: String,
         topic: String,
-        processors: Vec<ActorRef<ProcessorMiddleMessage<String>>>,
+        processors: Vec<ActorRef<ProcessorMessage<T, MT>>>,
     ) -> Self {
         info!("Starting SetupActor on topic {:?}", topic);
         let setup_listener = connect_with_retries_rd(&kafka_server, &topic);
@@ -36,10 +36,10 @@ impl SetupActor {
 }
 
 #[allow(dead_code)]
-pub(crate) async fn start_setup_actor(
+pub(crate) async fn start_setup_actor<T: Send + Sync + 'static, MT: Send + Sync + 'static>(
     kafka_server: String,
     topic: String,
-    processors: Vec<ActorRef<ProcessorMiddleMessage<String>>>,
+    processors: Vec<ActorRef<ProcessorMessage<T, MT>>>,
 ) -> JoinHandle<()> {
     info!("Setting up listener to {}:{}", kafka_server, topic);
     let setup_actor = SetupActor::new(kafka_server, topic, processors);
@@ -51,7 +51,7 @@ pub(crate) async fn start_setup_actor(
 }
 
 #[async_trait]
-impl Actor for SetupActor {
+impl<T: Send + Sync + 'static, MT: Send + Sync + 'static> Actor for SetupActor<T, MT> {
     type Msg = SetupRequest;
     type State = ();
     type Arguments = ();
@@ -106,8 +106,7 @@ impl Actor for SetupActor {
                     pricing_metrics
                 );
                 for proc in &self.processors {
-                    let _ =
-                        proc.send_message(ProcessorMiddleMessage::Metric(pricing_metrics.clone()));
+                    let _ = proc.send_message(ProcessorMessage::Metric(pricing_metrics.clone()));
                 }
 
                 info!("Listening on a setup request...");

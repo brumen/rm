@@ -1,29 +1,32 @@
-// construct and connect all the actors for the AirOption framework
-use ractor::Actor;
-use ractor::ActorRef;
-use std::ops::AddAssign;
-use std::sync::Arc;
-use tokio::task::JoinHandle;
-use tracing::info;
-
+//! Construct the incoming -> middle -> current processing pipeline.
 use crate::all_markets::AllMarkets;
-use crate::engine_actor::{create_curr_actor, create_middle_procs_chain, KafkaParams};
+use crate::engine_actor::{spawn_processor, KafkaParams};
 use crate::market::{MarketTypeT, SetName};
 use crate::mkt_handler_actor::MarketProducer;
 use crate::portfolio_results::PortfolioResults;
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::pricer::PriceTrade;
-use crate::processor_bulk::{PricingStyle, ProcessorBulk};
-use crate::processor_curr::RTOperatingMode;
-use crate::processor_msg::{PNStateDistr, ProcessorMiddleMessage};
-use crate::processor_new::ProcessorNew;
+use crate::processor_bulk::PricingStyle;
+use crate::processor_curr::{KafkaPublisher, RTOperatingMode};
+use crate::processor_flow::Role;
+use crate::processor_msg::{PNStateDistr, ProcessorMessage};
+use crate::publish::connect_with_retries_producer_rd;
 use crate::ref_deref::TryFromRef2;
+use crate::throttle::ThrottleConfig;
 use crate::trade::{BaseTrade, TradeRep};
 use crate::trade_sender::TradeProducer;
+use ractor::{Actor, ActorRef};
+use std::ops::AddAssign;
+use std::sync::Arc;
+use tokio::task::JoinHandle;
 
-/// initializes all the actors and returns a vector of joint handles to start them
-///   all.
-#[allow(dead_code)]
+/// Build one pipeline from shared processors configured as New, Middle and Current.
+///
+/// Connect New to the highest Middle stage, or directly to Current when there
+/// are no middle stages. Market ingress targets New, while trade ingress feeds
+/// stages from New down to Current so downstream backpressure does not withhold
+/// the input prefix upstream needs to catch up. Return actor references for
+/// configuration, lifecycle handles, and New's message counters for diagnostics.
 pub(crate) async fn start2<T, MT>(
     kafka_params: KafkaParams,
     all_markets: Arc<AllMarkets<Arc<MT>>>,
@@ -35,9 +38,9 @@ pub(crate) async fn start2<T, MT>(
     pricing_mode: PricingStyle,
     portfolio_results: Arc<PortfolioResults>,
 ) -> (
-    Vec<ActorRef<ProcessorMiddleMessage<String>>>,
+    Vec<ActorRef<ProcessorMessage<T, MT>>>,
     Vec<JoinHandle<()>>,
-    Arc<PNStateDistr>, // state distribution of the new processor
+    Arc<PNStateDistr>,
 )
 where
     T: BaseTrade
@@ -54,134 +57,88 @@ where
     for<'a> MT:
         Send + Sync + MarketTypeT + 'static + Clone + AddAssign<&'a MT> + SetName + std::fmt::Debug,
 {
-    let mut actors_middle_msg = Vec::<ActorRef<ProcessorMiddleMessage<String>>>::new();
-
-    // create the current processor.
-    let (curr_processor, _curr_processor_bulk_h) = create_curr_actor(
-        kafka_params.clone(),
+    let config = ThrottleConfig::from_env().expect("Invalid adaptive throttle configuration");
+    let topic = &kafka_params.results_topic;
+    let publisher = Arc::new(KafkaPublisher {
+        producer: connect_with_retries_producer_rd(&kafka_params.kafka_server),
+        topic: topic.clone(),
+    });
+    let (current, task, _) = spawn_processor(
+        format!("{topic}::curr"),
+        Role::Current,
+        None,
+        Some(publisher),
+        operating_mode.clone(),
         all_markets.clone(),
-        markets_used[0].clone(),
-        initial_trades.clone(),
-        mp.clone(),
-        operating_mode,
+        portfolio_results.reporter(topic.clone(), "processor_curr", markets_used[0].clone()),
         pricing_mode.clone(),
-        portfolio_results.reporter(
-            kafka_params.results_topic.clone(),
-            "processor_curr",
-            markets_used[0].clone(),
-        ),
+        config.clone(),
     )
     .await;
-
-    let (_processor_curr_a, processor_curr_handle) =
-    //Actor::spawn(Some("processor_curr_actor".to_string()), curr_processor, ())
-        Actor::spawn(None, curr_processor, ())
-            .await
-            .expect("Could not start current processor");
-
-    actors_middle_msg.push(_processor_curr_a.clone());
-
-    // middle actors (including state distribution for
-    let (mut processor_actors, mut processor_actor_futures, _middle_state_distr_vec) =
-        create_middle_procs_chain(
-            nb_middle,
-            _processor_curr_a.clone(),
+    let mut handles = vec![task];
+    let mut endpoints = vec![current.clone()];
+    let mut below = current;
+    for index in 0..nb_middle {
+        let name = format!("middle_{index}");
+        let (middle, task, _) = spawn_processor(
+            format!("{topic}::{name}"),
+            Role::Middle,
+            Some(below),
+            None,
+            RTOperatingMode::DoubleBuffer,
             all_markets.clone(),
-            initial_trades.clone(),
-            mp.clone(),
+            portfolio_results.reporter(topic.clone(), &name, name.clone()),
             pricing_mode.clone(),
+            config.clone(),
         )
         .await;
-
-    // takes the last middle processor, if there are no
-    //   middle processors, takes the current one.
-    let last_middle = processor_actors.last().unwrap_or(&_processor_curr_a);
-
-    actors_middle_msg.extend(processor_actors.clone());
-
-    // creating the bulk processor
-    let new_mkt_bulk = ProcessorBulk::new(
-        "processor_new".to_string(),
-        initial_trades.clone(),
-        all_markets.clone(),
-        pricing_mode.clone(),
-    );
-
-    let (processor_new_bulk_actor, processor_new_bulk_handle) = Actor::spawn(
-        //Some("processor_new_bulk".to_string()),
+        below = middle.clone();
+        endpoints.push(middle);
+        handles.push(task);
+    }
+    let (incoming, task, distribution) = spawn_processor(
+        format!("{topic}::processor_new"),
+        Role::New,
+        Some(below),
         None,
-        new_mkt_bulk,
-        mp.clone(),
-    )
-    .await
-    .expect("Could not start processor_new_bulk");
-
-    // state distribution of the processor new
-    let state_distr_new = Arc::new(PNStateDistr::new());
-    let processor_new = ProcessorNew::new(
-        "processor_new".to_string(),
-        last_middle.clone(),
-        processor_new_bulk_actor.clone(),
+        RTOperatingMode::DoubleBuffer,
         all_markets.clone(),
-        initial_trades.clone(),
-        state_distr_new.clone(),
+        portfolio_results.reporter(topic.clone(), "processor_new", "processor_new".into()),
         pricing_mode,
-        portfolio_results.reporter(
-            kafka_params.results_topic.clone(),
-            "processor_new",
-            "processor_new".to_string(),
-        ),
-    );
-
-    let (_processor_new_a, processor_new_handle) =
-    //Actor::spawn(Some("processor_new".to_string()), processor_new, ())
-        Actor::spawn(None, processor_new, ())
-            .await
-            .expect("Could not start new processor");
-
-    actors_middle_msg.push(_processor_new_a.clone());
-
-    // adding all actors to processors
-    processor_actors.push(_processor_curr_a.clone()); // adding current processor to actors.
-    processor_actors.push(_processor_new_a.clone()); // adding new processor to actors.
-
-    info!("Connecting to market topic {:?}", kafka_params.mkt_topic);
-    let mkt_listener = connect_with_retries_rd(&kafka_params.kafka_server, &kafka_params.mkt_topic);
+        config,
+    )
+    .await;
+    endpoints.push(incoming.clone());
+    handles.push(task);
+    let all_actors = endpoints
+        .iter()
+        .map(|endpoint| endpoint.actor.clone())
+        .collect();
+    // Feed incoming first, then middle processors from top to bottom, then current.
+    // A slow current processor cannot withhold the prefix upstream needs to catch up.
+    endpoints.reverse();
     let market_producer = MarketProducer {
-        pricing_options: mp.clone(),
-        mkt_listener,
-        new_processor: _processor_new_a.clone(),
-        all_markets: all_markets.clone(),
+        pricing_options: mp,
+        mkt_listener: Arc::new(connect_with_retries_rd(
+            &kafka_params.kafka_server,
+            &kafka_params.mkt_topic,
+        )),
+        new_processor: incoming,
+        all_markets,
     };
-    let (_mkt_producer_a, mkt_producer_handle) =
-    //Actor::spawn(Some("mkt_producer".to_string()), market_producer, ())
-        Actor::spawn(None, market_producer, ())
-            .await
-            .expect("Could not start market producer");
-
+    let (_, task) = Actor::spawn(None, market_producer, ())
+        .await
+        .expect("Could not start market producer");
+    handles.push(task);
     let trade_producer = TradeProducer::new(
         kafka_params.kafka_server,
         kafka_params.pos_topic,
-        processor_actors,
-        initial_trades, // TODO: CHECK IF THIS NEEDS TO BE CHANGED.
+        endpoints,
+        initial_trades,
     );
-
-    let (_trade_capture_a, trade_capture_handle) =
-    //Actor::spawn(Some("trade_producer".to_string()), trade_producer, ())
-        Actor::spawn(None, trade_producer, ())
-            .await
-            .expect("Could not start trade producer");
-
-    // special futures
-    let mut all_futures = vec![
-        trade_capture_handle,      // trade producer
-        processor_curr_handle,     // current processor
-        processor_new_handle,      // new processor
-        processor_new_bulk_handle, // bulk of new processor
-        mkt_producer_handle,       // market producer
-    ];
-
-    all_futures.append(&mut processor_actor_futures); // middle processors
-
-    (actors_middle_msg, all_futures, state_distr_new)
+    let (_, task) = Actor::spawn(None, trade_producer, ())
+        .await
+        .expect("Could not start trade producer");
+    handles.push(task);
+    (all_actors, handles, distribution)
 }

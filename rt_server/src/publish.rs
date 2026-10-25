@@ -85,6 +85,9 @@ pub fn connect_with_retries_producer_rd(
     let mut result_producer_config = ClientConfig::new();
     result_producer_config.set("bootstrap.servers", bootstrap_servers);
     result_producer_config.set("group.id", "result_producer");
+    // Preserve per-partition order across delivery retries. A timed-out worker
+    // may have already enqueued a record before its future is cancelled.
+    result_producer_config.set("enable.idempotence", "true");
 
     // .set("enable.partition.eof", "false")
     // We'll give each session its own (unique) consumer group id,

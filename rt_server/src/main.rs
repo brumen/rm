@@ -24,6 +24,8 @@ pub(crate) mod markets;
 pub(crate) mod mkt_handler_actor;
 pub(crate) mod processor_bulk;
 pub(crate) mod processor_curr;
+pub(crate) mod processor_flow;
+pub(crate) mod throttle;
 pub(crate) mod processor_middle;
 pub(crate) mod processor_msg;
 pub(crate) mod processor_new;

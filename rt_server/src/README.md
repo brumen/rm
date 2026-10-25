@@ -15,63 +15,102 @@ The system follows a pipeline architecture implemented as a chain of actors. Dat
 - **Initialization**: Loads configuration from `.env`, connects to Kafka (Redpanda), and initializes shared data structures for Markets (`AllMarkets`) and Trades (`TradeRep`).
 - **Orchestration**: Calls `engine_letf::start2` to build the actor supervision tree and `start_setup_actor` for dynamic configuration.
 
-#### 2. Actor Pipeline (`engine_letf.rs`, `engine_actor.rs`)
+#### 2. Adaptive actor pipeline
 
-The engine constructs a hierarchical processing chain:
+`processor_flow.rs` implements the shared scheduler for the New, Middle and
+Current roles. New accepts complete market snapshots and prices immutable,
+versioned trade values. Middle and Current follow upstream priced coverage with
+adaptive pacing. Current accepts portfolios with fewer than ten locally priced
+trade versions missing, reprices the difference on the accepted market, and
+publishes metric totals to the existing Kafka results topic. Single-buffer mode
+uses upstream results without independently pricing incoming trades.
 
-- **`ProcessorNew` (Top Level)**:
+Pricing runs outside actor handlers with one batch in flight per processor.
+Sequential mode prices one trade at a time; the parallel modes have at most 16
+trade computations in flight. Kafka publication has one worker in flight and one
+latest pending state. Portfolio/configuration messages can be handled while
+pricing or publication waits. Market changes and metric changes invalidate old
+pricing completions; those results cannot overwrite a newer accepted state.
 
-  - The entry point for new market data (`NewMarket`) and trade events (`NewTrade`).
-  - Manages a "future" market state.
-  - Initiates bulk pricing computations.
-  - Passes calculated portfolios downstream to `ProcessorMiddle`.
+`processor_msg.rs` defines the internal typed protocol. Kafka message keys and
+values are unchanged. `processor_curr.rs` contains the Kafka publisher and sink
+acceptance threshold; `processor_bulk.rs` contains the bounded pricing worker.
+The former New/Middle processor modules retain aliases for the shared processor.
 
-- **`ProcessorMiddle` (Intermediate Layer)**:
+#### 3. Admission and scheduling
 
-  - A chain of actors connecting the top and bottom layers.
-  - Manages flow control and state synchronization between the fast-moving "New" state and the stable "Current" state.
-  - Handles `NewTradePortfolio` messages from upstream and `Behind` messages from downstream.
-  - Ensures consistent state updates by re-triggering calculations if downstream processors report missing trades.
-  - States: `Idle`, `CalculatingBulk`, `CalculatingSingle`, `CalculatingBulkMarketSwitch`.
+Trade ingress sends to New first, then Middle processors from top to bottom,
+then Current. Each actor has a separate admission semaphore. A permit remains
+held through the actor mailbox, pending queue and pricing until the trade version
+has been priced, covered by a successful equal/newer snapshot, or explicitly
+reported as unpriceable. Throttling never drops a trade to make room. Events carry
+immutable trade values, so an update in the shared registry cannot change an
+already queued event. Newer versions replace earlier contributions rather than
+adding the same position twice.
 
-- **`ProcessorCurr` (Bottom Level/Sink)**:
-  - Represents the current authoritative state of the portfolio.
-  - Receives proposed portfolios from upstream.
-  - Validates updates (checking if it is "behind" on any trades).
-  - **Result Publishing**: If an update is accepted, it publishes the aggregated portfolio metrics (e.g., JSON payload) to the configured Kafka results topic via `ResultPublisher`.
+When admission is full, ingress waits and Kafka retains the backlog. Trade
+consumer offsets are stored only after every processor has admitted the event;
+this is **not** a new exactly-once or end-to-end publication guarantee. Consumer
+groups still use the existing per-session UUID policy. Malformed input is logged
+and skipped. Unpriceable versions are logged, excluded from successful coverage,
+and retained in the actor's latest trade state for retry on a new market or
+metric set.
 
-#### 3. Helper Actors
+Each edge permits one outstanding portfolio snapshot; while it is occupied, the
+sender retains its current state and defers further incremental pricing. Raw
+market updates are all applied before coalescing complete markets into one latest
+pending snapshot. Actor handlers never wait for an output permit. One timer per
+actor drives a small token bucket; no four-second sleeps remain in handlers.
 
-- **`ProcessorBulk`**: Attached to processors to offload heavy numerical computations (pricing thousands of trades) to avoid blocking the main actor message loop.
-- **`SetupActor` (`processor_setup_actor.rs`)**: Listens to a configuration Kafka topic. It allows dynamic updates to the system, such as changing the list of `PricingMetric`s (e.g., switching from just PV to PV + Delta) being calculated by all processors.
+#### 4. Adaptive pacing configuration
 
-#### 4. I/O Handlers
+`throttle.rs` measures pricing time per trade, publishing time, advancing upstream
+coverage and the actual lead in successfully priced trade **versions**. Monotonic
+clocks and time-weighted EWMAs exclude intentional waits and avoid interpreting
+idle periods as processing capacity. Comparable rejected portfolios update the
+controller too; duplicate snapshots do not reset its stall timer.
 
-- **`MarketProducer` (`mkt_handler_actor.rs`)**: Consumes market data from Kafka and feeds `ProcessorNew`.
-- **`TradeProducer` (`trade_sender.rs`)**: Consumes trade/position updates from Kafka and notifies processors of new trades.
-- **`ResultPublisher`**: A Kafka producer wrapper used by `ProcessorCurr` to emit risk results.
+The target rate is upstream coverage progress plus a correction for the lead
+error over the recovery interval, capped by measured local pricing capacity.
+A one-trade deadband and a smoothed rate reduce oscillation. Normal pacing
+preserves headroom below the sink's ten-trade rejection threshold. If upstream
+makes no progress while work is pending, the actor logs a warning and uses a
+conservative fallback capped at 10% of the configured initial rate. This relaxes
+the lead target to avoid indefinite waiting; incoming portfolio messages remain
+serviceable. Worker timeouts and bounded publication retries prevent hung I/O
+from occupying the only worker indefinitely.
+
+Optional environment variables (validated at startup):
+
+| Variable | Default | Meaning |
+| --- | ---: | --- |
+| `RT_THROTTLE_CAPACITY` | 256 | Outstanding trade deliveries per actor, 1–65536 |
+| `RT_THROTTLE_BURST` | 4 | Maximum incremental batch/burst, 1–8, capped by capacity |
+| `RT_THROTTLE_TARGET_LEAD` | 4 | Desired lead, 1–7 trade versions |
+| `RT_THROTTLE_EWMA_MS` | 1000 | Performance smoothing time |
+| `RT_THROTTLE_RECOVERY_MS` | 500 | Lead correction horizon |
+| `RT_THROTTLE_STALL_MS` | 2000 | Upstream progress timeout while work is pending |
+| `RT_THROTTLE_WORKER_TIMEOUT_MS` | 30000 | Deadline for one pricing/publication job |
+| `RT_THROTTLE_INITIAL_RATE` | 2000 | Initial trades/second before measurements |
+
+Duration settings accept integral milliseconds from 1 through 3600000. Rates
+must be finite, positive and at most 1000000. These defaults need tuning with
+representative workload replay; no production latency guarantee is implied.
+
+The `/portfolio_results` page includes an adaptive pacing table for all pipeline
+stages. Its data/SSE endpoints include `throttle` statistics: pending count and
+oldest age, lead and target, rate, pricing/publishing times, upstream rate, stall
+status and failed-price count. Diagnostic captures are coalesced to at most ten
+per second per active actor, and settle after the final state change.
 
 ## Data Flow
 
-1.  **Ingestion**:
-    - `MarketProducer` receives a new market update -> sends to `ProcessorNew`.
-    - `TradeProducer` receives a new trade -> sends to all processors.
-2.  **Calculation**:
-    - `ProcessorNew` (or `ProcessorMiddle`) aggregates trades and current market data.
-    - It delegates pricing to `ProcessorBulk`.
-    - Once computed, the new portfolio state is passed downstream.
-3.  **Synchronization**:
-    - `ProcessorCurr` checks if the new portfolio includes all known trades.
-    - If `ProcessorCurr` is missing trades (is "behind"), it rejects the update and notifies upstream to re-calculate with the missing data.
-4.  **Publication**:
-    - Once `ProcessorCurr` accepts a new state, it publishes the results to the output Kafka topic.
-
-## Key Modules
-
-- `engine_letf.rs`: Main actor system builder.
-- `processor_*.rs`: Implementation of the specific actor logic for different stages of the pipeline.
-- `processor_msg.rs`: Defines the inter-actor messaging protocol (`ProcessorMiddleMessage`, `ProcessorBulkMessage`).
-- `market.rs` / `trade.rs`: Core domain traits and data structures.
+1. Kafka ingress admits versioned trade values with bounded per-actor credits.
+2. New prices the latest complete market; Middle and Current pace incremental
+   work using recent service times and upstream coverage.
+3. Incoming portfolios update the controller and replace eligible state, with
+   missing local contributions repriced by a worker on the accepted market.
+4. Current publishes the latest aggregate state through a bounded worker.
 
 ## Live Processor Market Map
 
@@ -95,7 +134,7 @@ users or protect it with an authenticated proxy.
 ## Live Portfolio Results
 
 Open `http://<diagnostics-host>:3000/portfolio_results` to view portfolio results
-from `processor_curr` and `processor_new`. The URL is also printed at startup and
+from `processor_curr`, `processor_new` and the middle stages. The URL is also printed at startup and
 linked from the processor market map. The display streams snapshots every 500 ms,
 with metric totals, trade counts, associated market, processor state, and result
 capture time. Filter by results topic, processor, or free text, and expand

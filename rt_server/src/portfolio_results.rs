@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
 use crate::portfolio::PmPortfolio;
+use crate::throttle::ThrottleSnapshot;
 
 pub(crate) type PortfolioSnapshots = BTreeMap<String, BTreeMap<String, PortfolioSnapshot>>;
 
@@ -19,6 +20,8 @@ pub(crate) struct PortfolioSnapshot {
     pub(crate) phase: String,
     pub(crate) updated_at_ms: i64,
     pub(crate) metrics: BTreeMap<String, PortfolioMetricSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) throttle: Option<ThrottleSnapshot>,
 }
 
 #[derive(Debug, Default)]
@@ -59,6 +62,16 @@ pub(crate) struct PortfolioReporter {
 
 impl PortfolioReporter {
     pub(crate) fn record(&self, market: Option<&str>, phase: &str, portfolio: &PmPortfolio) {
+        self.record_with_throttle(market, phase, portfolio, None);
+    }
+
+    pub(crate) fn record_with_throttle(
+        &self,
+        market: Option<&str>,
+        phase: &str,
+        portfolio: &PmPortfolio,
+        throttle: Option<ThrottleSnapshot>,
+    ) {
         let metrics = portfolio
             .iter()
             .map(|(metric, values)| {
@@ -82,6 +95,7 @@ impl PortfolioReporter {
             phase: phase.to_string(),
             updated_at_ms: chrono::Utc::now().timestamp_millis(),
             metrics,
+            throttle,
         };
         self.results
             .snapshots

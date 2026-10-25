@@ -11,11 +11,23 @@ use uuid::Uuid;
 /// attempts to connect the RDKafka consumer to Kafka
 ///  if it cant, returns the KafkaErr TODO: TO BE CHANGED.
 pub fn connect_with_retries_rd(bootstrap_servers: &str, pos_topic: &str) -> StreamConsumer {
+    connect_with_retries_rd_with_offset_store(bootstrap_servers, pos_topic, true)
+}
+
+pub(crate) fn connect_with_retries_rd_with_offset_store(
+    bootstrap_servers: &str,
+    pos_topic: &str,
+    auto_store: bool,
+) -> StreamConsumer {
     let mut current_sleep_time = 1;
 
     let mut pos_consumer_config = ClientConfig::new();
     pos_consumer_config.set("bootstrap.servers", bootstrap_servers);
     pos_consumer_config.set("group.id", Uuid::new_v4().to_string());
+    pos_consumer_config.set(
+        "enable.auto.offset.store",
+        if auto_store { "true" } else { "false" },
+    );
 
     info!(
         "Attempting to connect to {:?} on topic {:?}",

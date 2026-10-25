@@ -1,136 +1,43 @@
-//
-// Trade producer, reads from kafka and informs ProcessorCurr and
-//   ProcessorNew
-
-use chrono::NaiveDateTime;
-use circular_buffer::CircularBuffer;
-use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
-use rdkafka::consumer::StreamConsumer;
-use serde::Deserialize;
-use std::sync::Arc;
-use tracing::{debug, error, info};
-
-use crate::portfolio_sender::connect_with_retries_rd;
+//! Kafka ingress applies backpressure before enqueuing actor messages. Each
+//! delivery carries the immutable value received, not a later registry lookup.
+use crate::market::MarketTypeT;
+use crate::portfolio_sender::connect_with_retries_rd_with_offset_store;
+use crate::processor_flow::{Endpoint, Task};
+use crate::processor_msg::TradeEvent;
 use crate::ref_deref::TryFromRef2;
 use crate::trade::{BaseTrade, TradeRep};
+use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
+use rdkafka::consumer::{Consumer, StreamConsumer};
+use serde::Deserialize;
+use std::sync::Arc;
+use tokio::time::Instant;
+use tracing::{error, info};
 
-// new and current processors.
-use crate::processor_msg::ProcessorMiddleMessage;
-
-const CB_LENGTH: usize = 10;
-
-// circular buffer is composed of timestamp, and a total number of trades processed until
-//   that timestamp.
-type CB = CircularBuffer<CB_LENGTH, (NaiveDateTime, usize)>;
-
-#[allow(dead_code)]
-pub(crate) struct TradeProducer<T> {
-    position_listener: StreamConsumer,
-    processors: Vec<ActorRef<ProcessorMiddleMessage<String>>>,
+pub(crate) struct TradeProducer<T, MT> {
+    position_listener: Arc<StreamConsumer>,
+    processors: Vec<Endpoint<T, MT>>,
     trade_list: Arc<TradeRep<T>>,
-    processing_stat: Vec<CB>,
 }
-
-impl<T> TradeProducer<T> {
+impl<T, MT> TradeProducer<T, MT> {
     pub fn new(
         kafka_server: String,
-        pos_topic: String,
-        processors: Vec<ActorRef<ProcessorMiddleMessage<String>>>,
+        topic: String,
+        processors: Vec<Endpoint<T, MT>>,
         trade_list: Arc<TradeRep<T>>,
     ) -> Self {
-        info!(
-            "Constructing trade producer on {:?}. Connecting to topic.",
-            pos_topic
-        );
-        let position_listener = connect_with_retries_rd(&kafka_server, &pos_topic);
-        let nb_processors = processors.len();
-        // let p1 = processors[0].get_name();
-        let mut processing_queue = vec![];
-        for _ in 0..nb_processors {
-            processing_queue.push(CB::new());
-        }
-
         Self {
-            position_listener,
+            position_listener: Arc::new(connect_with_retries_rd_with_offset_store(
+                &kafka_server,
+                &topic,
+                false,
+            )),
             processors,
             trade_list,
-            processing_stat: processing_queue,
         }
-    }
-
-    // add a method that would compute the exponentially weighted running average for each processor in the processing_queue
-    /// Compute exponentially weighted slope of (time, value) pairs.
-    /// lambda controls decay speed (larger -> more weight on recent).
-    /// Compute exponentially weighted slope of (time, value) pairs.
-    /// lambda controls decay speed (bigger = more weight on recent).
-    fn _exp_weighted_slope(buffer: &CB, lambda: f64) -> Option<f64> {
-        if buffer.len() < 2 {
-            return None;
-        }
-
-        // Convert time to seconds relative to the most recent point
-        let (t_last, _) = buffer.back().unwrap();
-
-        let mut times: Vec<f64> = Vec::new();
-        let mut values: Vec<f64> = Vec::new();
-        let mut weights: Vec<f64> = Vec::new();
-
-        for (t, x) in buffer.iter() {
-            let dt = (*t_last - *t).num_seconds() as f64;
-            times.push(-dt); // recent = closer to zero
-            values.push(*x as f64);
-            weights.push((-lambda * dt).exp());
-        }
-
-        // weighted means
-        let w_sum: f64 = weights.iter().sum();
-        let t_mean = times
-            .iter()
-            .zip(weights.iter())
-            .map(|(t, w)| t * w)
-            .sum::<f64>()
-            / w_sum;
-        let x_mean = values
-            .iter()
-            .zip(weights.iter())
-            .map(|(x, w)| x * w)
-            .sum::<f64>()
-            / w_sum;
-
-        // weighted slope = cov_w(t, x) / var_w(t)
-        let mut num = 0.0;
-        let mut den = 0.0;
-
-        for ((t, x), w) in times.iter().zip(values.iter()).zip(weights.iter()) {
-            let dt = t - t_mean;
-            let dx = x - x_mean;
-            num += w * dt * dx;
-            den += w * dt * dt;
-        }
-
-        if den == 0.0 {
-            None
-        } else {
-            Some(num / den)
-        }
-    }
-
-    // computes the moving averages of all buffers.
-    fn _compute_all_mavg(&self) -> Vec<Option<f64>> {
-        //
-        let mut all_mavg = vec![];
-        let lambda = 0.9; // TODO: WHAT IS THIS LAMBDA
-
-        for cb in &self.processing_stat {
-            all_mavg.push(Self::_exp_weighted_slope(cb, lambda));
-        }
-
-        all_mavg
     }
 }
-
 #[async_trait]
-impl<T> Actor for TradeProducer<T>
+impl<T, MT> Actor for TradeProducer<T, MT>
 where
     T: Send
         + Sync
@@ -139,72 +46,72 @@ where
         + for<'a> Deserialize<'a>
         + TryFromRef2<crate::trade::TradeError>
         + 'static,
+    MT: MarketTypeT + Send + Sync + 'static,
 {
-    type Msg = ProcessorMiddleMessage<String>;
-    type State = ();
+    type Msg = ();
+    type State = Option<Task>;
     type Arguments = ();
-
-    async fn pre_start(
-        &self,
-        _myself: ActorRef<Self::Msg>,
-        _args: Self::Arguments,
-    ) -> Result<Self::State, ActorProcessingErr> {
-        info!("Initiating TradeProducer");
-        Ok(())
+    async fn pre_start(&self, _: ActorRef<()>, _: ()) -> Result<Self::State, ActorProcessingErr> {
+        Ok(None)
     }
-
     async fn post_start(
         &self,
-        _myself: ActorRef<Self::Msg>,
-        _state: &mut Self::State,
-    ) -> Result<Self::State, ActorProcessingErr> {
-        info!("Trade Producer waiting on messages.");
-        info!("Sending trade to processors: {:?}", self.processors);
-
-        loop {
-            let message = self.position_listener.recv().await;
-
-            let Ok(trade_msg) = message else {
-                error!("Listening to the trade topic failed. Ignoring.");
-                continue;
-            };
-
-            let Ok(trade) = T::try_from_ref(&trade_msg) else {
-                error!("Could not decode trade message. Ignoring.");
-                continue;
-            };
-
-            let trade_id = trade.id();
-            debug!("Received trade: {:?}", trade_id);
-
-            self.trade_list.upsert_sync(trade_id.clone(), trade);
-
-            for processor in &self.processors {
-                debug!(
-                    "Sending trade to processor name={:?}, id={:?}",
-                    processor.get_name(),
-                    processor.get_id()
-                );
-                if let Err(e) =
-                    processor.send_message(ProcessorMiddleMessage::NewTrade(trade_id.clone()))
-                {
-                    error!(
-                        "Could not send NewTrade message to processor {:?}: {:?}",
-                        processor.get_name(),
-                        e
-                    );
+        myself: ActorRef<()>,
+        state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        let listener = self.position_listener.clone();
+        let processors = self.processors.clone();
+        let trades = self.trade_list.clone();
+        *state = Some(Task(tokio::spawn(async move {
+            info!("Trade ingress started with bounded per-processor admission");
+            let mut version = 0u64;
+            loop {
+                let message = match listener.recv().await {
+                    Ok(message) => message,
+                    Err(reason) => {
+                        error!(%reason, "Trade receive failed");
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        continue;
+                    }
+                };
+                let trade = match T::try_from_ref(&message) {
+                    Ok(trade) => trade,
+                    Err(reason) => {
+                        error!(?reason, "Invalid trade message; skipping");
+                        let _ = listener.store_offset_from_message(&message);
+                        continue;
+                    }
+                };
+                version = version.checked_add(1).expect("Trade version overflow");
+                let id = trade.id();
+                trades.upsert_async(id.clone(), trade.clone()).await;
+                let event = Arc::new(TradeEvent {
+                    id,
+                    version,
+                    value: trade,
+                    received: Instant::now(),
+                });
+                for processor in &processors {
+                    if let Err(reason) = processor.send_trade(event.clone()).await {
+                        error!(%reason, "Trade pipeline stopped; offset not advanced");
+                        myself.stop(Some(reason));
+                        return;
+                    }
+                }
+                // Auto-commit may advance only past events admitted to every
+                // processor. This preserves the existing consumer-group policy.
+                if let Err(reason) = listener.store_offset_from_message(&message) {
+                    error!(%reason, "Could not store admitted trade offset");
                 }
             }
-
-            // TODO: HERE WE HAVE TO HANDLE ProcessingStat
-        }
+        })));
+        Ok(())
     }
-
     async fn handle(
         &self,
-        _myself: ActorRef<Self::Msg>,
-        _message: Self::Msg,
-        _state: &mut Self::State,
+        _: ActorRef<()>,
+        _: (),
+        _: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         Ok(())
     }
