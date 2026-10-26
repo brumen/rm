@@ -32,16 +32,6 @@ where
     MT: MarketTypeT + Clone + Send + Sync + fmt::Debug, // this will be fine since MT is an Arc.
     MT::MP: Clone,
 {
-    // prints the
-    pub(crate) fn market_size(&self) -> Vec<(String, usize)> {
-        let mut market_sizes = vec![];
-        self.markets.iter_sync(|market_name: &String, market: &MT| {
-            market_sizes.push((market_name.clone(), market.len()));
-            true
-        });
-        market_sizes
-    }
-
     // list the markets that are currently held - in self.markets
     pub(crate) fn list_market_names(&self) -> Vec<String> {
         let mut market_names = vec![];

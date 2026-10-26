@@ -1,6 +1,5 @@
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
     response::{sse::Event, sse::KeepAlive, Html, IntoResponse, Sse},
     routing::{get, post},
     Json, Router,
@@ -10,7 +9,6 @@ use std::io::Result;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::task::{self, JoinHandle};
 use tracing::info;
 use tracing_subscriber::{fmt::Layer, layer::Layered, reload, EnvFilter, Registry};
 
@@ -43,26 +41,6 @@ struct DiagnosticsState {
 struct PriceQuery {
     market: String,
     trade_id: String,
-}
-
-#[derive(serde::Deserialize)]
-struct LogLevelQuery {
-    /// Example: "debug"
-    level: String,
-
-    /// Optional target/module filter, e.g.: "rt_server::processor_bulk"
-    /// If omitted, applies globally.
-    target: Option<String>,
-
-    /// Optional additional directives, comma-separated.
-    /// Example: "hyper=warn,tower_http=info"
-    directives: Option<String>,
-
-    /// Optional span events (tracing-subscriber fmt layer), e.g.:
-    ///   "none"|"new"|"enter"|"exit"|"close"|"active"|"full"
-    ///
-    /// Note: this is acknowledged but not applied with the current EnvFilter reload handle.
-    span_events: Option<String>,
 }
 
 pub(crate) async fn diagnostics(
@@ -379,6 +357,7 @@ async fn state_distr_new_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::StatusCode;
     use futures::StreamExt;
 
     fn diagnostics_state() -> DiagnosticsState {

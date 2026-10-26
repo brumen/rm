@@ -18,8 +18,8 @@ fn test_letftrade() {
     assert_eq!(letf.direction(), TradeDirection::Create);
 }
 
-#[test]
-fn test_pricing() {
+#[tokio::test]
+async fn test_pricing() {
     // tests if LETF trade prices correctly.
     let letf = LETFTrade {
         trade_id: "trade_1".to_string(),
@@ -33,5 +33,6 @@ fn test_pricing() {
     l1.market
         .insert(LETFMarketTypes::Stock("AAPL".to_string()), 30.);
 
-    let letf_price = letf.price(l1); // TODO: This should be awaited. This is wrong.
+    let letf_price = letf.price(l1).await;
+    assert_eq!(letf_price, Some(42.));
 }

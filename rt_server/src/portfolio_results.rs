@@ -61,6 +61,7 @@ pub(crate) struct PortfolioReporter {
 }
 
 impl PortfolioReporter {
+    #[cfg(test)]
     pub(crate) fn record(&self, market: Option<&str>, phase: &str, portfolio: &PmPortfolio) {
         self.record_with_throttle(market, phase, portfolio, None);
     }

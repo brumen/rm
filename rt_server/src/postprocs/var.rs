@@ -13,10 +13,6 @@ use tracing::{debug, error, info, warn};
 use crate::portfolio_sender::connect_with_retries_rd;
 use crate::publish::connect_with_retries_producer_rd;
 
-const DEFAULT_MARKET_RAW_TOPIC: &str = "letf.mkt_raw";
-const DEFAULT_RETURN_WINDOW: usize = 250;
-const DEFAULT_MIN_OBSERVATIONS: usize = 20;
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct RiskResultMessage {
     #[serde(rename = "PV01", default)]
@@ -124,27 +120,6 @@ impl Aggregator for VarProcessor {
 }
 
 impl VarProcessor {
-    pub fn new(bootstrap_servers: &str, topic: &str, group_id: &str) -> anyhow::Result<Self> {
-        Self::new_with_config(bootstrap_servers, topic, group_id, 0.95)
-    }
-
-    pub fn new_with_config(
-        bootstrap_servers: &str,
-        topic: &str,
-        group_id: &str,
-        confidence: f64,
-    ) -> anyhow::Result<Self> {
-        Self::new_with_market_config(
-            bootstrap_servers,
-            topic,
-            group_id,
-            confidence,
-            DEFAULT_MARKET_RAW_TOPIC,
-            DEFAULT_RETURN_WINDOW,
-            DEFAULT_MIN_OBSERVATIONS,
-        )
-    }
-
     pub fn new_with_market_config(
         bootstrap_servers: &str,
         topic: &str,
@@ -184,14 +159,6 @@ impl VarProcessor {
             }
             Err(e) => {
                 error!("Got error: {:?}", e);
-            }
-        }
-    }
-
-    pub async fn run_with_restart(&mut self) -> anyhow::Result<()> {
-        loop {
-            if let Err(e) = self.run().await {
-                error!("VaR failed: {:?}. Restarting.", e);
             }
         }
     }

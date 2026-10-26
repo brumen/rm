@@ -4,28 +4,18 @@ use std::cmp::PartialOrd;
 use std::default::Default;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Deref, DerefMut, Mul, MulAssign, Neg};
-use std::{
-    collections::{HashMap, HashSet},
-    ops::SubAssign,
-};
+use std::{collections::HashMap, ops::SubAssign};
 
 use crate::pricer::PricingMetric;
 use crate::ref_deref_trait;
 use crate::trade::{BaseTrade, TradeDirection};
 
 pub type PortfolioInner = HashMap<String, f64>;
-type TradesLocal = HashSet<String>;
 /// PortfolioType is of form (trade_id, trade_pv)
 #[derive(Debug, PartialEq, Serialize, Clone, Default)]
 pub struct PortfolioType(pub PortfolioInner);
 
 ref_deref_trait!(PortfolioType, PortfolioInner);
-
-impl PortfolioType {
-    fn len(&self) -> usize {
-        self.keys().count()
-    }
-}
 
 // compares the two portfolios of PortfolioType
 impl PartialOrd for PortfolioType {
@@ -469,6 +459,7 @@ impl PmPortfolio {
         Self(inner_portfolio)
     }
 
+    #[cfg(test)]
     pub(crate) fn count(&self) -> HashMap<PricingMetric, usize> {
         let mut pm_displ = HashMap::new();
         for (pm, pi) in self.iter() {
@@ -480,6 +471,7 @@ impl PmPortfolio {
 
     // simple display of pm.
     // for each PV/PV01
+    #[cfg(test)]
     pub(crate) fn simple(&self) -> String {
         let mut pm_displ = String::new();
         for (pm, pi) in self.iter() {
@@ -494,6 +486,7 @@ impl PmPortfolio {
         pm_displ
     }
 
+    #[cfg(test)]
     pub(crate) fn assign(&mut self, other: PmPortfolio) {
         for (pm, comp_portf_pm) in other.iter() {
             match self.get_mut(pm) {
@@ -518,16 +511,6 @@ impl PmPortfolio {
             None => {
                 self.insert(*metric, portfolio);
             }
-        }
-    }
-
-    // returns the list of trades from one of the PM - they should
-    //    all be the same.
-    pub(crate) fn get_trades(&self) -> TradesLocal {
-        if let Some((_, pricing_results)) = self.iter().next() {
-            pricing_results.keys().cloned().collect::<TradesLocal>()
-        } else {
-            TradesLocal::new()
         }
     }
 }

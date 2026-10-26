@@ -225,8 +225,8 @@ pub struct Cash {
 impl PriceTrade<LETFMarketType> for Cash {
     async fn needs_recompute(
         &self,
-        market_old: Arc<LETFMarketType>,
-        market_new: Arc<LETFMarketType>,
+        _market_old: Arc<LETFMarketType>,
+        _market_new: Arc<LETFMarketType>,
     ) -> bool {
         false
     }

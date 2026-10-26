@@ -34,21 +34,6 @@ pub struct NavProcessor {
     latest_pvs: HashMap<String, f64>,
 }
 
-trait Aggregator {
-    // aggregates the individual results to a f64 value.
-    fn aggregate(&self, indiv_results: &Vec<RiskResultMessage>) -> f64;
-}
-
-impl Aggregator for NavProcessor {
-    fn aggregate(&self, indiv_results: &Vec<RiskResultMessage>) -> f64 {
-        indiv_results
-            .iter()
-            .flat_map(|result| result.pv.values())
-            .copied()
-            .sum()
-    }
-}
-
 impl NavProcessor {
     pub fn new(bootstrap_servers: &str, topic: &str, _group_id: &str) -> anyhow::Result<Self> {
         let consumer = connect_with_retries_rd(bootstrap_servers, topic);
@@ -69,14 +54,6 @@ impl NavProcessor {
             }
             Err(e) => {
                 error!("Got error: {:?}", e);
-            }
-        }
-    }
-
-    pub async fn run_with_restart(&mut self) -> anyhow::Result<()> {
-        loop {
-            if let Err(e) = self.run().await {
-                error!("NAV failed: {:?}. Restarting.", e);
             }
         }
     }
@@ -142,7 +119,6 @@ impl NavProcessor {
             }
 
             let total_nav: f64 = self.latest_pvs.values().copied().sum();
-            // let total_nav = self.aggregate(self.latest_pvs.values());
 
             let nav_msg = NavResultMessage {
                 id: "TOTAL_NAV".to_string(),
