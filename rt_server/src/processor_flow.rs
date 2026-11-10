@@ -113,32 +113,74 @@ impl<T, MT: Debug> Drop for Processor<T, MT> {
 }
 
 pub(crate) struct ProcessorState<T, MT> {
+    /// Admitted trade deliveries still awaiting a successful price, covering snapshot,
+    /// or explicit failure. Each delivery holds its admission permit until resolved.
     pending: VecDeque<TradeDelivery<T>>,
+    /// Latest immutable input version known for each trade ID, including unpriced
+    /// or failed trades retained for a later market refresh or retry.
     known: HashMap<String, Arc<TradeEvent<T>>>,
+    /// Latest successfully priced contribution installed for each trade ID on the
+    /// current market and metrics, calculated locally or adopted from upstream.
     priced: HashMap<String, Arc<PricedTrade<T>>>,
+    /// Highest version marked failed for each trade ID, locally or by upstream.
+    /// Releases waiting deliveries without counting those versions as priced coverage.
     failed: HashMap<String, u64>,
+    /// IDs whose installed trade versions are missing from or newer than upstream
+    /// coverage. The set's size is the local lead used for pacing.
     local_ahead: HashSet<String>,
+    /// Cumulative number of failed local pricing outcomes for diagnostics;
+    /// repeated failures of the same trade count separately.
     failures: u64,
+    /// Aggregate metric results built from the installed contributions in priced.
     portfolio: PmPortfolio,
+    /// Currently requested pricing metrics, kept sorted and without duplicates.
     metrics: Vec<PricingMetric>,
+    /// Market used for the current portfolio and new pricing jobs; None at startup.
     market: Option<Arc<MT>>,
+    /// Latest market read from New's incoming market slot, waiting for a refresh.
+    /// A newer notification replaces this request rather than building a backlog.
     requested_market: Option<Arc<MT>>,
+    /// Priority repricing work after adopting an upstream portfolio: missing local
+    /// contributions and eligible failed trades to retry on the accepted market.
     repair: VecDeque<Arc<TradeEvent<T>>>,
+    /// A full rebuild of known trades is requested, for example after metrics change.
+    /// Cleared when that rebuild starts; a new market can also trigger a rebuild.
     refresh: bool,
+    /// A bulk refresh or large repair job is in progress. Suppresses output until
+    /// that job completes so an unfinished rebuild is not forwarded or published.
     refreshing: bool,
+    /// Pricing generation, advanced when state is replaced or rebuilt. Completions
+    /// carrying an older epoch are ignored so obsolete jobs cannot overwrite state.
     epoch: u64,
+    /// The single pricing task awaiting completion; dropping it cancels the task.
     worker: Option<Task>,
+    /// The single scheduled task that sends Wake so pacing can be checked again.
     timer: Option<Task>,
+    /// Current's single background publication task awaiting PublishDone.
     publishing: Option<Task>,
+    /// Sequence assigned to the latest publication attempt; identifies its completion.
     publish_sequence: u64,
+    /// Earliest time another publication may start after a failed attempt.
     publish_retry: Instant,
+    /// Consecutive publication failures, used to increase retry delay;
+    /// reset to zero after a successful attempt.
     publish_failures: u32,
+    /// State needs forwarding or publishing. Cleared when a snapshot is sent or
+    /// publication starts; set again on further changes or publication failure.
     dirty: bool,
+    /// Highest upstream snapshot sequence observed, including rejected snapshots.
+    /// Older or duplicate sequences are ignored before evaluating their contents.
     upstream_sequence: u64,
+    /// Sequence counter assigned to portfolio snapshots sent downstream.
     output_sequence: u64,
+    /// This processor's token balance, adaptive pricing rate and upstream measurements.
     throttle: AdaptiveThrottle,
+    /// Whether the preceding scheduling check detected a stall; prevents repeating
+    /// the warning on every check while the same stall continues.
     stalled_logged: bool,
+    /// Earliest time the next diagnostic capture may run, limiting capture frequency.
     report_at: Instant,
+    /// A diagnostic capture is due once report_at allows it; coalesces intervening changes.
     report_pending: bool,
 }
 
@@ -187,6 +229,7 @@ impl<T, MT> ProcessorState<T, MT> {
         if let Some(old) = self.priced.insert(priced.event.id.clone(), priced.clone()) {
             for (metric, contribution) in old.results.iter() {
                 if let Some(total) = self.portfolio.get_mut(metric) {
+                    // TODO: Understand why is -= here???
                     *total -= contribution.clone();
                 }
             }
@@ -203,6 +246,15 @@ impl<T, MT> ProcessorState<T, MT> {
             self.local_ahead.insert(priced.event.id.clone());
         }
         self.dirty = true;
+    }
+
+    // indicator if the processor is active.
+    fn active(&self) -> bool {
+        !self.pending.is_empty()
+            || !self.repair.is_empty()
+            || self.dirty
+            || self.requested_market.is_some()
+            || self.refresh
     }
 }
 
@@ -318,10 +370,15 @@ where
     /// priced versions. Accepting a snapshot cancels obsolete pricing, adopts
     /// its market and results, and queues missing local contributions for repair.
     fn accept_snapshot(&self, state: &mut ProcessorState<T, MT>, update: PortfolioUpdate<T, MT>) {
+        // if update is behind state.upstream, dont do anything.
         if update.sequence <= state.upstream_sequence {
             return;
         }
+
+        // otherwise update the upstream_sequence
         state.upstream_sequence = update.sequence;
+
+        // TODO: if update.metrics != state metrics...
         if update.metrics != state.metrics || state.metrics.is_empty() {
             return;
         }
@@ -420,12 +477,17 @@ where
         myself: &ActorRef<ProcessorMessage<T, MT>>,
         state: &mut ProcessorState<T, MT>,
     ) {
+        // if state is in any of these conditions, dont do anything.
         if !state.dirty || state.refreshing || !state.repair.is_empty() {
             return;
         }
+        // if we dont have a market dont do anything.
         let Some(market) = state.market.clone() else {
             return;
         };
+
+        // this is relevant for New and Middle processors, that have some self.below.
+        //   current doesnt have a self.below.
         if let Some(below) = &self.below {
             if let Ok(permit) = below.snapshots.clone().try_acquire_owned() {
                 state.output_sequence += 1;
@@ -452,9 +514,16 @@ where
                 }
             }
         } else if let Some(publisher) = self.publisher.clone() {
+            // this is relevant for current processor, which has a publisher and can
+            //   publish to Kafka.
+
+            // I guess if it's publishing or if it hasnt reached publish_retry yet,
+            //   then dont do anything.
             if state.publishing.is_some() || Instant::now() < state.publish_retry {
                 return;
             }
+
+            // otherwise attempt to publish a message.
             state.publish_sequence += 1;
             let sequence = state.publish_sequence;
             let portfolio = state.portfolio.clone();
@@ -574,11 +643,7 @@ where
                 }
             }
         }
-        let active = !state.pending.is_empty()
-            || !state.repair.is_empty()
-            || state.dirty
-            || state.requested_market.is_some()
-            || state.refresh;
+        let active = state.active();
         if active {
             let delay = if state.market.is_none()
                 || state.metrics.is_empty()

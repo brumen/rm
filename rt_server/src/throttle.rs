@@ -1,5 +1,10 @@
 //! Adaptive admission policy. All times are monotonic; intentional waiting is
 //! never included in measured service time.
+//!
+//! A token represents permission to start pricing one trade. Tokens accumulate
+//! at an adjustable rate, up to the configured burst size. New uses measured
+//! local pricing capacity; Middle and Current also follow upstream progress so
+//! they do not get too far ahead for an incoming portfolio to be accepted.
 use serde::Serialize;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -18,6 +23,9 @@ pub(crate) struct ThrottleConfig {
 }
 
 impl Default for ThrottleConfig {
+    /// Supply the starting limits and timing settings used when no environment
+    /// overrides are present. Rates are trades per second; lead counts local
+    /// trade versions that the latest upstream portfolio has not covered.
     fn default() -> Self {
         Self {
             capacity: 256,
@@ -33,8 +41,14 @@ impl Default for ThrottleConfig {
 }
 
 impl ThrottleConfig {
+    /// Read optional RT_THROTTLE_* overrides, keeping defaults for unset values.
+    /// Reject invalid or out-of-range values so startup fails with the setting's
+    /// name rather than running with an unusable pacing configuration.
     pub fn from_env() -> Result<Self, String> {
         let mut c = Self::default();
+
+        /// Read a finite positive number, or use the default when it is unset.
+        /// this number is read from the environment.
         fn number(name: &str, default: f64) -> Result<f64, String> {
             match std::env::var(name) {
                 Err(std::env::VarError::NotPresent) => Ok(default),
@@ -46,6 +60,7 @@ impl ThrottleConfig {
                 Err(e) => Err(format!("{name}: {e}")),
             }
         }
+        /// Apply the same parsing rules, then require a whole number in 1..=max.
         fn integer(name: &str, default: usize, max: usize) -> Result<usize, String> {
             let n = number(name, default as f64)?;
             if n.fract() != 0.0 || n > max as f64 {
@@ -79,6 +94,11 @@ struct Ewma {
     sampled: Option<Instant>,
 }
 impl Ewma {
+    /// Smooth a measurement with an exponentially weighted moving average.
+    /// The first valid sample initializes the average. Later samples receive
+    /// more weight when more time has passed since the previous sample; the
+    /// smoothing duration controls how quickly old measurements lose influence.
+    /// Ignore negative or non-finite samples so they cannot corrupt the rate.
     fn observe(&mut self, sample: f64, now: Instant, smoothing: Duration) {
         if !sample.is_finite() || sample < 0.0 {
             return;
@@ -111,20 +131,40 @@ pub(crate) struct ThrottleSnapshot {
 
 #[derive(Debug)]
 pub(crate) struct AdaptiveThrottle {
+    /// Limits, timing settings and initial rate shared with the processor scheduler.
     pub config: ThrottleConfig,
+    /// Smoothed pricing time in seconds per trade; used to estimate local capacity.
     pricing: Ewma,
+    /// Smoothed duration of a publication attempt, in seconds; for diagnostics only.
     publishing: Ewma,
+    /// Smoothed upstream progress in trades per second, measured while work is pending.
     upstream_rate: Ewma,
+    /// Highest upstream version seen for each trade ID since initialization or reset.
+    /// Prevents repeated coverage from being mistaken for new progress.
     highwater: HashMap<String, u64>,
+    /// Trade ID to successfully priced version in the latest observed upstream portfolio.
+    /// Used to check coverage and lead; may omit versions previously seen in highwater.
     upstream: HashMap<String, u64>,
+    /// Time upstream last advanced beyond highwater; initialized to the start/reset time.
+    /// Used to measure progress rate and detect stalls.
     progress_at: Instant,
+    /// Start of the current period with pending trades or repairs; None while idle.
+    /// Excludes earlier idle time from progress-rate measurements and stall detection.
     busy_since: Option<Instant>,
+    /// Available pricing credits, capped at config.burst. One whole token lets one
+    /// trade start pricing; fractional credits accumulate until a full token is earned.
     tokens: f64,
+    /// Time tokens were last replenished; elapsed time determines credits earned.
     refilled: Instant,
+    /// Current token refill rate in trades per second, adjusted to local pricing
+    /// capacity and, when upstream pacing is enabled, upstream progress and local lead.
     rate: f64,
 }
 
 impl AdaptiveThrottle {
+    /// Start with a full burst of tokens and the configured initial rate.
+    /// Service-time and upstream-rate estimates remain unknown until observed;
+    /// stall detection starts only when the caller reports pending work.
     pub fn new(config: ThrottleConfig, now: Instant) -> Self {
         Self {
             tokens: config.burst as f64,
@@ -140,10 +180,17 @@ impl AdaptiveThrottle {
             refilled: now,
         }
     }
+    /// Keep the configuration but clear measurements, coverage and stall history.
+    /// Restore the initial rate and full burst, for example when a metric change
+    /// makes the previous workload's performance estimates irrelevant.
     pub fn reset_workload(&mut self, now: Instant) {
         let config = self.config.clone();
         *self = Self::new(config, now);
     }
+    /// Record a completed pricing job's elapsed time divided by its trade count.
+    /// The reciprocal of this smoothed time estimates local trades per second.
+    /// The caller supplies worker time only, excluding queueing and pacing waits;
+    /// an empty job contributes no sample.
     pub fn observe_pricing(&mut self, elapsed: Duration, count: usize, now: Instant) {
         if count > 0 {
             self.pricing.observe(
@@ -153,10 +200,21 @@ impl AdaptiveThrottle {
             );
         }
     }
+    /// Record a publication attempt's duration for diagnostics. This measurement
+    /// does not directly change the pricing rate; output backpressure is handled
+    /// by the processor scheduler.
     pub fn observe_publishing(&mut self, elapsed: Duration, now: Instant) {
         self.publishing
             .observe(elapsed.as_secs_f64(), now, self.config.smoothing);
     }
+    /// Remember the successfully priced trade versions in an upstream portfolio.
+    /// Each trade that advances beyond its highest previously seen version counts
+    /// as one unit of progress, even if its version number jumps several steps.
+    /// While busy, use that progress to estimate upstream trades per second.
+    ///
+    /// Duplicate or older coverage does not reset the stall clock. Keep the latest
+    /// portfolio's coverage separately from the highest versions ever seen: lead
+    /// must reflect what this portfolio covers, including missing contributions.
     pub fn observe_upstream(&mut self, coverage: HashMap<String, u64>, now: Instant) {
         let mut advanced = 0;
         for (id, version) in &coverage {
@@ -184,20 +242,32 @@ impl AdaptiveThrottle {
         }
         self.upstream = coverage;
     }
+    /// Check whether the latest upstream portfolio contains this trade version
+    /// or a newer one. Trade events use positive versions; an absent ID counts as
+    /// version zero and therefore does not cover a real event.
     pub fn covered_upstream(&self, id: &str, version: u64) -> bool {
         self.upstream.get(id).copied().unwrap_or(0) >= version
     }
     #[cfg(test)]
+    /// Count local trade versions missing from, or newer than, upstream coverage.
+    /// Updating an existing trade can increase lead without adding a new trade ID.
     pub fn lead<'a>(&self, versions: impl Iterator<Item = (&'a String, u64)>) -> usize {
         versions
             .filter(|(id, v)| self.upstream.get(*id).copied().unwrap_or(0) < *v)
             .count()
     }
+    /// Report whether pending work has waited through the upstream stall timeout
+    /// without coverage progress. Count from the later of becoming busy or the
+    /// last progress, so idle time cannot cause an immediate stall.
+    /// This measures trade coverage progress, not the age of the current market.
     pub fn stalled(&self, now: Instant) -> bool {
         self.busy_since.is_some_and(|busy| {
             now.saturating_duration_since(busy.max(self.progress_at)) >= self.config.stall_timeout
         })
     }
+    /// Tell the controller whether incremental trades or repairs are pending.
+    /// Start the busy clock on the idle-to-busy transition; repeated busy reports
+    /// keep that start time. Clear it when the queue becomes idle.
     pub fn set_busy(&mut self, busy: bool, now: Instant) {
         if !busy {
             self.busy_since = None;
@@ -205,6 +275,18 @@ impl AdaptiveThrottle {
             self.busy_since = Some(now);
         }
     }
+    /// Accumulate tokens earned since the last call, then update the earning rate.
+    /// `lead` counts local versions not covered upstream; `paced` enables following
+    /// upstream rather than using local pricing capacity alone.
+    ///
+    /// Normal pacing follows the measured upstream rate, adjusted to close the
+    /// gap between actual and target lead over the recovery duration. Ignore a
+    /// one-trade error to avoid constant small corrections. Cap the target by
+    /// local capacity and smooth rate changes over 100 ms.
+    ///
+    /// At a lead of eight, withhold tokens to preserve acceptance headroom. If
+    /// upstream stalls, relax that restriction and use a conservative rate capped
+    /// at 10% of the initial rate, allowing local work to continue.
     fn refill(&mut self, lead: usize, paced: bool, now: Instant) {
         let elapsed = now.saturating_duration_since(self.refilled).as_secs_f64();
         // Refill using the previous rate so lowering the rate cannot erase time
@@ -240,6 +322,10 @@ impl AdaptiveThrottle {
             self.tokens = 0.0;
         }
     }
+    /// Return how many of the requested trades may start now, spending one token
+    /// per trade. Limit the count by available whole tokens and, during normal
+    /// upstream pacing, the remaining room below a lead of eight.
+    /// Returns zero when work must wait; this method never sleeps or queues it.
     pub fn take(&mut self, requested: usize, lead: usize, paced: bool, now: Instant) -> usize {
         self.refill(lead, paced, now);
         let headroom = if paced && !self.stalled(now) {
@@ -251,12 +337,19 @@ impl AdaptiveThrottle {
         self.tokens -= count as f64;
         count
     }
+    /// Suggest when the actor should check for work again, without waiting here.
+    /// Estimate the time to earn the next token, bounded to 1-50 ms so control
+    /// stays responsive even when the calculated pricing rate is near zero.
     pub fn wake_delay(&self) -> Duration {
         if self.tokens >= 1.0 {
             return Duration::from_millis(1);
         }
         Duration::from_secs_f64(((1.0 - self.tokens) / self.rate.max(1.0)).clamp(0.001, 0.05))
     }
+    /// Combine controller measurements with queue and failure counts supplied by
+    /// the actor for display in diagnostics. Convert internal seconds to
+    /// milliseconds; measurements remain None until their first valid sample.
+    /// Capturing a snapshot does not spend tokens or change controller state.
     pub fn snapshot(
         &self,
         pending: usize,
