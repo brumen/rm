@@ -224,18 +224,20 @@ impl<T, MT> ProcessorState<T, MT> {
             .get(&priced.event.id)
             .is_some_and(|old| old.event.version > priced.event.version)
         {
+            // version of the priced trade > the newly signed trade. Dont do anything in this case.
             return;
         }
+        // we have a new priced trade event.
         if let Some(old) = self.priced.insert(priced.event.id.clone(), priced.clone()) {
             for (metric, contribution) in old.results.iter() {
                 if let Some(total) = self.portfolio.get_mut(metric) {
                     // TODO: Understand why is -= here???
-                    *total -= contribution.clone();
+                    *total -= contribution.clone(); // remove the old contribution
                 }
             }
         }
         for (metric, contribution) in priced.results.iter() {
-            self.portfolio.assign_metric(metric, contribution.clone());
+            self.portfolio.assign_metric(metric, contribution.clone()); // add the new contribution.
         }
         if self
             .throttle
