@@ -1,6 +1,6 @@
 //! Pricing runs outside actor handlers. Parallelism and execution time are bounded.
 use crate::market::MarketTypeT;
-use crate::portfolio::{PmPortfolio, PricingResults};
+use crate::portfolio::PmPortfolio;
 use crate::pricer::{PriceTrade, PricingMetric};
 use crate::processor_msg::TradeEvent;
 use futures::{stream, FutureExt, StreamExt};
@@ -52,21 +52,15 @@ where
             let market = market.clone();
             async move {
                 let value = event.value.clone();
-                let id = event.id.clone();
                 let calculate = async move {
                     let mut trade = value;
                     let mut result = PmPortfolio::new();
                     for metric in metrics {
-                        let value = trade.value_by_metric(&metric, market.clone()).await;
-                        // Empty PV01 is valid zero exposure under PriceTrade's API.
-                        let covered = match &value {
-                            PricingResults::PV(p) | PricingResults::PnL(p) => p.contains_key(&id),
-                            PricingResults::PV01(_) => true,
-                        };
-                        if !covered {
-                            return Err(format!("No {metric} price for {id}"));
-                        }
-                        result.insert(metric, value.aggregate());
+                        let value = trade
+                            .compute_metric(&metric, market.clone())
+                            .await
+                            .map_err(|error| format!("{metric} for {}: {error}", trade.id()))?;
+                        result.insert(metric, value);
                     }
                     Ok(result)
                 };

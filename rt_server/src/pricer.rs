@@ -11,35 +11,44 @@ use crate::market::MarketTypeT;
 use crate::portfolio::{PV01Results, PortfolioType, PricingResults};
 use crate::trade::{BaseTrade, TradeDirection, TradeRep};
 
-// which metric to compute
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Deserialize)]
-pub enum PricingMetric {
-    #[serde(rename = "PV")]
-    PV,
-    #[serde(rename = "PV01")]
-    PV01,
-    #[serde(rename = "PnL")]
-    PnL,
+/// A case-sensitive metric name. New metrics need no central enum variant.
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PricingMetric(std::borrow::Cow<'static, str>);
+
+impl PricingMetric {
+    pub const PV: Self = Self(std::borrow::Cow::Borrowed("PV"));
+    pub const PV01: Self = Self(std::borrow::Cow::Borrowed("PV01"));
+    #[allow(non_upper_case_globals)]
+    pub const PnL: Self = Self(std::borrow::Cow::Borrowed("PnL"));
+
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(std::borrow::Cow::Owned(name.into()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl fmt::Display for PricingMetric {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            PricingMetric::PV => write!(f, "PV"),
-            PricingMetric::PV01 => write!(f, "PV01"),
-            PricingMetric::PnL => write!(f, "PnL"),
-        }
+        f.write_str(self.as_str())
     }
 }
 
 impl ToBytes for PricingMetric {
     fn to_bytes(&self) -> &[u8] {
-        match self {
-            PricingMetric::PV => b"PV",
-            PricingMetric::PV01 => b"PV01",
-            PricingMetric::PnL => b"PnL",
-        }
+        self.as_str().as_bytes()
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum MetricError {
+    #[error("Unsupported metric: {0}")]
+    UnsupportedMetric(String),
+    #[error("Metric calculation failed: {0}")]
+    Calculation(String),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -56,23 +65,23 @@ pub trait Decoder {
         &self,
         result_price: reqwest::blocking::Response,
         metric: PricingMetric,
-    ) -> PricingResults {
-        match metric {
-            PricingMetric::PV => {
+    ) -> Result<PricingResults, MetricError> {
+        match metric.as_str() {
+            "PV" => {
                 let results_conv = result_price.json::<HashMap<String, f64>>();
 
                 if results_conv.is_err() {
-                    return PricingResults::PV(PortfolioType::default());
+                    return Ok(PricingResults::PV(PortfolioType::default()));
                 }
 
-                PricingResults::PV(PortfolioType(results_conv.unwrap()))
+                Ok(PricingResults::PV(PortfolioType(results_conv.unwrap())))
             }
 
-            PricingMetric::PV01 => {
+            "PV01" => {
                 let results_conv = result_price.json::<HashMap<String, HashMap<String, f64>>>();
 
                 if results_conv.is_err() {
-                    return PricingResults::PV01(PV01Results::new());
+                    return Ok(PricingResults::PV01(PV01Results::new()));
                 }
 
                 let mut pv01 = PV01Results::new();
@@ -82,10 +91,10 @@ pub trait Decoder {
                         PortfolioType::from(trade_result),
                     );
                 }
-                PricingResults::PV01(pv01)
+                Ok(PricingResults::PV01(pv01))
             }
 
-            PricingMetric::PnL => todo!(),
+            name => Err(MetricError::UnsupportedMetric(name.into())),
         }
     }
 
@@ -93,25 +102,25 @@ pub trait Decoder {
         &self,
         result_price: reqwest::Response,
         metric: PricingMetric,
-    ) -> PricingResults {
-        match metric {
-            PricingMetric::PV => {
+    ) -> Result<PricingResults, MetricError> {
+        match metric.as_str() {
+            "PV" => {
                 let results_conv = result_price.json::<HashMap<String, f64>>().await;
 
                 if results_conv.is_err() {
-                    return PricingResults::PV(PortfolioType::default());
+                    return Ok(PricingResults::PV(PortfolioType::default()));
                 }
 
-                PricingResults::PV(PortfolioType(results_conv.unwrap()))
+                Ok(PricingResults::PV(PortfolioType(results_conv.unwrap())))
             }
 
-            PricingMetric::PV01 => {
+            "PV01" => {
                 let results_conv = result_price
                     .json::<HashMap<String, HashMap<String, f64>>>()
                     .await;
 
                 if results_conv.is_err() {
-                    return PricingResults::PV01(PV01Results::new());
+                    return Ok(PricingResults::PV01(PV01Results::new()));
                 }
 
                 let mut pv01 = PV01Results::new();
@@ -121,10 +130,10 @@ pub trait Decoder {
                         PortfolioType::from(trade_result),
                     );
                 }
-                PricingResults::PV01(pv01)
+                Ok(PricingResults::PV01(pv01))
             }
 
-            PricingMetric::PnL => todo!(),
+            name => Err(MetricError::UnsupportedMetric(name.into())),
         }
     }
 }
@@ -159,35 +168,43 @@ where
     }
     async fn update_prev_pv(&mut self, _new_market_val: Option<f64>) {}
 
-    /// values the trade for a specific metric.
-    #[allow(dead_code)]
-    async fn value_by_metric(&mut self, metric: &PricingMetric, market: Arc<MT>) -> PricingResults {
-        let trade_name = self.id();
+    /// Compute an additive contribution on the captured market. Scalar metrics
+    /// use trade IDs as keys; bucketed metrics use common exposure keys.
+    /// Every requested metric must succeed before the trade is covered.
+    async fn compute_metric(
+        &mut self,
+        metric: &PricingMetric,
+        market: Arc<MT>,
+    ) -> Result<PortfolioType, MetricError> {
+        let scalar = match metric.as_str() {
+            "PV" => self.price(market).await,
+            "PnL" => self.pnl(market).await,
+            // Preserve the legacy API's empty-is-zero exposure convention.
+            "PV01" => return Ok(self.pv01(market).await.aggregate()),
+            name => return self.custom_metric(name, market).await,
+        };
+        scalar
+            .map(|value| PortfolioType::from([(self.id(), value)]))
+            .ok_or_else(|| MetricError::Calculation(format!("No {metric} price for {}", self.id())))
+    }
 
-        match metric {
-            PricingMetric::PV => {
-                let priced_trade = self.price(market).await;
-                if let Some(price_trade) = priced_trade {
-                    PricingResults::PV(PortfolioType::from([(trade_name, price_trade)]))
-                } else {
-                    PricingResults::PV(PortfolioType::default())
-                }
-            }
+    /// Override for additional Rust-defined metrics. Return an empty map only
+    /// for an explicitly valid zero, and an error for unsupported/missing data.
+    async fn custom_metric(
+        &mut self,
+        name: &str,
+        _market: Arc<MT>,
+    ) -> Result<PortfolioType, MetricError> {
+        Err(MetricError::UnsupportedMetric(name.into()))
+    }
 
-            PricingMetric::PV01 => {
-                let trade_pv01 = self.pv01(market).await;
-                PricingResults::PV01(trade_pv01)
-            }
-
-            PricingMetric::PnL => {
-                let pnl_trade = self.pnl(market).await;
-                if let Some(pnl_trade_real) = pnl_trade {
-                    PricingResults::PV(PortfolioType::from([(trade_name, pnl_trade_real)]))
-                } else {
-                    PricingResults::PV(PortfolioType::default())
-                }
-            }
-        }
+    /// Compatibility name for the generic calculation entry point.
+    async fn value_by_metric(
+        &mut self,
+        metric: &PricingMetric,
+        market: Arc<MT>,
+    ) -> Result<PortfolioType, MetricError> {
+        self.compute_metric(metric, market).await
     }
 }
 
@@ -222,6 +239,24 @@ where
     TR: PriceTrade<MT> + Send + Sync + Clone,
     MT: MarketTypeT + Send + Sync + 'static,
 {
+    async fn custom_metric(
+        &mut self,
+        name: &str,
+        market: Arc<MT>,
+    ) -> Result<PortfolioType, MetricError> {
+        let mut trades = Vec::new();
+        self.iter_async(|_, trade| {
+            trades.push(trade.clone());
+            true
+        })
+        .await;
+        let mut result = PortfolioType::default();
+        for mut trade in trades {
+            result += trade.custom_metric(name, market.clone()).await?;
+        }
+        Ok(result)
+    }
+
     async fn needs_recompute(&self, market_old: Arc<MT>, market_new: Arc<MT>) -> bool {
         let mut trades_owned = vec![];
         self.iter_async(|_, v| {

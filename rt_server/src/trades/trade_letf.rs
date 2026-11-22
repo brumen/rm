@@ -320,6 +320,18 @@ impl TryFromRef2<crate::trade::TradeError> for TradeTypes {
 
 #[async_trait]
 impl PriceTrade<LETFMarketType> for TradeTypes {
+    async fn custom_metric(
+        &mut self,
+        name: &str,
+        market: Arc<LETFMarketType>,
+    ) -> Result<PortfolioType, crate::pricer::MetricError> {
+        match self {
+            Self::LETF(trade) => trade.custom_metric(name, market).await,
+            Self::Future(trade) => trade.custom_metric(name, market).await,
+            Self::Cash(trade) => trade.custom_metric(name, market).await,
+            Self::Perp(trade) => trade.custom_metric(name, market).await,
+        }
+    }
     async fn needs_recompute(
         &self,
         market_old: Arc<LETFMarketType>,

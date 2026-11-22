@@ -307,11 +307,12 @@ pub enum PricingResults {
 
 impl PricingResults {
     #[allow(dead_code)]
-    pub fn new(metric: PricingMetric) -> Self {
-        match metric {
-            PricingMetric::PV => Self::PV(PortfolioType::default()),
-            PricingMetric::PV01 => Self::PV01(PV01Results::new()),
-            PricingMetric::PnL => Self::PnL(PortfolioType::default()),
+    pub fn new(metric: PricingMetric) -> Result<Self, crate::pricer::MetricError> {
+        match metric.as_str() {
+            "PV" => Ok(Self::PV(PortfolioType::default())),
+            "PV01" => Ok(Self::PV01(PV01Results::new())),
+            "PnL" => Ok(Self::PnL(PortfolioType::default())),
+            name => Err(crate::pricer::MetricError::UnsupportedMetric(name.into())),
         }
     }
 
@@ -463,7 +464,7 @@ impl PmPortfolio {
     pub(crate) fn count(&self) -> HashMap<PricingMetric, usize> {
         let mut pm_displ = HashMap::new();
         for (pm, pi) in self.iter() {
-            pm_displ.insert(*pm, pi.len());
+            pm_displ.insert(pm.clone(), pi.len());
         }
 
         pm_displ
@@ -497,7 +498,7 @@ impl PmPortfolio {
                     // TODO: CHECK HERE - PROBABLY COULD BE REMOVED default()
                     let mut portfolio_pm = PortfolioType::default();
                     portfolio_pm += comp_portf_pm;
-                    self.insert(*pm, portfolio_pm);
+                    self.insert(pm.clone(), portfolio_pm);
                 }
             }
         }
@@ -509,7 +510,7 @@ impl PmPortfolio {
                 *portfolio_pm += portfolio;
             }
             None => {
-                self.insert(*metric, portfolio);
+                self.insert(metric.clone(), portfolio);
             }
         }
     }
@@ -577,7 +578,7 @@ impl AddAssign<PmPortfolio> for PmPortfolio {
                 None => {
                     let mut portfolio_pm = PortfolioType::default();
                     portfolio_pm += comp_portf_pm;
-                    self.insert(*pm, portfolio_pm);
+                    self.insert(pm.clone(), portfolio_pm);
                 }
             }
         }

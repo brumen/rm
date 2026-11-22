@@ -65,6 +65,13 @@ macro_rules! extend_trade {
 
         #[async_trait]
         impl PriceTrade<LETFMarketType> for $new_struct {
+            async fn custom_metric(
+                &mut self,
+                name: &str,
+                market: Arc<LETFMarketType>,
+            ) -> Result<$crate::portfolio::PortfolioType, $crate::pricer::MetricError> {
+                self.trade.custom_metric(name, market).await
+            }
             async fn needs_recompute(
                 &self,
                 market_old: Arc<LETFMarketType>,

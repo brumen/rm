@@ -161,3 +161,51 @@ unauthenticated diagnostics server; keep it restricted to trusted users.
 - `portfolio_sender.rs`: contains two functions, the more importat is  connect_with_retries_rd, which connects to kafka stream and reads from it. 
 - `publish.rs`: contains the function connect_with_retries_producer_rd - this creates a kafka producer which can publish to a kafka topic.
  
+
+## Adding trade-defined metrics
+
+Metrics are case-sensitive string identifiers. Existing `PricingMetric::PV`,
+`PV01`, and `PnL` constants remain available; use `PricingMetric::new("Vega")`
+for an additional metric. Configure it with the existing setup payload:
+
+```json
+{"Metrics": ["PV", "PV01", "Vega"]}
+```
+
+Implement `PriceTrade::custom_metric` on each relevant trade type. For example:
+
+```rust,ignore
+async fn custom_metric(
+    &mut self,
+    name: &str,
+    market: Arc<MyMarket>,
+) -> Result<PortfolioType, MetricError> {
+    match name {
+        "MyValue" => {
+            let value = self.calculate_my_value(market).await?;
+            Ok(PortfolioType::from([(self.id(), value)]))
+        }
+        _ => Err(MetricError::UnsupportedMetric(name.into())),
+    }
+}
+```
+
+`compute_metric` adapts the existing `price`, `pv01`, and `pnl` methods for
+built-ins, and dispatches other names to this hook. `TradeTypes`, `TradeRep`, and
+`extend_trade!` forward custom calculations. No scheduler changes are needed.
+The default hook returns `UnsupportedMetric`; every requested metric must succeed
+before a trade version is covered. Use an explicit empty map for valid zero
+exposure and `MetricError::Calculation` for missing data or failed calculations.
+Legacy PV01 retains its empty-is-zero convention.
+
+Return an additive map: scalar results use the trade ID as the key, while
+bucketed results use shared exposure keys. A metric must use consistent units and
+key meanings across trades. Replacement subtracts the old map before adding the
+new one. This interface supports additive contributions, not portfolio-level
+nonlinear calculations. Kafka keys and flat numeric result payloads are unchanged.
+
+Rust API migration: `PricingMetric` is now cloneable rather than `Copy` and is no
+longer an enum; dispatch on `as_str()` instead of matching enum variants.
+`value_by_metric` now aliases `compute_metric` and returns
+`Result<PortfolioType, MetricError>`. The legacy `PricingResults::new` and decoder
+helpers also return `Result`, explicitly rejecting unknown metric names.

@@ -889,6 +889,21 @@ mod tests {
     }
     #[async_trait]
     impl PriceTrade<LETFMarketType> for TestTrade {
+        async fn custom_metric(
+            &mut self,
+            name: &str,
+            _: Arc<LETFMarketType>,
+        ) -> Result<crate::portfolio::PortfolioType, crate::pricer::MetricError> {
+            use crate::portfolio::PortfolioType;
+            use crate::pricer::MetricError;
+            match name {
+                "Scalar" => Ok(PortfolioType::from([(self.id.clone(), self.value)])),
+                "Buckets" => Ok(PortfolioType::from([("shared".into(), self.value)])),
+                "Zero" => Ok(PortfolioType::default()),
+                "Broken" => Err(MetricError::Calculation("missing data".into())),
+                _ => Err(MetricError::UnsupportedMetric(name.into())),
+            }
+        }
         async fn initial_pv(&self) -> Option<f64> {
             Some(0.0)
         }
@@ -1580,19 +1595,152 @@ mod tests {
         wait(|| calls.load(Ordering::SeqCst) == 1).await;
         current
             .actor
-            .send_message(ProcessorMessage::Metric(vec![PricingMetric::PV01]))
+            .send_message(ProcessorMessage::Metric(vec![PricingMetric::new(
+                "Buckets",
+            )]))
             .unwrap();
         wait(|| {
             results
                 .snapshot()
                 .get("test")
                 .and_then(|p| p.get("current"))
-                .is_some_and(|p| p.metrics.contains_key("PV01"))
+                .is_some_and(|p| p.metrics.contains_key("Buckets"))
         })
         .await;
         let snapshot = results.snapshot();
         assert!(!snapshot["test"]["current"].metrics.contains_key("PV"));
         assert_eq!(current.admission.available_permits(), 8);
         stop(current, task).await;
+    }
+    #[tokio::test]
+    async fn generic_metrics_worker_requires_all_metrics_and_preserves_zero() {
+        let market = market("market", Some(2.0)).await;
+        for style in [
+            PricingStyle::Sequential,
+            PricingStyle::ParallelSingleThread,
+            PricingStyle::Parallel,
+        ] {
+            let metrics = vec![
+                PricingMetric::PV,
+                PricingMetric::PV01,
+                PricingMetric::PnL,
+                PricingMetric::new("Scalar"),
+                PricingMetric::new("Buckets"),
+                PricingMetric::new("Zero"),
+            ];
+            let mut outcomes = price_batch(
+                vec![event("a", 1, 3.0)],
+                metrics.clone(),
+                market.clone(),
+                style.clone(),
+            )
+            .await;
+            let result = outcomes.pop().unwrap().1.unwrap();
+            assert_eq!(result.len(), metrics.len());
+            assert_eq!(result[&PricingMetric::PV]["a"], 6.0);
+            assert_eq!(result[&PricingMetric::PnL]["a"], 6.0);
+            assert!(result[&PricingMetric::PV01].is_empty());
+            assert_eq!(result[&PricingMetric::new("Scalar")]["a"], 3.0);
+            assert_eq!(result[&PricingMetric::new("Buckets")]["shared"], 3.0);
+            assert!(result[&PricingMetric::new("Zero")].is_empty());
+            for name in ["Typo", "Broken"] {
+                let outcomes = price_batch(
+                    vec![event("a", 1, 3.0)],
+                    vec![PricingMetric::PV, PricingMetric::new(name)],
+                    market.clone(),
+                    style.clone(),
+                )
+                .await;
+                assert!(outcomes[0].1.is_err());
+            }
+        }
+        let outcomes = price_batch(
+            vec![event("a", 1, 3.0)],
+            vec![PricingMetric::PV],
+            self::market("missing", None).await,
+            PricingStyle::Sequential,
+        )
+        .await;
+        assert!(outcomes[0].1.is_err());
+    }
+
+    #[tokio::test]
+    async fn custom_metrics_flow_through_snapshots_and_replace_shared_buckets() {
+        let results = Arc::new(PortfolioResults::default());
+        let (publisher, mut output, _) = publisher(None);
+        let (current, current_task) = spawn(
+            "current",
+            Role::Current,
+            None,
+            Some(publisher),
+            results.clone(),
+            config(),
+        )
+        .await;
+        let (new, new_task) = spawn(
+            "new",
+            Role::New,
+            Some(current.clone()),
+            None,
+            results,
+            config(),
+        )
+        .await;
+        for endpoint in [&new, &current] {
+            endpoint
+                .actor
+                .send_message(ProcessorMessage::Metric(vec![
+                    PricingMetric::new("Scalar"),
+                    PricingMetric::new("Buckets"),
+                ]))
+                .unwrap();
+        }
+        new.market(market("market", Some(1.0)).await).unwrap();
+        for event in [event("a", 1, 2.0), event("b", 2, 3.0), event("a", 3, 7.0)] {
+            for endpoint in [&new, &current] {
+                endpoint.send_trade(event.clone()).await.unwrap();
+            }
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let portfolio = output.recv().await.unwrap();
+                if portfolio
+                    .get(&PricingMetric::new("Buckets"))
+                    .is_some_and(|values| values.get("shared") == Some(&10.0))
+                {
+                    assert_eq!(portfolio[&PricingMetric::new("Scalar")]["a"], 7.0);
+                    assert_eq!(portfolio[&PricingMetric::new("Scalar")]["b"], 3.0);
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        stop(new, new_task).await;
+        stop(current, current_task).await;
+    }
+
+    #[test]
+    fn custom_metric_configuration_and_wire_names_are_plain_strings() {
+        use rdkafka::message::ToBytes;
+        let request: crate::processor_setup_actor::SetupRequest =
+            serde_json::from_str(r#"{"Metrics":["PV","PV01","PnL","Vega"]}"#).unwrap();
+        let crate::processor_setup_actor::SetupRequest::Metrics(metrics) = request;
+        assert_eq!(
+            metrics,
+            vec![
+                PricingMetric::PV,
+                PricingMetric::PV01,
+                PricingMetric::PnL,
+                PricingMetric::new("Vega")
+            ]
+        );
+        for metric in metrics {
+            assert_eq!(metric.to_bytes(), metric.as_str().as_bytes());
+            assert_eq!(
+                serde_json::to_string(&metric).unwrap(),
+                format!("\"{}\"", metric)
+            );
+        }
     }
 }
